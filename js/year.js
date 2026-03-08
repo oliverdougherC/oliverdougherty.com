@@ -5,13 +5,19 @@
 const COLOR_MODE_STORAGE_KEY = 'od-color-mode';
 const COLOR_MODE_DARK = 'dark';
 const COLOR_MODE_LIGHT = 'light';
+const COLOR_MODE_DISABLED = (() => {
+  const attr = document.documentElement.getAttribute('data-disable-color-mode');
+  return attr != null && attr !== 'false';
+})();
 
 applyColorMode(getInitialColorMode());
 
 document.addEventListener('DOMContentLoaded', () => {
   setCurrentYear();
-  initColorModeToggle();
-  window.addEventListener('storage', handleColorModeStorageSync);
+  if (!COLOR_MODE_DISABLED) {
+    initColorModeToggle();
+    window.addEventListener('storage', handleColorModeStorageSync);
+  }
 });
 
 function setCurrentYear() {
@@ -22,6 +28,10 @@ function setCurrentYear() {
 }
 
 function getInitialColorMode() {
+  if (COLOR_MODE_DISABLED) {
+    return COLOR_MODE_LIGHT;
+  }
+
   const storedColorMode = readStoredColorMode();
   if (storedColorMode) return storedColorMode;
   return COLOR_MODE_DARK;
@@ -49,6 +59,12 @@ function persistColorMode(mode) {
 }
 
 function applyColorMode(mode) {
+  if (COLOR_MODE_DISABLED) {
+    document.documentElement.setAttribute('data-color-mode', COLOR_MODE_LIGHT);
+    document.documentElement.style.colorScheme = COLOR_MODE_LIGHT;
+    return;
+  }
+
   const normalizedMode = mode === COLOR_MODE_LIGHT ? COLOR_MODE_LIGHT : COLOR_MODE_DARK;
   document.documentElement.setAttribute('data-color-mode', normalizedMode);
   document.documentElement.style.colorScheme = normalizedMode;
@@ -60,6 +76,7 @@ function getAppliedColorMode() {
 }
 
 function handleColorModeStorageSync(event) {
+  if (COLOR_MODE_DISABLED) return;
   if (event.key !== COLOR_MODE_STORAGE_KEY) return;
 
   const nextMode = event.newValue === COLOR_MODE_LIGHT ? COLOR_MODE_LIGHT : COLOR_MODE_DARK;
@@ -67,52 +84,71 @@ function handleColorModeStorageSync(event) {
   syncColorModeToggleLabels(nextMode);
 }
 
-function initColorModeToggle() {
-  const mount = findColorModeToggleMount();
-  if (!mount) return;
-  if (document.querySelector('.theme-toggle')) return;
-
+function buildThemeToggleButton() {
   const toggleButton = document.createElement('button');
   toggleButton.type = 'button';
   toggleButton.className = 'theme-toggle';
+  toggleButton.setAttribute('data-theme-toggle', '');
   toggleButton.setAttribute('data-cursor', 'hover');
-  toggleButton.innerHTML =
-    '<span class="theme-toggle-icon" aria-hidden="true"></span><span class="theme-toggle-text"></span>';
+  toggleButton.innerHTML = '<span class="theme-toggle-icon" aria-hidden="true"></span>';
+  return toggleButton;
+}
 
-  toggleButton.addEventListener('click', () => {
+function bindThemeToggleButton(button) {
+  if (button.dataset.themeToggleBound === 'true') {
+    return;
+  }
+
+  button.dataset.themeToggleBound = 'true';
+  button.type = 'button';
+  button.classList.add('theme-toggle');
+  if (!button.querySelector('.theme-toggle-icon')) {
+    button.innerHTML = '<span class="theme-toggle-icon" aria-hidden="true"></span>';
+  }
+  if (!button.hasAttribute('data-cursor')) {
+    button.setAttribute('data-cursor', 'hover');
+  }
+
+  button.addEventListener('click', () => {
     const currentMode = getAppliedColorMode();
     const nextMode = currentMode === COLOR_MODE_LIGHT ? COLOR_MODE_DARK : COLOR_MODE_LIGHT;
     applyColorMode(nextMode);
     persistColorMode(nextMode);
     syncColorModeToggleLabels(nextMode);
   });
+}
 
-  if (mount.type === 'shared-nav') {
-    const navToggleButton = mount.element.querySelector('#navToggle, .nav-toggle');
-    if (navToggleButton) {
-      let navControls = mount.element.querySelector('.nav-controls');
-      if (!navControls) {
-        navControls = document.createElement('div');
-        navControls.className = 'nav-controls';
-        mount.element.insertBefore(navControls, navToggleButton);
-        navControls.appendChild(navToggleButton);
+function initColorModeToggle() {
+  if (COLOR_MODE_DISABLED) return;
+  let toggleButtons = Array.from(document.querySelectorAll('[data-theme-toggle], .theme-toggle'));
+
+  if (!toggleButtons.length) {
+    const mount = findColorModeToggleMount();
+    if (!mount) return;
+
+    const toggleButton = buildThemeToggleButton();
+    if (mount.type === 'shared-nav') {
+      const navToggleButton = mount.element.querySelector('#navToggle, .nav-toggle');
+      if (navToggleButton) {
+        mount.element.insertBefore(toggleButton, navToggleButton);
+      } else {
+        mount.element.appendChild(toggleButton);
       }
-
-      navControls.insertBefore(toggleButton, navToggleButton);
     } else {
       mount.element.appendChild(toggleButton);
     }
-  } else {
-    mount.element.appendChild(toggleButton);
+
+    toggleButtons = [toggleButton];
   }
 
+  toggleButtons.forEach(bindThemeToggleButton);
   syncColorModeToggleLabels(getAppliedColorMode());
 }
 
 function findColorModeToggleMount() {
-  const sharedNav = document.querySelector('.nav-inner');
-  if (sharedNav) {
-    return { type: 'shared-nav', element: sharedNav };
+  const sharedNavControls = document.querySelector('.nav-controls');
+  if (sharedNavControls) {
+    return { type: 'shared-nav', element: sharedNavControls };
   }
 
   const abstractNavLinks = document.querySelector('.abstract-nav .nav-links');
@@ -129,7 +165,7 @@ function findColorModeToggleMount() {
 }
 
 function syncColorModeToggleLabels(mode) {
-  const toggleButtons = document.querySelectorAll('.theme-toggle');
+  const toggleButtons = document.querySelectorAll('[data-theme-toggle], .theme-toggle');
   const nextMode = mode === COLOR_MODE_LIGHT ? COLOR_MODE_DARK : COLOR_MODE_LIGHT;
 
   toggleButtons.forEach((button) => {

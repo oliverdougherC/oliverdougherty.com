@@ -1,19 +1,18 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="gallery">
+<html lang="en" data-theme="gallery" data-disable-color-mode="true">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Gallery - Oliver Dougherty</title>
-  <meta name="description" content="A cinematic, scroll-driven 3D gallery.">
+  <meta name="description" content="Layered photo overview and index inspired by unveil.fr.">
   <link rel="icon" type="image/svg+xml" href="../../favicon.svg">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="../../css/design-system.css">
   <link rel="stylesheet" href="../../css/gallery.css">
-  <link rel="stylesheet" href="../../css/cursor.css">
 
   <script type="importmap">
     {
@@ -25,72 +24,75 @@
     }
   </script>
 </head>
-<body>
-  <div class="noise-overlay"></div>
-
-  <nav class="nav" id="nav">
-    <div class="nav-inner container">
-      <a href="../../index.html" class="nav-logo" data-cursor="hover">
-        <span class="logo-text">O<span class="logo-d">D</span></span>
-      </a>
-
-      <div class="nav-overlay" id="navOverlay">
-        <div class="nav-overlay-bg"></div>
-        <div class="nav-links container" id="navLinks">
-          <div class="nav-menu-header">Menu</div>
-          <a href="../../index.html" class="nav-link nav-link--home" data-cursor="hover">Home</a>
-          <a href="../resume/index.html" class="nav-link nav-link--resume" data-cursor="hover">Resume</a>
-          <a href="../gallery/index.html" class="nav-link nav-link--gallery active" aria-current="page" data-cursor="hover">Gallery</a>
-          <a href="../archive/index.html" class="nav-link nav-link--archive" data-cursor="hover">Archive</a>
-          <a href="../dashboard/index.html" class="nav-link nav-link--dashboard" data-cursor="hover">Services</a>
-
-          <div class="nav-menu-footer">
-            <a href="mailto:oliverfdougherty@gmail.com" class="footer-link" data-cursor="hover">Contact</a>
-            <a href="https://github.com/oliverdougherC" class="footer-link" target="_blank" rel="noopener noreferrer" data-cursor="hover">Github</a>
-          </div>
-        </div>
-      </div>
-
-      <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false" data-cursor="hover">
-        <span></span>
-        <span></span>
-      </button>
-    </div>
-  </nav>
-
-  <main class="gallery-shell" id="galleryShell">
+<body class="gallery-page">
+  <main class="gallery-shell" id="galleryShell" data-mode="overview" data-gallery-shell="unveil">
     <canvas id="galleryWebglCanvas" class="gallery-canvas" aria-hidden="true"></canvas>
 
-    <div class="gallery-ui gallery-ui--top">
-      <div class="gallery-actions" aria-label="Gallery controls">
-        <button type="button" id="galleryInfoToggle" class="gallery-btn" aria-expanded="false" aria-controls="galleryDetail">Info</button>
-        <button type="button" id="galleryIndexToggle" class="gallery-btn" aria-expanded="false" aria-controls="galleryIndex">Index</button>
-      </div>
-    </div>
+    <header class="gallery-tab-rail" id="galleryTabRail" aria-label="Primary navigation">
+      <a href="../../index.html" class="gallery-tab gallery-tab--active">Oliver &reg;</a>
+      <a href="../archive/index.html" class="gallery-tab">Research</a>
+      <a href="../resume/index.html" class="gallery-tab">Studio</a>
+      <a href="mailto:oliverfdougherty@gmail.com" class="gallery-tab">Contact</a>
+    </header>
 
-    <div class="gallery-ui gallery-ui--bottom">
+    <section class="gallery-hud" aria-label="Gallery navigation">
       <div class="gallery-counter" id="galleryCounter" role="status" aria-live="polite">01 / 01</div>
       <div class="gallery-caption" id="galleryCaption">Loading sequence...</div>
-    </div>
 
-    <aside id="galleryIndex" class="gallery-index" aria-label="Gallery index" data-lenis-prevent hidden>
-      <div class="gallery-index-head">Sequence</div>
+      <div class="gallery-mode-switch" id="galleryModeSwitch" role="tablist" aria-label="Gallery mode">
+        <button
+          type="button"
+          id="galleryModeOverview"
+          class="gallery-mode-btn is-active"
+          data-mode="overview"
+          role="tab"
+          aria-selected="true"
+          aria-controls="galleryShell"
+        >
+          Overview
+        </button>
+        <button
+          type="button"
+          id="galleryModeIndex"
+          class="gallery-mode-btn"
+          data-mode="index"
+          role="tab"
+          aria-selected="false"
+          aria-controls="galleryIndexPanel"
+        >
+          Index
+        </button>
+      </div>
+    </section>
+
+    <section
+      class="gallery-index-panel"
+      id="galleryIndexPanel"
+      aria-label="Photo index"
+      data-lenis-prevent
+      hidden
+    >
+      <header class="gallery-index-head" aria-hidden="true">
+        <span>Year</span>
+        <span>Photo</span>
+        <span>Category</span>
+      </header>
       <ol id="galleryIndexList" class="gallery-index-list"></ol>
-    </aside>
-
-    <aside id="galleryDetail" class="gallery-detail" aria-label="Image details" data-lenis-prevent hidden>
-      <h2 id="galleryDetailTitle">Untitled</h2>
-      <dl id="galleryDetailMeta" class="gallery-meta"></dl>
-    </aside>
+    </section>
 
     <div class="sr-only" id="gallerySrDesc" aria-live="polite" role="status"></div>
-    <img id="galleryFallbackImg" class="gallery-fallback-img" src="" alt="" hidden>
-
     <div class="gallery-scroll-track" id="galleryScrollTrack" aria-hidden="true"></div>
   </main>
 
+  <footer class="footer gallery-footer">
+    <div class="container">
+      <div class="footer-inner">
+        <p class="footer-text">&copy; <span data-current-year>2026</span> Oliver Dougherty</p>
+      </div>
+    </div>
+  </footer>
+
   <script src="../../js/year.js" defer></script>
-  <script src="../../js/main.js" defer></script>
   <script type="module" src="../../js/gallery.js"></script>
 </body>
 </html>

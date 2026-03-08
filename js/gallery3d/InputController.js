@@ -1,26 +1,24 @@
 import { clamp, lerp } from './utils.js';
 
-const TRACK_VH_DESKTOP = 186;
-const TRACK_VH_MOBILE = 168;
-const TRACK_VH_REDUCED = 142;
+const TRACK_VH_DESKTOP = 210;
+const TRACK_VH_MOBILE = 182;
 
-const WHEEL_IMPULSE_DESKTOP = 0.00357 / 100;
-const WHEEL_IMPULSE_MOBILE = 0.00459 / 100;
-const TOUCH_IMPULSE_DESKTOP = 0.00357 / 100;
-const TOUCH_IMPULSE_MOBILE = 0.00459 / 100;
+const WHEEL_IMPULSE_DESKTOP = 0.0039 / 100;
+const WHEEL_IMPULSE_MOBILE = 0.0042 / 100;
+const TOUCH_IMPULSE_DESKTOP = 0.0039 / 100;
+const TOUCH_IMPULSE_MOBILE = 0.0042 / 100;
 
-const VELOCITY_FRICTION = 0.86;
-const MAX_VELOCITY = 0.042;
+const VELOCITY_FRICTION = 0.88;
+const MAX_VELOCITY = 0.048;
 const SNAP_VELOCITY_THRESHOLD = 0.0018;
-const SNAP_IDLE_DELAY_MS = 220;
-const PROGRESS_EMIT_EPSILON = 0.00002;
+const SNAP_IDLE_DELAY_MS = 240;
 
-const SPRING_STIFFNESS = 0.2;
-const SPRING_DAMPING = 0.62;
+const SPRING_STIFFNESS = 0.19;
+const SPRING_DAMPING = 0.64;
 
 function isPanelTarget(target) {
   return target instanceof HTMLElement
-    && Boolean(target.closest('[data-lenis-prevent], .gallery-index, .gallery-detail'));
+    && Boolean(target.closest('[data-lenis-prevent], .gallery-index-panel'));
 }
 
 function normalizeWheelDelta(event) {
@@ -36,7 +34,6 @@ function normalizeWheelDelta(event) {
 
 export class InputController {
   constructor({
-    lenis,
     shell,
     scrollTrack,
     totalItems,
@@ -46,17 +43,19 @@ export class InputController {
     onPointerLeave,
     onClick
   }) {
-    this.lenis = lenis;
     this.shell = shell;
     this.canvas = this.shell?.querySelector('canvas') || null;
     this.scrollTrack = scrollTrack;
     this.totalItems = totalItems;
     this.reducedMotion = reducedMotion;
-    this.isMobile = window.matchMedia('(max-width: 980px), (pointer: coarse)').matches;
+
     this.onProgress = onProgress;
     this.onPointerMove = onPointerMove;
     this.onPointerLeave = onPointerLeave;
     this.onClick = onClick;
+
+    this.isMobile = window.matchMedia('(max-width: 980px), (pointer: coarse)').matches;
+    this.enabled = true;
 
     this.maxIndex = Math.max(this.totalItems - 1, 0);
     this.progressItems = 0;
@@ -65,7 +64,6 @@ export class InputController {
     this.springActive = false;
     this.lastImpulseAt = 0;
     this.lastMotionAt = performance.now();
-    this.lastEmittedProgress = -1;
     this.lastVelocityForJerk = 0;
     this.scrollJerk = 0;
     this.pointerActive = false;
@@ -98,25 +96,43 @@ export class InputController {
     this.shell?.addEventListener('click', this.handleClick);
   }
 
+  setEnabled(enabled) {
+    this.enabled = Boolean(enabled);
+    if (!this.enabled) {
+      this.springActive = false;
+      this.velocityItems = 0;
+      this.touchLastY = null;
+      this.handlePointerLeave();
+    }
+  }
+
+  setCurrentIndex(index) {
+    const bounded = clamp(index, 0, this.maxIndex);
+    this.progressItems = bounded;
+    this.targetItems = bounded;
+    this.velocityItems = 0;
+    this.springActive = false;
+  }
+
   handleWheel(event) {
-    if (isPanelTarget(event.target)) {
+    if (!this.enabled || isPanelTarget(event.target)) {
       return;
     }
-
     this.applyImpulse(normalizeWheelDelta(event), true);
   }
 
   handleTouchStart(event) {
-    if (isPanelTarget(event.target)) {
+    if (!this.enabled || isPanelTarget(event.target)) {
       this.touchLastY = null;
       return;
     }
+
     const touch = event.touches?.[0];
     this.touchLastY = touch ? touch.clientY : null;
   }
 
   handleTouchMove(event) {
-    if (isPanelTarget(event.target)) {
+    if (!this.enabled || isPanelTarget(event.target)) {
       this.touchLastY = null;
       return;
     }
@@ -131,6 +147,7 @@ export class InputController {
     const deltaY = this.touchLastY - touch.clientY;
     this.touchLastY = touch.clientY;
     if (Math.abs(deltaY) < 0.2) return;
+
     this.applyImpulse(deltaY, true, true);
   }
 
@@ -155,9 +172,11 @@ export class InputController {
   }
 
   handlePointerMove(event) {
+    if (!this.enabled) return;
     if (!this.canvas || event.currentTarget !== this.canvas) return;
+
     this.pointerActive = true;
-    this.onPointerMove({
+    this.onPointerMove?.({
       clientX: event.clientX,
       clientY: event.clientY
     });
@@ -166,7 +185,7 @@ export class InputController {
   handlePointerLeave() {
     if (!this.pointerActive) return;
     this.pointerActive = false;
-    this.onPointerLeave();
+    this.onPointerLeave?.();
   }
 
   handleWindowBlur() {
@@ -175,8 +194,9 @@ export class InputController {
   }
 
   handleClick(event) {
-    if (!this.onClick) return;
+    if (!this.enabled || !this.onClick) return;
     if (!this.canvas || event.target !== this.canvas) return;
+
     this.onClick({
       clientX: event.clientX,
       clientY: event.clientY
@@ -189,17 +209,25 @@ export class InputController {
   }
 
   updateTrackHeight() {
+    if (!this.scrollTrack) return;
+
     const minimumSlides = Math.max(this.totalItems, 1);
-    const vh = this.reducedMotion
-      ? TRACK_VH_REDUCED
-      : (this.isMobile ? TRACK_VH_MOBILE : TRACK_VH_DESKTOP);
+    const vh = this.isMobile ? TRACK_VH_MOBILE : TRACK_VH_DESKTOP;
     this.scrollTrack.style.height = `${minimumSlides * vh}vh`;
   }
 
   update(dtMs, now = performance.now()) {
+    if (!this.enabled) {
+      this.onProgress?.(this.maxIndex > 0 ? this.progressItems / this.maxIndex : 0, {
+        isUserDriven: false,
+        inertialVelocity: 0,
+        scrollJerk: 0,
+        springActive: false
+      });
+      return;
+    }
+
     const dtScale = clamp((Number(dtMs) || 16.67) / 16.67, 0.5, 3);
-    const prevProgress = this.progressItems;
-    const prevVelocity = this.velocityItems;
 
     if (this.springActive) {
       const delta = this.targetItems - this.progressItems;
@@ -210,6 +238,7 @@ export class InputController {
     }
 
     this.velocityItems = clamp(this.velocityItems, -MAX_VELOCITY, MAX_VELOCITY);
+
     if (Math.abs(this.velocityItems) >= SNAP_VELOCITY_THRESHOLD) {
       this.lastMotionAt = now;
     } else if (!this.springActive && (now - this.lastMotionAt) >= SNAP_IDLE_DELAY_MS) {
@@ -218,6 +247,7 @@ export class InputController {
     }
 
     this.progressItems += this.velocityItems * dtScale;
+
     if (this.progressItems < 0) {
       this.progressItems = 0;
       this.velocityItems = 0;
@@ -240,13 +270,7 @@ export class InputController {
     this.lastVelocityForJerk = this.velocityItems;
 
     const progress01 = this.maxIndex > 0 ? (this.progressItems / this.maxIndex) : 0;
-    const changed = Math.abs(this.progressItems - prevProgress) > PROGRESS_EMIT_EPSILON
-      || Math.abs(this.velocityItems - prevVelocity) > 1e-5
-      || this.springActive;
-    if (changed || this.lastEmittedProgress < 0) {
-      this.lastEmittedProgress = this.progressItems;
-    }
-    this.onProgress(progress01, {
+    this.onProgress?.(progress01, {
       isUserDriven: (now - this.lastImpulseAt) <= 280,
       inertialVelocity: this.velocityItems,
       scrollJerk: this.scrollJerk,
@@ -257,16 +281,13 @@ export class InputController {
   scrollToIndex(index) {
     const bounded = clamp(index, 0, this.maxIndex);
     if (this.reducedMotion) {
-      this.progressItems = bounded;
-      this.targetItems = bounded;
-      this.velocityItems = 0;
-      this.springActive = false;
+      this.setCurrentIndex(bounded);
       return;
     }
 
     this.targetItems = bounded;
     this.springActive = true;
-    this.velocityItems = lerp(this.velocityItems, 0, 0.45);
+    this.velocityItems = lerp(this.velocityItems, 0, 0.42);
   }
 
   dispose() {

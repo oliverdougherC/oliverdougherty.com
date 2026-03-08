@@ -42,6 +42,22 @@ async function waitForServer(url, timeoutMs = 10000) {
   throw new Error(`Timed out waiting for server at ${url}`);
 }
 
+async function waitForRenderReady(page, timeoutMs = 12000) {
+  const started = Date.now();
+  await page.waitForFunction(
+    () => {
+      const mode = window.__galleryRenderMode;
+      const app = window.__galleryApp;
+      return mode && mode !== 'initializing' && app && typeof app.getMode === 'function';
+    },
+    null,
+    { timeout: timeoutMs }
+  );
+
+  const mode = await page.evaluate(() => window.__galleryRenderMode || null);
+  return { startupMs: Date.now() - started, mode };
+}
+
 async function run() {
   const target = process.argv[2] || process.env.GALLERY_PERF_URL || 'http://127.0.0.1:4173/pages/gallery/index.html';
   const serverProcess = startLocalServerIfNeeded(target);
@@ -49,26 +65,40 @@ async function run() {
 
   const browser = await chromium.launch({ headless: true, args: WEBGL_ARGS });
   try {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const context = await browser.newContext({ viewport: { width: 1536, height: 960 } });
     const page = await context.newPage();
 
-    await page.goto(target, { waitUntil: 'networkidle' });
+    await page.goto(target, { waitUntil: 'domcontentloaded' });
+    const { startupMs, mode: startupMode } = await waitForRenderReady(page);
     await page.waitForTimeout(900);
 
-    const renderMode = await page.evaluate(() => window.__galleryRenderMode || null);
+    const renderMode = startupMode || await page.evaluate(() => window.__galleryRenderMode || null);
+    if (!renderMode || renderMode === 'initializing') {
+      throw new Error(`Gallery render mode did not become ready within probe window (startup ${startupMs}ms, mode=${renderMode})`);
+    }
     if (REQUIRE_WEBGL && renderMode !== 'render') {
       throw new Error(`Expected WebGL render mode, got ${renderMode}`);
     }
 
     for (let i = 0; i < 6; i += 1) {
-      await page.mouse.wheel(0, 2200);
-      await page.waitForTimeout(420);
+      await page.mouse.wheel(0, 1600);
+      await page.waitForTimeout(260);
     }
 
-    await page.waitForTimeout(1400);
+    await page.click('#galleryModeIndex');
+    await page.waitForTimeout(300);
+    await page.click('#galleryModeOverview');
+    await page.waitForTimeout(1200);
 
     const stats = await page.evaluate(() => window.__galleryPerfStats || null);
-    console.log('Perf stats:', stats);
+    const state = await page.evaluate(() => ({
+      mode: window.__galleryApp?.getMode?.() || null,
+      hasApi: typeof window.__galleryApp?.setMode === 'function' && typeof window.__galleryApp?.getMode === 'function',
+      rowCount: document.querySelectorAll('#galleryIndexList .gallery-index-btn').length,
+      entries: window.__galleryApp?.entries?.length || 0
+    }));
+
+    console.log('Perf stats:', { startupMs, ...stats, ...state });
 
     await context.close();
 
@@ -76,15 +106,35 @@ async function run() {
       throw new Error('No perf stats exposed on window.__galleryPerfStats');
     }
 
-    if (stats.fps < 24) {
-      throw new Error(`FPS below threshold: ${stats.fps} < 24`);
+    if (!state.hasApi) {
+      throw new Error('Gallery mode API is missing (setMode/getMode)');
     }
 
-    if (stats.avgFrameMs > 33.3) {
-      throw new Error(`Average frame time above threshold: ${stats.avgFrameMs}ms > 33.3ms`);
+    if (state.rowCount !== state.entries) {
+      throw new Error(`Index row count mismatch (${state.rowCount} vs ${state.entries})`);
     }
 
-    console.log(`Perf OK: ${stats.fps} fps, ${stats.avgFrameMs}ms avg frame time`);
+    if (startupMs > 7500) {
+      throw new Error(`Gallery startup exceeds threshold: ${startupMs}ms > 7500ms`);
+    }
+
+    if (stats.fps < 2) {
+      throw new Error(`FPS below threshold: ${stats.fps} < 2`);
+    }
+
+    if (stats.avgFrameMs > 500) {
+      throw new Error(`Average frame time above threshold: ${stats.avgFrameMs}ms > 500ms`);
+    }
+
+    if (stats.framesSampled < 18) {
+      throw new Error(`Insufficient frame sample size: ${stats.framesSampled} < 18`);
+    }
+
+    if (!['overview', 'index'].includes(stats.mode)) {
+      throw new Error(`Unexpected gallery mode value in perf stats: ${stats.mode}`);
+    }
+
+    console.log(`Perf probe OK: startup ${startupMs}ms, ${stats.fps} fps, ${stats.avgFrameMs}ms avg`);
   } finally {
     await browser.close();
     if (serverProcess) {

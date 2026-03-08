@@ -1,36 +1,37 @@
-import Lenis from 'lenis';
 import { DEFAULT_QUALITY, WebGL } from './WebGL.js';
 import { SceneController } from './SceneController.js';
 import { InputController } from './InputController.js';
 import { UIController } from './UIController.js';
 import { clamp, toNumber } from './utils.js';
 
-function fallbackScene(index) {
-  const waveX = [
-    -180, -96, 34, 146, -120, 44, 188, -208,
-    82, -26, 154, -174, 64, -102, 124, -56
-  ];
-  const waveY = [
-    -76, -24, 22, 76, -58, 12, 54, -68,
-    -8, 58, -38, 14, 68, -44, 26, -16
-  ];
-
+function fallbackOverview(index) {
   return {
-    z: -280 - index * 20,
-    scale: 0.9 + (index % 4) * 0.08,
-    x: waveX[index % waveX.length],
-    y: waveY[index % waveY.length],
-    rotX: (index % 2 === 0 ? -1 : 1) * (2 + (index % 3)),
-    rotY: (index % 2 === 0 ? 1 : -1) * (3 + (index % 5)),
-    rotZ: (index % 3 - 1) * 0.8,
-    opacity: 0.92
+    x: -120 + index * 72,
+    y: 88 - index * 38,
+    z: -40 - index * 110,
+    rotX: (index % 3 - 1) * 0.6,
+    rotY: -22 + index * 2.3,
+    rotZ: (index % 4 - 1.5) * 0.5,
+    scale: 1 - (index % 5) * 0.018,
+    alpha: clamp(0.94 - index * 0.01, 0.56, 0.94)
   };
 }
 
+function fallbackYear(entry, index) {
+  const direct = String(entry?.meta?.date || '').match(/(19|20)\d{2}/);
+  if (direct) return direct[0];
+  return String(2025 - Math.min(index, 2));
+}
+
 function normalizeEntry(entry, index) {
-  const scene = {
-    ...fallbackScene(index),
-    ...(entry.scene || {})
+  const overview = {
+    ...fallbackOverview(index),
+    ...(entry.overview || {})
+  };
+
+  const normalizedIndex = {
+    year: String(entry.index?.year || fallbackYear(entry, index)),
+    category: String(entry.index?.category || 'Photo').toUpperCase()
   };
 
   return {
@@ -41,24 +42,25 @@ function normalizeEntry(entry, index) {
     colorGrade: {
       temperature: toNumber(entry.colorGrade?.temperature, 0),
       tint: toNumber(entry.colorGrade?.tint, 0),
-      exposure: clamp(toNumber(entry.colorGrade?.exposure, 1), 0.98, 1.02)
+      exposure: clamp(toNumber(entry.colorGrade?.exposure, 1), 0.96, 1.04)
     },
-    scene: {
-      z: toNumber(scene.z, -300),
-      scale: toNumber(scene.scale, 1),
-      x: toNumber(scene.x, 0),
-      y: toNumber(scene.y, 0),
-      rotX: toNumber(scene.rotX, 0),
-      rotY: toNumber(scene.rotY, 0),
-      rotZ: toNumber(scene.rotZ, 0),
-      opacity: clamp(toNumber(scene.opacity, 0.95), 0.1, 1)
+    overview: {
+      x: toNumber(overview.x, 0),
+      y: toNumber(overview.y, 0),
+      z: toNumber(overview.z, 0),
+      rotX: toNumber(overview.rotX, 0),
+      rotY: toNumber(overview.rotY, 0),
+      rotZ: toNumber(overview.rotZ, 0),
+      scale: clamp(toNumber(overview.scale, 1), 0.52, 1.4),
+      alpha: clamp(toNumber(overview.alpha, 0.95), 0.1, 1)
     },
+    index: normalizedIndex,
     aspect: toNumber(entry.aspect, 1.5)
   };
 }
 
 async function loadSequenceFromJson(path) {
-  const response = await fetch(path, { cache: 'no-cache' });
+  const response = await fetch(path);
   if (!response.ok) {
     throw new Error(`Failed to load ${path}`);
   }
@@ -101,8 +103,12 @@ function mapPhotoToEntry(photo, index) {
         photo.exif?.iso ? `ISO ${photo.exif.iso}` : null
       ].filter(Boolean).join(' \u2022 ') || 'No notes'
     },
+    overview: fallbackOverview(index),
+    index: {
+      year: fallbackYear({ meta: { date: photo.exif?.date } }, index),
+      category: 'PHOTO'
+    },
     aspect: width / Math.max(height, 1),
-    scene: fallbackScene(index),
     colorGrade: {
       temperature: 0,
       tint: 0,
@@ -115,20 +121,53 @@ async function loadSequenceWithFallback() {
   try {
     return await loadSequenceFromJson('../../photos/gallery-sequence.json');
   } catch (_error) {
-    const response = await fetch('../../photos/photos.json', { cache: 'no-cache' });
+    const response = await fetch('../../photos/photos.json');
     if (!response.ok) {
       throw new Error('Failed to load both gallery-sequence.json and photos.json');
     }
 
     const data = await response.json();
-    const source = Array.isArray(data.photos) ? data.photos.slice(0, 16) : [];
+    const source = Array.isArray(data.photos) ? data.photos.slice(0, 18) : [];
     return source.map((photo, index) => mapPhotoToEntry(photo, index));
   }
 }
 
-const QUALITY_UPGRADE_THRESHOLD_MS = 14;
-const QUALITY_UPGRADE_HOLD_MS = 5000;
-const QUALITY_CHANGE_COOLDOWN_MS = 4500;
+function getConnection() {
+  return navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
+}
+
+function isConstrainedDevice() {
+  const hardwareThreads = Number(navigator.hardwareConcurrency) || 0;
+  const deviceMemory = Number(navigator.deviceMemory) || 0;
+  return (
+    (hardwareThreads > 0 && hardwareThreads <= 4) ||
+    (deviceMemory > 0 && deviceMemory <= 4)
+  );
+}
+
+function isConstrainedNetwork() {
+  const connection = getConnection();
+  if (!connection) return false;
+
+  if (connection.saveData) return true;
+  const effectiveType = String(connection.effectiveType || '').toLowerCase();
+  return effectiveType.includes('2g') || effectiveType === '3g';
+}
+
+function pickInitialQuality({ isMobile }) {
+  if (isMobile) {
+    return {
+      qualityName: 'mobile',
+      qualityOrder: ['mobile']
+    };
+  }
+
+  const constrained = isConstrainedDevice() || isConstrainedNetwork();
+  return {
+    qualityName: constrained ? 'medium' : 'high',
+    qualityOrder: ['ultra', 'high', 'medium']
+  };
+}
 
 export class App {
   constructor({
@@ -144,33 +183,23 @@ export class App {
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.isMobile = window.matchMedia('(max-width: 980px), (pointer: coarse)').matches;
 
-    this.qualityOrder = this.isMobile
-      ? ['mobile']
-      : ['ultra', 'high', 'medium', 'mobile'];
-
-    this.qualityName = this.isMobile ? 'mobile' : 'ultra';
+    const initialQuality = pickInitialQuality({ isMobile: this.isMobile });
+    this.qualityOrder = initialQuality.qualityOrder;
+    this.qualityName = initialQuality.qualityName;
     this.qualityProfile = DEFAULT_QUALITY[this.qualityName];
+
+    this.mode = 'overview';
     this.renderMode = 'initializing';
 
     this.frameWindow = [];
     this.lastPerfCheck = 0;
-    this.lastQualityChangeTime = 0;
-    this.upgradeCandidateSince = 0;
-    this.pendingFocusIndex = -1;
-    this.lastDepthState = { focused: null, uiDepth: null };
-    this.panelInteractionUntil = 0;
-    this.panelGuardCleanup = [];
 
     this.raf = this.raf.bind(this);
     this.handleResize = this.handleResize.bind(this);
     this.handleCanvasClick = this.handleCanvasClick.bind(this);
-    this.handleFocusExit = this.handleFocusExit.bind(this);
-    this.handleFocusToggle = this.handleFocusToggle.bind(this);
-    this.markPanelInteraction = this.markPanelInteraction.bind(this);
 
     if (this.shell) {
-      this.shell.dataset.focusState = 'idle';
-      this.shell.dataset.uiDepth = 'front';
+      this.shell.dataset.mode = this.mode;
     }
 
     this.setRenderMode('initializing');
@@ -201,38 +230,34 @@ export class App {
     }
 
     try {
-      await this.initRenderPipeline();
+      this.initRenderPipeline();
     } catch (error) {
       this.activateFallback('3D renderer unavailable. Compatibility mode is active.', error);
       return;
     }
 
     this.setRenderMode('render');
+
     this.inputController = new InputController({
-      lenis: this.lenis,
       shell: this.shell,
       scrollTrack: this.scrollTrack,
       totalItems: this.entries.length,
       reducedMotion: this.reducedMotion,
       onProgress: (progress, meta = {}) => {
-        if (this.sceneController?.isFocused()) {
-          if (performance.now() <= this.panelInteractionUntil || !meta.isUserDriven) {
-            return;
-          }
-          this.handleFocusExit();
-        }
-        this.sceneController.setTargetProgress(progress);
-        this.sceneController.setInputTelemetry?.({
+        if (this.mode !== 'overview') return;
+
+        this.sceneController?.setTargetProgress(progress);
+        this.sceneController?.setInputTelemetry?.({
           inertialVelocity: meta.inertialVelocity || 0,
           scrollJerk: meta.scrollJerk || 0
         });
       },
       onPointerMove: ({ clientX, clientY }) => {
-        this.webgl.setPointer(clientX, clientY);
+        this.webgl?.setPointer(clientX, clientY);
       },
       onPointerLeave: () => {
-        this.webgl.clearPointer();
-        this.sceneController.clearHover();
+        this.webgl?.clearPointer();
+        this.sceneController?.clearHover?.();
       },
       onClick: ({ clientX, clientY }) => {
         this.handleCanvasClick(clientX, clientY);
@@ -240,7 +265,7 @@ export class App {
     });
 
     this.shell.dataset.quality = this.qualityName;
-    this.syncDepthState();
+    this.setMode('overview', { initial: true });
 
     window.addEventListener('resize', this.handleResize, { passive: true });
     requestAnimationFrame(this.raf);
@@ -252,35 +277,24 @@ export class App {
     this.uiController?.dispose();
     this.uiController = new UIController({
       entries: this.entries,
-      onSelectIndex: (index) => {
-        this.handleSelectIndex(index);
+      onSelectIndex: (index, meta = {}) => {
+        this.handleSelectIndex(index, meta);
+      },
+      onModeChange: (mode) => {
+        this.setMode(mode);
       }
     });
-    this.uiController._onFocusExit = this.handleFocusExit;
-    this.uiController._onFocusToggle = this.handleFocusToggle;
+
     this.uiController.setActive(0, this.entries[0]);
-    this.uiController.setDepthState({ focused: false });
-    this.bindPanelInteractionGuards();
+    this.uiController.setMode(this.mode);
   }
 
-  async initRenderPipeline() {
+  initRenderPipeline() {
     this.webgl = new WebGL({
       canvas: this.canvas,
-      perspective: 800,
+      perspective: 900,
       qualityName: this.qualityName,
       qualityMap: DEFAULT_QUALITY
-    });
-
-    this.lenis = new Lenis({
-      autoRaf: false,
-      smoothWheel: true,
-      lerp: this.reducedMotion ? 0.35 : 0.1,
-      wheelMultiplier: this.reducedMotion ? 0.9 : 0.55,
-      touchMultiplier: this.reducedMotion ? 1 : 0.88,
-      prevent: (node) => {
-        if (!(node instanceof HTMLElement)) return false;
-        return Boolean(node.closest('[data-lenis-prevent], .gallery-index, .gallery-detail'));
-      }
     });
 
     this.sceneController = new SceneController({
@@ -292,72 +306,80 @@ export class App {
       reducedMotion: this.reducedMotion,
       onActiveIndexChange: (index, entry) => {
         this.uiController?.setActive(index, entry);
-        if (this.pendingFocusIndex === index) {
-          this.pendingFocusIndex = -1;
-          this.sceneController.enterFocus(index);
-          this.uiController?.setFocusMode(true);
-        }
       }
     });
 
     this.sceneController.init(this.webgl.getMaxAnisotropy());
   }
 
-  syncDepthState() {
-    const focused = Boolean(this.sceneController?.getDepthState?.().focused);
-    const uiDepth = focused ? 'pushed' : 'front';
-    if (this.lastDepthState.focused === focused && this.lastDepthState.uiDepth === uiDepth) {
-      return;
-    }
+  setMode(nextMode, { initial = false } = {}) {
+    const mode = nextMode === 'index' ? 'index' : 'overview';
+    if (!initial && mode === this.mode) return;
 
-    this.lastDepthState = { focused, uiDepth };
+    this.mode = mode;
+
     if (this.shell) {
-      this.shell.dataset.focusState = focused ? 'active' : 'idle';
-      this.shell.dataset.uiDepth = uiDepth;
+      this.shell.dataset.mode = mode;
     }
-    this.uiController?.setDepthState({ focused });
-  }
 
-  markPanelInteraction() {
-    this.panelInteractionUntil = performance.now() + 220;
-  }
+    this.sceneController?.setMode(mode);
+    this.uiController?.setMode(mode);
 
-  clearPanelInteractionGuards() {
-    for (const cleanup of this.panelGuardCleanup) {
-      cleanup();
+    if (this.inputController) {
+      this.inputController.setEnabled(mode === 'overview');
+      if (mode === 'overview') {
+        const anchor = this.sceneController?.activeIndex ?? this.uiController?.activeIndex ?? 0;
+        this.inputController.setCurrentIndex(anchor);
+      }
     }
-    this.panelGuardCleanup.length = 0;
+
+    window.__galleryMode = mode;
   }
 
-  bindPanelInteractionGuards() {
-    this.clearPanelInteractionGuards();
-    const panels = [
-      document.getElementById('galleryIndex'),
-      document.getElementById('galleryDetail')
-    ];
-    const keyGuard = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
+  getMode() {
+    return this.mode;
+  }
 
-    for (const panel of panels) {
-      if (!panel) continue;
+  setRenderMode(mode) {
+    this.renderMode = mode;
+    if (this.shell) {
+      this.shell.dataset.renderMode = mode;
+    }
+    window.__galleryRenderMode = mode;
+  }
 
-      const handleWheel = () => this.markPanelInteraction();
-      const handleTouch = () => this.markPanelInteraction();
-      const handlePointer = () => this.markPanelInteraction();
-      const handleKey = (event) => {
-        if (keyGuard.has(event.key)) {
-          this.markPanelInteraction();
-        }
-      };
+  handleSelectIndex(index, meta = {}) {
+    if (!this.entries?.length) return;
 
-      panel.addEventListener('wheel', handleWheel, { passive: true });
-      panel.addEventListener('touchmove', handleTouch, { passive: true });
-      panel.addEventListener('pointerdown', handlePointer, { passive: true });
-      panel.addEventListener('keydown', handleKey);
+    const bounded = Math.min(Math.max(index, 0), this.entries.length - 1);
+    const entry = this.entries[bounded];
 
-      this.panelGuardCleanup.push(() => panel.removeEventListener('wheel', handleWheel));
-      this.panelGuardCleanup.push(() => panel.removeEventListener('touchmove', handleTouch));
-      this.panelGuardCleanup.push(() => panel.removeEventListener('pointerdown', handlePointer));
-      this.panelGuardCleanup.push(() => panel.removeEventListener('keydown', handleKey));
+    if (this.inputController) {
+      this.inputController.scrollToIndex(bounded);
+    } else {
+      this.sceneController?.jumpToIndex(bounded);
+    }
+
+    this.uiController?.setActive(bounded, entry);
+
+    if (meta.fromIndex || this.mode === 'index') {
+      this.setMode('overview');
+    }
+  }
+
+  handleCanvasClick(clientX, clientY) {
+    if (this.mode !== 'overview' || !this.webgl || !this.sceneController || !this.inputController) return;
+
+    this.webgl.setPointer(clientX, clientY);
+    const hit = this.webgl.raycast(this.sceneController.getRaycastTargets());
+    if (!hit?.item) return;
+
+    const hitIndex = this.sceneController.getItemIndexForItem(hit.item);
+    if (hitIndex < 0) return;
+
+    if (hitIndex !== this.sceneController.activeIndex) {
+      this.inputController.scrollToIndex(hitIndex);
+      this.uiController?.setActive(hitIndex, this.entries[hitIndex]);
     }
   }
 
@@ -369,113 +391,16 @@ export class App {
     this.disposeRenderPipeline();
     this.setRenderMode('fallback');
 
-    if (this.shell) {
-      this.shell.dataset.focusState = 'idle';
-      this.shell.dataset.uiDepth = 'front';
-    }
-    this.lastDepthState = { focused: false, uiDepth: 'front' };
-
-    if (this.uiController) {
-      this.uiController.setRenderMode('fallback');
-      this.uiController.setCaptionPrefix('Compatibility mode \u00b7 ');
-      this.uiController.setDepthState({ focused: false });
-      const activeIndex = this.uiController.activeIndex || 0;
-      this.uiController.setActive(activeIndex, this.entries?.[activeIndex]);
-    } else {
-      const caption = document.getElementById('galleryCaption');
-      if (caption) {
-        caption.textContent = message;
-      }
-    }
-  }
-
-  setRenderMode(mode) {
-    this.renderMode = mode;
-    if (this.shell) {
-      this.shell.dataset.renderMode = mode;
-    }
-    window.__galleryRenderMode = mode;
-  }
-
-  handleSelectIndex(index) {
-    if (!this.entries?.length) return;
-
-    const boundedIndex = Math.min(Math.max(index, 0), this.entries.length - 1);
-    const entry = this.entries[boundedIndex];
-
-    this.pendingFocusIndex = -1;
-    if (this.sceneController?.isFocused()) {
-      this.handleFocusExit();
+    if (this.canvas) {
+      this.canvas.style.opacity = '0';
     }
 
-    if (this.inputController) {
-      this.inputController.scrollToIndex(boundedIndex);
-      this.uiController?.setActive(boundedIndex, entry);
-      return;
+    const caption = document.getElementById('galleryCaption');
+    if (caption) {
+      caption.textContent = message;
     }
 
-    if (this.sceneController) {
-      this.sceneController.jumpToIndex(boundedIndex);
-    }
-
-    this.uiController?.setActive(boundedIndex, entry);
-  }
-
-  handleCanvasClick(clientX, clientY) {
-    if (!this.webgl || !this.sceneController || !this.inputController) return;
-
-    if (this.sceneController.isFocused()) {
-      this.webgl.setPointer(clientX, clientY);
-      const focusedHit = this.webgl.raycast(this.sceneController.getRaycastTargets());
-      const hitIndex = focusedHit?.item ? this.sceneController.getItemIndexForItem(focusedHit.item) : -1;
-      const focusedIndex = this.sceneController.focusIndex >= 0
-        ? this.sceneController.focusIndex
-        : this.sceneController.activeIndex;
-
-      if (hitIndex === focusedIndex) {
-        return;
-      }
-      this.handleFocusExit();
-      return;
-    }
-
-    this.webgl.setPointer(clientX, clientY);
-    const hit = this.webgl.raycast(this.sceneController.getRaycastTargets());
-    if (!hit?.item) return;
-
-    const hitIndex = this.sceneController.getItemIndexForItem(hit.item);
-    if (hitIndex < 0) return;
-
-    if (hitIndex === this.sceneController.activeIndex) {
-      this.pendingFocusIndex = -1;
-      this.sceneController.enterFocus(hitIndex);
-      this.uiController?.setFocusMode(true);
-      this.syncDepthState();
-      return;
-    }
-
-    this.pendingFocusIndex = hitIndex;
-    this.inputController.scrollToIndex(hitIndex);
-    this.uiController?.setActive(hitIndex, this.entries[hitIndex]);
-  }
-
-  handleFocusExit() {
-    this.pendingFocusIndex = -1;
-    this.sceneController?.exitFocus();
-    this.uiController?.setFocusMode(false);
-    this.syncDepthState();
-  }
-
-  handleFocusToggle() {
-    if (!this.sceneController) return;
-    if (this.sceneController.isFocused()) {
-      this.handleFocusExit();
-      return;
-    }
-    this.pendingFocusIndex = -1;
-    this.sceneController.enterFocus(this.sceneController.activeIndex);
-    this.uiController?.setFocusMode(true);
-    this.syncDepthState();
+    this.uiController?.setMode('index');
   }
 
   disposeRenderPipeline() {
@@ -485,67 +410,10 @@ export class App {
     this.sceneController?.dispose();
     this.sceneController = null;
 
-    if (this.lenis) {
-      this.lenis.destroy();
-      this.lenis = null;
-    }
-
     this.webgl?.dispose();
     this.webgl = null;
 
     window.removeEventListener('resize', this.handleResize);
-  }
-
-  applyQualityTier(next, now) {
-    this.qualityName = next;
-    this.qualityProfile = DEFAULT_QUALITY[next];
-
-    this.webgl.setQualityProfile(next);
-    this.sceneController.setQualityProfile(this.qualityProfile);
-
-    this.shell.dataset.quality = next;
-    if (next === 'mobile') {
-      this.shell.classList.add('quality-mobile');
-    } else {
-      this.shell.classList.remove('quality-mobile');
-    }
-
-    this.lastQualityChangeTime = now;
-    this.upgradeCandidateSince = 0;
-  }
-
-  maybeDowngradeQuality(now, avgFrameMs) {
-    if (!this.webgl || !this.sceneController) return;
-    if (this.reducedMotion) return;
-    if (now - this.lastQualityChangeTime < QUALITY_CHANGE_COOLDOWN_MS) return;
-    if (avgFrameMs < 23.5) return;
-
-    const index = this.qualityOrder.indexOf(this.qualityName);
-    if (index < 0 || index >= this.qualityOrder.length - 1) return;
-
-    this.applyQualityTier(this.qualityOrder[index + 1], now);
-  }
-
-  maybeUpgradeQuality(now, avgFrameMs) {
-    if (!this.webgl || !this.sceneController) return;
-    if (this.reducedMotion) return;
-    if (now - this.lastQualityChangeTime < QUALITY_CHANGE_COOLDOWN_MS) return;
-    if (avgFrameMs >= QUALITY_UPGRADE_THRESHOLD_MS) {
-      this.upgradeCandidateSince = 0;
-      return;
-    }
-
-    const index = this.qualityOrder.indexOf(this.qualityName);
-    if (index <= 0) return;
-
-    if (!this.upgradeCandidateSince) {
-      this.upgradeCandidateSince = now;
-      return;
-    }
-
-    if (now - this.upgradeCandidateSince >= QUALITY_UPGRADE_HOLD_MS) {
-      this.applyQualityTier(this.qualityOrder[index - 1], now);
-    }
   }
 
   updatePerfStats(dtMs, now) {
@@ -559,11 +427,8 @@ export class App {
     }
 
     this.lastPerfCheck = now;
-    const sum = this.frameWindow.reduce((acc, v) => acc + v, 0);
+    const sum = this.frameWindow.reduce((acc, value) => acc + value, 0);
     const avg = sum / Math.max(this.frameWindow.length, 1);
-
-    this.maybeDowngradeQuality(now, avg);
-    this.maybeUpgradeQuality(now, avg);
 
     window.__galleryPerfStats = {
       quality: this.qualityName,
@@ -571,47 +436,66 @@ export class App {
       fps: Number((1000 / Math.max(avg, 1)).toFixed(1)),
       framesSampled: this.frameWindow.length,
       activeIndex: this.sceneController?.activeIndex ?? this.uiController?.activeIndex ?? 0,
-      renderMode: this.renderMode
+      renderMode: this.renderMode,
+      mode: this.mode
     };
   }
 
   raf(time) {
-    if (this.isDestroyed || !this.lenis || !this.sceneController || !this.webgl) return;
+    if (this.isDestroyed || !this.sceneController || !this.webgl) return;
 
     const dtMs = this.prevTime ? time - this.prevTime : 16.67;
     this.prevTime = time;
 
-    this.lenis.raf(time);
     this.inputController?.update(dtMs, time);
     this.sceneController.update(time * 0.001, dtMs);
-    this.syncDepthState();
 
     if (!this.webgl.contextLost) {
-      const hit = this.webgl.raycast(this.sceneController.getRaycastTargets());
+      const shouldRaycast = this.mode === 'overview' && this.webgl.isPointerActive() && !this.isMobile;
+      const hit = shouldRaycast
+        ? this.webgl.raycast(this.sceneController.getRaycastTargets())
+        : null;
+
       this.sceneController.applyHoverHit(hit);
+
       if (this.canvas) {
-        const nextCursor = this.sceneController.isFocused() || hit?.item ? 'pointer' : 'default';
+        const nextCursor = this.mode === 'overview' && hit?.item ? 'pointer' : 'default';
         if (this.canvas.style.cursor !== nextCursor) {
           this.canvas.style.cursor = nextCursor;
         }
       }
+
       this.webgl.render();
     }
 
     this.updatePerfStats(dtMs, time);
-
     requestAnimationFrame(this.raf);
   }
 
   handleResize() {
     const mobile = window.matchMedia('(max-width: 980px), (pointer: coarse)').matches;
+
     this.webgl?.handleResize();
 
     if (this.sceneController) {
       if (mobile !== this.isMobile) {
         this.isMobile = mobile;
         this.sceneController.refreshLayoutMode(this.isMobile);
+
+        const nextInitialQuality = pickInitialQuality({ isMobile: this.isMobile });
+        this.qualityOrder = nextInitialQuality.qualityOrder;
+
+        if (this.qualityName !== nextInitialQuality.qualityName) {
+          this.qualityName = nextInitialQuality.qualityName;
+          this.qualityProfile = DEFAULT_QUALITY[this.qualityName];
+          this.webgl.setQualityProfile(this.qualityName);
+          this.sceneController.setQualityProfile(this.qualityProfile);
+          if (this.shell) {
+            this.shell.dataset.quality = this.qualityName;
+          }
+        }
       }
+
       this.sceneController.handleViewportResize();
     }
 
@@ -621,7 +505,6 @@ export class App {
   dispose() {
     this.isDestroyed = true;
     this.disposeRenderPipeline();
-    this.clearPanelInteractionGuards();
     this.uiController?.dispose();
   }
 }

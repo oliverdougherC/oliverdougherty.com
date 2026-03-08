@@ -46,13 +46,25 @@ function validatePages() {
     const html = fs.readFileSync(pagePath, 'utf8');
     assert(html.includes('<title>'), `Missing <title> tag in ${page}`);
     assert(html.includes('data-current-year'), `Missing dynamic year placeholder in ${page}`);
+
+    if (page !== 'pages/gallery/index.html') {
+      assert(html.includes('id="navToggle"'), `Missing shared nav toggle in ${page}`);
+      assert(html.includes('data-theme-toggle'), `Missing theme toggle mount in ${page}`);
+    }
   }
 
   const galleryHtml = fs.readFileSync(path.join(ROOT, 'pages/gallery/index.html'), 'utf8');
-  assert(galleryHtml.includes('id="lightboxSourceAvif"'), 'Gallery lightbox AVIF source missing');
-  assert(galleryHtml.includes('id="lightboxSourceWebp"'), 'Gallery lightbox WebP source missing');
-  assert(galleryHtml.includes('id="gallerySearch"'), 'Gallery search input missing');
-  assert(galleryHtml.includes('id="photoCount"'), 'Gallery photo count missing');
+  assert(galleryHtml.includes('id="galleryWebglCanvas"'), 'Gallery WebGL canvas missing');
+  assert(galleryHtml.includes('id="galleryTabRail"'), 'Gallery tab rail missing');
+  assert(galleryHtml.includes('id="galleryModeSwitch"'), 'Gallery mode switch missing');
+  assert(galleryHtml.includes('id="galleryModeOverview"'), 'Gallery overview mode button missing');
+  assert(galleryHtml.includes('id="galleryModeIndex"'), 'Gallery index mode button missing');
+  assert(galleryHtml.includes('id="galleryIndexPanel"'), 'Gallery index panel missing');
+  assert(galleryHtml.includes('id="galleryIndexList"'), 'Gallery index list missing');
+  assert(galleryHtml.includes('id="galleryCounter"'), 'Gallery counter missing');
+  assert(galleryHtml.includes('id="galleryCaption"'), 'Gallery caption missing');
+  assert(galleryHtml.includes('id="galleryScrollTrack"'), 'Gallery scroll track missing');
+  assert(galleryHtml.includes('data-disable-color-mode="true"'), 'Gallery should disable shared color mode toggle');
 
   const dashboardHtml = fs.readFileSync(path.join(ROOT, 'pages/dashboard/index.html'), 'utf8');
   assert(dashboardHtml.includes('id="servicesRefreshBtn"'), 'Services refresh button missing');

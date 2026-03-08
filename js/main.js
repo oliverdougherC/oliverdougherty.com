@@ -32,10 +32,12 @@ function initNavigation() {
   const nav = document.getElementById('nav');
   const navToggle = document.getElementById('navToggle');
   const navOverlay = document.getElementById('navOverlay');
+  const navOverlayBg = navOverlay?.querySelector('.nav-overlay-bg');
 
   if (navToggle && navOverlay) {
     const openingDurationMs = prefersReducedMotion() ? 0 : 280;
     let openingTimer = null;
+    const isMenuOpen = () => navOverlay.classList.contains('active');
 
     const clearOpeningState = () => {
       if (openingTimer !== null) {
@@ -60,38 +62,70 @@ function initNavigation() {
       }, openingDurationMs);
     };
 
-    const closeMobileNav = () => {
-      clearOpeningState();
-      navToggle.classList.remove('active');
-      navOverlay.classList.remove('active');
-      navToggle.setAttribute('aria-expanded', 'false');
-      document.body.style.overflow = '';
-    };
+    const setNavState = (nextOpen, { opening = false } = {}) => {
+      const isOpen = Boolean(nextOpen);
+      navToggle.classList.toggle('active', isOpen);
+      navOverlay.classList.toggle('active', isOpen);
+      navToggle.setAttribute('aria-expanded', String(isOpen));
+      document.body.classList.toggle('nav-open', isOpen);
 
-    navToggle.addEventListener('click', () => {
-      const isActive = navOverlay.classList.toggle('active');
-      navToggle.classList.toggle('active');
-      navToggle.setAttribute('aria-expanded', String(isActive));
-      document.body.style.overflow = isActive ? 'hidden' : '';
-
-      if (isActive) {
+      if (isOpen && opening) {
         startOpeningState();
       } else {
         clearOpeningState();
       }
+    };
+
+    const closeMobileNav = () => {
+      setNavState(false);
+    };
+
+    navToggle.addEventListener('click', () => {
+      const shouldOpen = !isMenuOpen();
+      setNavState(shouldOpen, { opening: shouldOpen });
     });
 
     // Close menu when clicking a link inside the overlay
-    navOverlay.querySelectorAll('.nav-link').forEach(link => {
+    navOverlay.querySelectorAll('.nav-link, .footer-link').forEach(link => {
       link.addEventListener('click', closeMobileNav);
+    });
+
+    // Explicitly close when clicking the overlay background.
+    navOverlayBg?.addEventListener('click', closeMobileNav);
+
+    // Close when users click any non-interactive part of the open overlay.
+    navOverlay.addEventListener('click', (event) => {
+      if (!isMenuOpen()) return;
+      if (event.target.closest('.nav-link, .footer-link, #navToggle, .theme-toggle, [data-theme-toggle]')) {
+        return;
+      }
+      closeMobileNav();
     });
 
     // Allow keyboard users to close the overlay quickly.
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && navOverlay.classList.contains('active')) {
+      if (event.key === 'Escape' && isMenuOpen()) {
         closeMobileNav();
       }
     });
+
+    // Defensively reset persisted nav state only for history/bfcache restores.
+    window.addEventListener('pageshow', (event) => {
+      const navEntry = performance.getEntriesByType?.('navigation')?.[0];
+      const isHistoryRestore = Boolean(event?.persisted) || navEntry?.type === 'back_forward';
+      if (isHistoryRestore) {
+        closeMobileNav();
+      }
+    });
+
+    // Ensure we do not carry locked scroll if the document is hidden mid-transition.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        clearOpeningState();
+      }
+    });
+
+    closeMobileNav();
   }
 
   // Scroll behavior for nav

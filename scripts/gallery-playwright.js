@@ -42,93 +42,28 @@ async function waitForServer(url, timeoutMs = 10000) {
 }
 
 async function waitForGalleryReady(page) {
-  const timeoutMs = 18000;
-  const startedAt = Date.now();
-  let state = null;
-
-  while ((Date.now() - startedAt) < timeoutMs) {
-    state = await page.evaluate(() => {
-      const shell = document.getElementById('galleryShell');
-      const mode = shell?.dataset?.renderMode || null;
-      const caption = document.getElementById('galleryCaption');
-      const counter = document.getElementById('galleryCounter');
-      const indexItems = document.querySelectorAll('.gallery-index-item').length;
-      const isReady = mode && mode !== 'initializing'
-        && (mode !== 'render' || (caption && counter && indexItems > 0));
-
-      return {
-        isReady: Boolean(isReady),
-        readyState: document.readyState,
-        hasApp: Boolean(window.__galleryApp),
-        entries: window.__galleryApp?.entries?.length || 0,
-        renderMode: window.__galleryRenderMode || null,
-        shellMode: mode,
-        hasCaption: Boolean(caption),
-        hasCounter: Boolean(counter),
-        indexItems
-      };
-    });
-
-    if (state.isReady) {
-      return;
-    }
-
-    await page.waitForTimeout(120);
-  }
-
-  throw new Error(`Gallery readiness timed out: ${JSON.stringify(state)}`);
+  await page.waitForFunction(
+    () => {
+      const app = window.__galleryApp;
+      const mode = app?.getMode?.();
+      const renderMode = window.__galleryRenderMode;
+      const rowCount = document.querySelectorAll('#galleryIndexList .gallery-index-btn').length;
+      return Boolean(app && mode && renderMode && renderMode !== 'initializing' && rowCount === app.entries.length);
+    },
+    null,
+    { timeout: 18000 }
+  );
 }
 
-async function forceColorMode(page, mode) {
-  await page.evaluate((nextMode) => {
-    window.localStorage.setItem('od-color-mode', nextMode);
-    document.documentElement.setAttribute('data-color-mode', nextMode);
-    document.documentElement.style.colorScheme = nextMode;
-  }, mode);
-  await page.reload({ waitUntil: NAV_WAIT_UNTIL });
-  try {
-    await waitForGalleryReady(page);
-  } catch (_error) {
-    await page.waitForTimeout(1400);
-  }
-}
-
-async function focusActiveCard(page) {
-  const renderMode = await page.evaluate(() => window.__galleryRenderMode || null);
-  if (renderMode !== 'render') {
-    return false;
-  }
-
-  await page.waitForTimeout(500);
-  const point = await page.evaluate(() => {
-    const app = window.__galleryApp;
-    const camera = app?.webgl?.camera;
-    const index = app?.sceneController?.activeIndex ?? 0;
-    const item = app?.sceneController?.items?.[index];
-    if (!camera || !item?.mesh) return null;
-
-    const projected = item.mesh.position.clone().project(camera);
-    const x = (projected.x * 0.5 + 0.5) * window.innerWidth;
-    const y = (-projected.y * 0.5 + 0.5) * window.innerHeight;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-    if (x < 8 || y < 8 || x > window.innerWidth - 8 || y > window.innerHeight - 8) return null;
-    return { x, y };
-  });
-
-  if (!point) return false;
-  await page.mouse.click(point.x, point.y);
-  await page.waitForFunction(() => window.__galleryApp?.uiController?.isFocusMode ?? false, { timeout: 3000 });
-  return true;
-}
-
-async function setDeterministicIdleIndex(page, index = 5) {
+async function setDeterministicOverviewIndex(page, index = 5) {
   await page.evaluate((target) => {
     const app = window.__galleryApp;
     if (!app?.sceneController) return;
-    app.pendingFocusIndex = -1;
-    app.sceneController.exitFocus?.();
-    app.uiController?.setFocusMode(false);
-    app.inputController?.scrollToIndex(target);
+
+    app.setMode('overview');
+    app.sceneController.jumpToIndex(target);
+    app.inputController?.setCurrentIndex(target);
+    app.uiController?.setActive(target, app.entries[target]);
   }, index);
   await page.waitForTimeout(1200);
 }
@@ -143,40 +78,19 @@ async function run() {
 
   const browser = await chromium.launch({ args: WEBGL_ARGS });
   try {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const context = await browser.newContext({ viewport: { width: 1536, height: 960 } });
     const page = await context.newPage();
 
     await page.goto(target, { waitUntil: NAV_WAIT_UNTIL });
     await waitForGalleryReady(page);
     await page.waitForTimeout(900);
-    await setDeterministicIdleIndex(page, 6);
 
-    await page.screenshot({ path: path.join(outDir, 'desktop-dark-idle.png') });
+    await setDeterministicOverviewIndex(page, 6);
+    await page.screenshot({ path: path.join(outDir, 'desktop-overview.png') });
 
-    if (await focusActiveCard(page)) {
-      await page.waitForTimeout(700);
-      await page.screenshot({ path: path.join(outDir, 'desktop-dark-focus.png') });
-      await page.keyboard.press('Escape').catch(() => {});
-      await page.waitForTimeout(350);
-    }
-
-    await forceColorMode(page, 'light');
-    await page.waitForTimeout(900);
-    await setDeterministicIdleIndex(page, 6);
-    await page.screenshot({ path: path.join(outDir, 'desktop-light-idle.png') });
-
-    if (await focusActiveCard(page)) {
-      await page.waitForTimeout(700);
-      await page.screenshot({ path: path.join(outDir, 'desktop-light-focus.png') });
-      await page.keyboard.press('Escape').catch(() => {});
-      await page.waitForTimeout(350);
-    }
-
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.reload({ waitUntil: NAV_WAIT_UNTIL });
-    await waitForGalleryReady(page);
-    await page.waitForTimeout(900);
-    await page.screenshot({ path: path.join(outDir, 'desktop-reduced-motion.png') });
+    await page.click('#galleryModeIndex');
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: path.join(outDir, 'desktop-index.png') });
 
     const mobile = await browser.newContext({
       viewport: { width: 390, height: 844 },
@@ -188,13 +102,13 @@ async function run() {
     await mobilePage.goto(target, { waitUntil: NAV_WAIT_UNTIL });
     await waitForGalleryReady(mobilePage);
     await mobilePage.waitForTimeout(900);
-    await setDeterministicIdleIndex(mobilePage, 6);
-    await mobilePage.screenshot({ path: path.join(outDir, 'mobile-dark-idle.png') });
 
-    await forceColorMode(mobilePage, 'light');
-    await mobilePage.waitForTimeout(900);
-    await setDeterministicIdleIndex(mobilePage, 6);
-    await mobilePage.screenshot({ path: path.join(outDir, 'mobile-light-idle.png') });
+    await setDeterministicOverviewIndex(mobilePage, 5);
+    await mobilePage.screenshot({ path: path.join(outDir, 'mobile-overview.png') });
+
+    await mobilePage.click('#galleryModeIndex');
+    await mobilePage.waitForTimeout(600);
+    await mobilePage.screenshot({ path: path.join(outDir, 'mobile-index.png') });
 
     await mobile.close();
     await context.close();

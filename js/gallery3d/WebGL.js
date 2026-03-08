@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 
 const DEFAULT_QUALITY = {
-  ultra: { dpr: 2, qualityLevel: 1, grain: 0.0018, exposure: 0.99 },
-  high: { dpr: 1.6, qualityLevel: 0.82, grain: 0.0014, exposure: 0.99 },
-  medium: { dpr: 1.3, qualityLevel: 0.66, grain: 0.0011, exposure: 1.0 },
-  mobile: { dpr: 1, qualityLevel: 0.48, grain: 0.001, exposure: 1.0 }
+  ultra: { dpr: 1.5, qualityLevel: 1, grain: 0.0016, exposure: 0.99 },
+  high: { dpr: 1.25, qualityLevel: 0.82, grain: 0.0013, exposure: 0.99 },
+  medium: { dpr: 1, qualityLevel: 0.66, grain: 0.00105, exposure: 1.0 },
+  mobile: { dpr: 0.85, qualityLevel: 0.48, grain: 0.00095, exposure: 1.0 }
 };
 
 // Pointer coordinates placed outside NDC range [-1, 1] so raycasts hit nothing when the cursor is off-screen.
@@ -94,6 +94,10 @@ export class WebGL {
     this.pointer.copy(POINTER_OFF_SCREEN);
   }
 
+  isPointerActive() {
+    return this.pointer.x >= -1 && this.pointer.x <= 1 && this.pointer.y >= -1 && this.pointer.y <= 1;
+  }
+
   handleResize() {
     this.viewport.width = window.innerWidth;
     this.viewport.height = window.innerHeight;
@@ -109,7 +113,7 @@ export class WebGL {
 
   raycast(targets) {
     if (!targets.length) return null;
-    if (this.pointer.x < -1 || this.pointer.x > 1 || this.pointer.y < -1 || this.pointer.y > 1) return null;
+    if (!this.isPointerActive()) return null;
 
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const intersections = this.raycaster.intersectObjects(targets, false);
