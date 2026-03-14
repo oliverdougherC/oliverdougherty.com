@@ -89,13 +89,24 @@ async function run() {
     await page.waitForTimeout(300);
     await page.click('#galleryModeOverview');
     await page.waitForTimeout(1200);
+    await page.evaluate(() => {
+      window.__galleryApp?.handleCanvasClick?.(window.innerWidth * 0.5, window.innerHeight * 0.5);
+    });
+    await page.waitForFunction(() => window.__galleryApp?.sceneController?.isFocused?.(), null, { timeout: 5000 });
+    await page.waitForTimeout(350);
+    await page.evaluate(() => {
+      document.getElementById('galleryFocusOverlay')?.click();
+    });
+    await page.waitForFunction(() => !window.__galleryApp?.sceneController?.isFocused?.(), null, { timeout: 5000 });
+    await page.waitForTimeout(450);
 
     const stats = await page.evaluate(() => window.__galleryPerfStats || null);
     const state = await page.evaluate(() => ({
       mode: window.__galleryApp?.getMode?.() || null,
       hasApi: typeof window.__galleryApp?.setMode === 'function' && typeof window.__galleryApp?.getMode === 'function',
       rowCount: document.querySelectorAll('#galleryIndexList .gallery-index-btn').length,
-      entries: window.__galleryApp?.entries?.length || 0
+      entries: window.__galleryApp?.entries?.length || 0,
+      renderMode: window.__galleryRenderMode || null
     }));
 
     console.log('Perf stats:', { startupMs, ...stats, ...state });
@@ -108,6 +119,9 @@ async function run() {
 
     if (!state.hasApi) {
       throw new Error('Gallery mode API is missing (setMode/getMode)');
+    }
+    if (state.renderMode !== 'render') {
+      throw new Error(`Gallery render mode regressed after inspect cycle: ${state.renderMode}`);
     }
 
     if (state.rowCount !== state.entries) {

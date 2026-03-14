@@ -72,8 +72,8 @@ void main() {
   vec3 photo = texture2D(u_image, uv).rgb;
 
   float pulse = sin(u_time * 0.5) * 0.5 + 0.5;
-  float tintAmount = clamp(u_tintStrength + pulse * 0.004, 0.0, 0.08);
-  vec3 softened = mix(photo, vec3(dot(photo, vec3(0.299, 0.587, 0.114))), 0.02);
+  float tintAmount = clamp(u_tintStrength + pulse * 0.0008, 0.0, 0.035);
+  vec3 softened = mix(photo, vec3(dot(photo, vec3(0.299, 0.587, 0.114))), 0.012);
   vec3 color = mix(softened, vec3(1.0), tintAmount);
 
   gl_FragColor = vec4(color, clamp(u_opacity, 0.0, 1.0) * mask);

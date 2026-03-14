@@ -1,9 +1,18 @@
 export class UIController {
-  constructor({ entries, onSelectIndex, onModeChange }) {
+  constructor({
+    entries,
+    onSelectIndex,
+    onModeChange,
+    onInspectToggle,
+    onInspectExit
+  }) {
     this.entries = Array.isArray(entries) ? entries : [];
     this.onSelectIndex = onSelectIndex;
     this.onModeChange = onModeChange;
+    this.onInspectToggle = onInspectToggle;
+    this.onInspectExit = onInspectExit;
 
+    this.shellEl = document.getElementById('galleryShell');
     this.counterEl = document.getElementById('galleryCounter');
     this.captionEl = document.getElementById('galleryCaption');
     this.indexPanelEl = document.getElementById('galleryIndexPanel');
@@ -16,11 +25,15 @@ export class UIController {
     this.mode = 'overview';
     this.renderMode = 'initializing';
     this.indexButtons = [];
+    this.inspectMode = false;
+    this.focusOverlayEl = null;
 
     this.handleGlobalKey = this.handleGlobalKey.bind(this);
+    this.handleFocusOverlayClick = this.handleFocusOverlayClick.bind(this);
 
     this.buildIndex();
     this.bindEvents();
+    this.ensureFocusOverlay();
   }
 
   bindEvents() {
@@ -33,6 +46,27 @@ export class UIController {
     });
 
     document.addEventListener('keydown', this.handleGlobalKey);
+  }
+
+  ensureFocusOverlay() {
+    if (this.focusOverlayEl || !this.shellEl) return;
+
+    const overlay = document.createElement('button');
+    overlay.type = 'button';
+    overlay.id = 'galleryFocusOverlay';
+    overlay.className = 'gallery-focus-overlay';
+    overlay.setAttribute('aria-label', 'Exit inspect mode');
+    overlay.setAttribute('aria-hidden', 'true');
+    overlay.tabIndex = -1;
+    overlay.addEventListener('click', this.handleFocusOverlayClick);
+
+    this.shellEl.appendChild(overlay);
+    this.focusOverlayEl = overlay;
+  }
+
+  handleFocusOverlayClick() {
+    if (!this.inspectMode) return;
+    this.onInspectExit?.();
   }
 
   buildIndex() {
@@ -88,8 +122,19 @@ export class UIController {
     this.renderMode = mode;
   }
 
-  setDepthState() {
-    // Intentionally noop for the overview/index architecture.
+  setDepthState(depthState = {}) {
+    this.setInspectMode(Boolean(depthState.focused));
+  }
+
+  setInspectMode(active) {
+    const next = Boolean(active) && this.mode === 'overview';
+    this.inspectMode = next;
+    this.ensureFocusOverlay();
+    this.focusOverlayEl?.classList.toggle('is-active', next);
+    this.focusOverlayEl?.setAttribute('aria-hidden', String(!next));
+    if (this.shellEl) {
+      this.shellEl.dataset.inspect = String(next);
+    }
   }
 
   setMode(nextMode) {
@@ -107,6 +152,7 @@ export class UIController {
     this.modeIndexBtn?.setAttribute('aria-selected', String(inIndex));
 
     if (inIndex) {
+      this.setInspectMode(false);
       const activeButton = this.indexButtons[this.activeIndex];
       activeButton?.focus({ preventScroll: true });
     }
@@ -172,9 +218,21 @@ export class UIController {
       return;
     }
 
+    if (event.key === 'Escape' && this.inspectMode) {
+      event.preventDefault();
+      this.onInspectExit?.();
+      return;
+    }
+
     if (event.key === 'Escape' && this.mode === 'index') {
       event.preventDefault();
       this.onModeChange?.('overview');
+      return;
+    }
+
+    if ((event.key === 'Enter' || event.key === ' ') && this.mode === 'overview') {
+      event.preventDefault();
+      this.onInspectToggle?.(this.activeIndex);
       return;
     }
 
@@ -203,5 +261,8 @@ export class UIController {
 
   dispose() {
     document.removeEventListener('keydown', this.handleGlobalKey);
+    this.focusOverlayEl?.removeEventListener('click', this.handleFocusOverlayClick);
+    this.focusOverlayEl?.remove();
+    this.focusOverlayEl = null;
   }
 }

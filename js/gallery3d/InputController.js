@@ -15,6 +15,10 @@ const SNAP_IDLE_DELAY_MS = 240;
 
 const SPRING_STIFFNESS = 0.19;
 const SPRING_DAMPING = 0.64;
+const FAST_SNAP_STIFFNESS = 0.34;
+const FAST_SNAP_DAMPING = 0.56;
+const FAST_SNAP_MAX_VELOCITY = 0.078;
+const FAST_SNAP_KICK = 0.028;
 
 function isPanelTarget(target) {
   return target instanceof HTMLElement
@@ -68,6 +72,10 @@ export class InputController {
     this.scrollJerk = 0;
     this.pointerActive = false;
     this.touchLastY = null;
+    this.springProfile = 'default';
+    this.springStiffness = SPRING_STIFFNESS;
+    this.springDamping = SPRING_DAMPING;
+    this.maxVelocity = MAX_VELOCITY;
 
     this.handleWheel = this.handleWheel.bind(this);
     this.handleTouchStart = this.handleTouchStart.bind(this);
@@ -112,6 +120,22 @@ export class InputController {
     this.targetItems = bounded;
     this.velocityItems = 0;
     this.springActive = false;
+    this.setSpringProfile('default');
+  }
+
+  setSpringProfile(mode = 'default') {
+    if (mode === 'fastSnap') {
+      this.springProfile = 'fastSnap';
+      this.springStiffness = FAST_SNAP_STIFFNESS;
+      this.springDamping = FAST_SNAP_DAMPING;
+      this.maxVelocity = FAST_SNAP_MAX_VELOCITY;
+      return;
+    }
+
+    this.springProfile = 'default';
+    this.springStiffness = SPRING_STIFFNESS;
+    this.springDamping = SPRING_DAMPING;
+    this.maxVelocity = MAX_VELOCITY;
   }
 
   handleWheel(event) {
@@ -163,8 +187,9 @@ export class InputController {
     const impulse = deltaY * multiplier;
     if (!Number.isFinite(impulse) || Math.abs(impulse) <= 1e-6) return;
 
+    this.setSpringProfile('default');
     this.springActive = false;
-    this.velocityItems = clamp(this.velocityItems + impulse, -MAX_VELOCITY, MAX_VELOCITY);
+    this.velocityItems = clamp(this.velocityItems + impulse, -this.maxVelocity, this.maxVelocity);
     this.lastMotionAt = performance.now();
     if (fromUser) {
       this.lastImpulseAt = this.lastMotionAt;
@@ -231,13 +256,13 @@ export class InputController {
 
     if (this.springActive) {
       const delta = this.targetItems - this.progressItems;
-      this.velocityItems += delta * SPRING_STIFFNESS * dtScale;
-      this.velocityItems *= Math.pow(SPRING_DAMPING, dtScale);
+      this.velocityItems += delta * this.springStiffness * dtScale;
+      this.velocityItems *= Math.pow(this.springDamping, dtScale);
     } else {
       this.velocityItems *= Math.pow(VELOCITY_FRICTION, dtScale);
     }
 
-    this.velocityItems = clamp(this.velocityItems, -MAX_VELOCITY, MAX_VELOCITY);
+    this.velocityItems = clamp(this.velocityItems, -this.maxVelocity, this.maxVelocity);
 
     if (Math.abs(this.velocityItems) >= SNAP_VELOCITY_THRESHOLD) {
       this.lastMotionAt = now;
@@ -263,6 +288,7 @@ export class InputController {
         this.progressItems = this.targetItems;
         this.velocityItems = 0;
         this.springActive = false;
+        this.setSpringProfile('default');
       }
     }
 
@@ -278,16 +304,27 @@ export class InputController {
     });
   }
 
-  scrollToIndex(index) {
+  scrollToIndex(index, options = {}) {
     const bounded = clamp(index, 0, this.maxIndex);
     if (this.reducedMotion) {
       this.setCurrentIndex(bounded);
       return;
     }
 
+    const mode = options?.mode === 'fastSnap' ? 'fastSnap' : 'default';
+    this.setSpringProfile(mode);
     this.targetItems = bounded;
     this.springActive = true;
-    this.velocityItems = lerp(this.velocityItems, 0, 0.42);
+    if (mode === 'fastSnap') {
+      const direction = Math.sign(bounded - this.progressItems);
+      this.velocityItems = clamp(
+        this.velocityItems + direction * FAST_SNAP_KICK,
+        -this.maxVelocity,
+        this.maxVelocity
+      );
+    } else {
+      this.velocityItems = lerp(this.velocityItems, 0, 0.42);
+    }
   }
 
   dispose() {

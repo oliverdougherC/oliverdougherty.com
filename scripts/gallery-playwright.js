@@ -55,7 +55,7 @@ async function waitForGalleryReady(page) {
   );
 }
 
-async function setDeterministicOverviewIndex(page, index = 5) {
+async function setDeterministicOverviewIndex(page, index = 3) {
   await page.evaluate((target) => {
     const app = window.__galleryApp;
     if (!app?.sceneController) return;
@@ -66,6 +66,20 @@ async function setDeterministicOverviewIndex(page, index = 5) {
     app.uiController?.setActive(target, app.entries[target]);
   }, index);
   await page.waitForTimeout(1200);
+}
+
+async function captureInspectShot(page, screenshotPath) {
+  await page.evaluate(() => {
+    window.__galleryApp?.handleCanvasClick?.(window.innerWidth * 0.5, window.innerHeight * 0.5);
+  });
+  await page.waitForFunction(() => window.__galleryApp?.sceneController?.isFocused?.(), null, { timeout: 5000 });
+  await page.waitForTimeout(420);
+  await page.screenshot({ path: screenshotPath });
+  await page.evaluate(() => {
+    document.getElementById('galleryFocusOverlay')?.click();
+  });
+  await page.waitForFunction(() => !window.__galleryApp?.sceneController?.isFocused?.(), null, { timeout: 5000 });
+  await page.waitForTimeout(280);
 }
 
 async function run() {
@@ -85,8 +99,9 @@ async function run() {
     await waitForGalleryReady(page);
     await page.waitForTimeout(900);
 
-    await setDeterministicOverviewIndex(page, 6);
+    await setDeterministicOverviewIndex(page, 3);
     await page.screenshot({ path: path.join(outDir, 'desktop-overview.png') });
+    await captureInspectShot(page, path.join(outDir, 'desktop-inspect.png'));
 
     await page.click('#galleryModeIndex');
     await page.waitForTimeout(600);
@@ -103,8 +118,9 @@ async function run() {
     await waitForGalleryReady(mobilePage);
     await mobilePage.waitForTimeout(900);
 
-    await setDeterministicOverviewIndex(mobilePage, 5);
+    await setDeterministicOverviewIndex(mobilePage, 3);
     await mobilePage.screenshot({ path: path.join(outDir, 'mobile-overview.png') });
+    await captureInspectShot(mobilePage, path.join(outDir, 'mobile-inspect.png'));
 
     await mobilePage.click('#galleryModeIndex');
     await mobilePage.waitForTimeout(600);

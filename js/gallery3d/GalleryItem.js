@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { gsap } from 'gsap';
 import { fragmentShader, vertexShader } from './shaders.js';
+import { clamp } from './utils.js';
 
 const TEXTURE_LOAD_TIMEOUT_MS = 15000;
 const FRONT_GEOMETRY = new THREE.PlaneGeometry(1, 1, 1, 1);
@@ -36,9 +37,9 @@ export class GalleryItem {
       u_res: { value: new THREE.Vector2(1600, Math.round(1600 / this.aspect)) },
       u_planeRes: { value: new THREE.Vector2(420, 280) },
       u_opacity: { value: entry.overview?.alpha ?? 1 },
-      u_cornerRadius: { value: 0.065 },
-      u_edgeSoftness: { value: 0.0065 },
-      u_tintStrength: { value: 0.012 },
+      u_cornerRadius: { value: 0.006 },
+      u_edgeSoftness: { value: 0.0048 },
+      u_tintStrength: { value: 0.004 },
       u_time: { value: 0 }
     };
 
@@ -55,7 +56,7 @@ export class GalleryItem {
     this.glazeMaterial = new THREE.MeshBasicMaterial({
       color: new THREE.Color('#ffffff'),
       transparent: true,
-      opacity: 0.065,
+      opacity: 0.015,
       depthTest: true,
       depthWrite: false
     });
@@ -63,7 +64,7 @@ export class GalleryItem {
     this.backPaneMaterial = new THREE.MeshBasicMaterial({
       color: new THREE.Color('#e8e8e6'),
       transparent: true,
-      opacity: 0.028,
+      opacity: 0.006,
       depthTest: true,
       depthWrite: false,
       side: THREE.DoubleSide
@@ -211,7 +212,7 @@ export class GalleryItem {
 
   setQualityLevel(level) {
     const clamped = Math.min(1, Math.max(0.35, Number(level) || 1));
-    this.uniforms.u_tintStrength.value = 0.008 + (1 - clamped) * 0.02;
+    this.uniforms.u_tintStrength.value = 0.0025 + (1 - clamped) * 0.0062;
   }
 
   setTransform(transform) {
@@ -234,28 +235,28 @@ export class GalleryItem {
     this.backPaneMesh.scale.set(width * 0.996, height * 0.996, 1);
     this.backPaneMesh.position.set(0, 0, -0.01);
 
-    const minDim = Math.max(Math.min(width, height), 1);
-    const cornerRadius = Math.min(0.14, Math.max(0.03, (minDim * 0.095) / minDim));
+    const aspectRatio = clamp(Math.min(width, height) / Math.max(width, height, 1e-3), 0.5, 1);
+    const cornerRadius = clamp(0.004 + aspectRatio * 0.0024, 0.004, 0.01);
 
     this.uniforms.u_planeRes.value.set(width, height);
     this.uniforms.u_cornerRadius.value = cornerRadius;
     this.uniforms.u_opacity.value = transform.opacity;
     this.currentOpacity = transform.opacity;
 
-    this.backPaneMaterial.opacity = 0.018 + this.depthPhase * 0.012;
-    this.glazeMaterial.opacity = 0.038 + this.depthPhase * 0.042;
+    this.backPaneMaterial.opacity = 0.006 + this.depthPhase * 0.005;
+    this.glazeMaterial.opacity = 0.015 + this.depthPhase * 0.012;
 
     this.root.visible = transform.visible && transform.opacity > 0.012;
   }
 
   setDepthProfile(profile) {
     this.depthPhase = Math.min(1, Math.max(0, profile.depthPhase ?? 0));
-    this.uniforms.u_tintStrength.value = 0.004 + this.depthPhase * 0.028;
+    this.uniforms.u_tintStrength.value = 0.0025 + this.depthPhase * 0.006;
   }
 
   setHoverState(isHovering) {
     gsap.to(this.uniforms.u_tintStrength, {
-      value: isHovering ? 0.05 : 0.016,
+      value: isHovering ? 0.018 : 0.0046,
       duration: isHovering ? 0.34 : 0.22,
       ease: isHovering ? 'power2.out' : 'power2.inOut',
       overwrite: true

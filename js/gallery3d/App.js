@@ -6,14 +6,14 @@ import { clamp, toNumber } from './utils.js';
 
 function fallbackOverview(index) {
   return {
-    x: -120 + index * 72,
-    y: 88 - index * 38,
-    z: -40 - index * 110,
-    rotX: (index % 3 - 1) * 0.6,
-    rotY: -22 + index * 2.3,
-    rotZ: (index % 4 - 1.5) * 0.5,
-    scale: 1 - (index % 5) * 0.018,
-    alpha: clamp(0.94 - index * 0.01, 0.56, 0.94)
+    x: 0,
+    y: 0,
+    z: 0,
+    rotX: 0,
+    rotY: 0,
+    rotZ: 0,
+    scale: 1,
+    alpha: 0.96
   };
 }
 
@@ -24,10 +24,7 @@ function fallbackYear(entry, index) {
 }
 
 function normalizeEntry(entry, index) {
-  const overview = {
-    ...fallbackOverview(index),
-    ...(entry.overview || {})
-  };
+  const overview = fallbackOverview(index);
 
   const normalizedIndex = {
     year: String(entry.index?.year || fallbackYear(entry, index)),
@@ -190,6 +187,8 @@ export class App {
 
     this.mode = 'overview';
     this.renderMode = 'initializing';
+    this.pendingInspectIndex = -1;
+    this.inspectSettleTimer = null;
 
     this.frameWindow = [];
     this.lastPerfCheck = 0;
@@ -197,6 +196,8 @@ export class App {
     this.raf = this.raf.bind(this);
     this.handleResize = this.handleResize.bind(this);
     this.handleCanvasClick = this.handleCanvasClick.bind(this);
+    this.handleInspectToggle = this.handleInspectToggle.bind(this);
+    this.handleInspectExit = this.handleInspectExit.bind(this);
 
     if (this.shell) {
       this.shell.dataset.mode = this.mode;
@@ -246,11 +247,30 @@ export class App {
       onProgress: (progress, meta = {}) => {
         if (this.mode !== 'overview') return;
 
-        this.sceneController?.setTargetProgress(progress);
         this.sceneController?.setInputTelemetry?.({
           inertialVelocity: meta.inertialVelocity || 0,
           scrollJerk: meta.scrollJerk || 0
         });
+
+        if (this.inspectSettleTimer != null && meta.isUserDriven) {
+          this.clearInspectSettleTimer();
+          this.pendingInspectIndex = -1;
+          this.sceneController?.clearSelectionLift?.();
+        }
+
+        if (this.sceneController?.isFocused?.()) {
+          const userIntent = Boolean(meta.isUserDriven)
+            || Math.abs(meta.inertialVelocity || 0) > 0.0008;
+          if (userIntent) {
+            this.clearInspectSettleTimer();
+            this.sceneController.exitFocus();
+            this.uiController?.setInspectMode(false);
+          } else {
+            return;
+          }
+        }
+
+        this.sceneController?.setTargetProgress(progress);
       },
       onPointerMove: ({ clientX, clientY }) => {
         this.webgl?.setPointer(clientX, clientY);
@@ -282,11 +302,18 @@ export class App {
       },
       onModeChange: (mode) => {
         this.setMode(mode);
+      },
+      onInspectToggle: (index) => {
+        this.handleInspectToggle(index);
+      },
+      onInspectExit: () => {
+        this.handleInspectExit();
       }
     });
 
     this.uiController.setActive(0, this.entries[0]);
     this.uiController.setMode(this.mode);
+    this.uiController.setInspectMode(false);
   }
 
   initRenderPipeline() {
@@ -306,6 +333,11 @@ export class App {
       reducedMotion: this.reducedMotion,
       onActiveIndexChange: (index, entry) => {
         this.uiController?.setActive(index, entry);
+        if (this.pendingInspectIndex === index) {
+          this.pendingInspectIndex = -1;
+          this.sceneController?.setSelectionLift?.(index, 360);
+          this.queueInspectEntry(index, 340);
+        }
       }
     });
 
@@ -317,6 +349,12 @@ export class App {
     if (!initial && mode === this.mode) return;
 
     this.mode = mode;
+    if (mode !== 'overview') {
+      this.pendingInspectIndex = -1;
+      this.clearInspectSettleTimer();
+      this.sceneController?.exitFocus({ immediate: true });
+      this.uiController?.setInspectMode(false);
+    }
 
     if (this.shell) {
       this.shell.dataset.mode = mode;
@@ -348,8 +386,69 @@ export class App {
     window.__galleryRenderMode = mode;
   }
 
+  clearInspectSettleTimer() {
+    if (this.inspectSettleTimer != null) {
+      window.clearTimeout(this.inspectSettleTimer);
+      this.inspectSettleTimer = null;
+    }
+  }
+
+  queueInspectEntry(index, delayMs = 360) {
+    this.clearInspectSettleTimer();
+    this.inspectSettleTimer = window.setTimeout(() => {
+      this.inspectSettleTimer = null;
+      if (!this.sceneController || this.mode !== 'overview') return;
+      if (this.sceneController.activeIndex !== index) return;
+      if (this.sceneController.isFocused()) return;
+
+      this.sceneController.enterFocus(index);
+      this.uiController?.setInspectMode(true);
+    }, delayMs);
+  }
+
+  handleInspectToggle(index = this.sceneController?.activeIndex ?? this.uiController?.activeIndex ?? 0) {
+    if (this.mode !== 'overview' || !this.sceneController) return;
+
+    if (this.sceneController.isFocused()) {
+      this.clearInspectSettleTimer();
+      this.sceneController.exitFocus();
+      this.pendingInspectIndex = -1;
+      this.uiController?.setInspectMode(false);
+      return;
+    }
+
+    const bounded = Math.min(Math.max(index, 0), Math.max(this.entries.length - 1, 0));
+    if (bounded !== (this.sceneController?.activeIndex ?? 0)) {
+      this.pendingInspectIndex = bounded;
+      this.sceneController?.setSelectionLift?.(bounded, 420);
+      this.inputController?.scrollToIndex(bounded, { mode: 'fastSnap' });
+      this.uiController?.setActive(bounded, this.entries[bounded]);
+      return;
+    }
+
+    this.pendingInspectIndex = -1;
+    this.clearInspectSettleTimer();
+    this.sceneController.enterFocus(bounded);
+    this.uiController?.setInspectMode(true);
+  }
+
+  handleInspectExit() {
+    if (!this.sceneController?.isFocused?.()) return;
+    this.clearInspectSettleTimer();
+    this.pendingInspectIndex = -1;
+    this.sceneController.exitFocus();
+    this.uiController?.setInspectMode(false);
+  }
+
   handleSelectIndex(index, meta = {}) {
     if (!this.entries?.length) return;
+
+    this.clearInspectSettleTimer();
+    if (this.sceneController?.isFocused?.()) {
+      this.sceneController.exitFocus({ immediate: true });
+      this.uiController?.setInspectMode(false);
+    }
+    this.pendingInspectIndex = -1;
 
     const bounded = Math.min(Math.max(index, 0), this.entries.length - 1);
     const entry = this.entries[bounded];
@@ -370,6 +469,14 @@ export class App {
   handleCanvasClick(clientX, clientY) {
     if (this.mode !== 'overview' || !this.webgl || !this.sceneController || !this.inputController) return;
 
+    if (this.sceneController.isFocused()) {
+      this.clearInspectSettleTimer();
+      this.sceneController.exitFocus();
+      this.pendingInspectIndex = -1;
+      this.uiController?.setInspectMode(false);
+      return;
+    }
+
     this.webgl.setPointer(clientX, clientY);
     const hit = this.webgl.raycast(this.sceneController.getRaycastTargets());
     if (!hit?.item) return;
@@ -378,9 +485,17 @@ export class App {
     if (hitIndex < 0) return;
 
     if (hitIndex !== this.sceneController.activeIndex) {
-      this.inputController.scrollToIndex(hitIndex);
+      this.pendingInspectIndex = hitIndex;
+      this.sceneController?.setSelectionLift?.(hitIndex, 420);
+      this.inputController.scrollToIndex(hitIndex, { mode: 'fastSnap' });
       this.uiController?.setActive(hitIndex, this.entries[hitIndex]);
+      return;
     }
+
+    this.pendingInspectIndex = -1;
+    this.clearInspectSettleTimer();
+    this.sceneController.enterFocus(hitIndex);
+    this.uiController?.setInspectMode(true);
   }
 
   activateFallback(message, error) {
@@ -401,9 +516,11 @@ export class App {
     }
 
     this.uiController?.setMode('index');
+    this.uiController?.setInspectMode(false);
   }
 
   disposeRenderPipeline() {
+    this.clearInspectSettleTimer();
     this.inputController?.dispose();
     this.inputController = null;
 
@@ -436,6 +553,8 @@ export class App {
       fps: Number((1000 / Math.max(avg, 1)).toFixed(1)),
       framesSampled: this.frameWindow.length,
       activeIndex: this.sceneController?.activeIndex ?? this.uiController?.activeIndex ?? 0,
+      focused: Boolean(this.sceneController?.isFocused?.()),
+      focusIndex: this.sceneController?.getDepthState?.().focusIndex ?? -1,
       renderMode: this.renderMode,
       mode: this.mode
     };
@@ -449,9 +568,13 @@ export class App {
 
     this.inputController?.update(dtMs, time);
     this.sceneController.update(time * 0.001, dtMs);
+    this.uiController?.setDepthState(this.sceneController.getDepthState());
 
     if (!this.webgl.contextLost) {
-      const shouldRaycast = this.mode === 'overview' && this.webgl.isPointerActive() && !this.isMobile;
+      const shouldRaycast = this.mode === 'overview'
+        && this.webgl.isPointerActive()
+        && !this.isMobile
+        && !this.sceneController.isFocused();
       const hit = shouldRaycast
         ? this.webgl.raycast(this.sceneController.getRaycastTargets())
         : null;
@@ -459,7 +582,7 @@ export class App {
       this.sceneController.applyHoverHit(hit);
 
       if (this.canvas) {
-        const nextCursor = this.mode === 'overview' && hit?.item ? 'pointer' : 'default';
+        const nextCursor = this.mode === 'overview' && !this.sceneController.isFocused() && hit?.item ? 'pointer' : 'default';
         if (this.canvas.style.cursor !== nextCursor) {
           this.canvas.style.cursor = nextCursor;
         }

@@ -7,40 +7,95 @@ const SCENE_TUNING = {
   easingMin: 0.08,
   easingMax: 0.24,
 
-  shiftXDesktop: 62,
-  shiftXMobile: 38,
-  shiftYDesktop: 34,
-  shiftYMobile: 22,
-  shiftZDesktop: 124,
-  shiftZMobile: 96,
+  laneDesktop: {
+    originX: -18,
+    originY: -4,
+    originZ: -54,
+    xStep: 90,
+    yStep: 30,
+    zStep: -42,
+    baseYawDeg: -13,
+    yawDeltaDeg: 0.42,
+    rollAltDeg: 0.2,
+    visibleRange: 6.6,
+    scaleFalloff: 0.02,
+    scaleMin: 0.8,
+    opacityFalloff: 0.055,
+    opacityMin: 0.24
+  },
+  laneMobile: {
+    originX: -10,
+    originY: -6,
+    originZ: -44,
+    xStep: 58,
+    yStep: 19,
+    zStep: -30,
+    baseYawDeg: -11.5,
+    yawDeltaDeg: 0.34,
+    rollAltDeg: 0.15,
+    visibleRange: 3.9,
+    scaleFalloff: 0.024,
+    scaleMin: 0.8,
+    opacityFalloff: 0.065,
+    opacityMin: 0.24
+  },
+  activeScaleMax: 1,
+  activeOpacityMax: 0.93,
 
-  visibleRangeDesktop: 9.2,
-  visibleRangeMobile: 6.6,
+  positionClampXDesktop: 520,
+  positionClampXMobile: 322,
+  positionClampYDesktop: 228,
+  positionClampYMobile: 164,
+  positionClampZFront: 36,
+  positionClampZBack: -340,
 
-  yawDriftDesktop: -1.7,
-  yawDriftMobile: -1.2,
-  rollDriftDesktop: 0.22,
-  rollDriftMobile: 0.12,
+  overlapTargetMinPx: -260,
+  overlapTargetMaxPx: -40,
+  spacingCorrectionPasses: 2,
+  spacingCorrectionYMix: 0.3,
 
-  opacityFalloffDesktop: 0.07,
-  opacityFalloffMobile: 0.09,
-  scaleFalloffDesktop: 0.018,
-  scaleFalloffMobile: 0.024,
-
-  heroMaxVwDesktop: 0.46,
-  heroMaxVhDesktop: 0.56,
+  heroMaxVwDesktop: 0.26,
+  heroMaxVhDesktop: 0.46,
   heroMaxVwMobile: 0.84,
   heroMaxVhMobile: 0.54,
-  heroMinHeightDesktop: 154,
+  heroMinHeightDesktop: 132,
   heroMinHeightMobile: 118,
 
-  indexModeOpacity: 0.02,
-  minProjectedGapDesktop: -140,
-  minProjectedGapMobile: -96
+  focusEnterMix: 0.18,
+  focusExitMix: 0.22,
+  focusThresholdActive: 0.995,
+  focusThresholdIdle: 0.005,
+  focusNonActiveScale: 0.975,
+  focusNonActiveOpacity: 0.14,
+  focusNonActivePushZ: -34,
+  focusTarget: {
+    x: 0,
+    y: 0,
+    z: 126,
+    rotXDeg: 0,
+    rotYDeg: -1.2,
+    rotZDeg: 0,
+    scale: 1.04,
+    opacity: 1
+  },
+
+  selectionLiftScale: 0.032,
+  selectionLiftZ: 16,
+  selectionLiftOpacity: 0.07,
+
+  indexModeOpacity: 0.02
 };
 
 function toRadians(value) {
   return (Number(value) || 0) * (Math.PI / 180);
+}
+
+function median(values) {
+  if (!Array.isArray(values) || !values.length) return Infinity;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length * 0.5);
+  if (sorted.length % 2 === 1) return sorted[mid];
+  return (sorted[mid - 1] + sorted[mid]) * 0.5;
 }
 
 export class SceneController {
@@ -67,6 +122,12 @@ export class SceneController {
     this.targetProgress = 0;
     this.activeIndex = 0;
     this.mode = 'overview';
+    this.focusState = 'idle';
+    this.focusBlend = 0;
+    this.focusIndex = -1;
+    this.selectionLiftIndex = -1;
+    this.selectionLiftDurationMs = 0;
+    this.selectionLiftRemainingMs = 0;
 
     this.visibleTargets = [];
     this.hoveredItem = null;
@@ -82,6 +143,10 @@ export class SceneController {
       maxGapPx: 0,
       activeNeighborGapPx: Infinity,
       activeYawDeg: 0,
+      activeWidthPx: 0,
+      maxVisibleWidthPx: 0,
+      frontToActiveWidthRatio: 1,
+      adjacentGapPx: Infinity,
       focusYawDeg: 0,
       inertialVelocity: 0,
       scrollJerk: 0,
@@ -107,7 +172,7 @@ export class SceneController {
       fitMaxWidth: this.isMobile ? 520 : 820,
       fitMaxHeight: this.isMobile ? 340 : 540,
       heroMinHeight: this.isMobile ? SCENE_TUNING.heroMinHeightMobile : SCENE_TUNING.heroMinHeightDesktop,
-      visibleRange: this.isMobile ? SCENE_TUNING.visibleRangeMobile : SCENE_TUNING.visibleRangeDesktop
+      visibleRange: this.isMobile ? SCENE_TUNING.laneMobile.visibleRange : SCENE_TUNING.laneDesktop.visibleRange
     };
   }
 
@@ -146,6 +211,10 @@ export class SceneController {
 
   setMode(mode) {
     this.mode = mode === 'index' ? 'index' : 'overview';
+    if (this.mode !== 'overview') {
+      this.clearSelectionLift();
+      this.exitFocus({ immediate: true });
+    }
     this.clearHover();
   }
 
@@ -163,8 +232,9 @@ export class SceneController {
 
   getDepthState() {
     return {
-      focused: false,
+      focused: this.isFocused(),
       activeIndex: this.activeIndex,
+      focusIndex: this.focusIndex,
       mode: this.mode
     };
   }
@@ -193,6 +263,9 @@ export class SceneController {
     if (this.reducedMotion) {
       this.progress = bounded;
     }
+    if (this.isFocused()) {
+      this.focusIndex = bounded;
+    }
   }
 
   setQualityProfile(profile) {
@@ -204,7 +277,7 @@ export class SceneController {
 
   refreshLayoutMode(isMobile) {
     this.isMobile = isMobile;
-    this.layout.visibleRange = this.isMobile ? SCENE_TUNING.visibleRangeMobile : SCENE_TUNING.visibleRangeDesktop;
+    this.layout.visibleRange = this.isMobile ? SCENE_TUNING.laneMobile.visibleRange : SCENE_TUNING.laneDesktop.visibleRange;
     this.layout.heroMinHeight = this.isMobile ? SCENE_TUNING.heroMinHeightMobile : SCENE_TUNING.heroMinHeightDesktop;
 
     for (const item of this.items) {
@@ -256,7 +329,7 @@ export class SceneController {
   }
 
   getRaycastTargets() {
-    return this.mode === 'overview' ? this.visibleTargets : [];
+    return this.mode === 'overview' && !this.isFocused() ? this.visibleTargets : [];
   }
 
   getItemIndexForItem(item) {
@@ -271,8 +344,26 @@ export class SceneController {
     }
   }
 
+  clearSelectionLift() {
+    this.selectionLiftIndex = -1;
+    this.selectionLiftDurationMs = 0;
+    this.selectionLiftRemainingMs = 0;
+  }
+
+  setSelectionLift(index, durationMs = 380) {
+    if (!Number.isFinite(index)) {
+      this.clearSelectionLift();
+      return;
+    }
+
+    const bounded = clamp(index, 0, this.items.length - 1);
+    this.selectionLiftIndex = bounded;
+    this.selectionLiftDurationMs = Math.max(80, Number(durationMs) || 380);
+    this.selectionLiftRemainingMs = this.selectionLiftDurationMs;
+  }
+
   applyHoverHit(hit) {
-    if (this.mode !== 'overview' || !hit || !hit.item || this.isMobile) {
+    if (this.mode !== 'overview' || this.isFocused() || !hit || !hit.item || this.isMobile) {
       this.clearHover();
       return;
     }
@@ -285,14 +376,145 @@ export class SceneController {
     this.hoveredItem = hit.item;
   }
 
-  // Focus APIs retained as noops for backward compatibility.
-  enterFocus() {}
-  exitFocus() {}
-  isFocused() {
-    return false;
+  enterFocus(index = this.activeIndex) {
+    if (!this.items.length) return;
+    this.clearSelectionLift();
+    const bounded = clamp(index, 0, this.items.length - 1);
+    this.focusIndex = bounded;
+    this.targetProgress = bounded;
+    if (this.reducedMotion) {
+      this.progress = bounded;
+      this.focusBlend = 1;
+      this.focusState = 'active';
+      return;
+    }
+
+    this.focusState = 'entering';
   }
 
-  updateLayoutDebugState(debugRects, activeIndex, activeYawDeg) {
+  exitFocus({ immediate = false } = {}) {
+    if (this.focusState === 'idle' && this.focusBlend <= 0.001) return;
+    if (immediate || this.reducedMotion) {
+      this.focusState = 'idle';
+      this.focusBlend = 0;
+      this.focusIndex = -1;
+      return;
+    }
+    this.focusState = 'exiting';
+  }
+
+  isFocused() {
+    return this.focusState === 'entering' || this.focusState === 'active';
+  }
+
+  getLaneBasis() {
+    return this.isMobile ? SCENE_TUNING.laneMobile : SCENE_TUNING.laneDesktop;
+  }
+
+  updateFocusState(dtMs) {
+    if (this.focusState === 'idle' && this.focusBlend <= 0.001) {
+      this.focusBlend = 0;
+      return;
+    }
+
+    if (this.focusState === 'active') {
+      this.focusBlend = 1;
+      return;
+    }
+
+    const dtScale = clamp((Number(dtMs) || 16.67) / 16.67, 0.6, 2.6);
+
+    if (this.focusState === 'entering') {
+      const mix = clamp(SCENE_TUNING.focusEnterMix * dtScale, 0, 1);
+      this.focusBlend = lerp(this.focusBlend, 1, mix);
+      if (this.focusBlend >= SCENE_TUNING.focusThresholdActive) {
+        this.focusBlend = 1;
+        this.focusState = 'active';
+      }
+      return;
+    }
+
+    if (this.focusState === 'exiting') {
+      const mix = clamp(SCENE_TUNING.focusExitMix * dtScale, 0, 1);
+      this.focusBlend = lerp(this.focusBlend, 0, mix);
+      if (this.focusBlend <= SCENE_TUNING.focusThresholdIdle) {
+        this.focusBlend = 0;
+        this.focusState = 'idle';
+        this.focusIndex = -1;
+      }
+      return;
+    }
+
+    this.focusState = 'idle';
+    this.focusBlend = 0;
+    this.focusIndex = -1;
+  }
+
+  projectStateRect(state) {
+    const pxPerWorld = this.getPixelScaleAtDepth(state.z);
+    const widthWorld = state.height * (state.item.aspect || 1.5) * state.scale;
+    const widthPx = widthWorld * pxPerWorld;
+    const heightPx = state.height * state.scale * pxPerWorld;
+
+    if (
+      !Number.isFinite(widthPx)
+      || !Number.isFinite(heightPx)
+      || widthPx <= 0
+      || heightPx <= 0
+    ) {
+      return null;
+    }
+
+    const centerPx = this.layout.viewportWidth * 0.5 + state.x * pxPerWorld;
+    const centerYPx = this.layout.viewportHeight * 0.5 - state.y * pxPerWorld;
+    return {
+      centerPx,
+      centerYPx,
+      leftPx: centerPx - widthPx * 0.5,
+      rightPx: centerPx + widthPx * 0.5,
+      topPx: centerYPx - heightPx * 0.5,
+      bottomPx: centerYPx + heightPx * 0.5,
+      widthPx,
+      heightPx,
+      pxPerWorld
+    };
+  }
+
+  applyLaneSpacingCorrection(states, lane, clampBounds) {
+    if (this.mode !== 'overview' || this.focusBlend > 0.001) return;
+
+    const candidates = states
+      .filter((state) => state.visible && state.opacity > 0.025)
+      .sort((a, b) => a.index - b.index);
+
+    if (candidates.length < 2) return;
+
+    for (let pass = 0; pass < SCENE_TUNING.spacingCorrectionPasses; pass += 1) {
+      for (const state of candidates) {
+        state.projectedRect = this.projectStateRect(state);
+      }
+
+      for (let i = 1; i < candidates.length; i += 1) {
+        const prev = candidates[i - 1];
+        const curr = candidates[i];
+        const prevRect = prev.projectedRect;
+        const currRect = curr.projectedRect;
+        if (!prevRect || !currRect) continue;
+
+        const gap = currRect.leftPx - prevRect.rightPx;
+        const targetGap = clamp(gap, SCENE_TUNING.overlapTargetMinPx, SCENE_TUNING.overlapTargetMaxPx);
+        const gapDelta = targetGap - gap;
+        if (Math.abs(gapDelta) <= 0.5) continue;
+
+        const worldShift = gapDelta / Math.max(currRect.pxPerWorld, 1e-3);
+        curr.x = clamp(curr.x + worldShift, clampBounds.xMin, clampBounds.xMax);
+        const yShift = worldShift * (lane.yStep / Math.max(Math.abs(lane.xStep), 1e-3)) * SCENE_TUNING.spacingCorrectionYMix;
+        curr.y = clamp(curr.y + yShift, clampBounds.yMin, clampBounds.yMax);
+      }
+    }
+  }
+
+  updateLayoutDebugState(debugRects, activeIndex, activeYawDeg, focusYawDeg = 0) {
     if (!debugRects.length) {
       this.layoutDebugState = {
         activeIndex,
@@ -302,14 +524,18 @@ export class SceneController {
         maxGapPx: 0,
         activeNeighborGapPx: Infinity,
         activeYawDeg,
-        focusYawDeg: 0,
+        activeWidthPx: 0,
+        maxVisibleWidthPx: 0,
+        frontToActiveWidthRatio: 1,
+        adjacentGapPx: Infinity,
+        focusYawDeg,
         inertialVelocity: this.inertialVelocity,
         scrollJerk: this.scrollJerk,
         focusSafeZoneBreach: false,
         nearestFocusNeighborGapPx: Infinity,
         focus: {
-          enabled: false,
-          index: -1,
+          enabled: this.isFocused(),
+          index: this.focusIndex,
           safeTopPx: 0,
           safeBottomPx: 0,
           rectTopPx: 0,
@@ -327,6 +553,7 @@ export class SceneController {
     let minGapPx = Infinity;
     let maxGapPx = -Infinity;
     let activeNeighborGapPx = Infinity;
+    const gapSamples = [];
 
     for (let i = 1; i < sorted.length; i += 1) {
       const prev = sorted[i - 1];
@@ -334,6 +561,7 @@ export class SceneController {
       const gap = curr.leftPx - prev.rightPx;
       minGapPx = Math.min(minGapPx, gap);
       maxGapPx = Math.max(maxGapPx, gap);
+      gapSamples.push(gap);
 
       if (prev.index === activeIndex || curr.index === activeIndex) {
         activeNeighborGapPx = Math.min(activeNeighborGapPx, gap);
@@ -341,6 +569,31 @@ export class SceneController {
     }
 
     const activeRect = sorted.find((rect) => rect.index === activeIndex) || sorted[0];
+    const focusRect = sorted.find((rect) => rect.index === this.focusIndex) || null;
+
+    let nearestFocusNeighborGapPx = Infinity;
+    if (focusRect) {
+      for (const rect of sorted) {
+        if (rect.index === focusRect.index) continue;
+        const gap = rect.leftPx > focusRect.rightPx
+          ? rect.leftPx - focusRect.rightPx
+          : focusRect.leftPx - rect.rightPx;
+        nearestFocusNeighborGapPx = Math.min(nearestFocusNeighborGapPx, gap);
+      }
+    }
+
+    const safeTopPx = this.layout.viewportHeight * 0.16;
+    const safeBottomPx = this.layout.viewportHeight * 0.84;
+    const focusTopPx = focusRect?.topPx ?? 0;
+    const focusBottomPx = focusRect?.bottomPx ?? 0;
+    const safeTopBreached = Boolean(focusRect) && focusTopPx < safeTopPx;
+    const safeBottomBreached = Boolean(focusRect) && focusBottomPx > safeBottomPx;
+    const activeWidthPx = activeRect?.widthPx ?? 0;
+    const maxVisibleWidthPx = sorted.reduce((maxWidth, rect) => Math.max(maxWidth, rect.widthPx || 0), 0);
+    const frontToActiveWidthRatio = activeWidthPx > 0
+      ? maxVisibleWidthPx / activeWidthPx
+      : 1;
+    const adjacentGapPx = median(gapSamples);
 
     this.layoutDebugState = {
       activeIndex,
@@ -350,44 +603,64 @@ export class SceneController {
       maxGapPx: Number.isFinite(maxGapPx) ? maxGapPx : 0,
       activeNeighborGapPx,
       activeYawDeg,
-      focusYawDeg: 0,
+      activeWidthPx,
+      maxVisibleWidthPx,
+      frontToActiveWidthRatio,
+      adjacentGapPx,
+      focusYawDeg,
       inertialVelocity: this.inertialVelocity,
       scrollJerk: this.scrollJerk,
-      focusSafeZoneBreach: false,
-      nearestFocusNeighborGapPx: Infinity,
+      focusSafeZoneBreach: safeTopBreached || safeBottomBreached,
+      nearestFocusNeighborGapPx,
       focus: {
-        enabled: false,
-        index: -1,
-        safeTopPx: 0,
-        safeBottomPx: 0,
-        rectTopPx: 0,
-        rectBottomPx: 0,
-        safeTopBreached: false,
-        safeBottomBreached: false,
-        nearestGapPx: Infinity,
-        nearestOpacity: 0
+        enabled: this.isFocused(),
+        index: this.focusIndex,
+        safeTopPx,
+        safeBottomPx,
+        rectTopPx: focusTopPx,
+        rectBottomPx: focusBottomPx,
+        safeTopBreached,
+        safeBottomBreached,
+        nearestGapPx: nearestFocusNeighborGapPx,
+        nearestOpacity: focusRect?.opacity ?? 0
       }
     };
   }
 
   update(time, dtMs) {
     const S = SCENE_TUNING;
+    const lane = this.getLaneBasis();
+    const clampBounds = {
+      xMin: lane.originX - (this.isMobile ? S.positionClampXMobile : S.positionClampXDesktop),
+      xMax: lane.originX + (this.isMobile ? S.positionClampXMobile : S.positionClampXDesktop),
+      yMin: lane.originY - (this.isMobile ? S.positionClampYMobile : S.positionClampYDesktop),
+      yMax: lane.originY + (this.isMobile ? S.positionClampYMobile : S.positionClampYDesktop)
+    };
 
     const easing = this.reducedMotion ? 1 : clamp(dtMs / S.easingDivisor, S.easingMin, S.easingMax);
+    if (this.focusState === 'active' && this.focusIndex >= 0) {
+      this.targetProgress = this.focusIndex;
+      this.progress = this.focusIndex;
+    }
     this.progress = lerp(this.progress, this.targetProgress, easing);
+    this.updateFocusState(dtMs);
+    if (this.selectionLiftRemainingMs > 0) {
+      this.selectionLiftRemainingMs = Math.max(0, this.selectionLiftRemainingMs - dtMs);
+      if (this.selectionLiftRemainingMs <= 0) {
+        this.clearSelectionLift();
+      }
+    }
 
     this.visibleTargets.length = 0;
 
     let nextActiveIndex = this.activeIndex;
     let closestDelta = Infinity;
-
-    const debugRects = [];
+    const itemStates = [];
     let activeYawDeg = 0;
+    let focusYawDeg = 0;
 
     for (let i = 0; i < this.items.length; i += 1) {
       const item = this.items[i];
-      const entry = this.entries[i];
-      const overview = entry?.overview || {};
 
       const delta = i - this.progress;
       const absDelta = Math.abs(delta);
@@ -397,35 +670,70 @@ export class SceneController {
       }
 
       const baseHeight = this.getBaseHeroHeightForAspect(item.aspect || 1.5);
-      const scaleFalloff = this.isMobile ? S.scaleFalloffMobile : S.scaleFalloffDesktop;
-      const opacityFalloff = this.isMobile ? S.opacityFalloffMobile : S.opacityFalloffDesktop;
-      const shiftX = this.isMobile ? S.shiftXMobile : S.shiftXDesktop;
-      const shiftY = this.isMobile ? S.shiftYMobile : S.shiftYDesktop;
-      const shiftZ = this.isMobile ? S.shiftZMobile : S.shiftZDesktop;
-      const yawDrift = this.isMobile ? S.yawDriftMobile : S.yawDriftDesktop;
-      const rollDrift = this.isMobile ? S.rollDriftMobile : S.rollDriftDesktop;
 
-      const entryScale = Number.isFinite(overview.scale) ? overview.scale : 1;
-      const scale = Math.max(0.62, entryScale - absDelta * scaleFalloff);
+      let x = clamp(
+        lane.originX + delta * lane.xStep,
+        clampBounds.xMin,
+        clampBounds.xMax
+      );
+      let y = clamp(
+        lane.originY + delta * lane.yStep,
+        clampBounds.yMin,
+        clampBounds.yMax
+      );
+      let z = clamp(lane.originZ + delta * lane.zStep, S.positionClampZBack, S.positionClampZFront);
 
-      const x = (overview.x || 0) + delta * shiftX;
-      const y = (overview.y || 0) + delta * shiftY;
-      const z = (overview.z || 0) + delta * shiftZ;
+      let rotXDeg = 0;
+      let rotYDeg = lane.baseYawDeg + delta * lane.yawDeltaDeg;
+      let rotZDeg = i % 2 === 0 ? -lane.rollAltDeg : lane.rollAltDeg;
 
-      const rotX = toRadians(overview.rotX || 0);
-      const rotY = toRadians((overview.rotY || 0) + delta * yawDrift);
-      const rotZ = toRadians((overview.rotZ || 0) + delta * rollDrift);
+      let scale = clamp(1 - absDelta * lane.scaleFalloff, lane.scaleMin, S.activeScaleMax);
+      let opacity = clamp(S.activeOpacityMax - absDelta * lane.opacityFalloff, lane.opacityMin, S.activeOpacityMax);
+      let visible = absDelta <= lane.visibleRange;
 
-      const baseAlpha = clamp(Number(overview.alpha ?? 0.96), 0.1, 1);
-      let opacity = clamp(baseAlpha - absDelta * opacityFalloff, 0.05, 1);
+      if (i === this.selectionLiftIndex && this.selectionLiftDurationMs > 0 && this.focusBlend <= 0.001) {
+        const liftBlend = Math.pow(
+          clamp(this.selectionLiftRemainingMs / Math.max(this.selectionLiftDurationMs, 1), 0, 1),
+          0.7
+        );
+        scale = clamp(scale + S.selectionLiftScale * liftBlend, lane.scaleMin, S.activeScaleMax + 0.04);
+        z = clamp(z + S.selectionLiftZ * liftBlend, S.positionClampZBack, S.positionClampZFront + 32);
+        opacity = clamp(opacity + S.selectionLiftOpacity * liftBlend, lane.opacityMin, 1);
+      }
+
+      const isFocusItem = this.focusIndex === i;
+      if (this.focusBlend > 0 && this.focusIndex >= 0) {
+        if (isFocusItem) {
+          x = lerp(x, S.focusTarget.x, this.focusBlend);
+          y = lerp(y, S.focusTarget.y, this.focusBlend);
+          z = lerp(z, S.focusTarget.z, this.focusBlend);
+          rotXDeg = lerp(rotXDeg, S.focusTarget.rotXDeg, this.focusBlend);
+          rotYDeg = lerp(rotYDeg, S.focusTarget.rotYDeg, this.focusBlend);
+          rotZDeg = lerp(rotZDeg, S.focusTarget.rotZDeg, this.focusBlend);
+          scale = lerp(scale, S.focusTarget.scale, this.focusBlend);
+          opacity = lerp(opacity, S.focusTarget.opacity, this.focusBlend);
+          visible = true;
+        } else {
+          z = lerp(z, z + S.focusNonActivePushZ, this.focusBlend);
+          scale *= lerp(1, S.focusNonActiveScale, this.focusBlend);
+          opacity = lerp(opacity, S.focusNonActiveOpacity, this.focusBlend);
+          visible = opacity > 0.013;
+        }
+      }
+
+      const rotX = toRadians(rotXDeg);
+      const rotY = toRadians(rotYDeg);
+      const rotZ = toRadians(rotZDeg);
+
       if (this.mode === 'index') {
         opacity = Math.min(opacity, S.indexModeOpacity);
       }
 
-      const visibleRange = this.layout.visibleRange;
-      const visible = absDelta <= visibleRange;
-
-      const transform = {
+      itemStates.push({
+        index: i,
+        item,
+        delta,
+        absDelta,
         x,
         y,
         z,
@@ -436,48 +744,68 @@ export class SceneController {
         scale,
         opacity,
         visible
-      };
-
-      item.setTransform(transform);
-
-      const phase = clamp(1 - absDelta / Math.max(visibleRange, 0.0001), 0, 1);
-      item.setDepthProfile({ depthPhase: phase });
-      item.update(time);
-
-      if (visible && opacity > 0.025) {
-        item.loadHighResTexture();
-        if (this.mode === 'overview') {
-          this.visibleTargets.push(item.getRaycastTarget());
-        }
-
-        const pxPerWorld = this.getPixelScaleAtDepth(z);
-        const widthWorld = transform.height * (item.aspect || 1.5) * scale;
-        const widthPx = widthWorld * pxPerWorld;
-        const heightPx = transform.height * scale * pxPerWorld;
-        const centerPx = this.layout.viewportWidth * 0.5 + x * pxPerWorld;
-        const centerYPx = this.layout.viewportHeight * 0.5 - y * pxPerWorld;
-
-        debugRects.push({
-          index: i,
-          centerPx,
-          centerYPx,
-          yawDeg: THREE.MathUtils.radToDeg(rotY),
-          leftPx: centerPx - widthPx * 0.5,
-          rightPx: centerPx + widthPx * 0.5,
-          topPx: centerYPx - heightPx * 0.5,
-          bottomPx: centerYPx + heightPx * 0.5,
-          widthPx,
-          heightPx,
-          opacity
-        });
-      }
+      });
 
       if (i === nextActiveIndex) {
-        activeYawDeg = THREE.MathUtils.radToDeg(rotY);
+        activeYawDeg = rotYDeg;
+      }
+      if (i === this.focusIndex) {
+        focusYawDeg = rotYDeg;
       }
     }
 
-    this.updateLayoutDebugState(debugRects, nextActiveIndex, activeYawDeg);
+    this.applyLaneSpacingCorrection(itemStates, lane, clampBounds);
+
+    const debugRects = [];
+    for (const state of itemStates) {
+      const transform = {
+        x: state.x,
+        y: state.y,
+        z: state.z,
+        rotX: state.rotX,
+        rotY: state.rotY,
+        rotZ: state.rotZ,
+        height: state.height,
+        scale: state.scale,
+        opacity: state.opacity,
+        visible: state.visible
+      };
+
+      state.item.setTransform(transform);
+
+      const phase = clamp(1 - state.absDelta / Math.max(lane.visibleRange, 0.0001), 0, 1);
+      state.item.setDepthProfile({ depthPhase: phase });
+      state.item.update(time);
+
+      if (state.visible && state.opacity > 0.025) {
+        state.item.loadHighResTexture();
+        if (this.mode === 'overview') {
+          this.visibleTargets.push(state.item.getRaycastTarget());
+        }
+
+        const projected = this.projectStateRect(state);
+        if (!projected) continue;
+        debugRects.push({
+          index: state.index,
+          centerPx: projected.centerPx,
+          centerYPx: projected.centerYPx,
+          yawDeg: THREE.MathUtils.radToDeg(state.rotY),
+          leftPx: projected.leftPx,
+          rightPx: projected.rightPx,
+          topPx: projected.topPx,
+          bottomPx: projected.bottomPx,
+          widthPx: projected.widthPx,
+          heightPx: projected.heightPx,
+          opacity: state.opacity
+        });
+      }
+    }
+
+    if (this.focusState === 'active' && this.focusIndex >= 0) {
+      nextActiveIndex = this.focusIndex;
+    }
+
+    this.updateLayoutDebugState(debugRects, nextActiveIndex, activeYawDeg, focusYawDeg);
 
     if (nextActiveIndex !== this.activeIndex) {
       this.activeIndex = nextActiveIndex;

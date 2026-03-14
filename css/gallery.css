@@ -44,6 +44,37 @@ body.gallery-page {
   pointer-events: none;
 }
 
+.gallery-shell[data-inspect='true'] .gallery-canvas {
+  pointer-events: none;
+}
+
+.gallery-focus-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+  background: rgba(229, 229, 228, 0);
+  cursor: zoom-out;
+  backdrop-filter: blur(0);
+  -webkit-backdrop-filter: blur(0);
+  transition:
+    opacity 220ms ease,
+    background 220ms ease,
+    backdrop-filter 220ms ease;
+}
+
+.gallery-focus-overlay.is-active {
+  opacity: 1;
+  pointer-events: auto;
+  background: rgba(229, 229, 228, 0.22);
+  backdrop-filter: blur(1.2px);
+  -webkit-backdrop-filter: blur(1.2px);
+}
+
 .gallery-tab-rail {
   position: fixed;
   top: var(--gallery-edge);
@@ -305,6 +336,12 @@ body.gallery-page {
 .gallery-shell[data-mode='index'] .gallery-counter,
 .gallery-shell[data-mode='index'] .gallery-caption {
   opacity: 0.38;
+}
+
+.gallery-shell[data-inspect='true'] .gallery-counter,
+.gallery-shell[data-inspect='true'] .gallery-caption,
+.gallery-shell[data-inspect='true'] .gallery-mode-switch {
+  background: rgba(247, 247, 245, 0.74);
 }
 
 @media (max-width: 980px) {
