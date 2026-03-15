@@ -72,10 +72,10 @@ async function loadSequenceFromJson(path) {
 
 function mapPhotoToEntry(photo, index) {
   const title = photo.title || photo.filename || `Photo ${index + 1}`;
-  const fallbackPath = `../../photos/${photo.filename}`;
-  const mediumJpg = photo.medium?.jpg ? `../../photos/medium/${photo.medium.jpg}` : fallbackPath;
-  const largeJpg = photo.large?.jpg ? `../../photos/large/${photo.large.jpg}` : mediumJpg;
-  const thumbJpg = photo.thumbs?.jpg ? `../../photos/thumbs/${photo.thumbs.jpg}` : mediumJpg;
+  const fallbackPath = `../../assets/photos/${photo.filename}`;
+  const mediumJpg = photo.medium?.jpg ? `../../assets/photos/medium/${photo.medium.jpg}` : fallbackPath;
+  const largeJpg = photo.large?.jpg ? `../../assets/photos/large/${photo.large.jpg}` : mediumJpg;
+  const thumbJpg = photo.thumbs?.jpg ? `../../assets/photos/thumbs/${photo.thumbs.jpg}` : mediumJpg;
 
   const width = toNumber(photo.medium?.width || photo.width, 1600);
   const height = toNumber(photo.medium?.height || photo.height, 1067);
@@ -87,8 +87,8 @@ function mapPhotoToEntry(photo, index) {
       thumb: thumbJpg,
       medium: mediumJpg,
       large: largeJpg,
-      avif: photo.large?.avif ? `../../photos/large/${photo.large.avif}` : undefined,
-      webp: photo.large?.webp ? `../../photos/large/${photo.large.webp}` : undefined
+      avif: photo.large?.avif ? `../../assets/photos/large/${photo.large.avif}` : undefined,
+      webp: photo.large?.webp ? `../../assets/photos/large/${photo.large.webp}` : undefined
     },
     meta: {
       date: photo.exif?.date || 'Unknown date',
@@ -116,9 +116,9 @@ function mapPhotoToEntry(photo, index) {
 
 async function loadSequenceWithFallback() {
   try {
-    return await loadSequenceFromJson('../../photos/gallery-sequence.json');
+    return await loadSequenceFromJson('../../assets/photos/gallery-sequence.json');
   } catch (_error) {
-    const response = await fetch('../../photos/photos.json');
+    const response = await fetch('../../assets/photos/photos.json');
     if (!response.ok) {
       throw new Error('Failed to load both gallery-sequence.json and photos.json');
     }

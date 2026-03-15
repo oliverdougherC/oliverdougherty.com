@@ -7,8 +7,9 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const PHOTOS_DIR = path.join(ROOT, 'photos');
+const PHOTOS_DIR = path.join(ROOT, 'assets', 'photos');
 const MANIFEST_PATH = path.join(PHOTOS_DIR, 'photos.json');
+const SEQUENCE_PATH = path.join(PHOTOS_DIR, 'gallery-sequence.json');
 
 const REQUIRED_PAGES = [
   'index.html',
@@ -54,20 +55,26 @@ function validatePages() {
   }
 
   const galleryHtml = fs.readFileSync(path.join(ROOT, 'pages/gallery/index.html'), 'utf8');
-  assert(galleryHtml.includes('id="galleryWebglCanvas"'), 'Gallery WebGL canvas missing');
   assert(galleryHtml.includes('id="navToggle"'), 'Gallery shared nav toggle missing');
   assert(galleryHtml.includes('data-theme-toggle'), 'Gallery theme toggle missing');
   assert(galleryHtml.includes('id="navOverlay"'), 'Gallery shared nav overlay missing');
   assert(galleryHtml.includes('class="noise-overlay"'), 'Gallery noise overlay missing');
-  assert(galleryHtml.includes('id="galleryModeSwitch"'), 'Gallery mode switch missing');
-  assert(galleryHtml.includes('id="galleryModeOverview"'), 'Gallery overview mode button missing');
-  assert(galleryHtml.includes('id="galleryModeIndex"'), 'Gallery index mode button missing');
-  assert(galleryHtml.includes('id="galleryIndexPanel"'), 'Gallery index panel missing');
-  assert(galleryHtml.includes('id="galleryIndexList"'), 'Gallery index list missing');
-  assert(galleryHtml.includes('id="galleryCounter"'), 'Gallery counter missing');
-  assert(galleryHtml.includes('id="galleryCaption"'), 'Gallery caption missing');
-  assert(galleryHtml.includes('id="galleryScrollTrack"'), 'Gallery scroll track missing');
-  assert(!galleryHtml.includes('id="galleryTabRail"'), 'Gallery should not include the legacy tab rail');
+  assert(galleryHtml.includes('id="galleryHeroFeature"'), 'Gallery hero feature card missing');
+  assert(galleryHtml.includes('id="galleryHeroCount"'), 'Gallery hero count summary missing');
+  assert(galleryHtml.includes('id="galleryHeroRange"'), 'Gallery hero range summary missing');
+  assert(galleryHtml.includes('id="galleryHeroThemes"'), 'Gallery hero themes summary missing');
+  assert(galleryHtml.includes('id="galleryHeroQueue"'), 'Gallery hero support queue missing');
+  assert(galleryHtml.includes('id="gallerySearch"'), 'Gallery search input missing');
+  assert(galleryHtml.includes('id="galleryFilterChips"'), 'Gallery filter chips missing');
+  assert(galleryHtml.includes('id="galleryFeaturedGrid"'), 'Featured gallery grid missing');
+  assert(galleryHtml.includes('id="galleryArchiveGrid"'), 'Archive gallery grid missing');
+  assert(galleryHtml.includes('id="galleryClearFilters"'), 'Gallery clear filters control missing');
+  assert(galleryHtml.includes('id="lightboxThumbStrip"'), 'Lightbox thumbnail strip missing');
+  assert(galleryHtml.includes('class="footer gallery-footer"'), 'Gallery footer class missing');
+  assert(!galleryHtml.includes('id="galleryHeroStats"'), 'Legacy hero stat cards should not ship');
+  assert(!galleryHtml.includes('id="galleryHeroStrip"'), 'Gallery hero strip should not ship');
+  assert(!galleryHtml.includes('id="galleryWebglCanvas"'), 'Gallery should not ship the non-default WebGL canvas');
+  assert(!galleryHtml.includes('id="galleryModeSwitch"'), 'Gallery should not include legacy WebGL mode switch');
   assert(!galleryHtml.includes('data-disable-color-mode="true"'), 'Gallery should participate in shared color mode');
 
   const dashboardHtml = fs.readFileSync(path.join(ROOT, 'pages/dashboard/index.html'), 'utf8');
@@ -102,15 +109,21 @@ function validatePhotoVariantFile(variantKey, photo, format) {
 }
 
 function validatePhotos() {
-  assert(fs.existsSync(MANIFEST_PATH), 'Missing photos/photos.json');
+  assert(fs.existsSync(MANIFEST_PATH), 'Missing assets/photos/photos.json');
+  assert(fs.existsSync(SEQUENCE_PATH), 'Missing assets/photos/gallery-sequence.json');
 
   const manifest = readJson(MANIFEST_PATH);
   const photos = manifest.photos;
-  assert(Array.isArray(photos), 'photos/photos.json must contain a photos array');
-  assert(photos.length > 0, 'photos/photos.json has no photos');
+  assert(Array.isArray(photos), 'assets/photos/photos.json must contain a photos array');
+  assert(photos.length > 0, 'assets/photos/photos.json has no photos');
+
+  const sequence = readJson(SEQUENCE_PATH);
+  assert(Array.isArray(sequence.items), 'assets/photos/gallery-sequence.json must contain an items array');
 
   for (const photo of photos) {
     assert(photo.filename, 'Photo entry missing filename');
+    assert(photo.displayTitle, `Photo entry missing displayTitle for ${photo.filename}`);
+    assert(photo.description, `Photo entry missing description for ${photo.filename}`);
     assert(photo.width > 0 && photo.height > 0, `Invalid original dimensions for ${photo.filename}`);
 
     const originalPath = path.join(PHOTOS_DIR, photo.filename);

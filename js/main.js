@@ -203,7 +203,10 @@ function initSmoothScroll() {
         e.preventDefault();
 
         const navHeight = document.querySelector('.nav')?.offsetHeight || 0;
-        const targetPosition = target.getBoundingClientRect().top + window.scrollY - navHeight - 20;
+        const scrollMarginTop = Number.parseFloat(window.getComputedStyle(target).scrollMarginTop) || 0;
+        const fallbackOffset = navHeight + 20;
+        const targetOffset = scrollMarginTop || fallbackOffset;
+        const targetPosition = target.getBoundingClientRect().top + window.scrollY - targetOffset;
 
         if (prefersReducedMotion()) {
           window.scrollTo(0, targetPosition);

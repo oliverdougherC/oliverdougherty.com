@@ -5,70 +5,132 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Gallery - Oliver Dougherty</title>
-  <meta name="description" content="Photography portfolio showcasing moments captured through my lens.">
+  <meta name="description" content="A curated photography archive of landscapes, wildlife, and field notes from recent shoots.">
+  <link rel="icon" type="image/svg+xml" href="../../favicon.svg">
 
-  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
 
-  <!-- Styles -->
+  <link rel="stylesheet" href="../../css/design-system.css?v=20260315">
+  <link rel="stylesheet" href="../../css/gallery.css?v=20260315">
+  <link rel="stylesheet" href="../../css/cursor.css?v=20260315">
 </head>
 
 <body>
   <div class="noise-overlay"></div>
 
-  <!-- Navigation -->
   <nav class="nav" id="nav">
     <div class="nav-inner container">
       <a href="../../index.html" class="nav-logo" data-cursor="hover">
         <span class="logo-text">O<span class="logo-d">D</span></span>
       </a>
 
-      <!-- Fullscreen Menu Overlay -->
-      <div class="nav-overlay" id="navOverlay">
-        <div class="nav-overlay-bg"></div>
-        <div class="nav-links container" id="navLinks">
-          <div class="nav-menu-header">Menu</div>
-          <a href="../../index.html" class="nav-link nav-link--home" data-cursor="hover">Home</a>
-          <a href="../resume/index.html" class="nav-link nav-link--resume" data-cursor="hover">Resume</a>
-          <a href="../gallery/index.html" class="nav-link nav-link--gallery active" aria-current="page"
-            data-cursor="hover">Gallery</a>
-          <a href="../archive/index.html" class="nav-link nav-link--archive" data-cursor="hover">Archive</a>
-          <a href="../dashboard/index.html" class="nav-link nav-link--dashboard" data-cursor="hover">Services</a>
-
-          <div class="nav-menu-footer">
-            <a href="mailto:oliverfdougherty@gmail.com" class="footer-link" data-cursor="hover">Contact</a>
-            <a href="https://github.com/oliverdougherC" class="footer-link" target="_blank" rel="noopener noreferrer"
-              data-cursor="hover">Github</a>
-          </div>
-        </div>
+      <div class="nav-controls">
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to light mode"
+          aria-pressed="false" data-cursor="hover">
+          <span class="theme-toggle-icon" aria-hidden="true"></span>
+        </button>
+        <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false"
+          data-cursor="hover">
+          <span></span>
+          <span></span>
+        </button>
       </div>
-
-      <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false"
-        data-cursor="hover">
-        <span></span>
-        <span></span>
-      </button>
     </div>
   </nav>
 
-  <main class="gallery-main">
-    <!-- Hero -->
-    <header class="gallery-hero">
-      <div class="container">
-        <div class="hero-content">
-          <span class="hero-tag">Photography</span>
-          <h1 class="hero-title text-display">My Gallery</h1>
-          <p class="hero-subtitle">
-            A collection of photos from recent shoots.
-          </p>
-        </div>
+  <div class="nav-overlay" id="navOverlay">
+    <div class="nav-overlay-bg"></div>
+    <div class="nav-links container" id="navLinks">
+      <div class="nav-menu-header">Menu</div>
+      <a href="../../index.html" class="nav-link nav-link--home" data-cursor="hover">Home</a>
+      <a href="../resume/index.html" class="nav-link nav-link--resume" data-cursor="hover">Resume</a>
+      <a href="../gallery/index.html" class="nav-link nav-link--gallery active" aria-current="page"
+        data-cursor="hover">Gallery</a>
+      <a href="../archive/index.html" class="nav-link nav-link--archive" data-cursor="hover">Archive</a>
+      <a href="../dashboard/index.html" class="nav-link nav-link--dashboard" data-cursor="hover">Services</a>
+
+      <div class="nav-menu-footer">
+        <a href="mailto:oliverfdougherty@gmail.com" class="footer-link" data-cursor="hover">Contact</a>
+        <a href="https://github.com/oliverdougherC" class="footer-link" target="_blank" rel="noopener noreferrer"
+          data-cursor="hover">Github</a>
       </div>
-      <div class="hero-gradient"></div>
+    </div>
+  </div>
+
+  <main class="gallery-main">
+    <header class="gallery-hero">
+      <div class="hero-aurora hero-aurora--one"></div>
+      <div class="hero-aurora hero-aurora--two"></div>
+      <div class="container gallery-hero-layout">
+        <div class="hero-copy">
+          <span class="hero-tag">Photography Archive</span>
+          <h1 class="hero-title text-display">Field Notes & Light Studies</h1>
+          <p class="hero-subtitle">
+            Coastlines, chance encounters, night studies, and detail frames gathered across late 2025.
+          </p>
+          <div class="hero-summary" id="galleryHeroSummary" aria-label="Gallery overview">
+            <div class="hero-summary-item">
+              <span class="hero-summary-label">Archive</span>
+              <span class="hero-summary-value" id="galleryHeroCount">Loading photographs…</span>
+            </div>
+            <div class="hero-summary-item">
+              <span class="hero-summary-label">Date Span</span>
+              <span class="hero-summary-value" id="galleryHeroRange">Loading date span…</span>
+            </div>
+            <div class="hero-summary-item">
+              <span class="hero-summary-label">Hero Themes</span>
+              <span class="hero-summary-value" id="galleryHeroThemes">Loading curation…</span>
+            </div>
+          </div>
+        </div>
+
+        <aside class="hero-feature-card" id="galleryHeroFeature">
+          <div class="hero-feature-media">
+            <picture id="galleryHeroPicture">
+              <source id="galleryHeroSourceAvif" type="image/avif">
+              <source id="galleryHeroSourceWebp" type="image/webp">
+              <img id="galleryHeroImage" src="" alt="" class="hero-feature-image">
+            </picture>
+          </div>
+          <div class="hero-feature-body">
+            <div class="hero-feature-header">
+              <div class="hero-feature-header-copy">
+                <p class="hero-feature-label">Featured frame</p>
+                <h2 class="hero-feature-title" id="galleryHeroTitle">Loading gallery…</h2>
+              </div>
+              <p class="hero-feature-theme" id="galleryHeroTheme">Loading theme</p>
+            </div>
+            <p class="hero-feature-meta" id="galleryHeroMeta">Pulling metadata from the archive.</p>
+            <p class="hero-feature-description" id="galleryHeroDescription"></p>
+            <p class="hero-feature-notes" id="galleryHeroNotes" hidden></p>
+            <div class="hero-feature-queue" aria-label="Hero support queue">
+              <div class="hero-feature-queue-head">
+                <p class="hero-feature-queue-label">Next in sequence</p>
+                <p class="hero-feature-collection" id="galleryHeroCollection">Loading selection</p>
+              </div>
+              <div class="hero-feature-queue-list" id="galleryHeroQueue"></div>
+            </div>
+            <div class="hero-feature-actions">
+              <button class="hero-action hero-action--primary" id="galleryHeroOpen" type="button"
+                data-cursor="hover">
+                Inspect frame
+              </button>
+              <a class="hero-action hero-action--secondary" href="#galleryFeaturedSection" data-cursor="hover">
+                Browse featured
+              </a>
+            </div>
+          </div>
+        </aside>
+      </div>
     </header>
 
-    <!-- Gallery Grid -->
-    <section class="gallery-section">
+    <section class="gallery-toolbar-section" aria-label="Gallery controls">
       <div class="container-wide">
-        <div class="gallery-controls">
+        <div class="gallery-toolbar">
           <div class="gallery-search-wrapper">
             <svg class="gallery-search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" stroke-width="2">
@@ -76,22 +138,34 @@
               <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
             <input type="text" class="gallery-search-input" id="gallerySearch"
-              placeholder="Search by lens, ISO, aperture, etc." aria-label="Search by lens, ISO, aperture, etc.">
+              placeholder="Search by title, category, location, description, lens, ISO, or notes"
+              aria-label="Search the photography archive" autocomplete="off">
           </div>
-          <div class="gallery-count">
-            <span id="photoCount">0</span> photographs
+
+          <div class="gallery-toolbar-meta">
+            <button class="gallery-clear-btn" id="galleryClearFilters" type="button" data-cursor="hover" hidden>
+              Clear filters
+            </button>
+            <div class="gallery-results" id="galleryResults" role="status" aria-live="polite">
+              Loading photographs…
+            </div>
           </div>
         </div>
 
-        <div class="gallery-grid" id="galleryGrid">
-          <!-- Photos will be dynamically loaded here -->
-          <div class="gallery-loading" id="galleryLoading">
-            <div class="loading-spinner"></div>
-            <p>Loading photographs...</p>
-          </div>
+        <div class="gallery-filter-row">
+          <div class="gallery-filter-chips" id="galleryFilterChips" aria-label="Filter gallery"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="gallery-status-section">
+      <div class="container-wide">
+        <div class="gallery-loading" id="galleryLoading">
+          <div class="loading-spinner"></div>
+          <p>Loading photographs…</p>
         </div>
 
-        <div class="gallery-empty" id="galleryEmpty" style="display: none;">
+        <div class="gallery-empty" id="galleryEmpty" hidden>
           <div class="empty-icon">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
               stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -100,52 +174,139 @@
               <polyline points="21 15 16 10 5 21" />
             </svg>
           </div>
-          <p>No photographs found</p>
-          <span class="empty-hint">Add .jpg files to the /photos directory</span>
+          <h2 class="empty-title" id="galleryEmptyTitle">No photographs found</h2>
+          <p class="empty-copy" id="galleryEmptyCopy">Try a broader search or reset the current filters.</p>
+          <button class="gallery-clear-btn" id="galleryEmptyReset" type="button" data-cursor="hover">
+            Reset view
+          </button>
         </div>
+
+        <div class="gallery-empty gallery-empty--error" id="galleryError" hidden>
+          <div class="empty-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 9v4" />
+              <path d="M12 17h.01" />
+              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+            </svg>
+          </div>
+          <h2 class="empty-title">Gallery unavailable</h2>
+          <p class="empty-copy" id="galleryErrorCopy">
+            The archive data could not be loaded. Refresh the page or try again later.
+          </p>
+        </div>
+
+        <noscript>
+          <div class="gallery-empty gallery-empty--noscript">
+            <h2 class="empty-title">JavaScript required</h2>
+            <p class="empty-copy">This gallery uses client-side image metadata and needs JavaScript enabled.</p>
+          </div>
+        </noscript>
+      </div>
+    </section>
+
+    <section class="gallery-section gallery-section--featured" id="galleryFeaturedSection" hidden
+      aria-labelledby="galleryFeaturedHeading">
+      <div class="container-wide">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">Featured</p>
+              <h2 class="section-title" id="galleryFeaturedHeading">Curated frames</h2>
+            </div>
+          <p class="section-copy">
+            A tighter sequence of anchor frames chosen for contrast in scale, subject, and mood.
+          </p>
+        </div>
+
+        <div class="featured-grid" id="galleryFeaturedGrid"></div>
+      </div>
+    </section>
+
+    <section class="gallery-section gallery-section--archive" id="galleryArchiveSection" hidden
+      aria-labelledby="galleryArchiveHeading">
+      <div class="container-wide">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">Archive</p>
+            <h2 class="section-title" id="galleryArchiveHeading">All photographs</h2>
+          </div>
+          <p class="section-copy" id="galleryArchiveCopy">
+            Every available frame in a consistent, searchable grid.
+          </p>
+        </div>
+
+        <div class="archive-grid" id="galleryArchiveGrid"></div>
       </div>
     </section>
   </main>
 
-  <!-- Lightbox -->
-  <div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Photo lightbox">
-    <button class="lightbox-close" id="lightboxClose" aria-label="Close lightbox">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="18" y1="6" x2="6" y2="18" />
-        <line x1="6" y1="6" x2="18" y2="18" />
-      </svg>
-    </button>
+  <div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Photo inspection view" hidden>
+    <div class="lightbox-backdrop" data-lightbox-dismiss></div>
 
-    <button class="lightbox-nav lightbox-prev" id="lightboxPrev" aria-label="Previous photo">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="15 18 9 12 15 6" />
-      </svg>
-    </button>
-
-    <button class="lightbox-nav lightbox-next" id="lightboxNext" aria-label="Next photo">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="9 18 15 12 9 6" />
-      </svg>
-    </button>
-
-    <div class="lightbox-content">
-      <picture id="lightboxPicture" class="lightbox-picture">
-        <source id="lightboxSourceAvif" type="image/avif">
-        <source id="lightboxSourceWebp" type="image/webp">
-        <img src="" alt="" id="lightboxImage" class="lightbox-image">
-      </picture>
-      <div class="lightbox-info" id="lightboxInfo">
-        <h3 class="lightbox-title" id="lightboxTitle"></h3>
-        <div class="lightbox-meta" id="lightboxMeta">
-          <!-- EXIF data will be inserted here -->
+    <div class="lightbox-shell">
+      <section class="lightbox-stage" aria-label="Selected photograph">
+        <div class="lightbox-topbar">
+          <div class="lightbox-counter" id="lightboxCounter" role="status" aria-live="polite"></div>
+          <div class="lightbox-topbar-actions">
+            <button class="lightbox-info-toggle" id="lightboxInfoToggle" type="button" aria-expanded="false"
+              data-cursor="hover">
+              Details
+            </button>
+            <button class="lightbox-close" id="lightboxClose" aria-label="Close lightbox" data-cursor="hover">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
         </div>
-      </div>
+
+        <button class="lightbox-nav lightbox-prev" id="lightboxPrev" aria-label="Previous photo" data-cursor="hover">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+        </button>
+
+        <div class="lightbox-media" id="lightboxMedia">
+          <picture id="lightboxPicture" class="lightbox-picture">
+            <source id="lightboxSourceAvif" type="image/avif">
+            <source id="lightboxSourceWebp" type="image/webp">
+            <img src="" alt="" id="lightboxImage" class="lightbox-image">
+          </picture>
+        </div>
+
+        <button class="lightbox-nav lightbox-next" id="lightboxNext" aria-label="Next photo" data-cursor="hover">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </button>
+      </section>
+
+      <aside class="lightbox-panel" id="lightboxPanel">
+        <div class="lightbox-panel-header">
+          <p class="lightbox-eyebrow" id="lightboxEyebrow">Archive</p>
+          <h2 class="lightbox-title" id="lightboxTitle"></h2>
+          <p class="lightbox-subline" id="lightboxSubline"></p>
+        </div>
+
+        <p class="lightbox-notes" id="lightboxNotes"></p>
+
+        <div class="lightbox-meta" id="lightboxMeta"></div>
+
+        <div class="lightbox-strip">
+          <div class="lightbox-strip-header">
+            <h3 class="lightbox-strip-title">Jump to frame</h3>
+          </div>
+          <div class="lightbox-thumbs" id="lightboxThumbStrip"></div>
+        </div>
+      </aside>
     </div>
-    <div class="lightbox-counter" id="lightboxCounter" role="status" aria-live="polite"></div>
   </div>
 
-  <!-- Footer -->
-  <footer class="footer">
+  <footer class="footer gallery-footer">
     <div class="container">
       <div class="footer-inner">
         <p class="footer-text">&copy; <span data-current-year>2026</span> Oliver Dougherty</p>
@@ -153,19 +314,9 @@
     </div>
   </footer>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link
-    href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&display=swap"
-    rel="stylesheet">
-
-  <link rel="stylesheet" href="../../css/design-system.css">
-  <link rel="stylesheet" href="../../css/gallery.css">
-  <link rel="stylesheet" href="../../css/cursor.css">
-  <script src="../../js/year.js" defer></script>
-  <script src="../../js/main.js" defer></script>
-  <script src="../../js/gallery.js" defer></script>
-
+  <script src="../../js/year.js?v=20260315" defer></script>
+  <script src="../../js/main.js?v=20260315" defer></script>
+  <script src="../../js/gallery.js?v=20260315" defer></script>
 
   <div class="cursor-dot" id="cursorDot"></div>
   <div class="cursor-circle" id="cursorCircle"></div>
