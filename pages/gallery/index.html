@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="gallery" data-disable-color-mode="true">
+<html lang="en" data-theme="gallery">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,10 +9,11 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="../../css/design-system.css">
   <link rel="stylesheet" href="../../css/gallery.css">
+  <link rel="stylesheet" href="../../css/cursor.css">
 
   <script type="importmap">
     {
@@ -25,63 +26,102 @@
   </script>
 </head>
 <body class="gallery-page">
-  <main class="gallery-shell" id="galleryShell" data-mode="overview" data-gallery-shell="unveil">
-    <canvas id="galleryWebglCanvas" class="gallery-canvas" aria-hidden="true"></canvas>
+  <div class="noise-overlay"></div>
 
-    <header class="gallery-tab-rail" id="galleryTabRail" aria-label="Primary navigation">
-      <a href="../../index.html" class="gallery-tab gallery-tab--active">Oliver &reg;</a>
-      <a href="../archive/index.html" class="gallery-tab">Research</a>
-      <a href="../resume/index.html" class="gallery-tab">Studio</a>
-      <a href="mailto:oliverfdougherty@gmail.com" class="gallery-tab">Contact</a>
-    </header>
+  <nav class="nav" id="nav">
+    <div class="nav-inner container">
+      <a href="../../index.html" class="nav-logo" data-cursor="hover">
+        <span class="logo-text">O<span class="logo-d">D</span></span>
+      </a>
 
-    <section class="gallery-hud" aria-label="Gallery navigation">
-      <div class="gallery-counter" id="galleryCounter" role="status" aria-live="polite">01 / 01</div>
-      <div class="gallery-caption" id="galleryCaption">Loading sequence...</div>
-
-      <div class="gallery-mode-switch" id="galleryModeSwitch" role="tablist" aria-label="Gallery mode">
-        <button
-          type="button"
-          id="galleryModeOverview"
-          class="gallery-mode-btn is-active"
-          data-mode="overview"
-          role="tab"
-          aria-selected="true"
-          aria-controls="galleryShell"
-        >
-          Overview
+      <div class="nav-controls">
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to light mode" aria-pressed="false" data-cursor="hover">
+          <span class="theme-toggle-icon" aria-hidden="true"></span>
         </button>
-        <button
-          type="button"
-          id="galleryModeIndex"
-          class="gallery-mode-btn"
-          data-mode="index"
-          role="tab"
-          aria-selected="false"
-          aria-controls="galleryIndexPanel"
-        >
-          Index
+        <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false" data-cursor="hover">
+          <span></span>
+          <span></span>
         </button>
       </div>
-    </section>
+    </div>
+  </nav>
 
-    <section
-      class="gallery-index-panel"
-      id="galleryIndexPanel"
-      aria-label="Photo index"
-      data-lenis-prevent
-      hidden
-    >
-      <header class="gallery-index-head" aria-hidden="true">
-        <span>Year</span>
-        <span>Photo</span>
-        <span>Category</span>
-      </header>
-      <ol id="galleryIndexList" class="gallery-index-list"></ol>
-    </section>
+  <div class="nav-overlay" id="navOverlay">
+    <div class="nav-overlay-bg"></div>
+    <div class="nav-links container" id="navLinks">
+      <div class="nav-menu-header">Menu</div>
+      <a href="../../index.html" class="nav-link nav-link--home" data-cursor="hover">Home</a>
+      <a href="../resume/index.html" class="nav-link nav-link--resume" data-cursor="hover">Resume</a>
+      <a href="../gallery/index.html" class="nav-link nav-link--gallery active" aria-current="page" data-cursor="hover">Gallery</a>
+      <a href="../archive/index.html" class="nav-link nav-link--archive" data-cursor="hover">Archive</a>
+      <a href="../dashboard/index.html" class="nav-link nav-link--dashboard" data-cursor="hover">Services</a>
 
-    <div class="sr-only" id="gallerySrDesc" aria-live="polite" role="status"></div>
-    <div class="gallery-scroll-track" id="galleryScrollTrack" aria-hidden="true"></div>
+      <div class="nav-menu-footer">
+        <a href="mailto:oliverfdougherty@gmail.com" class="footer-link" data-cursor="hover">Contact</a>
+        <a href="https://github.com/oliverdougherC" class="footer-link" target="_blank" rel="noopener noreferrer" data-cursor="hover">Github</a>
+      </div>
+    </div>
+  </div>
+
+  <main class="gallery-main">
+    <section class="gallery-shell" id="galleryShell" data-mode="overview" data-gallery-shell="native">
+      <canvas id="galleryWebglCanvas" class="gallery-canvas" aria-hidden="true"></canvas>
+
+      <div class="gallery-stage-tint" aria-hidden="true"></div>
+
+      <section class="gallery-hud container" aria-label="Gallery navigation">
+        <div class="gallery-counter" id="galleryCounter" role="status" aria-live="polite">01 / 01</div>
+        <div class="gallery-caption-wrap">
+          <p class="gallery-kicker">Photography</p>
+          <div class="gallery-caption" id="galleryCaption">Loading sequence...</div>
+        </div>
+
+        <div class="gallery-mode-switch" id="galleryModeSwitch" role="tablist" aria-label="Gallery mode">
+          <button
+            type="button"
+            id="galleryModeOverview"
+            class="gallery-mode-btn is-active"
+            data-mode="overview"
+            role="tab"
+            aria-selected="true"
+            aria-controls="galleryShell"
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            id="galleryModeIndex"
+            class="gallery-mode-btn"
+            data-mode="index"
+            role="tab"
+            aria-selected="false"
+            aria-controls="galleryIndexPanel"
+          >
+            Index
+          </button>
+        </div>
+      </section>
+
+      <section
+        class="gallery-index-panel"
+        id="galleryIndexPanel"
+        aria-label="Photo index"
+        data-lenis-prevent
+        hidden
+      >
+        <div class="container gallery-index-frame">
+          <header class="gallery-index-head" aria-hidden="true">
+            <span>Year</span>
+            <span>Photo</span>
+            <span>Category</span>
+          </header>
+          <ol id="galleryIndexList" class="gallery-index-list"></ol>
+        </div>
+      </section>
+
+      <div class="sr-only" id="gallerySrDesc" aria-live="polite" role="status"></div>
+      <div class="gallery-scroll-track" id="galleryScrollTrack" aria-hidden="true"></div>
+    </section>
   </main>
 
   <footer class="footer gallery-footer">
@@ -92,6 +132,7 @@
     </div>
   </footer>
 
+  <script src="../../js/main.js" defer></script>
   <script src="../../js/year.js" defer></script>
   <script type="module" src="../../js/gallery.js"></script>
 </body>

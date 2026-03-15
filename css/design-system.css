@@ -871,7 +871,7 @@ a:hover {
   top: 0;
   left: 0;
   right: 0;
-  z-index: calc(var(--z-sticky) + 10);
+  z-index: calc(var(--z-modal) + 2);
   padding: var(--space-10) 0;
   background: transparent;
   transition: all var(--duration-base) var(--ease-smooth);
@@ -879,6 +879,22 @@ a:hover {
 
 body.nav-open {
   overflow: hidden;
+}
+
+body.nav-open .nav {
+  pointer-events: none;
+}
+
+body.nav-open .nav .nav-logo,
+body.nav-open .nav .nav-controls {
+  pointer-events: auto;
+}
+
+body.nav-open .nav.scrolled {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-bottom-color: transparent;
 }
 
 .nav.scrolled {
@@ -929,6 +945,7 @@ body.nav-open {
   pointer-events: none;
   display: flex;
   align-items: center;
+  overflow-y: auto;
 }
 
 .nav-overlay-bg {

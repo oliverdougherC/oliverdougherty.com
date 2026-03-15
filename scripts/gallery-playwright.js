@@ -21,7 +21,7 @@ function parsePortFromBaseUrl(url) {
 function startLocalServerIfNeeded(url) {
   if (!isLocalBaseUrl(url)) return null;
   if (process.argv[2]) return null;
-  return spawn('python3', ['-m', 'http.server', String(parsePortFromBaseUrl(url))], {
+  return spawn('python3', ['-m', 'http.server', String(parsePortFromBaseUrl(url)), '--bind', '127.0.0.1'], {
     cwd: ROOT,
     stdio: 'ignore'
   });
@@ -55,31 +55,52 @@ async function waitForGalleryReady(page) {
   );
 }
 
+async function clearStoredTheme(context) {
+  await context.addInitScript(() => {
+    try {
+      window.localStorage.removeItem('od-color-mode');
+    } catch (_error) {
+      // Ignore storage issues in test contexts.
+    }
+  });
+}
+
 async function setDeterministicOverviewIndex(page, index = 3) {
   await page.evaluate((target) => {
     const app = window.__galleryApp;
     if (!app?.sceneController) return;
 
     app.setMode('overview');
+    app.sceneController.exitFocus?.({ immediate: true });
+    app.uiController?.setInspectMode?.(false);
     app.sceneController.jumpToIndex(target);
     app.inputController?.setCurrentIndex(target);
     app.uiController?.setActive(target, app.entries[target]);
   }, index);
-  await page.waitForTimeout(1200);
+  await page.waitForTimeout(1100);
 }
 
 async function captureInspectShot(page, screenshotPath) {
   await page.evaluate(() => {
-    window.__galleryApp?.handleCanvasClick?.(window.innerWidth * 0.5, window.innerHeight * 0.5);
+    const app = window.__galleryApp;
+    const active = app?.sceneController?.activeIndex ?? 0;
+    app?.handleInspectToggle?.(active);
   });
-  await page.waitForFunction(() => window.__galleryApp?.sceneController?.isFocused?.(), null, { timeout: 5000 });
-  await page.waitForTimeout(420);
+  await page.waitForFunction(() => {
+    const app = window.__galleryApp;
+    return Boolean(
+      app?.sceneController?.isFocused?.()
+      && app?.sceneController?.focusBlend >= 0.98
+      && document.body?.dataset.galleryInspect === 'true'
+    );
+  }, null, { timeout: 5000 });
+  await page.waitForTimeout(180);
   await page.screenshot({ path: screenshotPath });
   await page.evaluate(() => {
-    document.getElementById('galleryFocusOverlay')?.click();
+    window.__galleryApp?.handleCanvasClick?.(8, 8);
   });
   await page.waitForFunction(() => !window.__galleryApp?.sceneController?.isFocused?.(), null, { timeout: 5000 });
-  await page.waitForTimeout(280);
+  await page.waitForTimeout(320);
 }
 
 async function run() {
@@ -93,13 +114,16 @@ async function run() {
   const browser = await chromium.launch({ args: WEBGL_ARGS });
   try {
     const context = await browser.newContext({ viewport: { width: 1536, height: 960 } });
+    await clearStoredTheme(context);
     const page = await context.newPage();
 
     await page.goto(target, { waitUntil: NAV_WAIT_UNTIL });
     await waitForGalleryReady(page);
     await page.waitForTimeout(900);
 
-    await setDeterministicOverviewIndex(page, 3);
+    await page.screenshot({ path: path.join(outDir, 'landing-desktop.png') });
+
+    await setDeterministicOverviewIndex(page, 4);
     await page.screenshot({ path: path.join(outDir, 'desktop-overview.png') });
     await captureInspectShot(page, path.join(outDir, 'desktop-inspect.png'));
 
@@ -112,6 +136,7 @@ async function run() {
       isMobile: true,
       hasTouch: true
     });
+    await clearStoredTheme(mobile);
 
     const mobilePage = await mobile.newPage();
     await mobilePage.goto(target, { waitUntil: NAV_WAIT_UNTIL });

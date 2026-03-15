@@ -187,7 +187,6 @@ export class App {
 
     this.mode = 'overview';
     this.renderMode = 'initializing';
-    this.pendingInspectIndex = -1;
     this.inspectSettleTimer = null;
 
     this.frameWindow = [];
@@ -252,15 +251,8 @@ export class App {
           scrollJerk: meta.scrollJerk || 0
         });
 
-        if (this.inspectSettleTimer != null && meta.isUserDriven) {
-          this.clearInspectSettleTimer();
-          this.pendingInspectIndex = -1;
-          this.sceneController?.clearSelectionLift?.();
-        }
-
         if (this.sceneController?.isFocused?.()) {
-          const userIntent = Boolean(meta.isUserDriven)
-            || Math.abs(meta.inertialVelocity || 0) > 0.0008;
+          const userIntent = Boolean(meta.isUserDriven);
           if (userIntent) {
             this.clearInspectSettleTimer();
             this.sceneController.exitFocus();
@@ -333,11 +325,6 @@ export class App {
       reducedMotion: this.reducedMotion,
       onActiveIndexChange: (index, entry) => {
         this.uiController?.setActive(index, entry);
-        if (this.pendingInspectIndex === index) {
-          this.pendingInspectIndex = -1;
-          this.sceneController?.setSelectionLift?.(index, 360);
-          this.queueInspectEntry(index, 340);
-        }
       }
     });
 
@@ -350,7 +337,6 @@ export class App {
 
     this.mode = mode;
     if (mode !== 'overview') {
-      this.pendingInspectIndex = -1;
       this.clearInspectSettleTimer();
       this.sceneController?.exitFocus({ immediate: true });
       this.uiController?.setInspectMode(false);
@@ -393,40 +379,24 @@ export class App {
     }
   }
 
-  queueInspectEntry(index, delayMs = 360) {
-    this.clearInspectSettleTimer();
-    this.inspectSettleTimer = window.setTimeout(() => {
-      this.inspectSettleTimer = null;
-      if (!this.sceneController || this.mode !== 'overview') return;
-      if (this.sceneController.activeIndex !== index) return;
-      if (this.sceneController.isFocused()) return;
-
-      this.sceneController.enterFocus(index);
-      this.uiController?.setInspectMode(true);
-    }, delayMs);
-  }
-
   handleInspectToggle(index = this.sceneController?.activeIndex ?? this.uiController?.activeIndex ?? 0) {
     if (this.mode !== 'overview' || !this.sceneController) return;
 
     if (this.sceneController.isFocused()) {
       this.clearInspectSettleTimer();
       this.sceneController.exitFocus();
-      this.pendingInspectIndex = -1;
       this.uiController?.setInspectMode(false);
       return;
     }
 
     const bounded = Math.min(Math.max(index, 0), Math.max(this.entries.length - 1, 0));
     if (bounded !== (this.sceneController?.activeIndex ?? 0)) {
-      this.pendingInspectIndex = bounded;
-      this.sceneController?.setSelectionLift?.(bounded, 420);
+      this.sceneController?.setSelectionLift?.(bounded, 240);
       this.inputController?.scrollToIndex(bounded, { mode: 'fastSnap' });
       this.uiController?.setActive(bounded, this.entries[bounded]);
       return;
     }
 
-    this.pendingInspectIndex = -1;
     this.clearInspectSettleTimer();
     this.sceneController.enterFocus(bounded);
     this.uiController?.setInspectMode(true);
@@ -435,7 +405,6 @@ export class App {
   handleInspectExit() {
     if (!this.sceneController?.isFocused?.()) return;
     this.clearInspectSettleTimer();
-    this.pendingInspectIndex = -1;
     this.sceneController.exitFocus();
     this.uiController?.setInspectMode(false);
   }
@@ -448,7 +417,6 @@ export class App {
       this.sceneController.exitFocus({ immediate: true });
       this.uiController?.setInspectMode(false);
     }
-    this.pendingInspectIndex = -1;
 
     const bounded = Math.min(Math.max(index, 0), this.entries.length - 1);
     const entry = this.entries[bounded];
@@ -472,7 +440,6 @@ export class App {
     if (this.sceneController.isFocused()) {
       this.clearInspectSettleTimer();
       this.sceneController.exitFocus();
-      this.pendingInspectIndex = -1;
       this.uiController?.setInspectMode(false);
       return;
     }
@@ -485,14 +452,12 @@ export class App {
     if (hitIndex < 0) return;
 
     if (hitIndex !== this.sceneController.activeIndex) {
-      this.pendingInspectIndex = hitIndex;
-      this.sceneController?.setSelectionLift?.(hitIndex, 420);
+      this.sceneController?.setSelectionLift?.(hitIndex, 240);
       this.inputController.scrollToIndex(hitIndex, { mode: 'fastSnap' });
       this.uiController?.setActive(hitIndex, this.entries[hitIndex]);
       return;
     }
 
-    this.pendingInspectIndex = -1;
     this.clearInspectSettleTimer();
     this.sceneController.enterFocus(hitIndex);
     this.uiController?.setInspectMode(true);

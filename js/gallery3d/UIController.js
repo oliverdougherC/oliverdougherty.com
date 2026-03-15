@@ -29,7 +29,6 @@ export class UIController {
     this.focusOverlayEl = null;
 
     this.handleGlobalKey = this.handleGlobalKey.bind(this);
-    this.handleFocusOverlayClick = this.handleFocusOverlayClick.bind(this);
 
     this.buildIndex();
     this.bindEvents();
@@ -51,22 +50,13 @@ export class UIController {
   ensureFocusOverlay() {
     if (this.focusOverlayEl || !this.shellEl) return;
 
-    const overlay = document.createElement('button');
-    overlay.type = 'button';
+    const overlay = document.createElement('div');
     overlay.id = 'galleryFocusOverlay';
     overlay.className = 'gallery-focus-overlay';
-    overlay.setAttribute('aria-label', 'Exit inspect mode');
     overlay.setAttribute('aria-hidden', 'true');
-    overlay.tabIndex = -1;
-    overlay.addEventListener('click', this.handleFocusOverlayClick);
 
     this.shellEl.appendChild(overlay);
     this.focusOverlayEl = overlay;
-  }
-
-  handleFocusOverlayClick() {
-    if (!this.inspectMode) return;
-    this.onInspectExit?.();
   }
 
   buildIndex() {
@@ -132,6 +122,7 @@ export class UIController {
     this.ensureFocusOverlay();
     this.focusOverlayEl?.classList.toggle('is-active', next);
     this.focusOverlayEl?.setAttribute('aria-hidden', String(!next));
+    document.body?.setAttribute('data-gallery-inspect', String(next));
     if (this.shellEl) {
       this.shellEl.dataset.inspect = String(next);
     }
@@ -261,7 +252,7 @@ export class UIController {
 
   dispose() {
     document.removeEventListener('keydown', this.handleGlobalKey);
-    this.focusOverlayEl?.removeEventListener('click', this.handleFocusOverlayClick);
+    document.body?.removeAttribute('data-gallery-inspect');
     this.focusOverlayEl?.remove();
     this.focusOverlayEl = null;
   }

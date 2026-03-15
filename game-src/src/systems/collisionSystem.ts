@@ -166,6 +166,7 @@ export class CollisionSystem implements ISystem<GameWorld> {
     }
 
     const hazardCandidates = world.hazardHash.queryCircle(playerPos, playerRadius + 120, 64);
+    let totalEnemyHazardDamage = 0;
     for (const hazardId of hazardCandidates) {
       const hazardPos = world.positions.get(hazardId);
       const hazardRadius = world.radii.get(hazardId);
@@ -174,9 +175,11 @@ export class CollisionSystem implements ISystem<GameWorld> {
       if (hazard.team !== 'enemy' || hazard.armDelay > 0) continue;
 
       if (circlesOverlap(playerPos.x, playerPos.y, playerRadius, hazardPos.x, hazardPos.y, hazardRadius)) {
-        world.applyHazardDamage(hazard.damagePerSecond * world.hazardTickInterval);
-        // no break — all overlapping hazards deal damage each tick
+        totalEnemyHazardDamage += hazard.damagePerSecond * world.hazardTickInterval;
       }
+    }
+    if (totalEnemyHazardDamage > 0) {
+      world.applyHazardDamage(totalEnemyHazardDamage);
     }
 
     const pickupCandidates = world.xpHash.queryCircle(
@@ -274,7 +277,11 @@ export class CollisionSystem implements ISystem<GameWorld> {
         if (!circlesOverlap(projectilePos.x, projectilePos.y, projectileRadius, enemyPos.x, enemyPos.y, enemyRadius)) {
           continue;
         }
+        if (projectileData.hitEnemyIds.has(enemyId)) {
+          continue;
+        }
 
+        projectileData.hitEnemyIds.add(enemyId);
         const dealt = world.applyProjectileHitDamage(projectileData.damage);
         const appliedDamage = Math.min(enemyHealth.hp, dealt);
         enemyHealth.hp -= dealt;

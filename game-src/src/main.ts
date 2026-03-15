@@ -24,6 +24,10 @@ import {
   type RuntimeSettingsPayload
 } from './runtime/settings';
 import { resolveRestartAction } from './runtime/restartPolicy';
+import {
+  shouldHandleOverlayCloseShortcut,
+  shouldSuppressOverlayGameplayKey
+} from './runtime/overlayInput';
 import type { HandbookSection, ISystem, LevelUpChoice, QualityTier } from './types';
 import { AutoAttackSystem } from './systems/autoAttackSystem';
 import { CleanupSystem } from './systems/cleanupSystem';
@@ -68,7 +72,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
   const tag = target.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON';
 }
 
 function requireElement<T extends HTMLElement>(id: string): T {
@@ -1556,20 +1560,34 @@ async function main(): Promise<void> {
       !isEditableTarget(event.target);
 
     if (settingsOpen) {
-      if (key === 'escape' || key === 'o') {
+      const targetAllowsNativeHandling = isEditableTarget(event.target);
+      if (key === 'escape' || shouldHandleOverlayCloseShortcut(key, 'o', targetAllowsNativeHandling)) {
         closeSettings();
         event.preventDefault();
-      } else if (movementFlag || key === ' ') {
+      } else if (
+        shouldSuppressOverlayGameplayKey({
+          key,
+          movementKeyActive: movementFlag !== null,
+          targetAllowsNativeHandling
+        })
+      ) {
         event.preventDefault();
       }
       return;
     }
 
     if (helpOpen) {
-      if (key === 'escape' || key === 'h') {
+      const targetAllowsNativeHandling = isEditableTarget(event.target);
+      if (key === 'escape' || shouldHandleOverlayCloseShortcut(key, 'h', targetAllowsNativeHandling)) {
         closeHelp();
         event.preventDefault();
-      } else if (movementFlag || key === ' ') {
+      } else if (
+        shouldSuppressOverlayGameplayKey({
+          key,
+          movementKeyActive: movementFlag !== null,
+          targetAllowsNativeHandling
+        })
+      ) {
         event.preventDefault();
       }
       return;

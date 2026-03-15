@@ -1,28 +1,51 @@
 import { clamp, lerp } from './utils.js';
 
-const TRACK_VH_DESKTOP = 210;
-const TRACK_VH_MOBILE = 182;
+const TRACK_VH_DESKTOP = 136;
+const TRACK_VH_MOBILE = 118;
 
-const WHEEL_IMPULSE_DESKTOP = 0.0039 / 100;
-const WHEEL_IMPULSE_MOBILE = 0.0042 / 100;
-const TOUCH_IMPULSE_DESKTOP = 0.0039 / 100;
-const TOUCH_IMPULSE_MOBILE = 0.0042 / 100;
+const INPUT_DELTA_CAP_DESKTOP = 460;
+const INPUT_DELTA_CAP_MOBILE = 380;
 
-const VELOCITY_FRICTION = 0.88;
-const MAX_VELOCITY = 0.048;
-const SNAP_VELOCITY_THRESHOLD = 0.0018;
-const SNAP_IDLE_DELAY_MS = 240;
+const WHEEL_IMPULSE_DESKTOP = 0.0009;
+const WHEEL_IMPULSE_MOBILE = 0.00102;
+const TOUCH_IMPULSE_DESKTOP = 0.0019;
+const TOUCH_IMPULSE_MOBILE = 0.00215;
 
-const SPRING_STIFFNESS = 0.19;
-const SPRING_DAMPING = 0.64;
-const FAST_SNAP_STIFFNESS = 0.34;
-const FAST_SNAP_DAMPING = 0.56;
-const FAST_SNAP_MAX_VELOCITY = 0.078;
-const FAST_SNAP_KICK = 0.028;
+const TARGET_FRICTION = 0.44;
+const TARGET_STOP_THRESHOLD = 0.0014;
+const MAX_INERTIAL_VELOCITY = 0.38;
+
+const SNAP_IDLE_DELAY_MS = 72;
+
+const SPRING_STIFFNESS = 0.33;
+const SPRING_DAMPING = 0.58;
+const FAST_SNAP_STIFFNESS = 0.48;
+const FAST_SNAP_DAMPING = 0.48;
+const FAST_SNAP_KICK = 0.07;
+const DIRECTIONAL_SNAP_THRESHOLD = 0.32;
 
 function isPanelTarget(target) {
+  if (document.body?.classList.contains('nav-open')) {
+    return true;
+  }
+
   return target instanceof HTMLElement
-    && Boolean(target.closest('[data-lenis-prevent], .gallery-index-panel'));
+    && Boolean(
+      target.closest(
+        [
+          '[data-lenis-prevent]',
+          '.gallery-index-panel',
+          '.gallery-hud',
+          '.gallery-footer',
+          '.nav',
+          '.nav-overlay',
+          'button',
+          'a',
+          'input',
+          'textarea'
+        ].join(', ')
+      )
+    );
 }
 
 function normalizeWheelDelta(event) {
@@ -65,17 +88,19 @@ export class InputController {
     this.progressItems = 0;
     this.targetItems = 0;
     this.velocityItems = 0;
+    this.springVelocityItems = 0;
     this.springActive = false;
     this.lastImpulseAt = 0;
     this.lastMotionAt = performance.now();
     this.lastVelocityForJerk = 0;
     this.scrollJerk = 0;
+    this.lastIntentDirection = 0;
     this.pointerActive = false;
     this.touchLastY = null;
     this.springProfile = 'default';
     this.springStiffness = SPRING_STIFFNESS;
     this.springDamping = SPRING_DAMPING;
-    this.maxVelocity = MAX_VELOCITY;
+    this.maxVelocity = MAX_INERTIAL_VELOCITY;
 
     this.handleWheel = this.handleWheel.bind(this);
     this.handleTouchStart = this.handleTouchStart.bind(this);
@@ -109,6 +134,7 @@ export class InputController {
     if (!this.enabled) {
       this.springActive = false;
       this.velocityItems = 0;
+      this.springVelocityItems = 0;
       this.touchLastY = null;
       this.handlePointerLeave();
     }
@@ -119,7 +145,9 @@ export class InputController {
     this.progressItems = bounded;
     this.targetItems = bounded;
     this.velocityItems = 0;
+    this.springVelocityItems = 0;
     this.springActive = false;
+    this.lastIntentDirection = 0;
     this.setSpringProfile('default');
   }
 
@@ -128,14 +156,14 @@ export class InputController {
       this.springProfile = 'fastSnap';
       this.springStiffness = FAST_SNAP_STIFFNESS;
       this.springDamping = FAST_SNAP_DAMPING;
-      this.maxVelocity = FAST_SNAP_MAX_VELOCITY;
+      this.maxVelocity = MAX_INERTIAL_VELOCITY;
       return;
     }
 
     this.springProfile = 'default';
     this.springStiffness = SPRING_STIFFNESS;
     this.springDamping = SPRING_DAMPING;
-    this.maxVelocity = MAX_VELOCITY;
+    this.maxVelocity = MAX_INERTIAL_VELOCITY;
   }
 
   handleWheel(event) {
@@ -180,16 +208,22 @@ export class InputController {
   }
 
   applyImpulse(deltaY, fromUser = true, isTouch = false) {
+    const deltaCap = this.isMobile ? INPUT_DELTA_CAP_MOBILE : INPUT_DELTA_CAP_DESKTOP;
+    const normalized = clamp(deltaY, -deltaCap, deltaCap);
     const multiplier = this.isMobile
       ? (isTouch ? TOUCH_IMPULSE_MOBILE : WHEEL_IMPULSE_MOBILE)
       : (isTouch ? TOUCH_IMPULSE_DESKTOP : WHEEL_IMPULSE_DESKTOP);
 
-    const impulse = deltaY * multiplier;
+    const impulse = normalized * multiplier;
     if (!Number.isFinite(impulse) || Math.abs(impulse) <= 1e-6) return;
 
     this.setSpringProfile('default');
     this.springActive = false;
-    this.velocityItems = clamp(this.velocityItems + impulse, -this.maxVelocity, this.maxVelocity);
+    const targetGain = isTouch ? 0.5 : 0.42;
+    const velocityGain = isTouch ? 0.56 : 0.42;
+    this.lastIntentDirection = Math.sign(impulse) || this.lastIntentDirection;
+    this.targetItems = clamp(this.targetItems + impulse * targetGain, 0, this.maxIndex);
+    this.velocityItems = clamp(this.velocityItems + (impulse * velocityGain), -this.maxVelocity, this.maxVelocity);
     this.lastMotionAt = performance.now();
     if (fromUser) {
       this.lastImpulseAt = this.lastMotionAt;
@@ -216,6 +250,10 @@ export class InputController {
   handleWindowBlur() {
     this.handlePointerLeave();
     this.velocityItems = 0;
+    this.springVelocityItems = 0;
+    this.lastIntentDirection = 0;
+    this.targetItems = clamp(Math.round(this.progressItems), 0, this.maxIndex);
+    this.progressItems = this.targetItems;
   }
 
   handleClick(event) {
@@ -252,53 +290,70 @@ export class InputController {
       return;
     }
 
-    const dtScale = clamp((Number(dtMs) || 16.67) / 16.67, 0.5, 3);
+    const dtScale = clamp((Number(dtMs) || 16.67) / 16.67, 0.55, 2.6);
 
-    if (this.springActive) {
-      const delta = this.targetItems - this.progressItems;
-      this.velocityItems += delta * this.springStiffness * dtScale;
-      this.velocityItems *= Math.pow(this.springDamping, dtScale);
+    if (Math.abs(this.velocityItems) > TARGET_STOP_THRESHOLD) {
+      this.targetItems = clamp(this.targetItems + this.velocityItems * dtScale, 0, this.maxIndex);
+      this.velocityItems *= Math.pow(TARGET_FRICTION, dtScale);
+      this.lastMotionAt = now;
     } else {
-      this.velocityItems *= Math.pow(VELOCITY_FRICTION, dtScale);
+      this.velocityItems = 0;
     }
 
-    this.velocityItems = clamp(this.velocityItems, -this.maxVelocity, this.maxVelocity);
+    if (!this.springActive && (now - this.lastMotionAt) >= SNAP_IDLE_DELAY_MS) {
+      const baseFloor = Math.floor(this.targetItems);
+      const baseCeil = Math.ceil(this.targetItems);
+      const remainder = this.targetItems - baseFloor;
+      let snapped = Math.round(this.targetItems);
 
-    if (Math.abs(this.velocityItems) >= SNAP_VELOCITY_THRESHOLD) {
-      this.lastMotionAt = now;
-    } else if (!this.springActive && (now - this.lastMotionAt) >= SNAP_IDLE_DELAY_MS) {
-      this.targetItems = clamp(Math.round(this.progressItems), 0, this.maxIndex);
+      if (this.lastIntentDirection > 0 && remainder >= DIRECTIONAL_SNAP_THRESHOLD) {
+        snapped = baseCeil;
+      } else if (this.lastIntentDirection < 0 && remainder <= (1 - DIRECTIONAL_SNAP_THRESHOLD)) {
+        snapped = baseFloor;
+      }
+
+      this.targetItems = clamp(snapped, 0, this.maxIndex);
       this.springActive = true;
     }
 
-    this.progressItems += this.velocityItems * dtScale;
+    const delta = this.targetItems - this.progressItems;
+    this.springVelocityItems += delta * this.springStiffness * dtScale;
+    this.springVelocityItems *= Math.pow(this.springDamping, dtScale);
+    this.progressItems += this.springVelocityItems * dtScale;
 
     if (this.progressItems < 0) {
       this.progressItems = 0;
+      this.targetItems = 0;
       this.velocityItems = 0;
+      this.springVelocityItems = 0;
     } else if (this.progressItems > this.maxIndex) {
       this.progressItems = this.maxIndex;
+      this.targetItems = this.maxIndex;
       this.velocityItems = 0;
+      this.springVelocityItems = 0;
     }
 
     if (this.springActive) {
       const close = Math.abs(this.targetItems - this.progressItems) <= 0.0018;
-      const slow = Math.abs(this.velocityItems) <= 0.0009;
+      const slow = Math.abs(this.springVelocityItems) <= 0.0008 && Math.abs(this.velocityItems) <= 0.0008;
       if (close && slow) {
         this.progressItems = this.targetItems;
         this.velocityItems = 0;
+        this.springVelocityItems = 0;
         this.springActive = false;
+        this.lastIntentDirection = 0;
         this.setSpringProfile('default');
       }
     }
 
-    this.scrollJerk = Math.abs((this.velocityItems - this.lastVelocityForJerk) / Math.max(dtScale, 1e-3));
-    this.lastVelocityForJerk = this.velocityItems;
+    const reportedVelocity = this.springVelocityItems + this.velocityItems;
+    this.scrollJerk = Math.abs((reportedVelocity - this.lastVelocityForJerk) / Math.max(dtScale, 1e-3));
+    this.lastVelocityForJerk = reportedVelocity;
 
     const progress01 = this.maxIndex > 0 ? (this.progressItems / this.maxIndex) : 0;
     this.onProgress?.(progress01, {
-      isUserDriven: (now - this.lastImpulseAt) <= 280,
-      inertialVelocity: this.velocityItems,
+      isUserDriven: (now - this.lastImpulseAt) <= 260,
+      inertialVelocity: reportedVelocity,
       scrollJerk: this.scrollJerk,
       springActive: this.springActive
     });
@@ -313,18 +368,23 @@ export class InputController {
 
     const mode = options?.mode === 'fastSnap' ? 'fastSnap' : 'default';
     this.setSpringProfile(mode);
-    this.targetItems = bounded;
     this.springActive = true;
+    this.targetItems = bounded;
+    this.velocityItems = 0;
+    this.lastIntentDirection = Math.sign(bounded - this.progressItems);
+
     if (mode === 'fastSnap') {
       const direction = Math.sign(bounded - this.progressItems);
-      this.velocityItems = clamp(
-        this.velocityItems + direction * FAST_SNAP_KICK,
-        -this.maxVelocity,
-        this.maxVelocity
+      this.springVelocityItems = clamp(
+        this.springVelocityItems + direction * FAST_SNAP_KICK,
+        -0.44,
+        0.44
       );
     } else {
-      this.velocityItems = lerp(this.velocityItems, 0, 0.42);
+      this.springVelocityItems = lerp(this.springVelocityItems, 0, 0.35);
     }
+
+    this.lastMotionAt = performance.now();
   }
 
   dispose() {

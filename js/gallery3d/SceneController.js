@@ -3,87 +3,110 @@ import { GalleryItem } from './GalleryItem.js';
 import { clamp, lerp } from './utils.js';
 
 const SCENE_TUNING = {
-  easingDivisor: 148,
-  easingMin: 0.08,
-  easingMax: 0.24,
+  easingDivisor: 72,
+  easingMin: 0.14,
+  easingMax: 0.3,
 
   laneDesktop: {
-    originX: -18,
-    originY: -4,
-    originZ: -54,
-    xStep: 90,
-    yStep: 30,
-    zStep: -42,
-    baseYawDeg: -13,
-    yawDeltaDeg: 0.42,
-    rollAltDeg: 0.2,
-    visibleRange: 6.6,
-    scaleFalloff: 0.02,
-    scaleMin: 0.8,
-    opacityFalloff: 0.055,
-    opacityMin: 0.24
+    originX: -28,
+    originY: -34,
+    originZ: -120,
+    xStep: 150,
+    yStep: 36,
+    zStep: -34,
+    baseYawDeg: -6.8,
+    yawDeltaDeg: 0.92,
+    rollAltDeg: 0.18,
+    visibleRange: 3.85,
+    scaleMin: 0.58,
+    scaleCurve: 0.94,
+    opacityMin: 0.008,
+    opacityCurve: 2.7
   },
   laneMobile: {
-    originX: -10,
-    originY: -6,
-    originZ: -44,
-    xStep: 58,
-    yStep: 19,
-    zStep: -30,
-    baseYawDeg: -11.5,
-    yawDeltaDeg: 0.34,
-    rollAltDeg: 0.15,
-    visibleRange: 3.9,
-    scaleFalloff: 0.024,
-    scaleMin: 0.8,
-    opacityFalloff: 0.065,
-    opacityMin: 0.24
+    originX: -14,
+    originY: -24,
+    originZ: -92,
+    xStep: 94,
+    yStep: 20,
+    zStep: -26,
+    baseYawDeg: -6.2,
+    yawDeltaDeg: 0.86,
+    rollAltDeg: 0.14,
+    visibleRange: 3.15,
+    scaleMin: 0.54,
+    scaleCurve: 0.98,
+    opacityMin: 0.006,
+    opacityCurve: 2.8
   },
-  activeScaleMax: 1,
-  activeOpacityMax: 0.93,
+  activeScaleMax: 1.02,
+  activeOpacityMax: 0.99,
 
-  positionClampXDesktop: 520,
-  positionClampXMobile: 322,
-  positionClampYDesktop: 228,
-  positionClampYMobile: 164,
-  positionClampZFront: 36,
-  positionClampZBack: -340,
+  positionClampXDesktop: 920,
+  positionClampXMobile: 480,
+  positionClampYDesktop: 208,
+  positionClampYMobile: 156,
+  positionClampZFront: 42,
+  positionClampZBack: -320,
 
-  overlapTargetMinPx: -260,
-  overlapTargetMaxPx: -40,
-  spacingCorrectionPasses: 2,
+  overlapTargetMinPx: -28,
+  overlapTargetMaxPx: 26,
+  spacingCorrectionPasses: 3,
   spacingCorrectionYMix: 0.3,
+  activeCenterRatioDesktop: 0.44,
+  activeCenterRatioMobile: 0.5,
+  overviewCenterStartDesktop: 0.29,
+  overviewCenterEndDesktop: 0.62,
+  overviewCenterStartMobile: 0.28,
+  overviewCenterEndMobile: 0.58,
+  fanSpreadXDesktop: 64,
+  fanSpreadYDesktop: 28,
+  fanSpreadXMobile: 32,
+  fanSpreadYMobile: 14,
 
-  heroMaxVwDesktop: 0.26,
-  heroMaxVhDesktop: 0.46,
-  heroMaxVwMobile: 0.84,
-  heroMaxVhMobile: 0.54,
-  heroMinHeightDesktop: 132,
-  heroMinHeightMobile: 118,
+  heroMaxVwDesktop: 0.35,
+  heroMaxVhDesktop: 0.56,
+  heroMaxVwMobile: 0.78,
+  heroMaxVhMobile: 0.48,
+  heroMinHeightDesktop: 150,
+  heroMinHeightMobile: 104,
 
-  focusEnterMix: 0.18,
+  focusEnterMix: 0.24,
   focusExitMix: 0.22,
-  focusThresholdActive: 0.995,
-  focusThresholdIdle: 0.005,
-  focusNonActiveScale: 0.975,
-  focusNonActiveOpacity: 0.14,
-  focusNonActivePushZ: -34,
-  focusTarget: {
-    x: 0,
+  focusThresholdActive: 0.984,
+  focusThresholdIdle: 0.02,
+  focusNonActiveScale: 0.78,
+  focusNonActiveOpacity: 0.024,
+  focusNonActivePushZ: -210,
+  focusNonActiveYOffset: -14,
+  focusNonActiveSideShiftDesktop: 72,
+  focusNonActiveSideShiftMobile: 36,
+  focusTargetDesktop: {
+    x: 44,
     y: 0,
     z: 126,
     rotXDeg: 0,
-    rotYDeg: -1.2,
+    rotYDeg: -0.12,
     rotZDeg: 0,
-    scale: 1.04,
+    scale: 1.34,
+    opacity: 1
+  },
+  focusTargetMobile: {
+    x: 0,
+    y: 4,
+    z: 108,
+    rotXDeg: 0,
+    rotYDeg: -0.1,
+    rotZDeg: 0,
+    scale: 1.24,
     opacity: 1
   },
 
-  selectionLiftScale: 0.032,
-  selectionLiftZ: 16,
-  selectionLiftOpacity: 0.07,
+  selectionLiftScale: 0.02,
+  selectionLiftZ: 12,
+  selectionLiftOpacity: 0.06,
 
-  indexModeOpacity: 0.02
+  indexModeOpacity: 0.006
 };
 
 function toRadians(value) {
@@ -137,6 +160,7 @@ export class SceneController {
 
     this.layoutDebugState = {
       activeIndex: 0,
+      visibleCount: 0,
       activeCenterPx: 0,
       visibleRects: [],
       minGapPx: Infinity,
@@ -150,6 +174,7 @@ export class SceneController {
       focusYawDeg: 0,
       inertialVelocity: 0,
       scrollJerk: 0,
+      maxNonActiveOpacity: 0,
       focusSafeZoneBreach: false,
       nearestFocusNeighborGapPx: Infinity,
       focus: {
@@ -179,14 +204,17 @@ export class SceneController {
   setupLighting() {
     if (this.lights.length) return;
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.85);
-    const key = new THREE.DirectionalLight(0xffffff, 0.18);
-    key.position.set(-300, 220, 520);
+    const ambient = new THREE.AmbientLight(0x9b98d6, 0.34);
+    const key = new THREE.DirectionalLight(0xffffff, 0.36);
+    key.position.set(-340, 220, 620);
 
-    const rim = new THREE.DirectionalLight(0xffffff, 0.12);
-    rim.position.set(420, -180, 460);
+    const rim = new THREE.DirectionalLight(0xcac6ff, 0.28);
+    rim.position.set(520, 40, 520);
 
-    this.lights = [ambient, key, rim];
+    const fill = new THREE.DirectionalLight(0x6d6b92, 0.14);
+    fill.position.set(80, -220, 440);
+
+    this.lights = [ambient, key, rim, fill];
     for (const light of this.lights) {
       this.scene.add(light);
     }
@@ -411,6 +439,10 @@ export class SceneController {
     return this.isMobile ? SCENE_TUNING.laneMobile : SCENE_TUNING.laneDesktop;
   }
 
+  getFocusTarget() {
+    return this.isMobile ? SCENE_TUNING.focusTargetMobile : SCENE_TUNING.focusTargetDesktop;
+  }
+
   updateFocusState(dtMs) {
     if (this.focusState === 'idle' && this.focusBlend <= 0.001) {
       this.focusBlend = 0;
@@ -514,10 +546,56 @@ export class SceneController {
     }
   }
 
+  recenterLane(states, activeIndex, clampBounds) {
+    if (this.mode !== 'overview' || this.focusBlend > 0.001) return;
+
+    const activeState = states.find((state) => state.index === activeIndex && state.visible);
+    if (!activeState) return;
+
+    const projected = this.projectStateRect(activeState);
+    if (!projected) return;
+
+    const targetRatio = this.getOverviewCenterRatio();
+    const targetCenterPx = this.layout.viewportWidth * targetRatio;
+    const deltaPx = targetCenterPx - projected.centerPx;
+    if (Math.abs(deltaPx) <= 1) return;
+
+    const worldShift = deltaPx / Math.max(projected.pxPerWorld, 1e-3);
+    for (const state of states) {
+      state.x = clamp(state.x + worldShift, clampBounds.xMin, clampBounds.xMax);
+    }
+  }
+
+  getOverviewCenterRatio() {
+    if (this.focusBlend > 0.001 || this.mode !== 'overview' || this.items.length <= 1) {
+      return this.isMobile
+        ? SCENE_TUNING.activeCenterRatioMobile
+        : SCENE_TUNING.activeCenterRatioDesktop;
+    }
+
+    const rawProgress = clamp(this.progress / Math.max(this.items.length - 1, 1), 0, 1);
+    const easedProgress = rawProgress * rawProgress * (3 - (2 * rawProgress));
+
+    if (this.isMobile) {
+      return lerp(
+        SCENE_TUNING.overviewCenterStartMobile,
+        SCENE_TUNING.overviewCenterEndMobile,
+        easedProgress
+      );
+    }
+
+    return lerp(
+      SCENE_TUNING.overviewCenterStartDesktop,
+      SCENE_TUNING.overviewCenterEndDesktop,
+      easedProgress
+    );
+  }
+
   updateLayoutDebugState(debugRects, activeIndex, activeYawDeg, focusYawDeg = 0) {
     if (!debugRects.length) {
       this.layoutDebugState = {
         activeIndex,
+        visibleCount: 0,
         activeCenterPx: this.layout.viewportWidth * 0.5,
         visibleRects: [],
         minGapPx: Infinity,
@@ -531,6 +609,7 @@ export class SceneController {
         focusYawDeg,
         inertialVelocity: this.inertialVelocity,
         scrollJerk: this.scrollJerk,
+        maxNonActiveOpacity: 0,
         focusSafeZoneBreach: false,
         nearestFocusNeighborGapPx: Infinity,
         focus: {
@@ -570,15 +649,23 @@ export class SceneController {
 
     const activeRect = sorted.find((rect) => rect.index === activeIndex) || sorted[0];
     const focusRect = sorted.find((rect) => rect.index === this.focusIndex) || null;
+    const maxNonActiveOpacity = sorted.reduce((maxOpacity, rect) => {
+      if (rect.index === this.focusIndex) return maxOpacity;
+      return Math.max(maxOpacity, Number(rect.opacity) || 0);
+    }, 0);
 
     let nearestFocusNeighborGapPx = Infinity;
+    let nearestFocusNeighborOpacity = 0;
     if (focusRect) {
       for (const rect of sorted) {
         if (rect.index === focusRect.index) continue;
         const gap = rect.leftPx > focusRect.rightPx
           ? rect.leftPx - focusRect.rightPx
           : focusRect.leftPx - rect.rightPx;
-        nearestFocusNeighborGapPx = Math.min(nearestFocusNeighborGapPx, gap);
+        if (gap < nearestFocusNeighborGapPx) {
+          nearestFocusNeighborGapPx = gap;
+          nearestFocusNeighborOpacity = rect.opacity;
+        }
       }
     }
 
@@ -597,6 +684,7 @@ export class SceneController {
 
     this.layoutDebugState = {
       activeIndex,
+      visibleCount: sorted.length,
       activeCenterPx: activeRect?.centerPx ?? this.layout.viewportWidth * 0.5,
       visibleRects: sorted,
       minGapPx,
@@ -610,6 +698,7 @@ export class SceneController {
       focusYawDeg,
       inertialVelocity: this.inertialVelocity,
       scrollJerk: this.scrollJerk,
+      maxNonActiveOpacity,
       focusSafeZoneBreach: safeTopBreached || safeBottomBreached,
       nearestFocusNeighborGapPx,
       focus: {
@@ -622,7 +711,7 @@ export class SceneController {
         safeTopBreached,
         safeBottomBreached,
         nearestGapPx: nearestFocusNeighborGapPx,
-        nearestOpacity: focusRect?.opacity ?? 0
+        nearestOpacity: nearestFocusNeighborOpacity
       }
     };
   }
@@ -630,6 +719,7 @@ export class SceneController {
   update(time, dtMs) {
     const S = SCENE_TUNING;
     const lane = this.getLaneBasis();
+    const focusTarget = this.getFocusTarget();
     const clampBounds = {
       xMin: lane.originX - (this.isMobile ? S.positionClampXMobile : S.positionClampXDesktop),
       xMax: lane.originX + (this.isMobile ? S.positionClampXMobile : S.positionClampXDesktop),
@@ -670,25 +760,36 @@ export class SceneController {
       }
 
       const baseHeight = this.getBaseHeroHeightForAspect(item.aspect || 1.5);
+      const depthBlend = clamp(1 - absDelta / Math.max(lane.visibleRange, 0.0001), 0, 1);
+      const scaleBlend = Math.pow(depthBlend, lane.scaleCurve);
+      const opacityBlend = Math.pow(depthBlend, lane.opacityCurve);
+      const spreadDelta = delta === 0 ? 0 : Math.sign(delta) * Math.pow(absDelta, 1.12);
+      const depthDelta = delta === 0 ? 0 : Math.sign(delta) * Math.pow(absDelta, 0.84);
+      const fanDelta = absDelta <= 0.8
+        ? 0
+        : Math.pow(absDelta - 0.8, 1.22);
+      const fanDirection = delta === 0 ? 0 : Math.sign(delta);
+      const fanSpreadX = this.isMobile ? S.fanSpreadXMobile : S.fanSpreadXDesktop;
+      const fanSpreadY = this.isMobile ? S.fanSpreadYMobile : S.fanSpreadYDesktop;
 
       let x = clamp(
-        lane.originX + delta * lane.xStep,
+        lane.originX + spreadDelta * lane.xStep + fanDirection * fanDelta * fanSpreadX,
         clampBounds.xMin,
         clampBounds.xMax
       );
       let y = clamp(
-        lane.originY + delta * lane.yStep,
+        lane.originY + spreadDelta * lane.yStep + fanDirection * fanDelta * fanSpreadY,
         clampBounds.yMin,
         clampBounds.yMax
       );
-      let z = clamp(lane.originZ + delta * lane.zStep, S.positionClampZBack, S.positionClampZFront);
+      let z = clamp(lane.originZ + depthDelta * lane.zStep, S.positionClampZBack, S.positionClampZFront);
 
       let rotXDeg = 0;
-      let rotYDeg = lane.baseYawDeg + delta * lane.yawDeltaDeg;
+      let rotYDeg = lane.baseYawDeg + spreadDelta * lane.yawDeltaDeg;
       let rotZDeg = i % 2 === 0 ? -lane.rollAltDeg : lane.rollAltDeg;
 
-      let scale = clamp(1 - absDelta * lane.scaleFalloff, lane.scaleMin, S.activeScaleMax);
-      let opacity = clamp(S.activeOpacityMax - absDelta * lane.opacityFalloff, lane.opacityMin, S.activeOpacityMax);
+      let scale = lerp(lane.scaleMin, S.activeScaleMax, scaleBlend);
+      let opacity = lerp(lane.opacityMin, S.activeOpacityMax, opacityBlend);
       let visible = absDelta <= lane.visibleRange;
 
       if (i === this.selectionLiftIndex && this.selectionLiftDurationMs > 0 && this.focusBlend <= 0.001) {
@@ -704,20 +805,25 @@ export class SceneController {
       const isFocusItem = this.focusIndex === i;
       if (this.focusBlend > 0 && this.focusIndex >= 0) {
         if (isFocusItem) {
-          x = lerp(x, S.focusTarget.x, this.focusBlend);
-          y = lerp(y, S.focusTarget.y, this.focusBlend);
-          z = lerp(z, S.focusTarget.z, this.focusBlend);
-          rotXDeg = lerp(rotXDeg, S.focusTarget.rotXDeg, this.focusBlend);
-          rotYDeg = lerp(rotYDeg, S.focusTarget.rotYDeg, this.focusBlend);
-          rotZDeg = lerp(rotZDeg, S.focusTarget.rotZDeg, this.focusBlend);
-          scale = lerp(scale, S.focusTarget.scale, this.focusBlend);
-          opacity = lerp(opacity, S.focusTarget.opacity, this.focusBlend);
+          x = lerp(x, focusTarget.x, this.focusBlend);
+          y = lerp(y, focusTarget.y, this.focusBlend);
+          z = lerp(z, focusTarget.z, this.focusBlend);
+          rotXDeg = lerp(rotXDeg, focusTarget.rotXDeg, this.focusBlend);
+          rotYDeg = lerp(rotYDeg, focusTarget.rotYDeg, this.focusBlend);
+          rotZDeg = lerp(rotZDeg, focusTarget.rotZDeg, this.focusBlend);
+          scale = lerp(scale, focusTarget.scale, this.focusBlend);
+          opacity = lerp(opacity, focusTarget.opacity, this.focusBlend);
           visible = true;
         } else {
+          const sideShift = this.isMobile ? S.focusNonActiveSideShiftMobile : S.focusNonActiveSideShiftDesktop;
+          const direction = delta === 0 ? 1 : Math.sign(delta);
+          x = lerp(x, x + direction * sideShift, this.focusBlend);
+          y = lerp(y, y + S.focusNonActiveYOffset, this.focusBlend);
           z = lerp(z, z + S.focusNonActivePushZ, this.focusBlend);
-          scale *= lerp(1, S.focusNonActiveScale, this.focusBlend);
+          rotYDeg = lerp(rotYDeg, rotYDeg + direction * 0.8, this.focusBlend);
+          scale = lerp(scale, scale * S.focusNonActiveScale, this.focusBlend);
           opacity = lerp(opacity, S.focusNonActiveOpacity, this.focusBlend);
-          visible = opacity > 0.013;
+          visible = opacity > 0.009;
         }
       }
 
@@ -755,6 +861,7 @@ export class SceneController {
     }
 
     this.applyLaneSpacingCorrection(itemStates, lane, clampBounds);
+    this.recenterLane(itemStates, nextActiveIndex, clampBounds);
 
     const debugRects = [];
     for (const state of itemStates) {
@@ -768,7 +875,8 @@ export class SceneController {
         height: state.height,
         scale: state.scale,
         opacity: state.opacity,
-        visible: state.visible
+        visible: state.visible,
+        focused: state.index === this.focusIndex && this.focusBlend > 0.001
       };
 
       state.item.setTransform(transform);
@@ -777,7 +885,7 @@ export class SceneController {
       state.item.setDepthProfile({ depthPhase: phase });
       state.item.update(time);
 
-      if (state.visible && state.opacity > 0.025) {
+      if (state.visible && state.opacity > 0.032) {
         state.item.loadHighResTexture();
         if (this.mode === 'overview') {
           this.visibleTargets.push(state.item.getRaycastTarget());

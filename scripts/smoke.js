@@ -55,7 +55,10 @@ function validatePages() {
 
   const galleryHtml = fs.readFileSync(path.join(ROOT, 'pages/gallery/index.html'), 'utf8');
   assert(galleryHtml.includes('id="galleryWebglCanvas"'), 'Gallery WebGL canvas missing');
-  assert(galleryHtml.includes('id="galleryTabRail"'), 'Gallery tab rail missing');
+  assert(galleryHtml.includes('id="navToggle"'), 'Gallery shared nav toggle missing');
+  assert(galleryHtml.includes('data-theme-toggle'), 'Gallery theme toggle missing');
+  assert(galleryHtml.includes('id="navOverlay"'), 'Gallery shared nav overlay missing');
+  assert(galleryHtml.includes('class="noise-overlay"'), 'Gallery noise overlay missing');
   assert(galleryHtml.includes('id="galleryModeSwitch"'), 'Gallery mode switch missing');
   assert(galleryHtml.includes('id="galleryModeOverview"'), 'Gallery overview mode button missing');
   assert(galleryHtml.includes('id="galleryModeIndex"'), 'Gallery index mode button missing');
@@ -64,7 +67,8 @@ function validatePages() {
   assert(galleryHtml.includes('id="galleryCounter"'), 'Gallery counter missing');
   assert(galleryHtml.includes('id="galleryCaption"'), 'Gallery caption missing');
   assert(galleryHtml.includes('id="galleryScrollTrack"'), 'Gallery scroll track missing');
-  assert(galleryHtml.includes('data-disable-color-mode="true"'), 'Gallery should disable shared color mode toggle');
+  assert(!galleryHtml.includes('id="galleryTabRail"'), 'Gallery should not include the legacy tab rail');
+  assert(!galleryHtml.includes('data-disable-color-mode="true"'), 'Gallery should participate in shared color mode');
 
   const dashboardHtml = fs.readFileSync(path.join(ROOT, 'pages/dashboard/index.html'), 'utf8');
   assert(dashboardHtml.includes('id="servicesRefreshBtn"'), 'Services refresh button missing');

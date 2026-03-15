@@ -35,8 +35,15 @@ function spawnOffsetAroundPlayer(world: GameWorld): Vec2 {
   };
 }
 
-function countEnemiesByRole(world: GameWorld): Record<EnemyRole, number> {
-  const out: Record<EnemyRole, number> = {
+interface SpawnSnapshot {
+  enemyCount: number;
+  eliteCount: number;
+  threat: number;
+  roleCounts: Record<EnemyRole, number>;
+}
+
+function createRoleCounts(): Record<EnemyRole, number> {
+  return {
     swarmer: 0,
     charger: 0,
     bruiser: 0,
@@ -45,20 +52,32 @@ function countEnemiesByRole(world: GameWorld): Record<EnemyRole, number> {
     summoner: 0,
     disruptor: 0
   };
+}
 
+function buildSpawnSnapshot(world: GameWorld): SpawnSnapshot {
+  const roleCounts = createRoleCounts();
+  let threat = 0;
+  let eliteCount = 0;
   for (const enemy of world.enemyComponents.values()) {
     const archetype = ENEMY_ARCHETYPES[enemy.archetypeId];
     if (!archetype) continue;
-    out[archetype.role] += 1;
+    roleCounts[archetype.role] += 1;
+    threat += archetype.threat;
+    if (archetype.isElite) {
+      eliteCount += 1;
+    }
   }
 
-  return out;
+  return {
+    enemyCount: world.enemies.size,
+    eliteCount,
+    threat,
+    roleCounts
+  };
 }
 
-function pickEnemyArchetype(world: GameWorld, remainingThreat: number, forceElite: boolean): string | null {
-  const roleCounts = countEnemiesByRole(world);
-  const totalEnemies = Math.max(1, world.getEnemyCount());
-
+function pickEnemyArchetype(world: GameWorld, snapshot: SpawnSnapshot, remainingThreat: number, forceElite: boolean): string | null {
+  const totalEnemies = Math.max(1, snapshot.enemyCount);
   const candidates: Array<{ id: string; weight: number }> = [];
 
   for (const archetype of Object.values(ENEMY_ARCHETYPES)) {
@@ -68,7 +87,7 @@ function pickEnemyArchetype(world: GameWorld, remainingThreat: number, forceElit
     if (forceElite && !archetype.isElite) continue;
     if (!forceElite && archetype.isElite) continue;
 
-    const roleRatio = roleCounts[archetype.role] / totalEnemies;
+    const roleRatio = snapshot.roleCounts[archetype.role] / totalEnemies;
     const targetRatio = ROLE_TARGETS[archetype.role];
     const roleBoost = roleRatio < targetRatio ? 1 + (targetRatio - roleRatio) * 3.2 : 0.8;
 
@@ -90,13 +109,8 @@ function pickEnemyArchetype(world: GameWorld, remainingThreat: number, forceElit
   return candidates[candidates.length - 1]?.id ?? null;
 }
 
-function shouldForceElite(world: GameWorld): boolean {
+function shouldForceElite(world: GameWorld, eliteCount: number): boolean {
   if (world.runTime < 240) return false;
-
-  const eliteCount = Array.from(world.enemyComponents.values()).filter((enemy) => {
-    const archetype = ENEMY_ARCHETYPES[enemy.archetypeId];
-    return Boolean(archetype?.isElite);
-  }).length;
 
   if (world.runTime >= world.director.nextGuaranteedEliteTime && eliteCount < 2) {
     return true;
@@ -106,14 +120,24 @@ function shouldForceElite(world: GameWorld): boolean {
   return eliteCount < 3 && world.rng.next() < ambientChance * world.director.intensity * 0.04;
 }
 
+function noteSpawn(snapshot: SpawnSnapshot, archetype: typeof ENEMY_ARCHETYPES[string]): void {
+  snapshot.enemyCount += 1;
+  snapshot.threat += archetype.threat;
+  snapshot.roleCounts[archetype.role] += 1;
+  if (archetype.isElite) {
+    snapshot.eliteCount += 1;
+  }
+}
+
 export class SpawnSystem implements ISystem<GameWorld> {
   update(dt: number, world: GameWorld): void {
     const band = getDirectorBand(world.runTime);
 
     world.director.phaseId = band.id;
 
-    const enemyCount = world.getEnemyCount();
-    const currentThreat = world.getCurrentEnemyThreat();
+    const spawnSnapshot = buildSpawnSnapshot(world);
+    const enemyCount = spawnSnapshot.enemyCount;
+    const currentThreat = spawnSnapshot.threat;
     const hazardPressure = world.hazards.size + world.enemyProjectiles.size;
 
     if (enemyCount < band.targetEnemiesMin) {
@@ -156,15 +180,15 @@ export class SpawnSystem implements ISystem<GameWorld> {
 
     while (
       world.spawnAccumulator >= spawnInterval &&
-      world.getEnemyCount() < world.director.targetEnemies + 6 &&
-      world.getCurrentEnemyThreat() < world.director.targetThreat + 12
+      spawnSnapshot.enemyCount < world.director.targetEnemies + 6 &&
+      spawnSnapshot.threat < world.director.targetThreat + 12
     ) {
       world.spawnAccumulator -= spawnInterval;
 
-      const forceElite = shouldForceElite(world);
-      const remainingThreat = world.director.targetThreat - world.getCurrentEnemyThreat();
+      const forceElite = shouldForceElite(world, spawnSnapshot.eliteCount);
+      const remainingThreat = world.director.targetThreat - spawnSnapshot.threat;
 
-      let archetypeId = pickEnemyArchetype(world, remainingThreat, forceElite);
+      let archetypeId = pickEnemyArchetype(world, spawnSnapshot, remainingThreat, forceElite);
       if (!archetypeId && forceElite) {
         const unlockedElites = ELITE_ENEMY_IDS.filter(
           id => (ENEMY_ARCHETYPES[id]?.unlockTime ?? 0) <= world.runTime
@@ -184,6 +208,7 @@ export class SpawnSystem implements ISystem<GameWorld> {
         x: playerPos.x + offset.x,
         y: playerPos.y + offset.y
       });
+      noteSpawn(spawnSnapshot, archetype);
 
       if (archetype.isElite) {
         world.director.lastEliteSpawnTime = world.runTime;

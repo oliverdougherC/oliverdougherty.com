@@ -33,6 +33,10 @@ function initNavigation() {
   const navToggle = document.getElementById('navToggle');
   const navOverlay = document.getElementById('navOverlay');
   const navOverlayBg = navOverlay?.querySelector('.nav-overlay-bg');
+  const syncNavScrollState = () => {
+    if (!nav) return;
+    nav.classList.toggle('scrolled', window.scrollY > 50);
+  };
 
   if (navToggle && navOverlay) {
     const openingDurationMs = prefersReducedMotion() ? 0 : 280;
@@ -67,6 +71,7 @@ function initNavigation() {
       navToggle.classList.toggle('active', isOpen);
       navOverlay.classList.toggle('active', isOpen);
       navToggle.setAttribute('aria-expanded', String(isOpen));
+      navOverlay.setAttribute('aria-hidden', String(!isOpen));
       document.body.classList.toggle('nav-open', isOpen);
 
       if (isOpen && opening) {
@@ -115,6 +120,7 @@ function initNavigation() {
       const isHistoryRestore = Boolean(event?.persisted) || navEntry?.type === 'back_forward';
       if (isHistoryRestore) {
         closeMobileNav();
+        syncNavScrollState();
       }
     });
 
@@ -130,13 +136,8 @@ function initNavigation() {
 
   // Scroll behavior for nav
   if (nav) {
-    window.addEventListener('scroll', () => {
-      if (window.scrollY > 50) {
-        nav.classList.add('scrolled');
-      } else {
-        nav.classList.remove('scrolled');
-      }
-    }, { passive: true });
+    syncNavScrollState();
+    window.addEventListener('scroll', syncNavScrollState, { passive: true });
   }
 }
 

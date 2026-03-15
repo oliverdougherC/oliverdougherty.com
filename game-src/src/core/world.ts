@@ -43,6 +43,7 @@ interface ProjectileComponent {
   age: number;
   lifetime: number;
   pierce: number;
+  hitEnemyIds: Set<number>;
   weaponId: string;
   colorHex: number;
   hazardRadius: number;
@@ -569,6 +570,7 @@ export class GameWorld {
       age: 0,
       lifetime: config.lifetime,
       pierce: config.pierce,
+      hitEnemyIds: new Set<number>(),
       weaponId: config.weaponId,
       colorHex: config.colorHex,
       hazardRadius: config.hazardRadius ?? 0,
