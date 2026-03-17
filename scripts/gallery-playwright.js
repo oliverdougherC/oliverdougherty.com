@@ -72,11 +72,11 @@ async function captureDesktop(browser) {
 
   await page.screenshot({ path: path.join(OUTPUT_DIR, 'gallery-desktop-full.png'), fullPage: true });
 
-  await page.click('#galleryFilterChips .gallery-filter-chip[data-filter="featured"]');
+  await page.locator('#galleryFeaturedSection').scrollIntoViewIfNeeded();
   await page.waitForTimeout(180);
   await page.screenshot({ path: path.join(OUTPUT_DIR, 'gallery-desktop-featured.png') });
 
-  await page.click('#galleryFeaturedGrid .photo-card .photo-card-button');
+  await page.locator('#galleryFeaturedGrid .photo-card .photo-card-button').first().click();
   await page.waitForTimeout(240);
   await page.screenshot({ path: path.join(OUTPUT_DIR, 'gallery-desktop-lightbox.png') });
 
@@ -97,7 +97,7 @@ async function captureMobile(browser) {
 
   await page.screenshot({ path: path.join(OUTPUT_DIR, 'gallery-mobile-full.png'), fullPage: true });
 
-  await page.click('#galleryArchiveGrid .photo-card .photo-card-button');
+  await page.locator('#galleryArchiveGrid .photo-card .photo-card-button').first().click();
   await page.waitForTimeout(220);
   await page.click('#lightboxInfoToggle');
   await page.waitForTimeout(180);

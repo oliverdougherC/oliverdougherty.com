@@ -65,7 +65,6 @@ async function waitForGalleryReady(page, timeoutMs = 12000) {
       const state = window.__galleryState;
       const archiveCards = document.querySelectorAll('#galleryArchiveGrid .photo-card').length;
       const featuredCards = document.querySelectorAll('#galleryFeaturedGrid .photo-card').length;
-      const filters = document.querySelectorAll('#galleryFilterChips .gallery-filter-chip').length;
       const loadingHidden = document.getElementById('galleryLoading')?.hidden === true;
       return Boolean(
         state
@@ -73,7 +72,6 @@ async function waitForGalleryReady(page, timeoutMs = 12000) {
         && state.getEntries().length > 0
         && archiveCards > 0
         && featuredCards > 0
-        && filters >= 3
         && loadingHidden
         && document.querySelector('[data-theme-toggle], .theme-toggle')
       );
@@ -97,12 +95,13 @@ async function assertSharedChrome(page, label) {
     hasHeroCount: Boolean(document.getElementById('galleryHeroCount')),
     hasHeroRange: Boolean(document.getElementById('galleryHeroRange')),
     hasHeroThemes: Boolean(document.getElementById('galleryHeroThemes')),
-    hasHeroQueue: Boolean(document.getElementById('galleryHeroQueue')),
+    hasHeroSupport: Boolean(document.getElementById('galleryHeroSupport')),
     hasHeroStrip: Boolean(document.getElementById('galleryHeroStrip')),
+    hasToolbar: Boolean(document.querySelector('.gallery-toolbar-section')),
     hasSearch: Boolean(document.getElementById('gallerySearch')),
-    filterCount: document.querySelectorAll('#galleryFilterChips .gallery-filter-chip').length,
     heroTitle: document.getElementById('galleryHeroTitle')?.textContent?.trim() || '',
-    heroTheme: document.getElementById('galleryHeroTheme')?.textContent?.trim() || ''
+    hasHeroTheme: Boolean(document.getElementById('galleryHeroTheme')),
+    heroSupport: document.getElementById('galleryHeroSupport')?.textContent?.trim() || ''
   }));
 
   assert(state.theme === 'gallery', `[${label}] gallery theme attr missing`);
@@ -117,13 +116,14 @@ async function assertSharedChrome(page, label) {
   assert(state.hasHeroCount, `[${label}] hero count summary missing`);
   assert(state.hasHeroRange, `[${label}] hero range summary missing`);
   assert(state.hasHeroThemes, `[${label}] hero themes summary missing`);
-  assert(state.hasHeroQueue, `[${label}] hero queue missing`);
+  assert(state.hasHeroSupport, `[${label}] hero support copy missing`);
   assert(!state.hasHeroStrip, `[${label}] legacy hero strip should not be present`);
-  assert(state.hasSearch, `[${label}] gallery search missing`);
-  assert(state.filterCount >= 3, `[${label}] expected at least 3 filter chips, got ${state.filterCount}`);
+  assert(!state.hasToolbar, `[${label}] category toolbar should not be present`);
+  assert(!state.hasSearch, `[${label}] gallery search should not be present`);
+  assert(!state.hasHeroTheme, `[${label}] hero category label should not be present`);
   assert(state.heroTitle && !state.heroTitle.includes('Loading'), `[${label}] hero title did not hydrate`);
   assert(!/^(A7RII|DSC0|IMG_)/.test(state.heroTitle), `[${label}] hero title still uses legacy filename metadata`);
-  assert(Boolean(state.heroTheme), `[${label}] hero theme missing`);
+  assert(Boolean(state.heroSupport), `[${label}] hero support copy missing`);
 
   await page.click('[data-theme-toggle]');
   await page.waitForFunction(
@@ -145,76 +145,34 @@ async function assertDesktopFlow(page) {
     archiveCount: document.querySelectorAll('#galleryArchiveGrid .photo-card').length,
     featuredCount: document.querySelectorAll('#galleryFeaturedGrid .photo-card').length,
     heroTitle: document.getElementById('galleryHeroTitle')?.textContent?.trim() || '',
-    heroQueueTitles: [...document.querySelectorAll('#galleryHeroQueue .hero-queue-title')].map((node) => node.textContent?.trim() || '')
+    heroSupport: document.getElementById('galleryHeroSupport')?.textContent?.trim() || '',
+    hasCardEyebrow: Boolean(document.querySelector('#galleryArchiveGrid .photo-card .photo-eyebrow')),
+    firstArchiveCard: {
+      hasMeta: Boolean(document.querySelector('#galleryArchiveGrid .photo-card .photo-meta')?.textContent?.trim()),
+      hasLegacyCaption: Boolean(document.querySelector('#galleryArchiveGrid .photo-card .photo-caption')),
+      hasLegacyTags: Boolean(document.querySelector('#galleryArchiveGrid .photo-card .photo-tags'))
+    },
+    emptyCopy: document.getElementById('galleryEmptyCopy')?.textContent?.trim() || '',
+    featuredRects: [...document.querySelectorAll('#galleryFeaturedGrid .photo-card')].slice(0, 3).map((card) => {
+      const rect = card.getBoundingClientRect();
+      return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+    })
   }));
 
   assert(initial.entryCount >= 20, `[desktop] expected full archive, got ${initial.entryCount}`);
   assert(initial.archiveCount === initial.entryCount, `[desktop] archive grid count mismatch`);
   assert(initial.featuredCount > 0, `[desktop] featured grid is empty`);
   assert(initial.heroTitle === 'Lighthouse', `[desktop] expected lighthouse lead hero, got ${initial.heroTitle || '(empty)'}`);
-  assert(
-    JSON.stringify(initial.heroQueueTitles) === JSON.stringify(['Caught', 'Ember M4', 'Yield']),
-    `[desktop] hero queue order mismatch: ${initial.heroQueueTitles.join(', ')}`
-  );
-
-  await page.fill('#gallerySearch', '2025 wildlife');
-  await page.waitForTimeout(220);
-  const multiTerm = await page.evaluate(() => ({
-    visibleCount: window.__galleryState.getVisibleEntries().length,
-    categories: [...new Set(window.__galleryState.getVisibleEntries().map((entry) => entry.category))]
-  }));
-  assert(multiTerm.visibleCount > 0, '[desktop] multi-term search returned no results');
-  assert(multiTerm.categories.length === 1 && multiTerm.categories[0] === 'WILDLIFE', '[desktop] multi-term search did not narrow to wildlife entries');
-
-  await page.fill('#gallerySearch', '');
-  await page.waitForTimeout(220);
-
-  const landscapeChip = page.locator('#galleryFilterChips .gallery-filter-chip[data-filter="landscape"]');
-  await landscapeChip.click();
-  await page.waitForTimeout(180);
-  const landscapeState = await page.evaluate(() => ({
-    visibleCount: window.__galleryState.getVisibleEntries().length,
-    categories: [...new Set(window.__galleryState.getVisibleEntries().map((entry) => entry.category))]
-  }));
-  assert(landscapeState.visibleCount > 0, '[desktop] landscape filter returned no results');
-  assert(landscapeState.categories.length === 1 && landscapeState.categories[0] === 'LANDSCAPE', '[desktop] landscape filter returned mixed categories');
-
-  await page.click('#galleryFilterChips .gallery-filter-chip[data-filter="featured"]');
-  await page.waitForTimeout(180);
-  const featuredOnly = await page.evaluate(() => ({
-    visibleCount: window.__galleryState.getVisibleEntries().length,
-    allFeatured: window.__galleryState.getVisibleEntries().every((entry) => entry.featured),
-    archiveHidden: document.getElementById('galleryArchiveSection').hidden,
-    featuredHidden: document.getElementById('galleryFeaturedSection').hidden
-  }));
-  assert(featuredOnly.visibleCount > 0, '[desktop] featured filter returned no results');
-  assert(featuredOnly.allFeatured, '[desktop] featured filter returned non-featured entries');
-  assert(featuredOnly.archiveHidden, '[desktop] archive section should hide during featured-only view');
-  assert(!featuredOnly.featuredHidden, '[desktop] featured section should remain visible during featured-only view');
-
-  await page.click('#galleryClearFilters');
-  await page.waitForFunction(
-    () => window.__galleryState.getFilter() === 'all' && window.__galleryState.getVisibleEntries().length === window.__galleryState.getEntries().length,
-    null,
-    { timeout: 3000 }
-  );
-
-  await page.fill('#gallerySearch', 'zzzz-no-match');
-  await page.waitForTimeout(220);
-  const noMatch = await page.evaluate(() => ({
-    emptyVisible: !document.getElementById('galleryEmpty').hidden,
-    archiveHidden: document.getElementById('galleryArchiveSection').hidden,
-    featuredHidden: document.getElementById('galleryFeaturedSection').hidden
-  }));
-  assert(noMatch.emptyVisible, '[desktop] no-match state should be visible');
-  assert(noMatch.archiveHidden && noMatch.featuredHidden, '[desktop] content sections should hide in no-match state');
-
-  await page.click('#galleryEmptyReset');
-  await page.waitForFunction(
-    () => document.getElementById('galleryEmpty').hidden && window.__galleryState.getVisibleEntries().length === window.__galleryState.getEntries().length,
-    null,
-    { timeout: 3000 }
-  );
+  assert(Boolean(initial.heroSupport), '[desktop] hero support copy did not hydrate');
+  assert(!initial.hasCardEyebrow, '[desktop] category eyebrow should not render on cards');
+  assert(initial.firstArchiveCard.hasMeta, '[desktop] compact card meta is missing');
+  assert(!initial.firstArchiveCard.hasLegacyCaption, '[desktop] legacy card description should not render');
+  assert(!initial.firstArchiveCard.hasLegacyTags, '[desktop] legacy card tags should not render');
+  assert(initial.emptyCopy.toLowerCase().includes('archive'), '[desktop] empty-state copy should refer to the archive');
+  assert(!initial.emptyCopy.toLowerCase().includes('category'), '[desktop] empty-state copy should not refer to category filtering');
+  assert(initial.featuredRects.length === 3, '[desktop] featured grid did not render expected lead cards');
+  assert(initial.featuredRects[0].width > initial.featuredRects[1].width * 1.8, '[desktop] lead featured frame should span the full row');
+  assert(Math.abs(initial.featuredRects[1].top - initial.featuredRects[2].top) < 8, '[desktop] secondary featured cards should align on the same row');
 
   const firstCard = page.locator('#galleryFeaturedGrid .photo-card .photo-card-button').first();
   await firstCard.click();
@@ -224,13 +182,16 @@ async function assertDesktopFlow(page) {
     hash: window.location.hash,
     metaRows: document.querySelectorAll('#lightboxMeta .lightbox-meta-row').length,
     thumbCount: document.querySelectorAll('#lightboxThumbStrip .lightbox-thumb').length,
-    title: document.getElementById('lightboxTitle')?.textContent?.trim() || ''
+    title: document.getElementById('lightboxTitle')?.textContent?.trim() || '',
+    metaTerms: [...document.querySelectorAll('#lightboxMeta .lightbox-meta-term')].map((node) => node.textContent?.trim() || '')
   }));
   assert(lightboxState.active, '[desktop] lightbox did not open');
   assert(lightboxState.hash.startsWith('#photo='), '[desktop] lightbox hash deep link missing');
-  assert(lightboxState.metaRows >= 5, '[desktop] lightbox metadata panel incomplete');
+  assert(lightboxState.metaRows >= 4, '[desktop] lightbox metadata panel incomplete');
   assert(lightboxState.thumbCount === initial.entryCount, '[desktop] lightbox thumbnail strip count mismatch');
   assert(Boolean(lightboxState.title), '[desktop] lightbox title missing');
+  assert(!lightboxState.metaTerms.includes('Theme'), '[desktop] redundant theme metadata row should be omitted when it matches the category');
+  assert(!lightboxState.metaTerms.includes('Category'), '[desktop] category metadata row should not be present');
 
   const hashBeforeNext = lightboxState.hash;
   await page.click('#lightboxNext');
@@ -253,11 +214,19 @@ async function assertMobileFlow(page) {
     const styles = getComputedStyle(info);
     return {
       opacity: styles.opacity,
-      hasTitle: Boolean(info.querySelector('.photo-title')?.textContent?.trim())
+      hasTitle: Boolean(info.querySelector('.photo-title')?.textContent?.trim()),
+      hasMeta: Boolean(info.querySelector('.photo-meta')?.textContent?.trim()),
+      hasLegacyCaption: Boolean(info.querySelector('.photo-caption')),
+      hasEyebrow: Boolean(info.querySelector('.photo-eyebrow')),
+      hasToolbar: Boolean(document.querySelector('.gallery-toolbar-section'))
     };
   });
   assert(labelState && labelState.opacity !== '0', '[mobile] card labels should remain visible');
   assert(labelState.hasTitle, '[mobile] card title missing');
+  assert(labelState.hasMeta, '[mobile] card meta missing');
+  assert(!labelState.hasLegacyCaption, '[mobile] legacy card description should not render');
+  assert(!labelState.hasEyebrow, '[mobile] category eyebrow should not render');
+  assert(!labelState.hasToolbar, '[mobile] category toolbar should not be present');
 
   await page.locator('#galleryArchiveGrid .photo-card .photo-card-button').first().click();
   await page.waitForTimeout(200);

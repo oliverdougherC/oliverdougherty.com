@@ -15,7 +15,7 @@
     rel="stylesheet">
 
   <link rel="stylesheet" href="../../css/design-system.css?v=20260315">
-  <link rel="stylesheet" href="../../css/gallery.css?v=20260315">
+  <link rel="stylesheet" href="../../css/gallery.css?v=20260316">
   <link rel="stylesheet" href="../../css/cursor.css?v=20260315">
 </head>
 
@@ -72,91 +72,30 @@
           <p class="hero-subtitle">
             Coastlines, chance encounters, night studies, and detail frames gathered across late 2025.
           </p>
-          <div class="hero-summary" id="galleryHeroSummary" aria-label="Gallery overview">
-            <div class="hero-summary-item">
-              <span class="hero-summary-label">Archive</span>
-              <span class="hero-summary-value" id="galleryHeroCount">Loading photographs…</span>
-            </div>
-            <div class="hero-summary-item">
-              <span class="hero-summary-label">Date Span</span>
-              <span class="hero-summary-value" id="galleryHeroRange">Loading date span…</span>
-            </div>
-            <div class="hero-summary-item">
-              <span class="hero-summary-label">Hero Themes</span>
-              <span class="hero-summary-value" id="galleryHeroThemes">Loading curation…</span>
-            </div>
-          </div>
         </div>
 
         <aside class="hero-feature-card" id="galleryHeroFeature">
-          <div class="hero-feature-media">
+          <button class="hero-feature-media" id="galleryHeroOpen" type="button" data-cursor="hover"
+            aria-label="Open featured photo">
             <picture id="galleryHeroPicture">
               <source id="galleryHeroSourceAvif" type="image/avif">
               <source id="galleryHeroSourceWebp" type="image/webp">
               <img id="galleryHeroImage" src="" alt="" class="hero-feature-image">
             </picture>
-          </div>
+          </button>
           <div class="hero-feature-body">
             <div class="hero-feature-header">
               <div class="hero-feature-header-copy">
                 <p class="hero-feature-label">Featured frame</p>
                 <h2 class="hero-feature-title" id="galleryHeroTitle">Loading gallery…</h2>
               </div>
-              <p class="hero-feature-theme" id="galleryHeroTheme">Loading theme</p>
             </div>
             <p class="hero-feature-meta" id="galleryHeroMeta">Pulling metadata from the archive.</p>
-            <p class="hero-feature-description" id="galleryHeroDescription"></p>
-            <p class="hero-feature-notes" id="galleryHeroNotes" hidden></p>
-            <div class="hero-feature-queue" aria-label="Hero support queue">
-              <div class="hero-feature-queue-head">
-                <p class="hero-feature-queue-label">Next in sequence</p>
-                <p class="hero-feature-collection" id="galleryHeroCollection">Loading selection</p>
-              </div>
-              <div class="hero-feature-queue-list" id="galleryHeroQueue"></div>
-            </div>
-            <div class="hero-feature-actions">
-              <button class="hero-action hero-action--primary" id="galleryHeroOpen" type="button"
-                data-cursor="hover">
-                Inspect frame
-              </button>
-              <a class="hero-action hero-action--secondary" href="#galleryFeaturedSection" data-cursor="hover">
-                Browse featured
-              </a>
-            </div>
+            <p class="hero-feature-support" id="galleryHeroSupport"></p>
           </div>
         </aside>
       </div>
     </header>
-
-    <section class="gallery-toolbar-section" aria-label="Gallery controls">
-      <div class="container-wide">
-        <div class="gallery-toolbar">
-          <div class="gallery-search-wrapper">
-            <svg class="gallery-search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            <input type="text" class="gallery-search-input" id="gallerySearch"
-              placeholder="Search by title, category, location, description, lens, ISO, or notes"
-              aria-label="Search the photography archive" autocomplete="off">
-          </div>
-
-          <div class="gallery-toolbar-meta">
-            <button class="gallery-clear-btn" id="galleryClearFilters" type="button" data-cursor="hover" hidden>
-              Clear filters
-            </button>
-            <div class="gallery-results" id="galleryResults" role="status" aria-live="polite">
-              Loading photographs…
-            </div>
-          </div>
-        </div>
-
-        <div class="gallery-filter-row">
-          <div class="gallery-filter-chips" id="galleryFilterChips" aria-label="Filter gallery"></div>
-        </div>
-      </div>
-    </section>
 
     <section class="gallery-status-section">
       <div class="container-wide">
@@ -175,10 +114,7 @@
             </svg>
           </div>
           <h2 class="empty-title" id="galleryEmptyTitle">No photographs found</h2>
-          <p class="empty-copy" id="galleryEmptyCopy">Try a broader search or reset the current filters.</p>
-          <button class="gallery-clear-btn" id="galleryEmptyReset" type="button" data-cursor="hover">
-            Reset view
-          </button>
+          <p class="empty-copy" id="galleryEmptyCopy">The archive does not contain any published photographs yet.</p>
         </div>
 
         <div class="gallery-empty gallery-empty--error" id="galleryError" hidden>
@@ -209,12 +145,12 @@
       aria-labelledby="galleryFeaturedHeading">
       <div class="container-wide">
           <div class="section-head">
-            <div>
-              <p class="section-kicker">Featured</p>
-              <h2 class="section-title" id="galleryFeaturedHeading">Curated frames</h2>
-            </div>
+          <div>
+            <p class="section-kicker">Featured</p>
+            <h2 class="section-title" id="galleryFeaturedHeading">Curated frames</h2>
+          </div>
           <p class="section-copy">
-            A tighter sequence of anchor frames chosen for contrast in scale, subject, and mood.
+            A quieter sequence of anchor frames drawn from the collection.
           </p>
         </div>
 
@@ -231,7 +167,7 @@
             <h2 class="section-title" id="galleryArchiveHeading">All photographs</h2>
           </div>
           <p class="section-copy" id="galleryArchiveCopy">
-            Every available frame in a consistent, searchable grid.
+            The full archive, arranged with more room to look at each frame.
           </p>
         </div>
 
@@ -316,7 +252,7 @@
 
   <script src="../../js/year.js?v=20260315" defer></script>
   <script src="../../js/main.js?v=20260315" defer></script>
-  <script src="../../js/gallery.js?v=20260315" defer></script>
+  <script src="../../js/gallery.js?v=20260316" defer></script>
 
   <div class="cursor-dot" id="cursorDot"></div>
   <div class="cursor-circle" id="cursorCircle"></div>
