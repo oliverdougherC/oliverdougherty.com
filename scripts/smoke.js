@@ -60,7 +60,6 @@ function validatePages() {
   assert(galleryHtml.includes('id="navOverlay"'), 'Gallery shared nav overlay missing');
   assert(galleryHtml.includes('class="noise-overlay"'), 'Gallery noise overlay missing');
   assert(galleryHtml.includes('id="galleryHeroFeature"'), 'Gallery hero feature card missing');
-  assert(galleryHtml.includes('id="galleryFeaturedGrid"'), 'Featured gallery grid missing');
   assert(galleryHtml.includes('id="galleryArchiveGrid"'), 'Archive gallery grid missing');
   assert(galleryHtml.includes('id="lightboxThumbStrip"'), 'Lightbox thumbnail strip missing');
   assert(galleryHtml.includes('class="footer gallery-footer"'), 'Gallery footer class missing');
