@@ -3,6 +3,7 @@ import { AudioManager } from './audio/audioManager';
 import { GameWorld } from './core/world';
 import { CATALYST_DEFINITIONS } from './data/catalysts';
 import { getRunEventDescription, getRunEventLabel } from './data/events';
+import { buildHandbookSections } from './data/handbook';
 import { WEAPON_ARCHETYPES } from './data/weapons';
 import { PixiRenderAdapter } from './render/pixiRenderAdapter';
 import {
@@ -22,7 +23,12 @@ import {
   saveSettings,
   type RuntimeSettingsPayload
 } from './runtime/settings';
-import type { ISystem, LevelUpChoice, QualityTier } from './types';
+import { resolveRestartAction } from './runtime/restartPolicy';
+import {
+  shouldHandleOverlayCloseShortcut,
+  shouldSuppressOverlayGameplayKey
+} from './runtime/overlayInput';
+import type { HandbookSection, ISystem, LevelUpChoice, QualityTier } from './types';
 import { AutoAttackSystem } from './systems/autoAttackSystem';
 import { CleanupSystem } from './systems/cleanupSystem';
 import { CollisionSystem } from './systems/collisionSystem';
@@ -66,7 +72,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
   const tag = target.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON';
 }
 
 function requireElement<T extends HTMLElement>(id: string): T {
@@ -90,7 +96,13 @@ function createBuildSlotTile(): InventoryTileRefs {
   return { root, title, subtitle };
 }
 
+// Module-level abort controller so HMR re-runs can clean up prior event listeners.
+let _mainTeardown: AbortController | null = null;
+
 async function main(): Promise<void> {
+  _mainTeardown?.abort();
+  _mainTeardown = new AbortController();
+  const { signal } = _mainTeardown;
   const options = parseOptions(window.location.href, localStorage);
   const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -114,6 +126,12 @@ async function main(): Promise<void> {
   const gameOverModal = requireElement<HTMLElement>('gameOverModal');
   const settingsPanel = requireElement<HTMLElement>('settingsPanel');
   const settingsToggleBtn = requireElement<HTMLButtonElement>('settingsToggleBtn');
+  const helpToggleBtn = requireElement<HTMLButtonElement>('helpToggleBtn');
+  const helpPanel = requireElement<HTMLElement>('helpPanel');
+  const helpCloseBtn = requireElement<HTMLButtonElement>('helpCloseBtn');
+  const helpSearch = requireElement<HTMLInputElement>('helpSearch');
+  const helpTabs = requireElement<HTMLElement>('helpTabs');
+  const helpContent = requireElement<HTMLElement>('helpContent');
   const settingsCloseBtn = requireElement<HTMLButtonElement>('settingsCloseBtn');
   const settingsApplyRendererBtn = requireElement<HTMLButtonElement>('settingsApplyRendererBtn');
   const settingsAudioEnabled = requireElement<HTMLInputElement>('settingsAudioEnabled');
@@ -158,6 +176,7 @@ async function main(): Promise<void> {
   const settingsDirectionalIndicators = requireElement<HTMLInputElement>('settingsDirectionalIndicators');
   const settingsDebugOverlay = requireElement<HTMLInputElement>('settingsDebugOverlay');
   const restartRunBtn = requireElement<HTMLButtonElement>('restartRunBtn');
+  const copySeedBtn = requireElement<HTMLButtonElement>('copySeedBtn');
   const runSummary = requireElement<HTMLElement>('runSummary');
   const debugPanel = requireElement<HTMLElement>('debugPanel');
 
@@ -197,7 +216,10 @@ async function main(): Promise<void> {
 
   let pausedByVisibility = false;
   let pausedBySettings = false;
+  let pausedByHelp = false;
   let settingsOpen = false;
+  let helpOpen = false;
+  let savedMovementInput: { up: boolean; down: boolean; left: boolean; right: boolean } | null = null;
   let lastLevelSignature = '';
   let lastChestSignature = '';
   let preferredRenderer = options.rendererPreference;
@@ -241,6 +263,9 @@ async function main(): Promise<void> {
   let previousUiState = world.uiState;
   let lastHeavyHudSyncAt = 0;
   let hudSyncMs = 0;
+  let hudResizeObserver: ResizeObserver | null = null;
+  const handbookSections = buildHandbookSections();
+  let activeHelpSectionId = handbookSections[0]?.id ?? 'controls';
 
   world.setQuality('high');
 
@@ -363,6 +388,10 @@ async function main(): Promise<void> {
     gameShell.style.setProperty('--hud-stack-bottom', `${topAnchor}px`);
   }
 
+  function syncViewportMetrics(): void {
+    world.setViewport(renderer.getViewportMetrics());
+  }
+
   function syncSettingsControls(): void {
     settingsAudioEnabled.checked = audioEnabled;
     settingsAudioVolume.value = String(Math.round(audioVolume * 100));
@@ -438,12 +467,16 @@ async function main(): Promise<void> {
 
   syncTopChromeOffsets();
   if (typeof ResizeObserver !== 'undefined') {
-    const observer = new ResizeObserver(() => {
+    hudResizeObserver = new ResizeObserver(() => {
       syncTopChromeOffsets();
     });
-    observer.observe(hud);
+    hudResizeObserver.observe(hud);
   }
-  window.addEventListener('resize', syncTopChromeOffsets);
+  signal.addEventListener('abort', () => {
+    hudResizeObserver?.disconnect();
+    hudResizeObserver = null;
+  }, { once: true });
+  window.addEventListener('resize', syncTopChromeOffsets, { signal });
 
   const systems: ISystem<GameWorld>[] = [
     new RuntimeSystem(),
@@ -532,11 +565,112 @@ async function main(): Promise<void> {
     world.input.right = false;
   }
 
+  function getActiveHandbookSection(): HandbookSection {
+    return handbookSections.find((section) => section.id === activeHelpSectionId) ?? handbookSections[0]!;
+  }
+
+  function renderHandbookTabs(): void {
+    helpTabs.replaceChildren();
+    for (const section of handbookSections) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `help-tab ${section.id === activeHelpSectionId ? 'active' : ''}`;
+      button.textContent = section.title;
+      button.addEventListener('click', () => {
+        activeHelpSectionId = section.id;
+        renderHandbookTabs();
+        renderHandbookContent();
+      });
+      helpTabs.appendChild(button);
+    }
+  }
+
+  function renderHandbookContent(): void {
+    helpContent.replaceChildren();
+    const query = helpSearch.value.trim().toLowerCase();
+    const sectionFilter = query ? handbookSections : [getActiveHandbookSection()];
+    const matches: Array<{ sectionTitle: string; title: string; description: string; tags: string[] }> = [];
+
+    for (const section of sectionFilter) {
+      for (const entry of section.entries) {
+        const haystack = `${section.title} ${entry.title} ${entry.description} ${entry.tags.join(' ')}`.toLowerCase();
+        if (query && !haystack.includes(query)) continue;
+        matches.push({
+          sectionTitle: section.title,
+          title: entry.title,
+          description: entry.description,
+          tags: entry.tags
+        });
+      }
+    }
+
+    if (matches.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'hint';
+      empty.textContent = query ? `No handbook entries found for "${helpSearch.value.trim()}".` : 'No handbook entries.';
+      helpContent.appendChild(empty);
+      return;
+    }
+
+    for (const entry of matches) {
+      const card = document.createElement('article');
+      card.className = 'help-entry';
+      const title = document.createElement('strong');
+      title.textContent = query ? `${entry.sectionTitle} · ${entry.title}` : entry.title;
+      const description = document.createElement('p');
+      description.textContent = entry.description;
+      const tags = document.createElement('div');
+      tags.className = 'help-entry-tags';
+      tags.textContent = entry.tags.join(' • ');
+      card.append(title, description, tags);
+      helpContent.appendChild(card);
+    }
+  }
+
+  function openHelp(): void {
+    if (helpOpen) return;
+    if (settingsOpen) closeSettings();
+    helpOpen = true;
+    helpPanel.classList.remove('hidden');
+    renderHandbookTabs();
+    renderHandbookContent();
+    savedMovementInput = { ...world.input };
+    clearMovementInput();
+    if (world.uiState === 'playing') {
+      pausedByHelp = true;
+      pauseRun('Paused - Handbook Open');
+    } else {
+      pausedByHelp = false;
+    }
+    helpSearch.focus();
+  }
+
+  function closeHelp(): void {
+    if (!helpOpen) return;
+    helpOpen = false;
+    helpPanel.classList.add('hidden');
+
+    if (savedMovementInput) {
+      Object.assign(world.input, savedMovementInput);
+      savedMovementInput = null;
+    }
+
+    if (pausedByHelp && world.uiState === 'paused' && !document.hidden) {
+      pausedByHelp = false;
+      world.applyPostModalGrace(0.4, false);
+      resumeRun();
+    } else {
+      pausedByHelp = false;
+    }
+  }
+
   function openSettings(): void {
     if (settingsOpen) return;
+    if (helpOpen) closeHelp();
     settingsOpen = true;
     syncSettingsControls();
     settingsPanel.classList.remove('hidden');
+    savedMovementInput = { ...world.input };
     clearMovementInput();
 
     if (world.uiState === 'playing') {
@@ -551,6 +685,11 @@ async function main(): Promise<void> {
     if (!settingsOpen) return;
     settingsOpen = false;
     settingsPanel.classList.add('hidden');
+
+    if (savedMovementInput) {
+      Object.assign(world.input, savedMovementInput);
+      savedMovementInput = null;
+    }
 
     if (pausedBySettings && world.uiState === 'paused' && !document.hidden) {
       pausedBySettings = false;
@@ -693,6 +832,7 @@ async function main(): Promise<void> {
   function syncUiState(): void {
     pauseBanner.classList.toggle('hidden', world.uiState !== 'paused');
     settingsToggleBtn.classList.toggle('hidden', world.uiState === 'boot' || world.uiState === 'gameover');
+    helpToggleBtn.classList.toggle('hidden', world.uiState === 'boot' || world.uiState === 'gameover');
 
     if (world.uiState === 'levelup') {
       renderLevelChoices();
@@ -786,8 +926,13 @@ async function main(): Promise<void> {
     void audio.unlock();
     world.resetRun(seed);
     settingsOpen = false;
+    helpOpen = false;
     pausedBySettings = false;
+    pausedByHelp = false;
     settingsPanel.classList.add('hidden');
+    helpPanel.classList.add('hidden');
+    helpSearch.value = '';
+    copySeedBtn.textContent = 'Copy Seed';
     previousShotsFired = world.shotsFired;
     previousPlayerHitCount = world.playerHitCount;
     previousLevelUpOfferedCount = world.levelUpOfferedCount;
@@ -823,6 +968,7 @@ async function main(): Promise<void> {
 
   function stepSimulation(dt: number): void {
     if (world.uiState !== 'playing') return;
+    syncViewportMetrics();
     for (const system of systems) {
       system.update(dt, world);
       if (world.uiState !== 'playing') break;
@@ -830,6 +976,7 @@ async function main(): Promise<void> {
   }
 
   function renderFrame(stats: LoopStats): void {
+    syncViewportMetrics();
     const nextQuality = chooseQuality(stats.smoothedFrameTimeMs, world.quality);
     if (nextQuality !== world.quality) {
       world.setQuality(nextQuality);
@@ -946,6 +1093,10 @@ async function main(): Promise<void> {
     return JSON.stringify({
       coordinateSystem: 'World space with origin at player spawn (0,0), +x right, +y down.',
       uiState: world.uiState,
+      overlays: {
+        settingsOpen,
+        helpOpen
+      },
       timerSeconds: Number(world.runTime.toFixed(2)),
       player: {
         x: Number(playerPos.x.toFixed(1)),
@@ -996,6 +1147,7 @@ async function main(): Promise<void> {
       },
       renderPerf,
       readability: renderer.getReadabilitySnapshot(),
+      viewport: world.viewport,
       inventory,
       catalysts,
       evolutionCandidates: world.getEvolutionCandidates(),
@@ -1061,6 +1213,28 @@ async function main(): Promise<void> {
     }
   });
 
+  helpToggleBtn.addEventListener('click', () => {
+    if (helpOpen) {
+      closeHelp();
+    } else {
+      openHelp();
+    }
+  });
+
+  helpCloseBtn.addEventListener('click', () => {
+    closeHelp();
+  });
+
+  helpPanel.addEventListener('click', (event) => {
+    if (event.target === helpPanel) {
+      closeHelp();
+    }
+  });
+
+  helpSearch.addEventListener('input', () => {
+    renderHandbookContent();
+  });
+
   settingsCloseBtn.addEventListener('click', () => {
     closeSettings();
   });
@@ -1069,6 +1243,36 @@ async function main(): Promise<void> {
     if (event.target === settingsPanel) {
       closeSettings();
     }
+  });
+
+  copySeedBtn.addEventListener('click', async () => {
+    const seedText = String(world.seed);
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(seedText);
+        copySeedBtn.textContent = 'Seed Copied';
+        window.setTimeout(() => {
+          copySeedBtn.textContent = 'Copy Seed';
+        }, 1200);
+        return;
+      }
+    } catch {
+      // fallback below
+    }
+
+    const temp = document.createElement('textarea');
+    temp.value = seedText;
+    temp.setAttribute('readonly', 'true');
+    temp.style.position = 'absolute';
+    temp.style.left = '-9999px';
+    document.body.appendChild(temp);
+    temp.select();
+    document.execCommand('copy');
+    temp.remove();
+    copySeedBtn.textContent = 'Seed Copied';
+    window.setTimeout(() => {
+      copySeedBtn.textContent = 'Copy Seed';
+    }, 1200);
   });
 
   settingsAudioEnabled.addEventListener('change', () => {
@@ -1350,17 +1554,40 @@ async function main(): Promise<void> {
     const key = event.key.toLowerCase();
     const movementFlag = keyToMovementFlag(key);
     const restartShortcutAllowed =
-      !event.repeat &&
       !event.metaKey &&
       !event.ctrlKey &&
       !event.altKey &&
       !isEditableTarget(event.target);
 
     if (settingsOpen) {
-      if (key === 'escape' || key === 'o') {
+      const targetAllowsNativeHandling = isEditableTarget(event.target);
+      if (key === 'escape' || shouldHandleOverlayCloseShortcut(key, 'o', targetAllowsNativeHandling)) {
         closeSettings();
         event.preventDefault();
-      } else if (movementFlag || key === ' ') {
+      } else if (
+        shouldSuppressOverlayGameplayKey({
+          key,
+          movementKeyActive: movementFlag !== null,
+          targetAllowsNativeHandling
+        })
+      ) {
+        event.preventDefault();
+      }
+      return;
+    }
+
+    if (helpOpen) {
+      const targetAllowsNativeHandling = isEditableTarget(event.target);
+      if (key === 'escape' || shouldHandleOverlayCloseShortcut(key, 'h', targetAllowsNativeHandling)) {
+        closeHelp();
+        event.preventDefault();
+      } else if (
+        shouldSuppressOverlayGameplayKey({
+          key,
+          movementKeyActive: movementFlag !== null,
+          targetAllowsNativeHandling
+        })
+      ) {
         event.preventDefault();
       }
       return;
@@ -1368,6 +1595,12 @@ async function main(): Promise<void> {
 
     if (key === 'o') {
       openSettings();
+      event.preventDefault();
+      return;
+    }
+
+    if (key === 'h') {
+      openHelp();
       event.preventDefault();
       return;
     }
@@ -1400,13 +1633,19 @@ async function main(): Promise<void> {
       return;
     }
 
-    if (key === 'r' && world.uiState !== 'boot' && restartShortcutAllowed) {
+    const restartAction = resolveRestartAction({
+      key,
+      shiftKey: event.shiftKey,
+      isRepeat: event.repeat,
+      shortcutAllowed: restartShortcutAllowed,
+      context: world.uiState
+    });
+    if (restartAction === 'restart_same_seed') {
       startRun(world.seed);
       event.preventDefault();
       return;
     }
-
-    if (key === 'n' && world.uiState !== 'boot' && restartShortcutAllowed) {
+    if (restartAction === 'restart_new_seed') {
       startRun(createRandomSeed());
       event.preventDefault();
       return;
@@ -1436,17 +1675,13 @@ async function main(): Promise<void> {
       return;
     }
 
-    if (world.uiState === 'gameover' && (key === 'enter' || key === ' ')) {
-      startRun(world.seed);
-      event.preventDefault();
-    }
-  });
+  }, { signal });
 
   window.addEventListener('keyup', (event) => {
     const movementFlag = keyToMovementFlag(event.key.toLowerCase());
     if (!movementFlag) return;
     world.input[movementFlag] = false;
-  });
+  }, { signal });
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
@@ -1461,21 +1696,25 @@ async function main(): Promise<void> {
       pausedByVisibility = false;
       resumeRun();
     }
-  });
+  }, { signal });
 
   const canvas = renderer.getCanvas();
   if (canvas) {
     canvas.addEventListener('webglcontextlost', (event) => {
       event.preventDefault();
       pauseRun('Context lost - waiting for restore');
-    });
+    }, { signal });
 
     canvas.addEventListener('webglcontextrestored', () => {
       resumeRun();
-    });
+    }, { signal });
   }
 }
 
 main().catch((error) => {
   console.error('Fatal error while booting Forest Arcana:', error);
 });
+
+// Abort global listeners when Vite HMR disposes this module to prevent accumulation.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(import.meta as any).hot?.dispose?.(() => _mainTeardown?.abort());

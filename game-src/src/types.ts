@@ -32,6 +32,7 @@ export type ItemKind = 'weapon' | 'catalyst' | 'evolution';
 export type WeaponPattern = 'single' | 'fan' | 'ring' | 'burst' | 'spiral' | 'heavy' | 'orbit';
 export type EnemyBehavior = 'chaser' | 'dash_striker' | 'spitter';
 export type EnemyRole = 'swarmer' | 'charger' | 'bruiser' | 'tank' | 'sniper' | 'summoner' | 'disruptor';
+export type HazardTeam = 'player' | 'enemy';
 export type VisualRole =
   | 'player'
   | 'enemy_role'
@@ -46,6 +47,12 @@ export type VisualRole =
 export interface Vec2 {
   x: number;
   y: number;
+}
+
+export interface ViewportMetrics {
+  cssWidth: number;
+  cssHeight: number;
+  halfDiagonal: number;
 }
 
 export interface GameConfig {
@@ -79,6 +86,12 @@ export interface WeaponArchetype {
   colorHex: number;
   isEvolution?: boolean;
   evolvedFrom?: string;
+  /** Hazard pool spawned on impact. hazardDamageMultiplier is applied to runtime damage. */
+  hazardRadiusBase?: number;
+  hazardRadiusPerRank?: number;
+  hazardDurationBase?: number;
+  hazardDurationPerRank?: number;
+  hazardDamageMultiplier?: number;
 }
 
 export type CatalystEffect =
@@ -110,6 +123,19 @@ export interface EvolutionRecipe {
   catalystId: string;
   evolvedWeaponId: string;
   minTimeSeconds: number;
+}
+
+export interface HandbookEntry {
+  id: string;
+  title: string;
+  description: string;
+  tags: string[];
+}
+
+export interface HandbookSection {
+  id: string;
+  title: string;
+  entries: HandbookEntry[];
 }
 
 export interface InventorySlot {
@@ -514,6 +540,7 @@ export interface IRenderAdapter<TWorld> {
   getPerformanceSnapshot(): RenderPerformanceSnapshot;
   getReadabilitySnapshot(): ReadabilityGovernorState;
   getRenderPassMetrics(): RenderPassMetrics;
+  getViewportMetrics(): ViewportMetrics;
   getCanvas(): HTMLCanvasElement | null;
   destroy(): void;
 }

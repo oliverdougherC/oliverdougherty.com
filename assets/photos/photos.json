@@ -1,0 +1,987 @@
+{
+  "photos": [
+    {
+      "id": "squirrel",
+      "filename": "squirrel.jpg",
+      "title": "Squirrel",
+      "displayTitle": "Squirrel",
+      "description": "A head-on shot of a squirrel standing in a grassy field.",
+      "category": "WILDLIFE",
+      "location": "Field Edge",
+      "variantBaseName": "a7rii_335",
+      "width": 7952,
+      "height": 5304,
+      "thumbs": {
+        "jpg": "a7rii_335.jpg",
+        "webp": "a7rii_335.webp",
+        "avif": "a7rii_335.avif",
+        "width": 800,
+        "height": 534
+      },
+      "medium": {
+        "jpg": "a7rii_335.jpg",
+        "webp": "a7rii_335.webp",
+        "avif": "a7rii_335.avif",
+        "width": 1600,
+        "height": 1067
+      },
+      "large": {
+        "jpg": "a7rii_335.jpg",
+        "webp": "a7rii_335.webp",
+        "avif": "a7rii_335.avif",
+        "width": 2400,
+        "height": 1601
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 400,
+        "aperture": 6.3,
+        "shutter": "1/400",
+        "iso": 1600,
+        "date": "2025-09-13"
+      }
+    },
+    {
+      "id": "lighthouse",
+      "filename": "lighthouse.jpg",
+      "title": "Lighthouse",
+      "displayTitle": "Lighthouse",
+      "description": "A medium-long zoom shot of a white lighthouse sitting alone at the end of a peninsula.",
+      "category": "LANDSCAPE",
+      "location": "Peninsula Edge",
+      "variantBaseName": "a7rii_474",
+      "width": 7888,
+      "height": 5262,
+      "thumbs": {
+        "jpg": "a7rii_474.jpg",
+        "webp": "a7rii_474.webp",
+        "avif": "a7rii_474.avif",
+        "width": 800,
+        "height": 534
+      },
+      "medium": {
+        "jpg": "a7rii_474.jpg",
+        "webp": "a7rii_474.webp",
+        "avif": "a7rii_474.avif",
+        "width": 1600,
+        "height": 1067
+      },
+      "large": {
+        "jpg": "a7rii_474.jpg",
+        "webp": "a7rii_474.webp",
+        "avif": "a7rii_474.avif",
+        "width": 2400,
+        "height": 1601
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 202,
+        "aperture": 8,
+        "shutter": "1/320",
+        "iso": 100,
+        "date": "2025-11-09"
+      }
+    },
+    {
+      "id": "ember-m4",
+      "filename": "ember_m4.jpg",
+      "title": "Ember M4",
+      "displayTitle": "Ember M4",
+      "description": "A close up of the rear end of a BMW M4 competition, showing off the badges and the \"EMBER M4\" license plate.",
+      "category": "AUTOMOTIVE",
+      "location": "Mountain Pullout",
+      "variantBaseName": "DSC04084",
+      "width": 7952,
+      "height": 5304,
+      "thumbs": {
+        "jpg": "DSC04084.jpg",
+        "webp": "DSC04084.webp",
+        "avif": "DSC04084.avif",
+        "width": 800,
+        "height": 534
+      },
+      "medium": {
+        "jpg": "DSC04084.jpg",
+        "webp": "DSC04084.webp",
+        "avif": "DSC04084.avif",
+        "width": 1600,
+        "height": 1067
+      },
+      "large": {
+        "jpg": "DSC04084.jpg",
+        "webp": "DSC04084.webp",
+        "avif": "DSC04084.avif",
+        "width": 2400,
+        "height": 1601
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 284,
+        "aperture": 13,
+        "shutter": "1/5000",
+        "iso": 5000,
+        "date": "2025-12-16"
+      }
+    },
+    {
+      "id": "union",
+      "filename": "union.jpg",
+      "title": "Union",
+      "displayTitle": "Union",
+      "description": "A long, night shot of a big, union building with a dome roof.",
+      "category": "NIGHT_STUDIES",
+      "location": "Civic Center",
+      "variantBaseName": "IMG_20251211_232447_034",
+      "width": 6324,
+      "height": 4743,
+      "thumbs": {
+        "jpg": "IMG_20251211_232447_034.jpg",
+        "webp": "IMG_20251211_232447_034.webp",
+        "avif": "IMG_20251211_232447_034.avif",
+        "width": 800,
+        "height": 600
+      },
+      "medium": {
+        "jpg": "IMG_20251211_232447_034.jpg",
+        "webp": "IMG_20251211_232447_034.webp",
+        "avif": "IMG_20251211_232447_034.avif",
+        "width": 1600,
+        "height": 1200
+      },
+      "large": {
+        "jpg": "IMG_20251211_232447_034.jpg",
+        "webp": "IMG_20251211_232447_034.webp",
+        "avif": "IMG_20251211_232447_034.avif",
+        "width": 2400,
+        "height": 1800
+      },
+      "exif": {
+        "camera": "Insta360 Ace Pro 2",
+        "date": "2025-12-11"
+      }
+    },
+    {
+      "id": "hawk",
+      "filename": "hawk.jpg",
+      "title": "Hawk",
+      "displayTitle": "Hawk",
+      "description": "A zoomed shot of a hawk sitting on a tree branch.",
+      "category": "WILDLIFE",
+      "location": "Tree Line",
+      "variantBaseName": "DSC04229",
+      "width": 5783,
+      "height": 4267,
+      "thumbs": {
+        "jpg": "DSC04229.jpg",
+        "webp": "DSC04229.webp",
+        "avif": "DSC04229.avif",
+        "width": 800,
+        "height": 590
+      },
+      "medium": {
+        "jpg": "DSC04229.jpg",
+        "webp": "DSC04229.webp",
+        "avif": "DSC04229.avif",
+        "width": 1600,
+        "height": 1181
+      },
+      "large": {
+        "jpg": "DSC04229.jpg",
+        "webp": "DSC04229.webp",
+        "avif": "DSC04229.avif",
+        "width": 2400,
+        "height": 1771
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 400,
+        "aperture": 6.3,
+        "shutter": "1/400",
+        "iso": 1000,
+        "date": "2025-12-19"
+      }
+    },
+    {
+      "id": "chairs",
+      "filename": "chairs.jpeg",
+      "title": "Chairs",
+      "displayTitle": "Chairs",
+      "description": "A rear shot of 2 chairs on a tropical beach.",
+      "category": "LANDSCAPE",
+      "location": "Beachfront",
+      "variantBaseName": "Hawaii_S25_121",
+      "width": 7952,
+      "height": 5304,
+      "thumbs": {
+        "jpg": "Hawaii_S25_121.jpg",
+        "webp": "Hawaii_S25_121.webp",
+        "avif": "Hawaii_S25_121.avif",
+        "width": 800,
+        "height": 534
+      },
+      "medium": {
+        "jpg": "Hawaii_S25_121.jpg",
+        "webp": "Hawaii_S25_121.webp",
+        "avif": "Hawaii_S25_121.avif",
+        "width": 1600,
+        "height": 1067
+      },
+      "large": {
+        "jpg": "Hawaii_S25_121.jpg",
+        "webp": "Hawaii_S25_121.webp",
+        "avif": "Hawaii_S25_121.avif",
+        "width": 2400,
+        "height": 1601
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "FE 28-70mm F3.5-5.6 OSS",
+        "focalLength": 38,
+        "aperture": 10,
+        "shutter": "1/250",
+        "iso": 100,
+        "date": "2025-07-01"
+      }
+    },
+    {
+      "id": "forest",
+      "filename": "forest.jpg.jpg",
+      "title": "Forest",
+      "displayTitle": "Forest",
+      "description": "A landscape shot of a seeming neverending forest.",
+      "category": "LANDSCAPE",
+      "location": "Forest Line",
+      "variantBaseName": "DSC04166",
+      "width": 7952,
+      "height": 5304,
+      "thumbs": {
+        "jpg": "DSC04166.jpg",
+        "webp": "DSC04166.webp",
+        "avif": "DSC04166.avif",
+        "width": 800,
+        "height": 534
+      },
+      "medium": {
+        "jpg": "DSC04166.jpg",
+        "webp": "DSC04166.webp",
+        "avif": "DSC04166.avif",
+        "width": 1600,
+        "height": 1067
+      },
+      "large": {
+        "jpg": "DSC04166.jpg",
+        "webp": "DSC04166.webp",
+        "avif": "DSC04166.avif",
+        "width": 2400,
+        "height": 1601
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 100,
+        "aperture": 5,
+        "shutter": "1/160",
+        "iso": 200,
+        "date": "2025-12-18"
+      }
+    },
+    {
+      "id": "looking-for-shells",
+      "filename": "looking_for_shells.jpg",
+      "title": "Looking for Shells",
+      "displayTitle": "Looking for Shells",
+      "description": "A long zoom shot of 1 woman and 2 children on a rocky beach looking for shells.",
+      "category": "FIGURES",
+      "location": "Rocky Shore",
+      "variantBaseName": "a7rii_492",
+      "width": 7952,
+      "height": 5304,
+      "thumbs": {
+        "jpg": "a7rii_492.jpg",
+        "webp": "a7rii_492.webp",
+        "avif": "a7rii_492.avif",
+        "width": 800,
+        "height": 534
+      },
+      "medium": {
+        "jpg": "a7rii_492.jpg",
+        "webp": "a7rii_492.webp",
+        "avif": "a7rii_492.avif",
+        "width": 1600,
+        "height": 1067
+      },
+      "large": {
+        "jpg": "a7rii_492.jpg",
+        "webp": "a7rii_492.webp",
+        "avif": "a7rii_492.avif",
+        "width": 2400,
+        "height": 1601
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 400,
+        "aperture": 6.3,
+        "shutter": "1/400",
+        "iso": 400,
+        "date": "2025-11-09"
+      }
+    },
+    {
+      "id": "pond",
+      "filename": "pond.jpeg",
+      "title": "Pond",
+      "displayTitle": "Pond",
+      "description": "A close-medium top view shot of a coi pond.",
+      "category": "LANDSCAPE",
+      "location": "Garden Pond",
+      "variantBaseName": "Dream_Pond",
+      "width": 7952,
+      "height": 5304,
+      "thumbs": {
+        "jpg": "Dream_Pond.jpg",
+        "webp": "Dream_Pond.webp",
+        "avif": "Dream_Pond.avif",
+        "width": 800,
+        "height": 534
+      },
+      "medium": {
+        "jpg": "Dream_Pond.jpg",
+        "webp": "Dream_Pond.webp",
+        "avif": "Dream_Pond.avif",
+        "width": 1600,
+        "height": 1067
+      },
+      "large": {
+        "jpg": "Dream_Pond.jpg",
+        "webp": "Dream_Pond.webp",
+        "avif": "Dream_Pond.avif",
+        "width": 2400,
+        "height": 1601
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "FE 28-70mm F3.5-5.6 OSS",
+        "focalLength": 40,
+        "aperture": 4.5,
+        "shutter": "1/60",
+        "iso": 100,
+        "date": "2025-06-30"
+      }
+    },
+    {
+      "id": "hills",
+      "filename": "hills.jpg",
+      "title": "Hills",
+      "displayTitle": "Hills",
+      "description": "A landscape shot of rolling, green hills.",
+      "category": "LANDSCAPE",
+      "location": "Open Range",
+      "variantBaseName": "DSC04139",
+      "width": 7952,
+      "height": 5304,
+      "thumbs": {
+        "jpg": "DSC04139.jpg",
+        "webp": "DSC04139.webp",
+        "avif": "DSC04139.avif",
+        "width": 800,
+        "height": 534
+      },
+      "medium": {
+        "jpg": "DSC04139.jpg",
+        "webp": "DSC04139.webp",
+        "avif": "DSC04139.avif",
+        "width": 1600,
+        "height": 1067
+      },
+      "large": {
+        "jpg": "DSC04139.jpg",
+        "webp": "DSC04139.webp",
+        "avif": "DSC04139.avif",
+        "width": 2400,
+        "height": 1601
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 100,
+        "aperture": 8,
+        "shutter": "1/160",
+        "iso": 100,
+        "date": "2025-12-18"
+      }
+    },
+    {
+      "id": "fog",
+      "filename": "fog.jpg",
+      "title": "Fog",
+      "displayTitle": "Fog",
+      "description": "A landscape shot of a bed of fog laying on distant hills.",
+      "category": "LANDSCAPE",
+      "location": "Distant Ridge",
+      "variantBaseName": "DSC04161",
+      "width": 7952,
+      "height": 5304,
+      "thumbs": {
+        "jpg": "DSC04161.jpg",
+        "webp": "DSC04161.webp",
+        "avif": "DSC04161.avif",
+        "width": 800,
+        "height": 534
+      },
+      "medium": {
+        "jpg": "DSC04161.jpg",
+        "webp": "DSC04161.webp",
+        "avif": "DSC04161.avif",
+        "width": 1600,
+        "height": 1067
+      },
+      "large": {
+        "jpg": "DSC04161.jpg",
+        "webp": "DSC04161.webp",
+        "avif": "DSC04161.avif",
+        "width": 2400,
+        "height": 1601
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 311,
+        "aperture": 8,
+        "shutter": "1/500",
+        "iso": 100,
+        "date": "2025-12-18"
+      }
+    },
+    {
+      "id": "moon",
+      "filename": "moon.jpg",
+      "title": "Moon",
+      "displayTitle": "Moon",
+      "description": "A zoomed shot of the moon.",
+      "category": "NIGHT_STUDIES",
+      "location": "Night Sky",
+      "variantBaseName": "DSC04599",
+      "width": 1143,
+      "height": 1143,
+      "thumbs": {
+        "jpg": "DSC04599.jpg",
+        "webp": "DSC04599.webp",
+        "avif": "DSC04599.avif",
+        "width": 800,
+        "height": 800
+      },
+      "medium": {
+        "jpg": "DSC04599.jpg",
+        "webp": "DSC04599.webp",
+        "avif": "DSC04599.avif",
+        "width": 1143,
+        "height": 1143
+      },
+      "large": {
+        "jpg": "DSC04599.jpg",
+        "webp": "DSC04599.webp",
+        "avif": "DSC04599.avif",
+        "width": 1143,
+        "height": 1143
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 400,
+        "aperture": 29,
+        "shutter": "1/6",
+        "iso": 100,
+        "date": "2025-12-28"
+      }
+    },
+    {
+      "id": "sitting",
+      "filename": "sitting.jpg",
+      "title": "Sitting",
+      "displayTitle": "Sitting",
+      "description": "A zoomed, slightly raised shot of a squirrel sitting on a fence.",
+      "category": "WILDLIFE",
+      "location": "Fence Line",
+      "variantBaseName": "DSC04549",
+      "width": 7952,
+      "height": 5304,
+      "thumbs": {
+        "jpg": "DSC04549.jpg",
+        "webp": "DSC04549.webp",
+        "avif": "DSC04549.avif",
+        "width": 800,
+        "height": 534
+      },
+      "medium": {
+        "jpg": "DSC04549.jpg",
+        "webp": "DSC04549.webp",
+        "avif": "DSC04549.avif",
+        "width": 1600,
+        "height": 1067
+      },
+      "large": {
+        "jpg": "DSC04549.jpg",
+        "webp": "DSC04549.webp",
+        "avif": "DSC04549.avif",
+        "width": 2400,
+        "height": 1601
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 400,
+        "aperture": 6.3,
+        "shutter": "1/400",
+        "iso": 1600,
+        "date": "2025-12-27"
+      }
+    },
+    {
+      "id": "in-flight",
+      "filename": "in_flight.jpg",
+      "title": "In Flight",
+      "displayTitle": "In Flight",
+      "description": "A zoomed shot of a small bird as it zips downward.",
+      "category": "WILDLIFE",
+      "location": "Open Sky",
+      "variantBaseName": "DSC04554",
+      "width": 5073,
+      "height": 3450,
+      "thumbs": {
+        "jpg": "DSC04554.jpg",
+        "webp": "DSC04554.webp",
+        "avif": "DSC04554.avif",
+        "width": 800,
+        "height": 544
+      },
+      "medium": {
+        "jpg": "DSC04554.jpg",
+        "webp": "DSC04554.webp",
+        "avif": "DSC04554.avif",
+        "width": 1600,
+        "height": 1088
+      },
+      "large": {
+        "jpg": "DSC04554.jpg",
+        "webp": "DSC04554.webp",
+        "avif": "DSC04554.avif",
+        "width": 2400,
+        "height": 1632
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 400,
+        "aperture": 6.3,
+        "shutter": "1/400",
+        "iso": 640,
+        "date": "2025-12-27"
+      }
+    },
+    {
+      "id": "caught",
+      "filename": "Caught.jpg",
+      "title": "Caught",
+      "displayTitle": "Caught",
+      "description": "A near birds-eye view down onto a staircase where a young woman looks up into the camera as she walks up the stairs.",
+      "category": "FIGURES",
+      "location": "Concrete Stairwell",
+      "variantBaseName": "a7rii_477",
+      "width": 4163,
+      "height": 3122,
+      "thumbs": {
+        "jpg": "a7rii_477.jpg",
+        "webp": "a7rii_477.webp",
+        "avif": "a7rii_477.avif",
+        "width": 800,
+        "height": 600
+      },
+      "medium": {
+        "jpg": "a7rii_477.jpg",
+        "webp": "a7rii_477.webp",
+        "avif": "a7rii_477.avif",
+        "width": 1600,
+        "height": 1200
+      },
+      "large": {
+        "jpg": "a7rii_477.jpg",
+        "webp": "a7rii_477.webp",
+        "avif": "a7rii_477.avif",
+        "width": 2400,
+        "height": 1800
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 139,
+        "aperture": 5.6,
+        "shutter": "1/160",
+        "iso": 100,
+        "date": "2025-11-09"
+      }
+    },
+    {
+      "id": "stroller",
+      "filename": "stroller.jpg",
+      "title": "Stroller",
+      "displayTitle": "Stroller",
+      "description": "A long, 80 degree shot of a young woman pushing a stroller.",
+      "category": "FIGURES",
+      "location": "Waterfront Path",
+      "variantBaseName": "DSC04205",
+      "width": 6076,
+      "height": 3906,
+      "thumbs": {
+        "jpg": "DSC04205.jpg",
+        "webp": "DSC04205.webp",
+        "avif": "DSC04205.avif",
+        "width": 800,
+        "height": 514
+      },
+      "medium": {
+        "jpg": "DSC04205.jpg",
+        "webp": "DSC04205.webp",
+        "avif": "DSC04205.avif",
+        "width": 1600,
+        "height": 1029
+      },
+      "large": {
+        "jpg": "DSC04205.jpg",
+        "webp": "DSC04205.webp",
+        "avif": "DSC04205.avif",
+        "width": 2400,
+        "height": 1543
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 400,
+        "aperture": 6.3,
+        "shutter": "1/400",
+        "iso": 200,
+        "date": "2025-12-19"
+      }
+    },
+    {
+      "id": "swing",
+      "filename": "swing.jpg",
+      "title": "Swing",
+      "displayTitle": "Swing",
+      "description": "A long, 45 degree shot of two men in the follow through of their golf swing.",
+      "category": "FIGURES",
+      "location": "Driving Range",
+      "variantBaseName": "DSC04179",
+      "width": 5461,
+      "height": 3644,
+      "thumbs": {
+        "jpg": "DSC04179.jpg",
+        "webp": "DSC04179.webp",
+        "avif": "DSC04179.avif",
+        "width": 800,
+        "height": 534
+      },
+      "medium": {
+        "jpg": "DSC04179.jpg",
+        "webp": "DSC04179.webp",
+        "avif": "DSC04179.avif",
+        "width": 1600,
+        "height": 1068
+      },
+      "large": {
+        "jpg": "DSC04179.jpg",
+        "webp": "DSC04179.webp",
+        "avif": "DSC04179.avif",
+        "width": 2400,
+        "height": 1601
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 383,
+        "aperture": 6.3,
+        "shutter": "1/400",
+        "iso": 250,
+        "date": "2025-12-19"
+      }
+    },
+    {
+      "id": "putt",
+      "filename": "putt.jpg",
+      "title": "Putt",
+      "displayTitle": "Putt",
+      "description": "A long shot of 2 men while 1 putts a golf ball.",
+      "category": "FIGURES",
+      "location": "Practice Green",
+      "variantBaseName": "DSC04209",
+      "width": 7952,
+      "height": 5304,
+      "thumbs": {
+        "jpg": "DSC04209.jpg",
+        "webp": "DSC04209.webp",
+        "avif": "DSC04209.avif",
+        "width": 800,
+        "height": 534
+      },
+      "medium": {
+        "jpg": "DSC04209.jpg",
+        "webp": "DSC04209.webp",
+        "avif": "DSC04209.avif",
+        "width": 1600,
+        "height": 1067
+      },
+      "large": {
+        "jpg": "DSC04209.jpg",
+        "webp": "DSC04209.webp",
+        "avif": "DSC04209.avif",
+        "width": 2400,
+        "height": 1601
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 400,
+        "aperture": 6.3,
+        "shutter": "1/400",
+        "iso": 320,
+        "date": "2025-12-19"
+      }
+    },
+    {
+      "id": "nose",
+      "filename": "nose.jpg",
+      "title": "Nose",
+      "displayTitle": "Nose",
+      "description": "A medium, 30 degree shot of the front end of a Audi RS6.",
+      "category": "AUTOMOTIVE",
+      "location": "Street Shoulder",
+      "variantBaseName": "DSC04098",
+      "width": 7670,
+      "height": 5116,
+      "thumbs": {
+        "jpg": "DSC04098.jpg",
+        "webp": "DSC04098.webp",
+        "avif": "DSC04098.avif",
+        "width": 800,
+        "height": 534
+      },
+      "medium": {
+        "jpg": "DSC04098.jpg",
+        "webp": "DSC04098.webp",
+        "avif": "DSC04098.avif",
+        "width": 1600,
+        "height": 1067
+      },
+      "large": {
+        "jpg": "DSC04098.jpg",
+        "webp": "DSC04098.webp",
+        "avif": "DSC04098.avif",
+        "width": 2400,
+        "height": 1601
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 100,
+        "aperture": 8,
+        "shutter": "1/2000",
+        "iso": 5000,
+        "date": "2025-12-16"
+      }
+    },
+    {
+      "id": "stare",
+      "filename": "stare.jpg",
+      "title": "Stare",
+      "displayTitle": "Stare",
+      "description": "A medium, perfectly head on shot of an Audi RS6.",
+      "category": "AUTOMOTIVE",
+      "location": "Street Shoulder",
+      "variantBaseName": "DSC04102",
+      "width": 7828,
+      "height": 5288,
+      "thumbs": {
+        "jpg": "DSC04102.jpg",
+        "webp": "DSC04102.webp",
+        "avif": "DSC04102.avif",
+        "width": 800,
+        "height": 540
+      },
+      "medium": {
+        "jpg": "DSC04102.jpg",
+        "webp": "DSC04102.webp",
+        "avif": "DSC04102.avif",
+        "width": 1600,
+        "height": 1081
+      },
+      "large": {
+        "jpg": "DSC04102.jpg",
+        "webp": "DSC04102.webp",
+        "avif": "DSC04102.avif",
+        "width": 2400,
+        "height": 1621
+      },
+      "exif": {
+        "camera": "ILCE-7RM2",
+        "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
+        "focalLength": 187,
+        "aperture": 8,
+        "shutter": "1/2000",
+        "iso": 5000,
+        "date": "2025-12-16"
+      }
+    },
+    {
+      "id": "yellow",
+      "filename": "yellow.jpg",
+      "title": "Yellow",
+      "displayTitle": "Yellow",
+      "description": "A stylized night shot of a yellow traffic light.",
+      "category": "NIGHT_STUDIES",
+      "location": "Intersection",
+      "variantBaseName": "IMG_20251211_225252_010",
+      "width": 2864,
+      "height": 2148,
+      "thumbs": {
+        "jpg": "IMG_20251211_225252_010.jpg",
+        "webp": "IMG_20251211_225252_010.webp",
+        "avif": "IMG_20251211_225252_010.avif",
+        "width": 800,
+        "height": 600
+      },
+      "medium": {
+        "jpg": "IMG_20251211_225252_010.jpg",
+        "webp": "IMG_20251211_225252_010.webp",
+        "avif": "IMG_20251211_225252_010.avif",
+        "width": 1600,
+        "height": 1200
+      },
+      "large": {
+        "jpg": "IMG_20251211_225252_010.jpg",
+        "webp": "IMG_20251211_225252_010.webp",
+        "avif": "IMG_20251211_225252_010.avif",
+        "width": 2400,
+        "height": 1800
+      },
+      "exif": {
+        "camera": "Insta360 Ace Pro 2",
+        "date": "2025-12-11"
+      }
+    },
+    {
+      "id": "night",
+      "filename": "night.jpg",
+      "title": "Night",
+      "displayTitle": "Night",
+      "description": "A wide angle shot of a small park at night.",
+      "category": "NIGHT_STUDIES",
+      "location": "Neighborhood Park",
+      "variantBaseName": "IMG_20251211_225510_015",
+      "width": 8192,
+      "height": 6144,
+      "thumbs": {
+        "jpg": "IMG_20251211_225510_015.jpg",
+        "webp": "IMG_20251211_225510_015.webp",
+        "avif": "IMG_20251211_225510_015.avif",
+        "width": 800,
+        "height": 600
+      },
+      "medium": {
+        "jpg": "IMG_20251211_225510_015.jpg",
+        "webp": "IMG_20251211_225510_015.webp",
+        "avif": "IMG_20251211_225510_015.avif",
+        "width": 1600,
+        "height": 1200
+      },
+      "large": {
+        "jpg": "IMG_20251211_225510_015.jpg",
+        "webp": "IMG_20251211_225510_015.webp",
+        "avif": "IMG_20251211_225510_015.avif",
+        "width": 2400,
+        "height": 1800
+      },
+      "exif": {
+        "camera": "Insta360 Ace Pro 2",
+        "date": "2025-12-11"
+      }
+    },
+    {
+      "id": "yield",
+      "filename": "yield.jpg",
+      "title": "Yield",
+      "displayTitle": "Yield",
+      "description": "A stylized close up of a yield sign.",
+      "category": "NIGHT_STUDIES",
+      "location": "Street Corner",
+      "variantBaseName": "IMG_20251211_225546_016",
+      "width": 8192,
+      "height": 6144,
+      "thumbs": {
+        "jpg": "IMG_20251211_225546_016.jpg",
+        "webp": "IMG_20251211_225546_016.webp",
+        "avif": "IMG_20251211_225546_016.avif",
+        "width": 800,
+        "height": 600
+      },
+      "medium": {
+        "jpg": "IMG_20251211_225546_016.jpg",
+        "webp": "IMG_20251211_225546_016.webp",
+        "avif": "IMG_20251211_225546_016.avif",
+        "width": 1600,
+        "height": 1200
+      },
+      "large": {
+        "jpg": "IMG_20251211_225546_016.jpg",
+        "webp": "IMG_20251211_225546_016.webp",
+        "avif": "IMG_20251211_225546_016.avif",
+        "width": 2400,
+        "height": 1800
+      },
+      "exif": {
+        "camera": "Insta360 Ace Pro 2",
+        "date": "2025-12-11"
+      }
+    },
+    {
+      "id": "lights",
+      "filename": "lights.jpg",
+      "title": "Lights",
+      "displayTitle": "Lights",
+      "description": "A styled shot of a large, concrete building from the sidewalk.",
+      "category": "NIGHT_STUDIES",
+      "location": "Downtown Sidewalk",
+      "variantBaseName": "IMG_20251211_225914_024_crop",
+      "width": 4601,
+      "height": 4601,
+      "thumbs": {
+        "jpg": "IMG_20251211_225914_024_crop.jpg",
+        "webp": "IMG_20251211_225914_024_crop.webp",
+        "avif": "IMG_20251211_225914_024_crop.avif",
+        "width": 800,
+        "height": 800
+      },
+      "medium": {
+        "jpg": "IMG_20251211_225914_024_crop.jpg",
+        "webp": "IMG_20251211_225914_024_crop.webp",
+        "avif": "IMG_20251211_225914_024_crop.avif",
+        "width": 1600,
+        "height": 1600
+      },
+      "large": {
+        "jpg": "IMG_20251211_225914_024_crop.jpg",
+        "webp": "IMG_20251211_225914_024_crop.webp",
+        "avif": "IMG_20251211_225914_024_crop.avif",
+        "width": 2400,
+        "height": 2400
+      },
+      "exif": {
+        "camera": "Insta360 Ace Pro 2",
+        "date": "2025-12-11"
+      }
+    }
+  ]
+}

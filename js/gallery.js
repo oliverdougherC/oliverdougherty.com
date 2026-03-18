@@ -1,725 +1,986 @@
 /**
  * Gallery JavaScript
- * Handles photo loading, lightbox, and search.
- * EXIF metadata is pre-extracted at build time and embedded in photos.json.
- * Navigation and utilities are provided by main.js (loaded before this script).
+ * Builds the editorial gallery experience from generated asset data plus
+ * human-authored sequence metadata.
  */
 
-document.addEventListener('DOMContentLoaded', () => {
-  initGallery();
-  initLightbox();
-  initGallerySearch();
-  initLightboxSwipe();
-});
+const GALLERY_HASH_PREFIX = '#photo=';
+const MANIFEST_PATH = '../../assets/photos/photos.json';
+const SEQUENCE_PATH = '../../assets/photos/gallery-sequence.json';
+const HERO_QUEUE_LIMIT = 4;
 
-/**
- * Gallery state and configuration
- */
 const gallery = {
-  photos: [],
-  currentIndex: 0,
-  photosPath: '../../photos/',
-  thumbsPath: '../../photos/thumbs/',
-  mediumPath: '../../photos/medium/',
-  largePath: '../../photos/large/',
-  triggerElement: null // Stores the element that opened the lightbox for focus return
+  entries: [],
+  featuredEntries: [],
+  heroEntries: [],
+  visibleEntries: [],
+  currentIndex: -1,
+  heroEntryId: '',
+  lightboxOpen: false,
+  infoPanelOpen: false,
+  triggerElement: null,
+  elements: {}
 };
 
-function updateRenderedPhotoCount() {
-  const countEl = document.getElementById('photoCount');
-  if (!countEl) return;
+document.addEventListener('DOMContentLoaded', () => {
+  cacheElements();
+  bindStaticEvents();
+  initGallery().catch((error) => {
+    console.error('Gallery initialization error:', error);
+    showErrorState('The archive data could not be loaded. Refresh the page or try again later.');
+  });
+});
 
-  const visibleCards = document.querySelectorAll(
-    '.photo-card:not(.photo-card--broken):not(.search-hidden)'
-  ).length;
-  countEl.textContent = String(visibleCards);
+function cacheElements() {
+  gallery.elements = {
+    heroFeature: document.getElementById('galleryHeroFeature'),
+    heroPicture: document.getElementById('galleryHeroPicture'),
+    heroSourceAvif: document.getElementById('galleryHeroSourceAvif'),
+    heroSourceWebp: document.getElementById('galleryHeroSourceWebp'),
+    heroImage: document.getElementById('galleryHeroImage'),
+    heroOpen: document.getElementById('galleryHeroOpen'),
+    loading: document.getElementById('galleryLoading'),
+    empty: document.getElementById('galleryEmpty'),
+    emptyTitle: document.getElementById('galleryEmptyTitle'),
+    emptyCopy: document.getElementById('galleryEmptyCopy'),
+    error: document.getElementById('galleryError'),
+    errorCopy: document.getElementById('galleryErrorCopy'),
+    archiveSection: document.getElementById('galleryArchiveSection'),
+    archiveGrid: document.getElementById('galleryArchiveGrid'),
+    lightbox: document.getElementById('lightbox'),
+    lightboxPanel: document.getElementById('lightboxPanel'),
+    lightboxMedia: document.getElementById('lightboxMedia'),
+    lightboxCounter: document.getElementById('lightboxCounter'),
+    lightboxClose: document.getElementById('lightboxClose'),
+    lightboxPrev: document.getElementById('lightboxPrev'),
+    lightboxNext: document.getElementById('lightboxNext'),
+    lightboxInfoToggle: document.getElementById('lightboxInfoToggle'),
+    lightboxSourceAvif: document.getElementById('lightboxSourceAvif'),
+    lightboxSourceWebp: document.getElementById('lightboxSourceWebp'),
+    lightboxImage: document.getElementById('lightboxImage'),
+    lightboxEyebrow: document.getElementById('lightboxEyebrow'),
+    lightboxTitle: document.getElementById('lightboxTitle'),
+    lightboxSubline: document.getElementById('lightboxSubline'),
+    lightboxNotes: document.getElementById('lightboxNotes'),
+    lightboxMeta: document.getElementById('lightboxMeta'),
+    lightboxThumbStrip: document.getElementById('lightboxThumbStrip')
+  };
 }
 
-/**
- * Initialize gallery - load photos from directory
- */
+function bindStaticEvents() {
+  gallery.elements.heroOpen?.addEventListener('click', () => {
+    if (!gallery.heroEntryId) return;
+    openLightboxById(gallery.heroEntryId, gallery.elements.heroOpen);
+  });
+
+  gallery.elements.lightboxClose?.addEventListener('click', () => closeLightbox());
+  gallery.elements.lightboxPrev?.addEventListener('click', () => navigateLightbox(-1));
+  gallery.elements.lightboxNext?.addEventListener('click', () => navigateLightbox(1));
+  gallery.elements.lightboxInfoToggle?.addEventListener('click', () => {
+    setInfoPanelOpen(!gallery.infoPanelOpen);
+  });
+
+  document.querySelectorAll('[data-lightbox-dismiss]').forEach((element) => {
+    element.addEventListener('click', () => closeLightbox());
+  });
+
+  document.addEventListener('keydown', handleGlobalKeydown);
+  window.addEventListener('hashchange', handleHashChange);
+
+  if (gallery.elements.lightboxMedia) {
+    let touchStartX = 0;
+    let touchEndX = 0;
+
+    gallery.elements.lightboxMedia.addEventListener('touchstart', (event) => {
+      touchStartX = event.changedTouches[0].screenX;
+    }, { passive: true });
+
+    gallery.elements.lightboxMedia.addEventListener('touchend', (event) => {
+      touchEndX = event.changedTouches[0].screenX;
+      const diff = touchStartX - touchEndX;
+      if (Math.abs(diff) < 50 || !gallery.lightboxOpen) return;
+      navigateLightbox(diff > 0 ? 1 : -1);
+    }, { passive: true });
+  }
+}
+
 async function initGallery() {
-  const grid = document.getElementById('galleryGrid');
-  const loading = document.getElementById('galleryLoading');
-  const empty = document.getElementById('galleryEmpty');
+  setLoadingState(true);
+  const entries = await loadGalleryEntries();
 
+  gallery.entries = entries.sort((a, b) => a.order - b.order);
+  gallery.featuredEntries = gallery.entries.filter((entry) => entry.featured);
+  gallery.heroEntries = gallery.entries
+    .filter((entry) => Number.isFinite(Number(entry.hero?.priority)))
+    .sort((a, b) => Number(a.hero.priority) - Number(b.hero.priority))
+    .slice(0, HERO_QUEUE_LIMIT);
+  gallery.heroEntryId = gallery.heroEntries[0]?.id || gallery.featuredEntries[0]?.id || gallery.entries[0]?.id || '';
+
+  if (!gallery.entries.length) {
+    setLoadingState(false);
+    showEmptyState(
+      'No photographs found',
+      'Add photographs to the archive manifest to populate the gallery.'
+    );
+    return;
+  }
+
+  syncHeroFeature();
+  buildLightboxThumbStrip();
+  renderGallery();
+  initScrollReveal();
+  setLoadingState(false);
+  handleHashChange();
+
+  window.__galleryState = {
+    getEntries: () => gallery.entries,
+    getVisibleEntries: () => gallery.visibleEntries,
+    getHeroEntries: () => gallery.heroEntries,
+    openPhotoById: (id) => openLightboxById(id),
+    closeLightbox
+  };
+}
+
+async function loadGalleryEntries() {
+  const [manifestResult, sequenceResult] = await Promise.all([
+    fetchJson(MANIFEST_PATH, true),
+    fetchJson(SEQUENCE_PATH, false)
+  ]);
+
+  if (!Array.isArray(manifestResult?.photos)) {
+    throw new Error('Invalid gallery manifest schema');
+  }
+
+  const manifestPhotos = manifestResult.photos;
+  const sequenceItems = Array.isArray(sequenceResult?.items) ? sequenceResult.items : [];
+  const sequenceLookup = buildSequenceLookup(sequenceItems);
+
+  return manifestPhotos.map((photo, manifestIndex) =>
+    mergeGalleryEntry({
+      photo,
+      manifestIndex,
+      sequenceItems,
+      sequenceLookup
+    })
+  );
+}
+
+async function fetchJson(path, throwOnFailure) {
   try {
-    const response = await fetch('../../photos/photos.json');
-
-    if (response.ok) {
-      const data = await response.json();
-      gallery.photos = data.photos || [];
-    } else {
-      gallery.photos = await detectPhotos();
-    }
-
-    if (loading) loading.style.display = 'none';
-
-    if (gallery.photos.length === 0) {
-      if (empty) empty.style.display = 'flex';
-      return;
-    }
-
-    // Use DocumentFragment for batch DOM insertion (single reflow)
-    const fragment = document.createDocumentFragment();
-    gallery.photos.forEach((photo, index) => {
-      const card = createPhotoCard(photo, index);
-      fragment.appendChild(card);
-    });
-    grid.appendChild(fragment);
-    updateRenderedPhotoCount();
-
-  } catch (error) {
-    console.error('Error loading gallery:', error);
-    if (loading) loading.style.display = 'none';
-    if (empty) empty.style.display = 'flex';
-  }
-}
-
-/**
- * Detect photos - tries common filenames (fallback)
- */
-async function detectPhotos() {
-  const photos = [];
-  const testFiles = [
-    'test.jpg', 'photo1.jpg', 'photo2.jpg', 'photo3.jpg',
-    'image1.jpg', 'image2.jpg', 'IMG_001.jpg', 'IMG_002.jpg',
-    'DSC_001.jpg', 'DSC_002.jpg'
-  ];
-
-  for (const filename of testFiles) {
-    try {
-      const response = await fetch(`../../photos/${filename}`, { method: 'HEAD' });
-      if (response.ok) {
-        photos.push({ filename, title: formatTitle(filename) });
+    const response = await fetch(path, { cache: 'no-store' });
+    if (!response.ok) {
+      if (throwOnFailure) {
+        throw new Error(`Failed to load ${path}`);
       }
-    } catch (e) {
-      // File doesn't exist, continue
+      return null;
     }
+    return await response.json();
+  } catch (error) {
+    if (throwOnFailure) throw error;
+    return null;
+  }
+}
+
+function buildSequenceLookup(sequenceItems) {
+  const lookup = new Map();
+
+  sequenceItems.forEach((item, index) => {
+    item.__sequenceIndex = index;
+    [
+      item.id,
+      item.title,
+      basenameFromPath(item.src?.large),
+      basenameFromPath(item.src?.medium),
+      basenameFromPath(item.src?.thumb)
+    ].forEach((value) => registerSequenceKey(lookup, value, item));
+  });
+
+  return lookup;
+}
+
+function registerSequenceKey(map, value, item) {
+  if (!value) return;
+  map.set(normalizeGalleryKey(value), item);
+}
+
+function mergeGalleryEntry({ photo, manifestIndex, sequenceItems, sequenceLookup }) {
+  const matchedSequence = sequenceLookup.get(normalizeGalleryKey(photo.id))
+    || sequenceLookup.get(normalizeGalleryKey(photo.filename))
+    || sequenceLookup.get(normalizeGalleryKey(photo.displayTitle))
+    || sequenceLookup.get(normalizeGalleryKey(photo.title))
+    || null;
+
+  const sequenceIndex = Number.isInteger(matchedSequence?.__sequenceIndex)
+    ? matchedSequence.__sequenceIndex
+    : null;
+
+  const id = matchedSequence?.id
+    || photo.id
+    || normalizeGalleryKey(photo.filename || photo.displayTitle || photo.title || `photo-${manifestIndex + 1}`);
+  const displayTitle = matchedSequence?.title
+    || photo.displayTitle
+    || photo.title
+    || formatTitle(photo.filename || `Photo ${manifestIndex + 1}`);
+  const date = photo.exif?.date || matchedSequence?.meta?.date || '';
+  const year = matchedSequence?.index?.year || extractYear(date) || '';
+  const location = matchedSequence?.meta?.location || photo.location || '';
+  const description = photo.description || buildFallbackDescription(photo);
+  const notes = matchedSequence?.meta?.notes || '';
+  const featured = Boolean(matchedSequence?.featured);
+  const order = sequenceIndex !== null ? sequenceIndex : sequenceItems.length + manifestIndex;
+  const hero = matchedSequence?.hero
+    ? {
+      priority: Number(matchedSequence.hero.priority) || 0,
+      theme: String(matchedSequence.hero.theme || '').trim(),
+      teaser: String(matchedSequence.hero.teaser || '').trim()
+    }
+    : null;
+
+  const entry = {
+    id,
+    title: displayTitle,
+    displayTitle,
+    description,
+    location,
+    notes,
+    featured,
+    hero,
+    order,
+    year,
+    date,
+    dateLabel: formatDate(date),
+    dateShortLabel: formatShortDate(date),
+    source: sequenceIndex !== null ? 'curated' : 'manifest',
+    width: Number(photo.width) || Number(photo.large?.width) || Number(photo.medium?.width) || 1600,
+    height: Number(photo.height) || Number(photo.large?.height) || Number(photo.medium?.height) || 1067,
+    exif: photo.exif || {},
+    assets: buildAssetMap(photo)
+  };
+
+  return entry;
+}
+
+function buildAssetMap(photo) {
+  return {
+    original: photo.filename ? `../../assets/photos/${photo.filename}` : '',
+    thumbJpg: resolveVariantPath(photo.thumbs, 'jpg', '../../assets/photos/thumbs/', photo.filename),
+    thumbWebp: resolveVariantPath(photo.thumbs, 'webp', '../../assets/photos/thumbs/'),
+    thumbAvif: resolveVariantPath(photo.thumbs, 'avif', '../../assets/photos/thumbs/'),
+    mediumJpg: resolveVariantPath(photo.medium, 'jpg', '../../assets/photos/medium/', photo.filename),
+    mediumWebp: resolveVariantPath(photo.medium, 'webp', '../../assets/photos/medium/'),
+    mediumAvif: resolveVariantPath(photo.medium, 'avif', '../../assets/photos/medium/'),
+    largeJpg: resolveVariantPath(photo.large, 'jpg', '../../assets/photos/large/', photo.filename),
+    largeWebp: resolveVariantPath(photo.large, 'webp', '../../assets/photos/large/'),
+    largeAvif: resolveVariantPath(photo.large, 'avif', '../../assets/photos/large/'),
+    thumbWidth: Number(photo.thumbs?.width) || 800,
+    thumbHeight: Number(photo.thumbs?.height) || 534,
+    mediumWidth: Number(photo.medium?.width) || 1600,
+    mediumHeight: Number(photo.medium?.height) || 1067,
+    largeWidth: Number(photo.large?.width) || 2400,
+    largeHeight: Number(photo.large?.height) || 1601
+  };
+}
+
+function buildFallbackDescription(photo) {
+  if (photo.location) {
+    return `A frame from ${String(photo.location).toLowerCase()} preserved in the archive.`;
   }
 
-  return photos;
+  return 'A frame preserved in the archive with generated metadata only.';
 }
 
-/**
- * Format filename to readable title
- */
-function formatTitle(filename) {
-  return filename
-    .replace(/\.[^/.]+$/, '')
-    .replace(/[-_]/g, ' ')
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/\b\w/g, c => c.toUpperCase());
+function syncHeroFeature() {
+  const entry = getEntryById(gallery.heroEntryId) || gallery.heroEntries[0] || gallery.featuredEntries[0] || gallery.entries[0];
+  if (!entry) return;
+
+  gallery.heroEntryId = entry.id;
+
+  setPictureSource(
+    gallery.elements.heroSourceAvif,
+    buildSrcset([
+      makeResponsiveCandidate(entry.assets.mediumAvif, entry.assets.mediumWidth),
+      makeResponsiveCandidate(entry.assets.largeAvif, entry.assets.largeWidth)
+    ]),
+    '(max-width: 900px) 100vw, 40vw'
+  );
+  setPictureSource(
+    gallery.elements.heroSourceWebp,
+    buildSrcset([
+      makeResponsiveCandidate(entry.assets.mediumWebp, entry.assets.mediumWidth),
+      makeResponsiveCandidate(entry.assets.largeWebp, entry.assets.largeWidth)
+    ]),
+    '(max-width: 900px) 100vw, 40vw'
+  );
+
+  if (gallery.elements.heroImage) {
+    gallery.elements.heroImage.src = entry.assets.largeJpg || entry.assets.mediumJpg || entry.assets.original;
+    gallery.elements.heroImage.alt = entry.displayTitle;
+    gallery.elements.heroImage.srcset = buildSrcset([
+      makeResponsiveCandidate(entry.assets.mediumJpg, entry.assets.mediumWidth),
+      makeResponsiveCandidate(entry.assets.largeJpg, entry.assets.largeWidth)
+    ]);
+    gallery.elements.heroImage.sizes = '(max-width: 900px) 100vw, 40vw';
+  }
+
+  if (gallery.elements.heroOpen) {
+    gallery.elements.heroOpen.dataset.entryId = entry.id;
+  }
 }
 
-/**
- * Escape dynamic text before interpolating into HTML strings.
- */
-function escapeHTML(value) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+function renderGallery() {
+  const visibleEntries = gallery.entries.filter((entry) => entry.id !== gallery.heroEntryId);
+
+  gallery.visibleEntries = visibleEntries;
+
+  if (!visibleEntries.length) {
+    if (gallery.elements.archiveSection) gallery.elements.archiveSection.hidden = true;
+    showEmptyState(
+      'No photographs found',
+      'The archive does not contain any published photographs yet.'
+    );
+    return;
+  }
+
+  hideStatusStates();
+
+  if (gallery.elements.archiveSection) gallery.elements.archiveSection.hidden = false;
+  renderPhotoGrid(gallery.elements.archiveGrid, visibleEntries, 'archive');
 }
 
-function makeResponsiveCandidate(src, width) {
-  if (!src) return null;
-  return Number.isFinite(width) && width > 0 ? `${src} ${width}w` : src;
+function initScrollReveal() {
+  const cards = document.querySelectorAll('.photo-card');
+  if (!cards.length) return;
+
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    cards.forEach((card) => card.classList.add('is-revealed'));
+    return;
+  }
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('is-revealed');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, {
+    rootMargin: '0px 0px -8% 0px',
+    threshold: 0.15
+  });
+
+  cards.forEach((card) => observer.observe(card));
 }
 
-function joinSrcset(candidates) {
-  return candidates.filter(Boolean).join(', ');
+function renderPhotoGrid(container, entries, context) {
+  const fragment = document.createDocumentFragment();
+  const prominentSet = buildProminentSet(entries);
+
+  entries.forEach((entry, index) => {
+    fragment.appendChild(createPhotoCard(entry, {
+      context,
+      index,
+      isProminent: prominentSet.has(index)
+    }));
+  });
+
+  container.replaceChildren(fragment);
+}
+
+function buildProminentSet(entries) {
+  const set = new Set();
+  let gap = 4;
+
+  entries.forEach((entry, index) => {
+    if (entry.featured && gap >= 4) {
+      set.add(index);
+      gap = 0;
+    } else {
+      gap++;
+      if (gap >= 9) {
+        set.add(index);
+        gap = 0;
+      }
+    }
+  });
+
+  return set;
+}
+
+function createPhotoCard(entry, { context, index, isProminent }) {
+  const article = document.createElement('article');
+  article.className = 'photo-card is-loading';
+  article.dataset.entryId = entry.id;
+  article.dataset.context = context;
+
+  if (context === 'featured') {
+    article.classList.add('photo-card--featured');
+    if (index === 0) {
+      article.classList.add('photo-card--feature-hero');
+    } else {
+      article.classList.add('photo-card--feature-secondary');
+    }
+  }
+  if (isProminent) {
+    article.classList.add('photo-card--prominent');
+  }
+
+  article.style.setProperty('--reveal-delay', `${isProminent ? 0 : (index % 2) * 80}ms`);
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'photo-card-button';
+  button.setAttribute('aria-label', `Inspect ${entry.displayTitle}`);
+  button.setAttribute('data-cursor', 'hover');
+
+  const media = document.createElement('div');
+  media.className = 'photo-media';
+
+  const naturalRatio = entry.width / entry.height;
+  const isFeatureHero = context === 'featured' && index === 0;
+  const clampedRatio = isProminent
+    ? Math.max(1.2, Math.min(naturalRatio, 2.0))
+    : isFeatureHero
+      ? Math.max(1.4, Math.min(naturalRatio, 1.78))
+      : Math.max(0.85, Math.min(naturalRatio, 1.78));
+  media.style.aspectRatio = `${clampedRatio.toFixed(3)} / 1`;
+
+  const picture = document.createElement('picture');
+  const imageSizes = getCardImageSizes(context, index, isProminent);
+  const smallSrc = isProminent ? 'medium' : 'thumb';
+  const largeSrc = isProminent ? 'large' : 'medium';
+
+  const sourceAvif = document.createElement('source');
+  sourceAvif.type = 'image/avif';
+  if (entry.assets[`${smallSrc}Avif`]) {
+    sourceAvif.srcset = buildSrcset([
+      makeResponsiveCandidate(entry.assets[`${smallSrc}Avif`], entry.assets[`${smallSrc}Width`]),
+      makeResponsiveCandidate(entry.assets[`${largeSrc}Avif`], entry.assets[`${largeSrc}Width`])
+    ]);
+    sourceAvif.sizes = imageSizes;
+  }
+
+  const sourceWebp = document.createElement('source');
+  sourceWebp.type = 'image/webp';
+  if (entry.assets[`${smallSrc}Webp`]) {
+    sourceWebp.srcset = buildSrcset([
+      makeResponsiveCandidate(entry.assets[`${smallSrc}Webp`], entry.assets[`${smallSrc}Width`]),
+      makeResponsiveCandidate(entry.assets[`${largeSrc}Webp`], entry.assets[`${largeSrc}Width`])
+    ]);
+    sourceWebp.sizes = imageSizes;
+  }
+
+  const image = document.createElement('img');
+  image.className = 'photo-image';
+  image.src = entry.assets[`${largeSrc}Jpg`] || entry.assets.mediumJpg || entry.assets.original;
+  image.alt = entry.displayTitle;
+  image.loading = index < 4 ? 'eager' : 'lazy';
+  image.decoding = index < 4 ? 'sync' : 'async';
+  image.fetchPriority = index < 4 ? 'high' : 'auto';
+  image.width = entry.assets[`${largeSrc}Width`] || entry.width;
+  image.height = entry.assets[`${largeSrc}Height`] || entry.height;
+  image.srcset = buildSrcset([
+    makeResponsiveCandidate(entry.assets[`${smallSrc}Jpg`], entry.assets[`${smallSrc}Width`]),
+    makeResponsiveCandidate(entry.assets[`${largeSrc}Jpg`], entry.assets[`${largeSrc}Width`])
+  ]);
+  image.sizes = imageSizes;
+  image.addEventListener('load', () => {
+    article.classList.remove('is-loading');
+    article.classList.add('is-loaded');
+  }, { once: true });
+  image.addEventListener('error', () => {
+    article.classList.remove('is-loading');
+    article.classList.add('photo-card--broken');
+  }, { once: true });
+
+  picture.append(sourceAvif, sourceWebp, image);
+  media.appendChild(picture);
+
+  const caption = document.createElement('div');
+  caption.className = 'photo-placard';
+
+  const number = document.createElement('span');
+  number.className = 'photo-placard-number';
+  number.textContent = String(index + 1).padStart(2, '0');
+
+  const title = document.createElement('span');
+  title.className = 'photo-placard-title';
+  title.textContent = entry.displayTitle;
+
+  caption.append(number, title);
+
+  button.append(media);
+  article.append(button, caption);
+
+  button.addEventListener('click', () => {
+    gallery.triggerElement = button;
+    openLightboxById(entry.id, button);
+  });
+
+  return article;
+}
+
+function setLoadingState(active) {
+  if (gallery.elements.loading) {
+    gallery.elements.loading.hidden = !active;
+  }
+  if (active) {
+    gallery.elements.empty.hidden = true;
+    gallery.elements.error.hidden = true;
+  }
+}
+
+function hideStatusStates() {
+  gallery.elements.empty.hidden = true;
+  gallery.elements.error.hidden = true;
+}
+
+function showEmptyState(title, copy) {
+  gallery.elements.loading.hidden = true;
+  gallery.elements.error.hidden = true;
+  gallery.elements.empty.hidden = false;
+  gallery.elements.emptyTitle.textContent = title;
+  gallery.elements.emptyCopy.textContent = copy;
+}
+
+function showErrorState(copy) {
+  gallery.elements.loading.hidden = true;
+  gallery.elements.empty.hidden = true;
+  if (gallery.elements.archiveSection) gallery.elements.archiveSection.hidden = true;
+  gallery.elements.error.hidden = false;
+  gallery.elements.errorCopy.textContent = copy;
+}
+
+function buildLightboxThumbStrip() {
+  const fragment = document.createDocumentFragment();
+
+  gallery.entries.forEach((entry) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'lightbox-thumb';
+    button.dataset.entryId = entry.id;
+    button.setAttribute('aria-label', `Open ${entry.displayTitle}`);
+    button.setAttribute('data-cursor', 'hover');
+
+    const image = document.createElement('img');
+    image.src = entry.assets.thumbJpg || entry.assets.mediumJpg || entry.assets.original;
+    image.alt = entry.displayTitle;
+    image.loading = 'lazy';
+    image.decoding = 'async';
+
+    const label = document.createElement('span');
+    label.className = 'lightbox-thumb-label';
+    label.textContent = entry.displayTitle;
+
+    button.append(image, label);
+    button.addEventListener('click', () => {
+      gallery.triggerElement = button;
+      openLightboxById(entry.id, button);
+    });
+
+    fragment.appendChild(button);
+  });
+
+  gallery.elements.lightboxThumbStrip.replaceChildren(fragment);
+}
+
+function openLightboxById(entryId, triggerElement) {
+  const index = gallery.entries.findIndex((entry) => entry.id === entryId);
+  if (index === -1) return;
+
+  gallery.currentIndex = index;
+  gallery.lightboxOpen = true;
+  gallery.triggerElement = triggerElement || gallery.triggerElement;
+  gallery.elements.lightbox.hidden = false;
+  gallery.elements.lightbox.classList.add('is-active');
+  document.body.classList.add('gallery-lightbox-open');
+  setInfoPanelOpen(!window.matchMedia('(max-width: 900px)').matches);
+  renderLightboxEntry(gallery.entries[index]);
+  syncHash(entryId);
+  gallery.elements.lightboxClose.focus();
+}
+
+function renderLightboxEntry(entry) {
+  setPictureSource(
+    gallery.elements.lightboxSourceAvif,
+    buildSrcset([
+      makeResponsiveCandidate(entry.assets.mediumAvif, entry.assets.mediumWidth),
+      makeResponsiveCandidate(entry.assets.largeAvif, entry.assets.largeWidth)
+    ]),
+    '(max-width: 900px) 100vw, calc(100vw - 400px)'
+  );
+  setPictureSource(
+    gallery.elements.lightboxSourceWebp,
+    buildSrcset([
+      makeResponsiveCandidate(entry.assets.mediumWebp, entry.assets.mediumWidth),
+      makeResponsiveCandidate(entry.assets.largeWebp, entry.assets.largeWidth)
+    ]),
+    '(max-width: 900px) 100vw, calc(100vw - 400px)'
+  );
+
+  gallery.elements.lightboxImage.src = entry.assets.largeJpg || entry.assets.mediumJpg || entry.assets.original;
+  gallery.elements.lightboxImage.alt = entry.displayTitle;
+  gallery.elements.lightboxImage.srcset = buildSrcset([
+    makeResponsiveCandidate(entry.assets.mediumJpg, entry.assets.mediumWidth),
+    makeResponsiveCandidate(entry.assets.largeJpg, entry.assets.largeWidth)
+  ]);
+  gallery.elements.lightboxImage.sizes = '(max-width: 900px) 100vw, calc(100vw - 400px)';
+
+  gallery.elements.lightboxCounter.textContent = `${String(gallery.currentIndex + 1).padStart(2, '0')} / ${String(gallery.entries.length).padStart(2, '0')}`;
+  gallery.elements.lightboxEyebrow.textContent = entry.featured ? 'Featured frame' : 'Archive frame';
+  gallery.elements.lightboxTitle.textContent = entry.displayTitle;
+  gallery.elements.lightboxSubline.textContent = '';
+  gallery.elements.lightboxNotes.textContent = buildNarrativeCopy(entry);
+  gallery.elements.lightboxMeta.replaceChildren(buildLightboxMeta(entry));
+
+  gallery.elements.lightboxThumbStrip.querySelectorAll('.lightbox-thumb').forEach((button) => {
+    const active = button.dataset.entryId === entry.id;
+    button.classList.toggle('is-active', active);
+    if (active) {
+      button.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+    }
+  });
+
+  preloadAdjacentEntries(gallery.currentIndex);
+}
+
+function buildNarrativeCopy(entry) {
+  const parts = [entry.description];
+  const note = [entry.hero?.teaser, entry.notes]
+    .map((value) => String(value || '').trim())
+    .find((value) => value && value !== entry.description);
+
+  if (note) {
+    parts.push(note);
+  }
+
+  return parts.filter(Boolean).join(' ');
+}
+
+function buildLightboxMeta(entry) {
+  const fragment = document.createDocumentFragment();
+
+  // Primary meta rows (always visible)
+  const primaryRows = [
+    entry.location ? ['Location', entry.location] : null,
+    entry.dateLabel ? ['Date', entry.dateLabel] : null,
+    entry.exif?.focalLength ? ['Focal length', `${entry.exif.focalLength}mm`] : null,
+    entry.exif?.aperture ? ['Aperture', `f/${entry.exif.aperture}`] : null
+  ].filter(Boolean);
+
+  // Additional EXIF details (hidden behind accordion)
+  const expandedRows = [
+    entry.exif?.camera ? ['Camera', entry.exif.camera] : null,
+    entry.exif?.lens ? ['Lens', entry.exif.lens] : null,
+    entry.exif?.shutter ? ['Shutter', `${entry.exif.shutter}s`] : null,
+    entry.exif?.iso ? ['ISO', String(entry.exif.iso)] : null
+  ].filter(Boolean);
+
+  const renderRow = ([label, value]) => {
+    const row = document.createElement('div');
+    row.className = 'lightbox-meta-row';
+
+    const term = document.createElement('span');
+    term.className = 'lightbox-meta-term';
+    term.textContent = label;
+
+    const desc = document.createElement('span');
+    desc.className = 'lightbox-meta-desc';
+    desc.textContent = value;
+
+    row.append(term, desc);
+    return row;
+  };
+
+  primaryRows.forEach((rowData) => {
+    fragment.appendChild(renderRow(rowData));
+  });
+
+  if (expandedRows.length > 0) {
+    const details = document.createElement('details');
+    details.className = 'lightbox-meta-details';
+
+    const summary = document.createElement('summary');
+    summary.className = 'lightbox-meta-summary';
+    summary.textContent = 'Additional Info';
+
+    const detailsContent = document.createElement('div');
+    detailsContent.className = 'lightbox-meta-expanded';
+
+    expandedRows.forEach((rowData) => {
+      detailsContent.appendChild(renderRow(rowData));
+    });
+
+    details.append(summary, detailsContent);
+    fragment.appendChild(details);
+  }
+
+  return fragment;
+}
+
+function navigateLightbox(direction) {
+  if (!gallery.entries.length) return;
+
+  gallery.elements.lightboxImage.style.opacity = '0';
+
+  setTimeout(() => {
+    const length = gallery.entries.length;
+    gallery.currentIndex = (gallery.currentIndex + direction + length) % length;
+    const nextEntry = gallery.entries[gallery.currentIndex];
+    syncHash(nextEntry.id);
+    renderLightboxEntry(nextEntry);
+
+    requestAnimationFrame(() => {
+      gallery.elements.lightboxImage.style.opacity = '1';
+    });
+  }, 150);
+}
+
+function closeLightbox({ updateHashState = true } = {}) {
+  if (!gallery.lightboxOpen) return;
+
+  gallery.lightboxOpen = false;
+  gallery.elements.lightbox.classList.remove('is-active');
+  document.body.classList.remove('gallery-lightbox-open');
+  if (updateHashState) {
+    clearHash();
+  }
+  gallery.triggerElement?.focus?.();
+  gallery.triggerElement = null;
+
+  setTimeout(() => {
+    if (!gallery.lightboxOpen) {
+      gallery.elements.lightbox.hidden = true;
+    }
+  }, 300);
+}
+
+function handleGlobalKeydown(event) {
+  if (!gallery.lightboxOpen) return;
+
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeLightbox();
+    return;
+  }
+
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    navigateLightbox(-1);
+    return;
+  }
+
+  if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    navigateLightbox(1);
+    return;
+  }
+
+  if (event.key === 'Tab') {
+    trapFocus(event);
+  }
+}
+
+function trapFocus(event) {
+  const focusables = gallery.elements.lightbox.querySelectorAll(
+    'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+  );
+  if (!focusables.length) return;
+
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function setInfoPanelOpen(active) {
+  gallery.infoPanelOpen = Boolean(active);
+  gallery.elements.lightboxPanel.classList.toggle('is-open', gallery.infoPanelOpen);
+  gallery.elements.lightboxInfoToggle.setAttribute('aria-expanded', String(gallery.infoPanelOpen));
+}
+
+function syncHash(entryId) {
+  const nextHash = `${GALLERY_HASH_PREFIX}${encodeURIComponent(entryId)}`;
+  if (window.location.hash === nextHash) return;
+  history.replaceState(null, '', `${window.location.pathname}${window.location.search}${nextHash}`);
+}
+
+function clearHash() {
+  if (!window.location.hash.startsWith(GALLERY_HASH_PREFIX)) return;
+  history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+}
+
+function handleHashChange() {
+  const hashId = readHashEntryId();
+  if (!hashId) {
+    if (gallery.lightboxOpen) {
+      closeLightbox({ updateHashState: false });
+    }
+    return;
+  }
+
+  if (!gallery.entries.length) return;
+
+  if (!gallery.lightboxOpen || gallery.entries[gallery.currentIndex]?.id !== hashId) {
+    openLightboxById(hashId);
+  }
+}
+
+function readHashEntryId() {
+  if (!window.location.hash.startsWith(GALLERY_HASH_PREFIX)) return '';
+  return decodeURIComponent(window.location.hash.slice(GALLERY_HASH_PREFIX.length));
+}
+
+function preloadAdjacentEntries(index) {
+  [index - 1, index + 1].forEach((targetIndex) => {
+    const entry = gallery.entries[(targetIndex + gallery.entries.length) % gallery.entries.length];
+    const source = entry?.assets?.largeJpg || entry?.assets?.mediumJpg;
+    if (!source) return;
+    const image = new Image();
+    image.src = source;
+  });
+}
+
+function getEntryById(entryId) {
+  return gallery.entries.find((entry) => entry.id === entryId) || null;
 }
 
 function setPictureSource(source, srcset, sizes) {
   if (!source) return;
-
   if (!srcset) {
     source.removeAttribute('srcset');
     source.removeAttribute('sizes');
     return;
   }
-
   source.srcset = srcset;
-  if (sizes) {
-    source.sizes = sizes;
-  } else {
-    source.removeAttribute('sizes');
-  }
+  source.sizes = sizes;
 }
 
-function resolveVariantPath(variant, format, basePath) {
-  if (!variant || !variant[format]) return null;
-  return `${basePath}${variant[format]}`;
+function resolveVariantPath(variant, format, basePath, fallbackFilename = '') {
+  if (variant?.[format]) return `${basePath}${variant[format]}`;
+  if (fallbackFilename && format === 'jpg') return `${basePath}${fallbackFilename}`;
+  return '';
 }
 
-/**
- * Create photo card element with responsive images (<picture> + WebP)
- */
-function createPhotoCard(photo, index) {
-  const card = document.createElement('div');
-  card.className = 'photo-card is-loading';
-  card.dataset.index = index;
-  card.setAttribute('tabindex', '0');
-  card.setAttribute('role', 'button');
-  card.setAttribute('aria-label', `View ${photo.title || 'photograph'}`);
-
-  const thumbJpg = resolveVariantPath(photo.thumbs, 'jpg', gallery.thumbsPath);
-  const thumbWebp = resolveVariantPath(photo.thumbs, 'webp', gallery.thumbsPath);
-  const thumbFallback = thumbJpg || `${gallery.photosPath}${photo.filename}`;
-  const photoTitle = photo.title || 'Untitled';
-  const imgAlt = photo.title || 'Photograph';
-  const thumbWidth = Number(photo.thumbs?.width);
-  const thumbHeight = Number(photo.thumbs?.height);
-  const thumbSizes = '(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw';
-  const thumbJpgSrcset = joinSrcset([
-    makeResponsiveCandidate(thumbJpg, thumbWidth)
-  ]);
-  const thumbWebpSrcset = joinSrcset([
-    makeResponsiveCandidate(thumbWebp, thumbWidth)
-  ]);
-
-  // Build image media element without template HTML interpolation
-  const imageEl = document.createElement('img');
-  imageEl.src = thumbFallback;
-  imageEl.alt = imgAlt;
-  imageEl.className = 'photo-image';
-  const isFirstRowCandidate = index < 4;
-  imageEl.loading = isFirstRowCandidate ? 'eager' : 'lazy';
-  imageEl.decoding = isFirstRowCandidate ? 'sync' : 'auto';
-  imageEl.fetchPriority = isFirstRowCandidate ? 'high' : 'auto';
-  if (thumbJpgSrcset) {
-    imageEl.srcset = thumbJpgSrcset;
-    imageEl.sizes = thumbSizes;
-  }
-  if (Number.isFinite(thumbWidth) && thumbWidth > 0) imageEl.width = thumbWidth;
-  if (Number.isFinite(thumbHeight) && thumbHeight > 0) imageEl.height = thumbHeight;
-
-  const markLoaded = () => {
-    card.classList.remove('is-loading');
-    card.classList.add('is-loaded');
-  };
-
-  const markBroken = () => {
-    card.classList.remove('is-loading');
-    card.classList.add('photo-card--broken');
-    card.setAttribute('aria-hidden', 'true');
-    card.removeAttribute('tabindex');
-    updateRenderedPhotoCount();
-  };
-
-  imageEl.addEventListener('load', markLoaded, { once: true });
-  imageEl.addEventListener('error', markBroken, { once: true });
-
-  if (imageEl.complete) {
-    if (imageEl.naturalWidth > 0) {
-      markLoaded();
-    } else {
-      markBroken();
-    }
-  }
-
-  if (thumbWebpSrcset) {
-    const picture = document.createElement('picture');
-    const sourceWebp = document.createElement('source');
-    sourceWebp.type = 'image/webp';
-    sourceWebp.srcset = thumbWebpSrcset;
-    sourceWebp.sizes = thumbSizes;
-    picture.appendChild(sourceWebp);
-
-    picture.appendChild(imageEl);
-    card.appendChild(picture);
-  } else {
-    card.appendChild(imageEl);
-  }
-
-  const info = document.createElement('div');
-  info.className = 'photo-info';
-
-  const title = document.createElement('h3');
-  title.className = 'photo-title';
-  title.textContent = photoTitle;
-
-  const meta = document.createElement('div');
-  meta.className = 'photo-meta';
-  meta.id = `meta-${index}`;
-  renderMetaHTML(meta, photo.exif, true);
-
-  info.append(title, meta);
-  card.appendChild(info);
-
-  // Click and keyboard to open lightbox
-  card.addEventListener('click', () => {
-    gallery.triggerElement = card;
-    openLightbox(index);
-  });
-  card.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      gallery.triggerElement = card;
-      openLightbox(index);
-    }
-  });
-
-  return card;
+function buildSrcset(candidates) {
+  return candidates.filter(Boolean).join(', ');
 }
 
-/**
- * Format EXIF data as HTML
- */
-function formatMetaHTML(exif, compact = false) {
-  const items = [];
-
-  if (exif.focalLength) {
-    const focalLength = escapeHTML(exif.focalLength);
-    items.push(`
-      <span class="meta-item">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
-        </svg>
-        ${focalLength}mm
-      </span>
-    `);
-  }
-
-  if (exif.aperture) {
-    const aperture = escapeHTML(exif.aperture);
-    items.push(`
-      <span class="meta-item">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
-        </svg>
-        f/${aperture}
-      </span>
-    `);
-  }
-
-  if (exif.shutter) {
-    const shutter = escapeHTML(exif.shutter);
-    items.push(`
-      <span class="meta-item">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-        </svg>
-        ${shutter}s
-      </span>
-    `);
-  }
-
-  if (exif.iso) {
-    const iso = escapeHTML(exif.iso);
-    items.push(`
-      <span class="meta-item">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-          <line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>
-        </svg>
-        ISO ${iso}
-      </span>
-    `);
-  }
-
-  if (!compact && exif.camera) {
-    const camera = escapeHTML(exif.camera);
-    items.push(`
-      <span class="meta-item">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-          <circle cx="12" cy="13" r="4"/>
-        </svg>
-        ${camera}
-      </span>
-    `);
-  }
-
-  if (!compact && exif.lens) {
-    const lens = escapeHTML(exif.lens);
-    items.push(`
-      <span class="meta-item">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
-        </svg>
-        ${lens}
-      </span>
-    `);
-  }
-
-  return items.length > 0 ? items.join('') : '<span class="meta-item">No metadata</span>';
+function makeResponsiveCandidate(src, width) {
+  if (!src) return '';
+  if (Number.isFinite(width) && width > 0) return `${src} ${width}w`;
+  return src;
 }
 
-/**
- * Render metadata content while keeping markup generation centralized.
- */
-function renderMetaHTML(container, exif, compact = false) {
-  const template = document.createElement('template');
-  template.innerHTML = exif
-    ? formatMetaHTML(exif, compact)
-    : '<span class="meta-item">No metadata</span>';
-  container.replaceChildren(template.content.cloneNode(true));
+function basenameFromPath(value) {
+  if (!value) return '';
+  const normalized = String(value).split('?')[0].split('#')[0];
+  const segments = normalized.split('/');
+  return segments[segments.length - 1];
 }
 
-/**
- * Lightbox functionality - keyboard listener scoped to open state
- */
-let lightboxKeyHandler = null;
-let lightboxResizeHandler = null;
-
-function initLightbox() {
-  const lightbox = document.getElementById('lightbox');
-  const closeBtn = document.getElementById('lightboxClose');
-  const prevBtn = document.getElementById('lightboxPrev');
-  const nextBtn = document.getElementById('lightboxNext');
-
-  if (closeBtn) closeBtn.addEventListener('click', closeLightbox);
-  if (prevBtn) prevBtn.addEventListener('click', () => navigateLightbox(-1));
-  if (nextBtn) nextBtn.addEventListener('click', () => navigateLightbox(1));
-
-  // Close on background click
-  if (lightbox) {
-    lightbox.addEventListener('click', (e) => {
-      if (e.target === lightbox) closeLightbox();
-    });
+function getCardImageSizes(context, index, isProminent) {
+  if (isProminent) {
+    return '(max-width: 900px) 100vw, (max-width: 1440px) 84vw, 1220px';
   }
+
+  if (context === 'featured') {
+    return index === 0
+      ? '(max-width: 900px) 100vw, (max-width: 1440px) 84vw, 1220px'
+      : '(max-width: 900px) 100vw, (max-width: 1440px) 41vw, 580px';
+  }
+
+  return '(max-width: 900px) 100vw, (max-width: 1440px) 41vw, 580px';
 }
 
-/**
- * Determine whether lightbox metadata fits below the image.
- * Uses known image dimensions from photos.json for a deterministic,
- * layout-independent calculation. Falls back to measuring after image load.
- */
-let measuring = false;
-function updateLightboxMeta() {
-  if (measuring) return;
-  measuring = true;
-  const photo = gallery.photos[gallery.currentIndex];
-  const image = document.getElementById('lightboxImage');
-  const info = document.querySelector('.lightbox-info');
-  if (!photo || !image || !info) {
-    measuring = false;
-    return;
+function normalizeGalleryKey(value) {
+  let stem = basenameFromPath(value).toLowerCase();
+  let next = stem.replace(/\.(avif|webp|jpe?g|png)$/i, '');
+
+  while (next !== stem) {
+    stem = next;
+    next = stem.replace(/\.(avif|webp|jpe?g|png)$/i, '');
   }
 
-  const vh = window.innerHeight;
-  const vw = window.innerWidth;
-  // Match CSS layout constraints so the calculation is pixel-accurate:
-  // Width:  desktop = calc(100vw - 192px) to clear prev/next buttons
-  //         mobile (<=768px) = 92vw (nav buttons hidden)
-  // Height: desktop = calc(100vh - 104px) for close button (80px) + bottom (24px)
-  //         small (<=480px) = calc(100vh - 84px) for smaller close button zone
-  const isMobile = vw <= 768;
-  const isSmall = vw <= 480;
-  const availW = isMobile ? vw * 0.92 : vw - 192;
-  const availH = isSmall ? vh - 84 : vh - 104;
-
-  // Get intrinsic image dimensions (prefer largest optimized variant, then original)
-  const imgW = photo.large?.width || photo.medium?.width || photo.width || image.naturalWidth || 0;
-  const imgH = photo.large?.height || photo.medium?.height || photo.height || image.naturalHeight || 0;
-
-  if (!imgW || !imgH) {
-    // Dimensions unknown - hide metadata to be safe
-    info.classList.add('meta-hidden');
-    measuring = false;
-    return;
-  }
-
-  // Calculate how tall the image renders when it has the FULL available space
-  // (object-fit: contain scales to fit within both width and height constraints)
-  const scale = Math.min(availW / imgW, availH / imgH, 1);
-  const renderedH = Math.ceil(imgH * scale);
-
-  // Remaining vertical space below the image
-  const remaining = availH - renderedH;
-
-  // Measure the info section's actual height without affecting flex layout.
-  // Temporarily make it position:absolute so it doesn't take flex space.
-  info.classList.remove('meta-hidden');
-  info.style.position = 'absolute';
-  info.style.visibility = 'hidden';
-  info.style.width = `${Math.min(600, availW)}px`;
-  const infoH = info.offsetHeight;
-  info.style.position = '';
-  info.style.visibility = '';
-  info.style.width = '';
-
-  if (remaining >= infoH) {
-    // Metadata fits naturally in the space below the image
-    info.classList.remove('meta-hidden');
-  } else {
-    // Not enough room - hide metadata so image gets full space
-    info.classList.add('meta-hidden');
-  }
-  measuring = false;
+  return stem
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
-/**
- * Focusable elements inside the lightbox for focus trapping
- */
-function getLightboxFocusables() {
-  const lightbox = document.getElementById('lightbox');
-  return lightbox.querySelectorAll(
-    'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
-  );
-}
+function formatTitle(filename) {
+  const parts = basenameFromPath(filename)
+    .replace(/\.(avif|webp|jpe?g|png)$/i, '')
+    .replace(/\.(avif|webp|jpe?g|png)$/i, '')
+    .split(/[-_]+/)
+    .filter(Boolean);
 
-function openLightbox(index) {
-  const lightbox = document.getElementById('lightbox');
-  const sourceAvif = document.getElementById('lightboxSourceAvif');
-  const sourceWebp = document.getElementById('lightboxSourceWebp');
-  const image = document.getElementById('lightboxImage');
-  const title = document.getElementById('lightboxTitle');
-  const meta = document.getElementById('lightboxMeta');
-
-  gallery.currentIndex = index;
-  const photo = gallery.photos[index];
-
-  const lightboxSizes = '(max-width: 768px) 92vw, calc(100vw - 192px)';
-
-  const avifSrcset = joinSrcset([
-    makeResponsiveCandidate(
-      resolveVariantPath(photo.medium, 'avif', gallery.mediumPath),
-      Number(photo.medium?.width)
-    ),
-    makeResponsiveCandidate(
-      resolveVariantPath(photo.large, 'avif', gallery.largePath),
-      Number(photo.large?.width)
-    )
-  ]);
-  const webpSrcset = joinSrcset([
-    makeResponsiveCandidate(
-      resolveVariantPath(photo.medium, 'webp', gallery.mediumPath),
-      Number(photo.medium?.width)
-    ),
-    makeResponsiveCandidate(
-      resolveVariantPath(photo.large, 'webp', gallery.largePath),
-      Number(photo.large?.width)
-    )
-  ]);
-  const jpgSrcset = joinSrcset([
-    makeResponsiveCandidate(
-      resolveVariantPath(photo.medium, 'jpg', gallery.mediumPath),
-      Number(photo.medium?.width)
-    ),
-    makeResponsiveCandidate(
-      resolveVariantPath(photo.large, 'jpg', gallery.largePath),
-      Number(photo.large?.width)
-    )
-  ]);
-
-  setPictureSource(sourceAvif, avifSrcset, lightboxSizes);
-  setPictureSource(sourceWebp, webpSrcset, lightboxSizes);
-
-  if (jpgSrcset) {
-    image.srcset = jpgSrcset;
-    image.sizes = lightboxSizes;
-  } else {
-    image.removeAttribute('srcset');
-    image.removeAttribute('sizes');
-  }
-
-  image.src =
-    resolveVariantPath(photo.large, 'jpg', gallery.largePath) ||
-    resolveVariantPath(photo.medium, 'jpg', gallery.mediumPath) ||
-    `${gallery.photosPath}${photo.filename}`;
-
-  image.alt = photo.title || 'Photograph';
-  title.textContent = photo.title || 'Untitled';
-  renderMetaHTML(meta, photo.exif, false);
-
-  lightbox.classList.add('active');
-  document.body.style.overflow = 'hidden';
-
-  const counter = document.getElementById('lightboxCounter');
-  if (counter) counter.textContent = `${index + 1} / ${gallery.photos.length}`;
-
-  // Intelligently show/hide metadata based on available space.
-  // Run immediately (dimensions are known from photos.json) and also
-  // after image load as a safety net for edge cases.
-  updateLightboxMeta();
-  image.addEventListener('load', updateLightboxMeta, { once: true });
-  image.addEventListener('error', () => {
-    const info = document.querySelector('.lightbox-info');
-    if (info) {
-      info.classList.remove('meta-hidden');
-      const metaEl = document.getElementById('lightboxMeta');
-      if (metaEl) metaEl.innerHTML = '<span class="meta-item">Image failed to load</span>';
-    }
-    image.alt = 'Image failed to load';
-  }, { once: true });
-
-  // Re-check on resize (e.g. rotating phone, resizing window)
-  if (lightboxResizeHandler) {
-    window.removeEventListener('resize', lightboxResizeHandler);
-  }
-  lightboxResizeHandler = debounce(updateLightboxMeta, 150);
-  window.addEventListener('resize', lightboxResizeHandler);
-
-  // Attach keyboard listener (scoped to lightbox open)
-  if (lightboxKeyHandler) {
-    document.removeEventListener('keydown', lightboxKeyHandler);
-  }
-  lightboxKeyHandler = (e) => {
-    switch (e.key) {
-      case 'Escape':
-        closeLightbox();
-        break;
-      case 'ArrowLeft':
-        navigateLightbox(-1);
-        break;
-      case 'ArrowRight':
-        navigateLightbox(1);
-        break;
-      case 'Tab':
-        // Focus trap
-        trapFocus(e);
-        break;
-    }
-  };
-  document.addEventListener('keydown', lightboxKeyHandler);
-
-  // Move focus into lightbox
-  const closeBtn = document.getElementById('lightboxClose');
-  if (closeBtn) closeBtn.focus();
-}
-
-function closeLightbox() {
-  const lightbox = document.getElementById('lightbox');
-  lightbox.classList.remove('active');
-  document.body.style.overflow = '';
-
-  // Remove scoped keyboard listener
-  if (lightboxKeyHandler) {
-    document.removeEventListener('keydown', lightboxKeyHandler);
-    lightboxKeyHandler = null;
-  }
-
-  // Remove resize listener
-  if (lightboxResizeHandler) {
-    window.removeEventListener('resize', lightboxResizeHandler);
-    lightboxResizeHandler = null;
-  }
-
-  // Return focus to the card that triggered the lightbox
-  if (gallery.triggerElement) {
-    gallery.triggerElement.focus();
-    gallery.triggerElement = null;
-  }
-}
-
-/**
- * Trap focus inside the lightbox
- */
-function trapFocus(e) {
-  const focusables = getLightboxFocusables();
-  if (focusables.length === 0) return;
-
-  const first = focusables[0];
-  const last = focusables[focusables.length - 1];
-
-  if (e.shiftKey) {
-    if (document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    }
-  } else {
-    if (document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  }
-}
-
-function navigateLightbox(direction) {
-  const newIndex = gallery.currentIndex + direction;
-
-  if (newIndex >= 0 && newIndex < gallery.photos.length) {
-    openLightbox(newIndex);
-  } else if (newIndex < 0) {
-    openLightbox(gallery.photos.length - 1);
-  } else {
-    openLightbox(0);
-  }
-}
-
-/**
- * Gallery search - searches across all EXIF fields
- */
-function initGallerySearch() {
-  const searchInput = document.getElementById('gallerySearch');
-
-  if (!searchInput) return;
-
-  const performSearch = debounce((query) => {
-    const normalizedQuery = query.toLowerCase().trim();
-    const cards = document.querySelectorAll('.photo-card');
-    let visibleCount = 0;
-
-    cards.forEach((card) => {
-      const index = parseInt(card.dataset.index, 10);
-      const photo = gallery.photos[index];
-      if (!photo) return;
-      if (card.classList.contains('photo-card--broken')) return;
-
-      if (!normalizedQuery) {
-        card.classList.remove('search-hidden');
-        visibleCount++;
-        return;
+  return parts
+    .map((part, index) => {
+      if (/\d/.test(part)) {
+        return part.toUpperCase();
       }
 
-      const searchFields = [
-        photo.title,
-        photo.filename,
-        photo.exif?.camera,
-        photo.exif?.lens,
-        photo.exif?.iso ? `ISO ${photo.exif.iso}` : '',
-        photo.exif?.aperture ? `f/${photo.exif.aperture}` : '',
-        photo.exif?.focalLength ? `${photo.exif.focalLength}mm` : '',
-        photo.exif?.shutter ? `${photo.exif.shutter}s` : '',
-        photo.exif?.date
-      ].filter(Boolean).join(' ').toLowerCase();
-
-      if (searchFields.includes(normalizedQuery)) {
-        card.classList.remove('search-hidden');
-        visibleCount++;
-      } else {
-        card.classList.add('search-hidden');
+      const lower = part.toLowerCase();
+      if (index > 0 && index < parts.length - 1 && ['a', 'an', 'and', 'at', 'for', 'in', 'of', 'on', 'or', 'the', 'to'].includes(lower)) {
+        return lower;
       }
-    });
 
-    const countEl = document.getElementById('photoCount');
-    if (countEl) countEl.textContent = String(visibleCount);
-  }, 200);
-
-  searchInput.addEventListener('input', (e) => {
-    performSearch(e.target.value);
-  });
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(' ');
 }
 
-/**
- * Touch swipe support for lightbox on mobile
- */
-function initLightboxSwipe() {
-  const lightbox = document.getElementById('lightbox');
-  if (!lightbox) return;
+function extractYear(dateValue) {
+  const match = String(dateValue || '').match(/(19|20)\d{2}/);
+  return match ? match[0] : '';
+}
 
-  let touchStartX = 0;
-  let touchEndX = 0;
+function formatDate(dateValue) {
+  if (!dateValue) return '';
+  const parsed = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return String(dateValue);
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  }).format(parsed);
+}
 
-  lightbox.addEventListener('touchstart', (e) => {
-    touchStartX = e.changedTouches[0].screenX;
-  }, { passive: true });
+function formatShortDate(dateValue) {
+  if (!dateValue) return '';
+  const parsed = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return String(dateValue);
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    year: 'numeric'
+  }).format(parsed);
+}
 
-  lightbox.addEventListener('touchend', (e) => {
-    touchEndX = e.changedTouches[0].screenX;
-    const diff = touchStartX - touchEndX;
+function formatDateRange(startDate, endDate) {
+  if (!startDate && !endDate) return 'Open archive';
+  if (startDate === endDate) return formatDate(startDate);
 
-    if (Math.abs(diff) > 50) {
-      if (diff > 0) {
-        navigateLightbox(1);
-      } else {
-        navigateLightbox(-1);
-      }
-    }
-  }, { passive: true });
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return [startDate, endDate].filter(Boolean).join(' - ');
+  }
+
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const startFmt = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' })
+  }).format(start);
+  const endFmt = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  }).format(end);
+  return `${startFmt} - ${endFmt}`;
 }

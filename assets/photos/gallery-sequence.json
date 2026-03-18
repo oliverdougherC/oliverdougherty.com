@@ -1,0 +1,171 @@
+{
+  "items": [
+    {
+      "id": "lighthouse",
+      "featured": true,
+      "title": "Lighthouse",
+      "hero": {
+        "priority": 1,
+        "theme": "Landscape",
+        "teaser": "A solitary landmark, clean horizon, and restrained distance make this the clearest opening note in the set."
+      },
+      "src": {
+        "thumb": "../../assets/photos/thumbs/a7rii_474.jpg",
+        "medium": "../../assets/photos/medium/a7rii_474.jpg",
+        "large": "../../assets/photos/large/a7rii_474.jpg",
+        "avif": "../../assets/photos/large/a7rii_474.avif",
+        "webp": "../../assets/photos/large/a7rii_474.webp"
+      },
+      "meta": {
+        "date": "2025-11-09",
+        "location": "Peninsula Edge",
+        "notes": "The long lens flattens the water and lets the white tower stand alone without drama from the horizon."
+      },
+      "index": {
+        "year": "2025",
+        "category": "LANDSCAPE"
+      }
+    },
+    {
+      "id": "fog",
+      "featured": true,
+      "title": "Fog",
+      "src": {
+        "thumb": "../../assets/photos/thumbs/DSC04161.jpg",
+        "medium": "../../assets/photos/medium/DSC04161.jpg",
+        "large": "../../assets/photos/large/DSC04161.jpg",
+        "avif": "../../assets/photos/large/DSC04161.avif",
+        "webp": "../../assets/photos/large/DSC04161.webp"
+      },
+      "meta": {
+        "date": "2025-12-18",
+        "location": "Distant Ridge",
+        "notes": "The dark foreground hills keep the cloud deck from flattening out and give the light somewhere to press against."
+      },
+      "index": {
+        "year": "2025",
+        "category": "LANDSCAPE"
+      }
+    },
+    {
+      "id": "caught",
+      "featured": true,
+      "title": "Caught",
+      "hero": {
+        "priority": 2,
+        "theme": "Figures",
+        "teaser": "The lifted glance and diagonal stair rail turn a passing moment into a deliberate frame."
+      },
+      "src": {
+        "thumb": "../../assets/photos/thumbs/a7rii_477.jpg",
+        "medium": "../../assets/photos/medium/a7rii_477.jpg",
+        "large": "../../assets/photos/large/a7rii_477.jpg",
+        "avif": "../../assets/photos/large/a7rii_477.avif",
+        "webp": "../../assets/photos/large/a7rii_477.webp"
+      },
+      "meta": {
+        "date": "2025-11-09",
+        "location": "Concrete Stairwell",
+        "notes": "The overhead angle and stair geometry keep the eye moving until the subject looks straight back."
+      },
+      "index": {
+        "year": "2025",
+        "category": "FIGURES"
+      }
+    },
+    {
+      "id": "ember-m4",
+      "featured": true,
+      "title": "Ember M4",
+      "hero": {
+        "priority": 3,
+        "theme": "Automotive",
+        "teaser": "Badge, taillight, and plate lock together into a clean detail study without anything extra in the frame."
+      },
+      "src": {
+        "thumb": "../../assets/photos/thumbs/DSC04084.jpg",
+        "medium": "../../assets/photos/medium/DSC04084.jpg",
+        "large": "../../assets/photos/large/DSC04084.jpg",
+        "avif": "../../assets/photos/large/DSC04084.avif",
+        "webp": "../../assets/photos/large/DSC04084.webp"
+      },
+      "meta": {
+        "date": "2025-12-16",
+        "location": "Mountain Pullout",
+        "notes": "Everything here serves the rear badge, the glow of the taillight, and the lettering on the plate."
+      },
+      "index": {
+        "year": "2025",
+        "category": "AUTOMOTIVE"
+      }
+    },
+    {
+      "id": "hawk",
+      "featured": true,
+      "title": "Hawk",
+      "src": {
+        "thumb": "../../assets/photos/thumbs/DSC04229.jpg",
+        "medium": "../../assets/photos/medium/DSC04229.jpg",
+        "large": "../../assets/photos/large/DSC04229.jpg",
+        "avif": "../../assets/photos/large/DSC04229.avif",
+        "webp": "../../assets/photos/large/DSC04229.webp"
+      },
+      "meta": {
+        "date": "2025-12-19",
+        "location": "Tree Line",
+        "notes": "The branches stay busy, but the eye and chest markings keep the subject anchored in the middle of the frame."
+      },
+      "index": {
+        "year": "2025",
+        "category": "WILDLIFE"
+      }
+    },
+    {
+      "id": "yield",
+      "featured": true,
+      "title": "Yield",
+      "hero": {
+        "priority": 4,
+        "theme": "Night Studies",
+        "teaser": "Fog, warning red, and a lone figure turn an ordinary corner into something staged."
+      },
+      "src": {
+        "thumb": "../../assets/photos/thumbs/IMG_20251211_225546_016.jpg",
+        "medium": "../../assets/photos/medium/IMG_20251211_225546_016.jpg",
+        "large": "../../assets/photos/large/IMG_20251211_225546_016.jpg",
+        "avif": "../../assets/photos/large/IMG_20251211_225546_016.avif",
+        "webp": "../../assets/photos/large/IMG_20251211_225546_016.webp"
+      },
+      "meta": {
+        "date": "2025-12-11",
+        "location": "Street Corner",
+        "notes": "The red triangle and the shadowed pedestrian keep the fog from becoming only atmosphere."
+      },
+      "index": {
+        "year": "2025",
+        "category": "NIGHT_STUDIES"
+      }
+    },
+    {
+      "id": "forest",
+      "featured": true,
+      "title": "Forest",
+      "src": {
+        "thumb": "../../assets/photos/thumbs/DSC04166.jpg",
+        "medium": "../../assets/photos/medium/DSC04166.jpg",
+        "large": "../../assets/photos/large/DSC04166.jpg",
+        "avif": "../../assets/photos/large/DSC04166.avif",
+        "webp": "../../assets/photos/large/DSC04166.webp"
+      },
+      "meta": {
+        "date": "2025-12-18",
+        "location": "Forest Line",
+        "notes": "Layered evergreen texture gives the haze something to work against all the way through the frame."
+      },
+      "index": {
+        "year": "2025",
+        "category": "LANDSCAPE"
+      }
+    }
+  ]
+}

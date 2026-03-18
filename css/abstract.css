@@ -62,6 +62,29 @@
   --duration-base: 250ms;
 }
 
+html[data-color-mode="light"] {
+  --color-bg-primary: #f3f0e7;
+  --color-bg-secondary: #ece7d9;
+  --color-bg-tertiary: #e2dccb;
+  --color-bg-elevated: #faf7ef;
+  --color-surface: #fcf9f1;
+  --color-surface-hover: #f2ebdc;
+
+  --color-text-primary: #1e2722;
+  --color-text-secondary: #495549;
+  --color-text-tertiary: #657063;
+  --color-text-muted: #7e897b;
+
+  --color-accent: #4f6753;
+  --color-accent-hover: #3f5542;
+  --color-accent-muted: #6b836f;
+  --color-accent-subtle: rgba(79, 103, 83, 0.12);
+
+  --color-border: rgba(30, 39, 34, 0.14);
+  --color-border-subtle: rgba(30, 39, 34, 0.08);
+  --color-border-emphasis: rgba(30, 39, 34, 0.22);
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -73,6 +96,11 @@ html {
   scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color-scheme: dark;
+}
+
+html[data-color-mode="light"] {
+  color-scheme: light;
 }
 
 body {
@@ -155,7 +183,7 @@ body {
 
 .nav-brand-text {
   font-size: 0.875rem;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--color-text-secondary);
 }
 
@@ -168,7 +196,7 @@ body {
 .nav-link {
   padding: var(--space-2) var(--space-4);
   font-size: 0.875rem;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--color-text-secondary);
   text-decoration: none;
   border-radius: var(--radius-nav);
@@ -191,6 +219,7 @@ body {
   gap: var(--space-2);
   padding: var(--space-2) var(--space-4);
   font-size: 0.875rem;
+  font-weight: 600;
   color: var(--color-text-secondary);
   text-decoration: none;
   border-radius: var(--radius-md);
@@ -205,6 +234,66 @@ body {
 .nav-back svg {
   width: 16px;
   height: 16px;
+}
+
+/* Light/Dark mode toggle (shared across non-game pages) */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg-primary) 84%, transparent);
+  color: var(--color-text-secondary);
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition: all var(--duration-base) var(--ease-smooth);
+  cursor: pointer;
+}
+
+.theme-toggle:hover,
+.theme-toggle:focus-visible {
+  color: var(--color-text-primary);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+  outline: none;
+}
+
+.theme-toggle-icon {
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-emphasis);
+  background: color-mix(in srgb, var(--color-bg-tertiary) 80%, white 20%);
+  position: relative;
+  flex-shrink: 0;
+}
+
+.theme-toggle-icon::before {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #e8edf8;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: transform var(--duration-base) var(--ease-smooth), background var(--duration-base) var(--ease-smooth);
+}
+
+.theme-toggle[data-mode="light"] .theme-toggle-icon::before {
+  transform: translateX(14px);
+  background: #f2c663;
+}
+
+html[data-color-mode="light"] .theme-toggle {
+  background: color-mix(in srgb, white 88%, var(--color-bg-primary) 12%);
 }
 
 /* Mobile menu */
@@ -224,6 +313,10 @@ body {
   height: 2px;
   background: var(--color-text-primary);
   transition: all var(--duration-base) var(--ease-smooth);
+}
+
+html[data-color-mode="light"] .abstract-nav {
+  background: rgba(243, 240, 231, 0.9);
 }
 
 /* ========================================
@@ -247,6 +340,12 @@ body {
     linear-gradient(90deg, rgba(205, 219, 205, 0.02) 1px, transparent 1px);
   background-size: 40px 40px;
   pointer-events: none;
+}
+
+html[data-color-mode="light"] .abstract-hero::before {
+  background-image:
+    linear-gradient(rgba(79, 103, 83, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(79, 103, 83, 0.08) 1px, transparent 1px);
 }
 
 .hero-container {
@@ -273,10 +372,14 @@ body {
   margin-bottom: var(--space-6);
 }
 
+html[data-color-mode="light"] .hero-badge {
+  border-color: color-mix(in srgb, var(--color-accent) 36%, transparent);
+}
+
 .hero-title {
   font-family: var(--font-display);
   font-size: clamp(2.5rem, 5vw, 3.5rem);
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1.1;
   margin-bottom: var(--space-4);
   letter-spacing: -0.02em;
@@ -284,6 +387,7 @@ body {
 
 .hero-subtitle {
   font-size: 1.125rem;
+  font-weight: 500;
   color: var(--color-text-secondary);
   line-height: 1.6;
   max-width: 700px;
@@ -314,7 +418,7 @@ body {
 .section-nav-link {
   padding: var(--space-2) var(--space-4);
   font-size: 0.8125rem;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--color-text-secondary);
   text-decoration: none;
   white-space: nowrap;
@@ -360,6 +464,7 @@ body {
 
 .section-subtitle {
   font-size: 1rem;
+  font-weight: 500;
   color: var(--color-text-secondary);
   max-width: 700px;
 }
@@ -417,6 +522,10 @@ body {
   border-color: var(--color-accent);
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+html[data-color-mode="light"] .tech-card:hover {
+  box-shadow: 0 10px 20px rgba(17, 24, 20, 0.14);
 }
 
 .tech-card-title {
@@ -720,6 +829,15 @@ body {
 
 @media (max-width: 768px) {
   /* Keep nav links visible on article pages (simpler nav) */
+  .theme-toggle {
+    min-width: 40px;
+    padding: 0 var(--space-2);
+  }
+
+  .theme-toggle-text {
+    display: none;
+  }
+
   .nav-back {
     font-size: 0.8125rem;
     padding: var(--space-2) var(--space-3);

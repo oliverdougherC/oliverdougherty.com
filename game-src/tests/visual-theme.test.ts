@@ -16,7 +16,7 @@ describe('visual theme contrast gates', () => {
       expect(playerEnemy).toBeGreaterThan(0.08);
       expect(playerHazard).toBeGreaterThan(0.14);
       expect(xpHazard).toBeGreaterThan(0.12);
-      expect(xpEnemy).toBeGreaterThan(0.03);
+      expect(xpEnemy).toBeGreaterThan(0.08);
     }
   });
 });

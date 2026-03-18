@@ -66,6 +66,7 @@
 .hero-title {
   font-family: var(--font-display);
   font-weight: var(--weight-normal);
+  text-shadow: 0.012em 0 currentColor, -0.012em 0 currentColor;
   font-size: var(--text-hero);
   margin-bottom: var(--space-4);
   letter-spacing: var(--tracking-tighter);
@@ -74,6 +75,7 @@
 
 .hero-subtitle {
   font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
   color: var(--color-text-secondary);
   line-height: var(--leading-relaxed);
   max-width: 600px;
@@ -340,6 +342,30 @@
   text-align: center;
   padding: var(--space-16) 0;
   color: var(--color-text-muted);
+}
+
+/* ========================================
+   Light Mode Refinements
+   ======================================== */
+
+html[data-color-mode="light"] .hero-pattern {
+  background-image:
+    linear-gradient(rgba(79, 103, 83, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(79, 103, 83, 0.08) 1px, transparent 1px);
+}
+
+html[data-color-mode="light"] .hero-badge {
+  border-color: color-mix(in srgb, var(--color-accent) 36%, transparent);
+}
+
+html[data-color-mode="light"] .report-card:hover {
+  box-shadow:
+    0 10px 22px rgba(17, 24, 20, 0.14),
+    0 0 0 1px color-mix(in srgb, var(--color-accent) 24%, transparent);
+}
+
+html[data-color-mode="light"] .btn-primary-report:hover {
+  box-shadow: 0 8px 18px rgba(79, 103, 83, 0.2);
 }
 
 /* ========================================

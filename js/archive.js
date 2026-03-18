@@ -5,98 +5,93 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
-  initSearch();
-  initFilters();
+  const state = createArchiveState();
+  if (!state.cards.length) return;
+
+  initSearch(state);
+  initFilters(state);
+  applyArchiveFilters(state);
 });
 
-/**
- * Search functionality
- */
-function initSearch() {
-  const searchInput = document.getElementById('searchInput');
-  const cards = document.querySelectorAll('.report-card');
-  const noResults = document.getElementById('noResults');
+function createArchiveState() {
+  const cards = Array.from(document.querySelectorAll('.report-card')).map((card) => ({
+    element: card,
+    category: card.dataset.category || '',
+    searchableText: [
+      card.querySelector('.report-title')?.textContent || '',
+      card.querySelector('.report-desc')?.textContent || '',
+      card.querySelector('.report-category')?.textContent || ''
+    ]
+      .join(' ')
+      .toLowerCase()
+  }));
 
-  if (!searchInput) return;
-
-  searchInput.addEventListener('input', debounce((e) => {
-    const query = e.target.value.toLowerCase().trim();
-
-    // Reset filter buttons
-    document.querySelectorAll('.filter-tag').forEach(btn => {
-      btn.classList.remove('active');
-      btn.setAttribute('aria-pressed', 'false');
-    });
-    const allBtn = document.querySelector('.filter-tag[data-filter="all"]');
-    if (allBtn) {
-      allBtn.classList.add('active');
-      allBtn.setAttribute('aria-pressed', 'true');
-    }
-
-    let visibleCount = 0;
-
-    cards.forEach(card => {
-      const title = card.querySelector('.report-title')?.textContent.toLowerCase() || '';
-      const desc = card.querySelector('.report-desc')?.textContent.toLowerCase() || '';
-      const category = card.querySelector('.report-category')?.textContent.toLowerCase() || '';
-
-      const matches = !query ||
-        title.includes(query) ||
-        desc.includes(query) ||
-        category.includes(query);
-
-      if (matches) {
-        card.classList.remove('hidden');
-        visibleCount++;
-      } else {
-        card.classList.add('hidden');
-      }
-    });
-
-    if (noResults) {
-      noResults.style.display = visibleCount === 0 ? 'block' : 'none';
-    }
-  }, 200));
+  return {
+    cards,
+    searchInput: document.getElementById('searchInput'),
+    filterButtons: Array.from(document.querySelectorAll('.filter-tag')),
+    noResults: document.getElementById('noResults'),
+    query: '',
+    activeFilter: 'all'
+  };
 }
 
-/**
- * Category filtering
- */
-function initFilters() {
-  const filterButtons = document.querySelectorAll('.filter-tag');
-  const cards = document.querySelectorAll('.report-card');
-  const searchInput = document.getElementById('searchInput');
-  const noResults = document.getElementById('noResults');
+function initSearch(state) {
+  if (!state.searchInput) return;
 
-  filterButtons.forEach(button => {
+  state.searchInput.addEventListener(
+    'input',
+    debounce((event) => {
+      state.query = event.target.value.toLowerCase().trim();
+      state.activeFilter = 'all';
+      syncFilterButtons(state);
+      applyArchiveFilters(state);
+    }, 150)
+  );
+}
+
+function initFilters(state) {
+  state.filterButtons.forEach((button) => {
     button.addEventListener('click', () => {
-      const filter = button.dataset.filter;
-
-      filterButtons.forEach(btn => {
-        btn.classList.remove('active');
-        btn.setAttribute('aria-pressed', 'false');
-      });
-      button.classList.add('active');
-      button.setAttribute('aria-pressed', 'true');
-
-      if (searchInput) searchInput.value = '';
-
-      let visibleCount = 0;
-
-      cards.forEach(card => {
-        const category = card.dataset.category;
-
-        if (filter === 'all' || category === filter) {
-          card.classList.remove('hidden');
-          visibleCount++;
-        } else {
-          card.classList.add('hidden');
-        }
-      });
-
-      if (noResults) {
-        noResults.style.display = visibleCount === 0 ? 'block' : 'none';
+      state.activeFilter = button.dataset.filter || 'all';
+      if (state.searchInput) {
+        state.searchInput.value = '';
       }
+      state.query = '';
+      syncFilterButtons(state);
+      applyArchiveFilters(state);
     });
   });
+}
+
+function syncFilterButtons(state) {
+  state.filterButtons.forEach((button) => {
+    const isActive = (button.dataset.filter || 'all') === state.activeFilter;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-pressed', String(isActive));
+  });
+}
+
+function setCardVisible(card, visible) {
+  card.element.classList.toggle('hidden', !visible);
+  card.element.setAttribute('aria-hidden', String(!visible));
+}
+
+function applyArchiveFilters(state) {
+  let visibleCount = 0;
+
+  for (const card of state.cards) {
+    const matchesFilter = state.activeFilter === 'all' || card.category === state.activeFilter;
+    const matchesQuery = !state.query || card.searchableText.includes(state.query);
+    const visible = matchesFilter && matchesQuery;
+
+    setCardVisible(card, visible);
+    if (visible) {
+      visibleCount += 1;
+    }
+  }
+
+  if (state.noResults) {
+    state.noResults.style.display = visibleCount === 0 ? 'block' : 'none';
+  }
 }

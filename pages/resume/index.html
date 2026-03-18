@@ -38,6 +38,8 @@
       transform-origin: center center;
       opacity: 0;
       transition: opacity 0.5s ease-in;
+      pointer-events: none;
+      will-change: transform;
     }
     .fox-layer {
       position: absolute;
@@ -49,8 +51,8 @@
       image-rendering: pixelated;
       transform: scale(2); /* 64px visual size */
       transform-origin: top left;
-      pointer-events: auto;
-      cursor: grab;
+      pointer-events: none;
+      cursor: default;
       will-change: opacity, background-position;
     }
     .fox-emote {
@@ -94,30 +96,35 @@
         <span class="logo-text">O<span class="logo-d">D</span></span>
       </a>
 
-      <!-- Fullscreen Menu Overlay -->
-      <div class="nav-overlay" id="navOverlay">
-        <div class="nav-overlay-bg"></div>
-        <div class="nav-links container" id="navLinks">
-          <div class="nav-menu-header">Menu</div>
-          <a href="../../index.html" class="nav-link nav-link--home" data-cursor="hover">Home</a>
-          <a href="." class="nav-link nav-link--resume active" aria-current="page" data-cursor="hover">Resume</a>
-          <a href="../gallery/index.html" class="nav-link nav-link--gallery" data-cursor="hover">Gallery</a>
-          <a href="../archive/index.html" class="nav-link nav-link--archive" data-cursor="hover">Archive</a>
-          <a href="../dashboard/index.html" class="nav-link nav-link--dashboard" data-cursor="hover">Services</a>
-
-          <div class="nav-menu-footer">
-            <a href="mailto:oliverfdougherty@gmail.com" class="footer-link" data-cursor="hover">Contact</a>
-            <a href="https://github.com/oliverdougherC" class="footer-link" target="_blank" rel="noopener noreferrer" data-cursor="hover">Github</a>
-          </div>
-        </div>
+      <div class="nav-controls">
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to light mode" aria-pressed="false" data-cursor="hover">
+          <span class="theme-toggle-icon" aria-hidden="true"></span>
+        </button>
+        <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false" data-cursor="hover">
+          <span></span>
+          <span></span>
+        </button>
       </div>
-
-      <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false" data-cursor="hover">
-        <span></span>
-        <span></span>
-      </button>
     </div>
   </nav>
+
+  <!-- Fullscreen Menu Overlay -->
+  <div class="nav-overlay" id="navOverlay">
+    <div class="nav-overlay-bg"></div>
+    <div class="nav-links container" id="navLinks">
+      <div class="nav-menu-header">Menu</div>
+      <a href="../../index.html" class="nav-link nav-link--home" data-cursor="hover">Home</a>
+      <a href="." class="nav-link nav-link--resume active" aria-current="page" data-cursor="hover">Resume</a>
+      <a href="../gallery/index.html" class="nav-link nav-link--gallery" data-cursor="hover">Gallery</a>
+      <a href="../archive/index.html" class="nav-link nav-link--archive" data-cursor="hover">Archive</a>
+      <a href="../dashboard/index.html" class="nav-link nav-link--dashboard" data-cursor="hover">Services</a>
+
+      <div class="nav-menu-footer">
+        <a href="mailto:oliverfdougherty@gmail.com" class="footer-link" data-cursor="hover">Contact</a>
+        <a href="https://github.com/oliverdougherC" class="footer-link" target="_blank" rel="noopener noreferrer" data-cursor="hover">Github</a>
+      </div>
+    </div>
+  </div>
 
   <main class="resume-main">
     <!-- Hero -->
@@ -384,6 +391,8 @@
       // Shake Detection
       let lastMousePos = { x: 0, y: 0 };
       let shakeScore = 0;
+      let pendingMouseSample = null;
+      let mouseSampleRaf = 0;
 
       // Make visible when images loaded (simple delay for now, since divs pre-load)
       setTimeout(() => container.style.opacity = '1', 500);
@@ -391,39 +400,33 @@
       // --- Interaction Events ---
 
       document.addEventListener('mousemove', (e) => {
-        const dx = e.pageX - lastMousePos.x;
-        const dy = e.pageY - lastMousePos.y;
-        const dist = Math.hypot(dx, dy);
-        lastMousePos.x = e.pageX;
-        lastMousePos.y = e.pageY;
+        pendingMouseSample = { x: e.pageX, y: e.pageY };
+        if (mouseSampleRaf) return;
 
-        shakeScore += dist;
-        if (shakeScore > 800) shakeScore = 800;
+        mouseSampleRaf = requestAnimationFrame(() => {
+          mouseSampleRaf = 0;
+          if (!pendingMouseSample) return;
 
-        mouse.x = e.pageX;
-        mouse.y = e.pageY;
+          const dx = pendingMouseSample.x - lastMousePos.x;
+          const dy = pendingMouseSample.y - lastMousePos.y;
+          const dist = Math.hypot(dx, dy);
+          lastMousePos.x = pendingMouseSample.x;
+          lastMousePos.y = pendingMouseSample.y;
+
+          shakeScore = Math.min(800, shakeScore + dist);
+          mouse.x = pendingMouseSample.x;
+          mouse.y = pendingMouseSample.y;
+          pendingMouseSample = null;
+        });
       });
 
       document.addEventListener('click', (e) => {
+        if (e.target && e.target.closest('#nav, .nav-overlay, .nav-controls, a, button, input, textarea')) {
+          return;
+        }
         targetPos = { x: e.pageX, y: e.pageY };
         aiState = 'INVESTIGATING';
         showEmote('!');
-      });
-
-      container.addEventListener('mouseenter', () => {
-        if (aiState !== 'INVESTIGATING') {
-          aiState = 'HAPPY';
-          showEmote('❤️');
-          container.classList.add('fox-happy');
-        }
-      });
-
-      container.addEventListener('mouseleave', () => {
-        container.classList.remove('fox-happy');
-        if (aiState === 'HAPPY') {
-          aiState = 'IDLE';
-          decisionTimer = 500;
-        }
       });
 
       // --- AI Logic ---

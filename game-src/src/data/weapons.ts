@@ -119,7 +119,12 @@ export const WEAPON_ARCHETYPES: Record<string, WeaponArchetype> = {
     range: 650,
     projectilesPerAttack: 2,
     spreadAngleDeg: 40,
-    colorHex: 0xb5e38e
+    colorHex: 0xb5e38e,
+    hazardRadiusBase: 76,
+    hazardRadiusPerRank: 8,
+    hazardDurationBase: 3.35,
+    hazardDurationPerRank: 0.35,
+    hazardDamageMultiplier: 0.32
   },
   gale_scythe: {
     id: 'gale_scythe',
@@ -291,7 +296,56 @@ export const WEAPON_ARCHETYPES: Record<string, WeaponArchetype> = {
     spreadAngleDeg: 100,
     colorHex: 0xdbffb3,
     isEvolution: true,
-    evolvedFrom: 'fungal_mortar'
+    evolvedFrom: 'fungal_mortar',
+    hazardRadiusBase: 76,
+    hazardRadiusPerRank: 8,
+    hazardDurationBase: 3.35,
+    hazardDurationPerRank: 0.35,
+    hazardDamageMultiplier: 0.32
+  },
+  tempest_requiem: {
+    id: 'tempest_requiem',
+    name: 'Tempest Requiem',
+    description: 'Evolved scythe unleashing endless gale arcs.',
+    rarity: 'legendary',
+    pattern: 'fan',
+    baseDamage: 40,
+    damagePerRank: 0,
+    baseCooldown: 0.26,
+    cooldownScalePerRank: 0,
+    projectileSpeed: 900,
+    projectileLifetime: 1.2,
+    projectileRadius: 8,
+    basePierce: 4,
+    piercePerRank: 0,
+    range: 900,
+    projectilesPerAttack: 6,
+    spreadAngleDeg: 44,
+    colorHex: 0xdefef4,
+    isEvolution: true,
+    evolvedFrom: 'gale_scythe'
+  },
+  astral_gyre: {
+    id: 'astral_gyre',
+    name: 'Astral Gyre',
+    description: 'Evolved orbit that forms a crushing stellar ring.',
+    rarity: 'legendary',
+    pattern: 'orbit',
+    baseDamage: 26,
+    damagePerRank: 0,
+    baseCooldown: 0.22,
+    cooldownScalePerRank: 0,
+    projectileSpeed: 360,
+    projectileLifetime: 1.25,
+    projectileRadius: 9,
+    basePierce: 2,
+    piercePerRank: 0,
+    range: 460,
+    projectilesPerAttack: 6,
+    spreadAngleDeg: 0,
+    colorHex: 0xc8fbff,
+    isEvolution: true,
+    evolvedFrom: 'lattice_orbit'
   }
 };
 

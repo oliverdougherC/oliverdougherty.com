@@ -42,5 +42,19 @@ export const EVOLUTION_RECIPES: EvolutionRecipe[] = [
     catalystId: 'storm_vial',
     evolvedWeaponId: 'mycelium_apocalypse',
     minTimeSeconds: 540
+  },
+  {
+    id: 'tempest_requiem_recipe',
+    weaponId: 'gale_scythe',
+    catalystId: 'ancient_clock',
+    evolvedWeaponId: 'tempest_requiem',
+    minTimeSeconds: 510
+  },
+  {
+    id: 'astral_gyre_recipe',
+    weaponId: 'lattice_orbit',
+    catalystId: 'marrow_charm',
+    evolvedWeaponId: 'astral_gyre',
+    minTimeSeconds: 540
   }
 ];

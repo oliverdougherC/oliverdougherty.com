@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { GameWorld } from '@/core/world';
+import { EVOLUTION_RECIPES } from '@/data/evolutions';
+import { WEAPON_ARCHETYPES } from '@/data/weapons';
 
 describe('evolution gating', () => {
   it('requires rank, catalyst, and late-game timing', () => {
@@ -45,5 +47,16 @@ describe('evolution gating', () => {
     expect(world.inventorySlots[0].itemId).toBe('worldroot_lance');
     expect(world.inventorySlots[0].isEvolved).toBe(true);
     expect(world.uiState).toBe('playing');
+  });
+
+  it('provides evolution coverage for every base weapon', () => {
+    const recipeBases = new Set(EVOLUTION_RECIPES.map((recipe) => recipe.weaponId));
+    const baseWeaponIds = Object.values(WEAPON_ARCHETYPES)
+      .filter((weapon) => !weapon.isEvolution)
+      .map((weapon) => weapon.id);
+
+    for (const weaponId of baseWeaponIds) {
+      expect(recipeBases.has(weaponId), `Missing evolution recipe for ${weaponId}`).toBe(true);
+    }
   });
 });
