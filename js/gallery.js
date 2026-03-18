@@ -128,6 +128,7 @@ async function initGallery() {
   syncHeroFeature();
   buildLightboxThumbStrip();
   renderGallery();
+  initScrollReveal();
   setLoadingState(false);
   handleHashChange();
 
@@ -327,7 +328,7 @@ function syncHeroFeature() {
 }
 
 function renderGallery() {
-  const visibleEntries = gallery.entries;
+  const visibleEntries = gallery.entries.filter((entry) => entry.id !== gallery.heroEntryId);
 
   gallery.visibleEntries = visibleEntries;
 
@@ -346,20 +347,66 @@ function renderGallery() {
   renderPhotoGrid(gallery.elements.archiveGrid, visibleEntries, 'archive');
 }
 
+function initScrollReveal() {
+  const cards = document.querySelectorAll('.photo-card');
+  if (!cards.length) return;
+
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    cards.forEach((card) => card.classList.add('is-revealed'));
+    return;
+  }
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('is-revealed');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, {
+    rootMargin: '0px 0px -8% 0px',
+    threshold: 0.15
+  });
+
+  cards.forEach((card) => observer.observe(card));
+}
+
 function renderPhotoGrid(container, entries, context) {
   const fragment = document.createDocumentFragment();
+  const prominentSet = buildProminentSet(entries);
 
   entries.forEach((entry, index) => {
     fragment.appendChild(createPhotoCard(entry, {
       context,
-      index
+      index,
+      isProminent: prominentSet.has(index)
     }));
   });
 
   container.replaceChildren(fragment);
 }
 
-function createPhotoCard(entry, { context, index }) {
+function buildProminentSet(entries) {
+  const set = new Set();
+  let gap = 4;
+
+  entries.forEach((entry, index) => {
+    if (entry.featured && gap >= 4) {
+      set.add(index);
+      gap = 0;
+    } else {
+      gap++;
+      if (gap >= 9) {
+        set.add(index);
+        gap = 0;
+      }
+    }
+  });
+
+  return set;
+}
+
+function createPhotoCard(entry, { context, index, isProminent }) {
   const article = document.createElement('article');
   article.className = 'photo-card is-loading';
   article.dataset.entryId = entry.id;
@@ -373,6 +420,11 @@ function createPhotoCard(entry, { context, index }) {
       article.classList.add('photo-card--feature-secondary');
     }
   }
+  if (isProminent) {
+    article.classList.add('photo-card--prominent');
+  }
+
+  article.style.setProperty('--reveal-delay', `${isProminent ? 0 : (index % 2) * 80}ms`);
 
   const button = document.createElement('button');
   button.type = 'button';
@@ -385,45 +437,50 @@ function createPhotoCard(entry, { context, index }) {
 
   const naturalRatio = entry.width / entry.height;
   const isFeatureHero = context === 'featured' && index === 0;
-  const clampedRatio = isFeatureHero
-    ? Math.max(1.4, Math.min(naturalRatio, 1.78))
-    : Math.max(1, Math.min(naturalRatio, 1.78));
+  const clampedRatio = isProminent
+    ? Math.max(1.2, Math.min(naturalRatio, 2.0))
+    : isFeatureHero
+      ? Math.max(1.4, Math.min(naturalRatio, 1.78))
+      : Math.max(0.85, Math.min(naturalRatio, 1.78));
   media.style.aspectRatio = `${clampedRatio.toFixed(3)} / 1`;
 
   const picture = document.createElement('picture');
-  const imageSizes = getCardImageSizes(context, index);
+  const imageSizes = getCardImageSizes(context, index, isProminent);
+  const smallSrc = isProminent ? 'medium' : 'thumb';
+  const largeSrc = isProminent ? 'large' : 'medium';
+
   const sourceAvif = document.createElement('source');
   sourceAvif.type = 'image/avif';
-  if (entry.assets.thumbAvif) {
+  if (entry.assets[`${smallSrc}Avif`]) {
     sourceAvif.srcset = buildSrcset([
-      makeResponsiveCandidate(entry.assets.thumbAvif, entry.assets.thumbWidth),
-      makeResponsiveCandidate(entry.assets.mediumAvif, entry.assets.mediumWidth)
+      makeResponsiveCandidate(entry.assets[`${smallSrc}Avif`], entry.assets[`${smallSrc}Width`]),
+      makeResponsiveCandidate(entry.assets[`${largeSrc}Avif`], entry.assets[`${largeSrc}Width`])
     ]);
     sourceAvif.sizes = imageSizes;
   }
 
   const sourceWebp = document.createElement('source');
   sourceWebp.type = 'image/webp';
-  if (entry.assets.thumbWebp) {
+  if (entry.assets[`${smallSrc}Webp`]) {
     sourceWebp.srcset = buildSrcset([
-      makeResponsiveCandidate(entry.assets.thumbWebp, entry.assets.thumbWidth),
-      makeResponsiveCandidate(entry.assets.mediumWebp, entry.assets.mediumWidth)
+      makeResponsiveCandidate(entry.assets[`${smallSrc}Webp`], entry.assets[`${smallSrc}Width`]),
+      makeResponsiveCandidate(entry.assets[`${largeSrc}Webp`], entry.assets[`${largeSrc}Width`])
     ]);
     sourceWebp.sizes = imageSizes;
   }
 
   const image = document.createElement('img');
   image.className = 'photo-image';
-  image.src = entry.assets.mediumJpg || entry.assets.thumbJpg || entry.assets.original;
+  image.src = entry.assets[`${largeSrc}Jpg`] || entry.assets.mediumJpg || entry.assets.original;
   image.alt = entry.displayTitle;
   image.loading = index < 4 ? 'eager' : 'lazy';
   image.decoding = index < 4 ? 'sync' : 'async';
   image.fetchPriority = index < 4 ? 'high' : 'auto';
-  image.width = entry.assets.mediumWidth || entry.width;
-  image.height = entry.assets.mediumHeight || entry.height;
+  image.width = entry.assets[`${largeSrc}Width`] || entry.width;
+  image.height = entry.assets[`${largeSrc}Height`] || entry.height;
   image.srcset = buildSrcset([
-    makeResponsiveCandidate(entry.assets.thumbJpg, entry.assets.thumbWidth),
-    makeResponsiveCandidate(entry.assets.mediumJpg, entry.assets.mediumWidth)
+    makeResponsiveCandidate(entry.assets[`${smallSrc}Jpg`], entry.assets[`${smallSrc}Width`]),
+    makeResponsiveCandidate(entry.assets[`${largeSrc}Jpg`], entry.assets[`${largeSrc}Width`])
   ]);
   image.sizes = imageSizes;
   image.addEventListener('load', () => {
@@ -438,8 +495,21 @@ function createPhotoCard(entry, { context, index }) {
   picture.append(sourceAvif, sourceWebp, image);
   media.appendChild(picture);
 
+  const caption = document.createElement('div');
+  caption.className = 'photo-placard';
+
+  const number = document.createElement('span');
+  number.className = 'photo-placard-number';
+  number.textContent = String(index + 1).padStart(2, '0');
+
+  const title = document.createElement('span');
+  title.className = 'photo-placard-title';
+  title.textContent = entry.displayTitle;
+
+  caption.append(number, title);
+
   button.append(media);
-  article.appendChild(button);
+  article.append(button, caption);
 
   button.addEventListener('click', () => {
     gallery.triggerElement = button;
@@ -649,11 +719,20 @@ function buildLightboxMeta(entry) {
 
 function navigateLightbox(direction) {
   if (!gallery.entries.length) return;
-  const length = gallery.entries.length;
-  gallery.currentIndex = (gallery.currentIndex + direction + length) % length;
-  const nextEntry = gallery.entries[gallery.currentIndex];
-  syncHash(nextEntry.id);
-  renderLightboxEntry(nextEntry);
+
+  gallery.elements.lightboxImage.style.opacity = '0';
+
+  setTimeout(() => {
+    const length = gallery.entries.length;
+    gallery.currentIndex = (gallery.currentIndex + direction + length) % length;
+    const nextEntry = gallery.entries[gallery.currentIndex];
+    syncHash(nextEntry.id);
+    renderLightboxEntry(nextEntry);
+
+    requestAnimationFrame(() => {
+      gallery.elements.lightboxImage.style.opacity = '1';
+    });
+  }, 150);
 }
 
 function closeLightbox({ updateHashState = true } = {}) {
@@ -661,13 +740,18 @@ function closeLightbox({ updateHashState = true } = {}) {
 
   gallery.lightboxOpen = false;
   gallery.elements.lightbox.classList.remove('is-active');
-  gallery.elements.lightbox.hidden = true;
   document.body.classList.remove('gallery-lightbox-open');
   if (updateHashState) {
     clearHash();
   }
   gallery.triggerElement?.focus?.();
   gallery.triggerElement = null;
+
+  setTimeout(() => {
+    if (!gallery.lightboxOpen) {
+      gallery.elements.lightbox.hidden = true;
+    }
+  }, 300);
 }
 
 function handleGlobalKeydown(event) {
@@ -800,7 +884,11 @@ function basenameFromPath(value) {
   return segments[segments.length - 1];
 }
 
-function getCardImageSizes(context, index) {
+function getCardImageSizes(context, index, isProminent) {
+  if (isProminent) {
+    return '(max-width: 900px) 100vw, (max-width: 1440px) 84vw, 1220px';
+  }
+
   if (context === 'featured') {
     return index === 0
       ? '(max-width: 900px) 100vw, (max-width: 1440px) 84vw, 1220px'
