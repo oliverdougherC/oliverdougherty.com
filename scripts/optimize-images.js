@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
  * Image Optimization Script
- * Generates optimized gallery variants and updates photos/photos.json.
+ * Generates optimized gallery variants and updates assets/photos/photos.json.
  *
  * Outputs:
- *   photos/thumbs/  - 800px variants (JPEG + WebP + AVIF)
- *   photos/medium/  - 1600px variants (JPEG + WebP + AVIF)
- *   photos/large/   - 2400px variants (JPEG + WebP + AVIF)
+ *   assets/photos/thumbs/  - 800px variants (JPEG + WebP + AVIF)
+ *   assets/photos/medium/  - 1600px variants (JPEG + WebP + AVIF)
+ *   assets/photos/large/   - 2400px variants (JPEG + WebP + AVIF)
  *
  * Usage: node scripts/optimize-images.js
  * Optional env: IMAGE_CONCURRENCY=4
@@ -18,8 +18,39 @@ const path = require('path');
 const sharp = require('sharp');
 const exifr = require('exifr');
 
-const PHOTOS_DIR = path.join(__dirname, '..', 'photos');
+const PHOTOS_DIR = path.join(__dirname, '..', 'assets', 'photos');
 const MANIFEST_PATH = path.join(PHOTOS_DIR, 'photos.json');
+const DESCRIPTIONS_PATH = path.join(PHOTOS_DIR, 'descriptions.md');
+const PHOTO_EXT_RE = /\.(jpe?g|png)$/i;
+
+const SMALL_WORDS = new Set(['a', 'an', 'and', 'at', 'for', 'in', 'of', 'on', 'or', 'the', 'to']);
+
+const PHOTO_CATALOG = [
+  { filename: 'squirrel.jpg', variantBaseName: 'a7rii_335', category: 'WILDLIFE', location: 'Field Edge' },
+  { filename: 'lighthouse.jpg', variantBaseName: 'a7rii_474', category: 'LANDSCAPE', location: 'Peninsula Edge' },
+  { filename: 'ember_m4.jpg', variantBaseName: 'DSC04084', category: 'AUTOMOTIVE', location: 'Mountain Pullout' },
+  { filename: 'union.jpg', variantBaseName: 'IMG_20251211_232447_034', category: 'NIGHT_STUDIES', location: 'Civic Center' },
+  { filename: 'hawk.jpg', variantBaseName: 'DSC04229', category: 'WILDLIFE', location: 'Tree Line' },
+  { filename: 'chairs.jpeg', variantBaseName: 'Hawaii_S25_121', category: 'LANDSCAPE', location: 'Beachfront' },
+  { filename: 'forest.jpg.jpg', variantBaseName: 'DSC04166', category: 'LANDSCAPE', location: 'Forest Line' },
+  { filename: 'looking_for_shells.jpg', variantBaseName: 'a7rii_492', category: 'FIGURES', location: 'Rocky Shore' },
+  { filename: 'pond.jpeg', variantBaseName: 'Dream_Pond', category: 'LANDSCAPE', location: 'Garden Pond' },
+  { filename: 'hills.jpg', variantBaseName: 'DSC04139', category: 'LANDSCAPE', location: 'Open Range' },
+  { filename: 'fog.jpg', variantBaseName: 'DSC04161', category: 'LANDSCAPE', location: 'Distant Ridge' },
+  { filename: 'moon.jpg', variantBaseName: 'DSC04599', category: 'NIGHT_STUDIES', location: 'Night Sky' },
+  { filename: 'sitting.jpg', variantBaseName: 'DSC04549', category: 'WILDLIFE', location: 'Fence Line' },
+  { filename: 'in_flight.jpg', variantBaseName: 'DSC04554', category: 'WILDLIFE', location: 'Open Sky' },
+  { filename: 'Caught.jpg', variantBaseName: 'a7rii_477', category: 'FIGURES', location: 'Concrete Stairwell' },
+  { filename: 'stroller.jpg', variantBaseName: 'DSC04205', category: 'FIGURES', location: 'Waterfront Path' },
+  { filename: 'swing.jpg', variantBaseName: 'DSC04179', category: 'FIGURES', location: 'Driving Range' },
+  { filename: 'putt.jpg', variantBaseName: 'DSC04209', category: 'FIGURES', location: 'Practice Green' },
+  { filename: 'nose.jpg', variantBaseName: 'DSC04098', category: 'AUTOMOTIVE', location: 'Street Shoulder' },
+  { filename: 'stare.jpg', variantBaseName: 'DSC04102', category: 'AUTOMOTIVE', location: 'Street Shoulder' },
+  { filename: 'yellow.jpg', variantBaseName: 'IMG_20251211_225252_010', category: 'NIGHT_STUDIES', location: 'Intersection' },
+  { filename: 'night.jpg', variantBaseName: 'IMG_20251211_225510_015', category: 'NIGHT_STUDIES', location: 'Neighborhood Park' },
+  { filename: 'yield.jpg', variantBaseName: 'IMG_20251211_225546_016', category: 'NIGHT_STUDIES', location: 'Street Corner' },
+  { filename: 'lights.jpg', variantBaseName: 'IMG_20251211_225914_024_crop', category: 'NIGHT_STUDIES', location: 'Downtown Sidewalk' }
+];
 
 const VARIANTS = [
   {
@@ -55,8 +86,29 @@ async function ensureDir(dir) {
   }
 }
 
-function getBaseName(filename) {
-  return filename.replace(/\.(jpe?g|png)$/i, '');
+function basenameFromPath(value) {
+  const normalized = String(value || '').split('?')[0].split('#')[0];
+  const parts = normalized.split('/');
+  return parts[parts.length - 1];
+}
+
+function extractPhotoStem(filename) {
+  let stem = basenameFromPath(filename);
+  let next = stem.replace(/\.(avif|webp|jpe?g|png)$/i, '');
+
+  while (next !== stem) {
+    stem = next;
+    next = stem.replace(/\.(avif|webp|jpe?g|png)$/i, '');
+  }
+
+  return stem;
+}
+
+function normalizePhotoKey(value) {
+  return extractPhotoStem(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 function bytesToMB(bytes) {
@@ -73,6 +125,89 @@ function parseConcurrency() {
 
   const cpuCount = os.cpus()?.length || 1;
   return Math.max(1, Math.min(cpuCount, 6));
+}
+
+function formatTitleToken(token, index, total) {
+  if (!token) return '';
+
+  if (/\d/.test(token)) {
+    return token.toUpperCase();
+  }
+
+  const lower = token.toLowerCase();
+  if (index > 0 && index < total - 1 && SMALL_WORDS.has(lower)) {
+    return lower;
+  }
+
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
+function formatDisplayTitle(filename) {
+  const parts = extractPhotoStem(filename)
+    .split(/[-_]+/)
+    .filter(Boolean);
+
+  return parts
+    .map((part, index) => formatTitleToken(part, index, parts.length))
+    .join(' ');
+}
+
+function parseDescriptions() {
+  if (!fs.existsSync(DESCRIPTIONS_PATH)) {
+    return new Map();
+  }
+
+  const descriptions = new Map();
+  const content = fs.readFileSync(DESCRIPTIONS_PATH, 'utf8');
+
+  for (const line of content.split('\n')) {
+    const match = line.match(/```([^`]+)```\s*(?:&rarr;|->|→)\s*(.+)$/);
+    if (!match) continue;
+
+    descriptions.set(normalizePhotoKey(match[1]), match[2].trim());
+  }
+
+  return descriptions;
+}
+
+function listSourcePhotoFiles() {
+  return fs.readdirSync(PHOTOS_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && PHOTO_EXT_RE.test(entry.name))
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function buildSourcePhotos() {
+  const files = listSourcePhotoFiles();
+  const available = new Set(files);
+  const ordered = [];
+  const seen = new Set();
+
+  PHOTO_CATALOG.forEach((entry) => {
+    if (!available.has(entry.filename)) {
+      console.warn(`Catalog entry missing source file: ${entry.filename}`);
+      return;
+    }
+
+    ordered.push(entry);
+    seen.add(entry.filename);
+  });
+
+  files.forEach((filename) => {
+    if (seen.has(filename)) return;
+    ordered.push({
+      filename,
+      variantBaseName: extractPhotoStem(filename),
+      category: 'ARCHIVE',
+      location: ''
+    });
+  });
+
+  return ordered;
+}
+
+function getVariantBaseName(photo) {
+  return photo.variantBaseName || extractPhotoStem(photo.filename);
 }
 
 async function generateVariant(inputPath, baseName, originalWidth, originalHeight, variant) {
@@ -125,6 +260,15 @@ async function generateVariant(inputPath, baseName, originalWidth, originalHeigh
   };
 }
 
+function parseDateFromFilename(filename) {
+  const stem = extractPhotoStem(filename);
+  const compactMatch = stem.match(/((?:19|20)\d{2})(\d{2})(\d{2})/);
+  if (!compactMatch) return '';
+
+  const [, year, month, day] = compactMatch;
+  return `${year}-${month}-${day}`;
+}
+
 function parseExifShutter(exposureTime) {
   if (!exposureTime) return null;
   if (exposureTime < 1) return `1/${Math.round(1 / exposureTime)}`;
@@ -145,7 +289,10 @@ async function extractExif(inputPath) {
       ]
     });
 
-    if (!exif) return null;
+    if (!exif) {
+      const fallbackDate = parseDateFromFilename(path.basename(inputPath));
+      return fallbackDate ? { date: fallbackDate } : null;
+    }
 
     const result = {};
     if (exif.Model) result.camera = exif.Model;
@@ -162,11 +309,15 @@ async function extractExif(inputPath) {
       result.date = date instanceof Date
         ? date.toISOString().split('T')[0]
         : String(date);
+    } else {
+      const fallbackDate = parseDateFromFilename(path.basename(inputPath));
+      if (fallbackDate) result.date = fallbackDate;
     }
 
     return Object.keys(result).length > 0 ? result : null;
   } catch (_err) {
-    return null;
+    const fallbackDate = parseDateFromFilename(path.basename(inputPath));
+    return fallbackDate ? { date: fallbackDate } : null;
   }
 }
 
@@ -187,7 +338,7 @@ async function processImage(photo, index, total) {
     return null;
   }
 
-  const baseName = getBaseName(photo.filename);
+  const baseName = getVariantBaseName(photo);
   const output = {
     ...photo,
     width: originalWidth,
@@ -216,8 +367,15 @@ async function processImage(photo, index, total) {
   }
 
   const exif = await extractExif(inputPath);
-  if (exif) {
-    output.exif = exif;
+  const derivedDate = exif?.date
+    || parseDateFromFilename(photo.filename)
+    || parseDateFromFilename(getVariantBaseName(photo));
+
+  if (exif || derivedDate) {
+    output.exif = {
+      ...(exif || {}),
+      ...(derivedDate ? { date: derivedDate } : {})
+    };
   }
 
   const originalBytes = fs.statSync(inputPath).size;
@@ -271,16 +429,29 @@ async function main() {
   console.log('Image Optimization Script');
   console.log('='.repeat(70));
 
-  if (!fs.existsSync(MANIFEST_PATH)) {
-    console.error(`photos.json not found at ${MANIFEST_PATH}`);
-    process.exit(1);
-  }
+  const descriptions = parseDescriptions();
+  const sourcePhotos = buildSourcePhotos();
+  const photos = sourcePhotos.map((photo) => {
+    const id = normalizePhotoKey(photo.filename);
+    const displayTitle = photo.displayTitle || formatDisplayTitle(photo.filename);
 
-  const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf-8'));
-  const photos = Array.isArray(manifest.photos) ? manifest.photos : [];
+    return {
+      id,
+      filename: photo.filename,
+      title: displayTitle,
+      displayTitle,
+      description: descriptions.get(id) || '',
+      category: photo.category || 'ARCHIVE',
+      location: photo.location || '',
+      variantBaseName: getVariantBaseName(photo)
+    };
+  });
 
   const concurrency = parseConcurrency();
-  console.log(`Found ${photos.length} photos in manifest`);
+  const describedCount = photos.filter((photo) => photo.description).length;
+
+  console.log(`Found ${photos.length} source photos in assets/photos`);
+  console.log(`Matched descriptions for ${describedCount}/${photos.length} photos`);
   console.log(`Using concurrency: ${concurrency}`);
 
   for (const variant of VARIANTS) {
@@ -288,9 +459,7 @@ async function main() {
   }
 
   if (photos.length === 0) {
-    const emptyManifest = { ...manifest, photos: [] };
-    fs.writeFileSync(MANIFEST_PATH, `${JSON.stringify(emptyManifest, null, 2)}\n`);
-
+    fs.writeFileSync(MANIFEST_PATH, `${JSON.stringify({ photos: [] }, null, 2)}\n`);
     console.log('\nNo photos found. Wrote manifest with empty photos array.');
     console.log('Nothing to optimize.');
     return;
@@ -303,13 +472,12 @@ async function main() {
   );
 
   const results = processed.filter(Boolean);
-  const optimizedPhotos = results.map(result => result.photo);
+  const optimizedPhotos = results.map((result) => result.photo);
 
   const totalOriginalBytes = results.reduce((sum, result) => sum + result.originalBytes, 0);
   const totalOptimizedBytes = results.reduce((sum, result) => sum + result.optimizedBytes, 0);
 
   const updatedManifest = {
-    ...manifest,
     photos: optimizedPhotos
   };
 
@@ -324,7 +492,7 @@ async function main() {
   console.log(`Original total:  ${bytesToMB(totalOriginalBytes)}`);
   console.log(`Optimized total: ${bytesToMB(totalOptimizedBytes)} (thumbs + medium + large, all formats)`);
   console.log(`Reduction:       ${totalReduction.toFixed(1)}%`);
-  console.log('Updated photos.json with variant dimensions and paths.');
+  console.log('Updated assets/photos/photos.json with variant dimensions, titles, and descriptions.');
 }
 
 main().catch((err) => {

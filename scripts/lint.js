@@ -11,7 +11,7 @@ const { execFileSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const JS_DIRECTORIES = ['js', 'scripts'];
-const JSON_FILES = ['package.json', 'photos/photos.json'];
+const JSON_FILES = ['package.json', 'assets/photos/photos.json', 'assets/photos/gallery-sequence.json'];
 
 function walk(dir, matcher, output = []) {
   if (!fs.existsSync(dir)) return output;

@@ -1,193 +1,161 @@
-# Forest Arcana Game Platform Plan (WebGPU + WebGL, Stepwise)
+# Gallery Visual & UX Refactor — CoverFlow-style Angled Layout + Click-to-Inspect
 
-## Summary
-Build a dedicated, scalable game subsystem for your site with a hidden deep-scroll entry on the homepage and a desktop-first Vampire Survivors-style MVP.  
-Implementation will use TypeScript + Vite, WebGPU primary rendering, WebGL fallback, clean module boundaries, fixed-timestep simulation, and data-driven content so we can expand safely without rewrites.
+## Context
 
-## Locked Product Decisions
-- Entry: Dedicated game page.
-- Discovery: Only the deep “Bored?” button (no nav/footer link).
-- Homepage gag depth: Huge, about `~6` viewports of intentional empty scroll.
-- Game genre loop: Top-down survivor-like roguelike.
-- MVP gameplay: Movement + waves + auto-aim combat + XP/level-up choices.
-- Controls: `WASD` movement + auto-target attacks.
-- Platform target: Desktop first.
-- Render strategy: WebGPU primary + WebGL fallback.
-- Tech stack: TypeScript + Vite.
-- Theme: Forest Arcana.
-- Visual direction: Site-themed organic style.
-- Progression: Run-only first (no persistent upgrades yet).
-- Target run length for MVP: 10–12 minutes.
-- Difficulty curve: Forgiving first 2–3 minutes, then ramps.
+The 3D gallery currently renders photos nearly face-on (3-6° Y rotation), scattered across 3 lanes at 0.86-0.94 opacity with ~5 items visible at once. Result: photos look like translucent glass panes flying at the user, blending into each other with no way to pick one out. This refactor transforms the gallery into a polished, usable photo viewer inspired by the CoverFlow "record store" aesthetic — strong angles, one clear hero photo, and click-to-inspect.
 
-## Architecture (Decision-Complete)
-### Runtime architecture
-- Simulation and rendering are separate layers.
-- Simulation runs fixed timestep at `60 Hz` with delta clamp to prevent spiral-of-death on tab resume.
-- Rendering interpolates from simulation state and never owns gameplay state.
-- Entity model uses lightweight ECS-style component stores (typed maps) with system modules.
-- Collision uses circle colliders + spatial hash broadphase (cell size tuned to average enemy radius * 3).
-- Frequent entities (enemies/projectiles/xp orbs) use object pools from first playable build.
+---
 
-### Renderer strategy
-- Use PixiJS v8 renderer backend with preference `webgpu`, automatic fallback `webgl`.
-- Expose active renderer in a small debug readout when `?debug=1`.
-- If both fail, show non-crashing fallback UI with browser guidance.
+## Phase 1: Zero out hand-placed scene data
 
-### Content/data architecture
-- All gameplay tuning is data-driven in typed config modules:
-- Enemy archetypes, spawn tables, weapon archetypes, upgrade pools, difficulty curves.
-- No hardcoded balancing constants inside system logic files.
-- Versioned config schema to allow future migration.
+**File:** `photos/gallery-sequence.json`
 
-### Input and UI architecture
-- Keyboard-only first (`WASD`, `Esc`, `Space` for level-up confirm).
-- UI states: boot, playing, paused, level-up modal, game-over.
-- HUD: health, level, XP bar, timer, enemy count.
-- Accessibility: motion-reduction mode reduces VFX intensity and removes screen shake.
+Set all 16 items' `scene` blocks to neutral values. The new layout engine computes everything dynamically.
 
-## Planned File/Module Layout
-- `/Users/ofhd/Developer/websites/oliver_unified_v2/index.html`  
-  Add deep-scroll void section and “Bored?” gateway button linking to `pages/game/index.html`.
-- `/Users/ofhd/Developer/websites/oliver_unified_v2/css/landing.css`  
-  Add holy-button visuals, deep-scroll spacing, reduced-motion variants.
-- `/Users/ofhd/Developer/websites/oliver_unified_v2/game-src/`  
-  New TypeScript source root for game app.
-- `/Users/ofhd/Developer/websites/oliver_unified_v2/game-src/index.html`  
-  Vite source HTML entry for dev/build.
-- `/Users/ofhd/Developer/websites/oliver_unified_v2/game-src/src/main.ts`  
-  Boot orchestration and app lifecycle.
-- `/Users/ofhd/Developer/websites/oliver_unified_v2/game-src/src/core/*.ts`  
-  Engine loop, ECS stores, scheduler, RNG, pooling, spatial hash.
-- `/Users/ofhd/Developer/websites/oliver_unified_v2/game-src/src/systems/*.ts`  
-  Input, movement, AI, spawn, combat, collision, XP, level-up, cleanup.
-- `/Users/ofhd/Developer/websites/oliver_unified_v2/game-src/src/render/*.ts`  
-  Pixi scene graph adapter, sprite/effect layers, camera follow.
-- `/Users/ofhd/Developer/websites/oliver_unified_v2/game-src/src/data/*.ts`  
-  Enemy/weapon/upgrade/wave config.
-- `/Users/ofhd/Developer/websites/oliver_unified_v2/pages/game/`  
-  Built static output from Vite (deployable route).
-- `/Users/ofhd/Developer/websites/oliver_unified_v2/package.json`  
-  Add game scripts and game dependencies.
-- `/Users/ofhd/Developer/websites/oliver_unified_v2/vite.config.game.mts`  
-  Dedicated Vite config for game build.
-- `/Users/ofhd/Developer/websites/oliver_unified_v2/tsconfig.game.json`  
-  TS config scoped to game subsystem.
-- `/Users/ofhd/Developer/websites/oliver_unified_v2/scripts/smoke.js`  
-  Add checks for bored gate and game route existence.
+```json
+"scene": { "z": 0, "scale": 1.0, "x": 0, "y": 0, "rotX": 0, "rotY": 0, "rotZ": 0, "opacity": 1.0 }
+```
 
-## Milestone Plan
-### Milestone 0: Entry + Tooling + Boot Shell
-- Add deep-scroll “void” homepage section and holy glowing “Bored?” button at the very bottom of that section.
-- Create game toolchain (`TS + Vite`) and build output route `pages/game/index.html`.
-- Add game boot screen with renderer detection and fallback messaging.
-- Add minimal quality hooks: game route smoke checks and TS typecheck script.
+Keep all `colorGrade`, `meta`, `src`, and `aspect` values unchanged.
 
-Exit criteria:
-- Homepage has comical deep scroll and button-only discovery.
-- `pages/game/index.html` loads.
-- Renderer mode is visible in debug mode and fallback works.
+---
 
-### Milestone 1: Playable Core Loop
-- Implement player movement, enemy chase AI, auto-aim projectile weapon, collisions, HP, death.
-- Add XP drops, XP pickup, level progression, and 3-choice level-up modal.
-- Add run timer and base HUD.
-- Implement first two enemy archetypes tuned for forgiving ramp.
+## Phase 2: Rewrite SceneController layout engine (critical)
 
-Exit criteria:
-- 10–12 minute runs are playable.
-- First 3 minutes feel survivable for average keyboard user.
-- Game-over/reset cycle is stable.
+**File:** `js/gallery3d/SceneController.js`
 
-### Milestone 2: Roguelike Depth Foundation
-- Add wave director with time-based spawn escalation and weighted enemy sets.
-- Add 8+ upgrade options across offense/survivability/mobility.
-- Add deterministic seed support per run (`?seed=`) for repeatability.
-- Add pause/state transitions and robust restart flow.
+### 2a. Replace SCENE_TUNING
 
-Exit criteria:
-- Multiple viable build paths emerge by mid-run.
-- Difficulty ramps meaningfully after minute 3.
-- No state corruption after pause/resume/restart loops.
+Key value changes (old → new):
 
-### Milestone 3: Performance + Scalability Pass
-- Add object pooling for projectiles/enemies/xp.
-- Add spatial hash broadphase and capped narrowphase checks.
-- Add quality tiers and adaptive VFX scaling based on frame time.
-- Add context-loss and tab-visibility recovery paths.
+| Parameter | Old | New | Why |
+|---|---|---|---|
+| spacing (desktop/mobile) | 276 / 224 | 420 / 320 | Wider gaps, less overlap |
+| visibleRange (desktop/mobile) | 2.6 / 1.9 | 1.8 / 1.2 | ~3 items visible, not ~5 |
+| depthOpacityFalloff | 0.38 | 0.55 | Steeper fade, hero stands out |
+| maxOpacity | 0.985 | 1.0 | Hero photo fully solid |
+| flankRotY (desktop/mobile) | ~0.016 rad/delta | 0.50 / 0.44 rad | ~28° angle for flanking items |
+| activeRotY | — | 0.10 rad | Center photo nearly face-on (~6°) |
+| activeScaleBoost | — | 1.12 | Hero 12% larger |
+| flankScaleMin | — | 0.78 | Flanking items 22% smaller |
+| fresnelBase | 0.16 | 0.06 | -62% glass effect |
+| refractionBase | 0.0018 | 0.0006 | -67% glass effect |
+| chromaticBase | 0.00028 | 0.00008 | -71% glass effect |
+| glossBase | 0.56 | 0.30 | -46% specularity |
+| camera sway X (desktop) | 15px | 8px | Less drift, calmer |
+| staggerX (desktop/mobile) | 3-lane [-126,0,122] | ±40 / ±24 | Gentle alternating offset only |
 
-Exit criteria:
-- Stable play with high entity density on desktop class hardware.
-- No major frame hitching during peak waves.
-- Recovery works after tab hide/show and resize.
+### 2b. New update() logic — V-shape CoverFlow
 
-### Milestone 4: Content Expansion (Post-MVP)
-- Add more enemy families and elite variants.
-- Add at least one biome/event modifier pass for run variety.
-- Add optional meta-progression scaffold (versioned localStorage) behind feature flag.
-- Add audio and richer VFX only after performance budget is stable.
+Remove the 3-lane system entirely. New core loop:
 
-Exit criteria:
-- Clear replayability increase without architectural rewrites.
-- Persistent systems are versioned and migration-safe.
+- **V-shape Y rotation:** `sign(delta) * lerp(activeRotY, flankRotY, pow(norm, 1.6))`. Items before center angle left, after angle right. Creates a "V" opening toward the viewer.
+- **Scale from delta:** Active item at 1.12×, flanking at 0.78× with power-curve falloff.
+- **Opacity from delta:** Active = 1.0, first flanking ≈ 0.45, second ≈ invisible.
+- **Simple stagger:** Alternating ±40px X offset (not 3 lanes), only for non-center items.
+- **Focus blend:** When in focus mode, lerp the focused item toward hero position (z=200, rotY=0, large scale). Other items lerp to opacity=0.
 
-## Public APIs / Interfaces / Types (Important Changes)
-- New route: `pages/game/index.html` (publicly reachable).
-- New query params:
-- `renderer=auto|webgpu|webgl`
-- `debug=0|1`
-- `seed=<number>`
-- New localStorage keys:
-- `forestArcana.settings.v1`
-- `forestArcana.debug.v1`
-- Core type contracts (in `game-src/src/types.ts`):
-- `RendererKind = 'webgpu' | 'webgl'`
-- `GameConfig`
-- `EnemyArchetype`
-- `WeaponArchetype`
-- `UpgradeOption`
-- `WaveStage`
-- `RunSnapshot`
-- Engine interfaces:
-- `IRenderAdapter` for renderer abstraction.
-- `ISystem` with `update(dt, world)` lifecycle.
-- `IObjectPool<T>` for pooled entity lifecycle.
+### 2c. Focus state machine
 
-## Test Cases and Scenarios
-### Automated checks
-- Typecheck passes for all game TS modules.
-- Smoke check confirms:
-- homepage has bored-gate element and deep-scroll section id.
-- `pages/game/index.html` exists and references built game assets.
-- Link checker passes for new route links.
-- Unit tests (Vitest) for:
-- wave director progression output over time.
-- auto-target selection correctness.
-- XP/level-up threshold progression.
-- collision broadphase candidate filtering.
-- RNG seed determinism for spawn order.
+Add to constructor: `focusState='idle'`, `focusBlend=0`, `focusIndex=-1`.
 
-### Manual scenarios
-- Chrome stable: WebGPU path selected and playable.
-- Firefox/Safari: WebGL fallback selected and playable.
-- Unsupported environment: friendly failure UI, no crash.
-- Resize window repeatedly during combat.
-- Pause/resume while enemies/projectiles active.
-- Run to death, restart immediately, repeat 5 times without leaks.
-- Reduced-motion preference: heavy motion effects disabled.
-- Keyboard-only flow from homepage scroll to full run lifecycle.
+States: `idle → entering → active → exiting → idle`
 
-### Performance acceptance
-- Maintain smooth frame pacing at late-wave density target for desktop-first baseline.
-- No long-frame spikes during level-up modal open/close.
-- No continuous memory growth across back-to-back runs.
+- `entering`: `focusBlend` lerps toward 1.0 each frame. At ≥0.99, snap to `active`.
+- `exiting`: `focusBlend` lerps toward 0.0. At ≤0.01, snap to `idle`.
 
-## Assumptions and Defaults
-- No backend services are required for MVP.
-- No multiplayer in current plan.
-- No persistent meta progression in MVP.
-- No mobile touch controls in MVP (desktop-first by decision).
-- No nav/footer discoverability path beyond the deep “Bored?” button.
-- Visual theme stays Forest Arcana using site palette and motifs.
-- Audio is deferred until core loop and performance are stable.
-- Deployment remains static-site compatible; game output is build-generated static assets.
+Methods: `enterFocus(index)`, `exitFocus()`, `isFocused()`.
+
+In update(): focused item blends toward `{z:200, rotY:0, height: baseHeight*1.65, opacity:1}`. Non-focused items blend toward opacity 0.
+
+**Click any visible photo:** Clicking a non-active photo first scrolls/navigates to it. App.js sets `pendingFocusIndex`. When `onActiveIndexChange` fires and matches the pending index, it auto-calls `enterFocus()`. This gives a smooth scroll→focus transition.
+
+---
+
+## Phase 3: Reduce glass effect in shader
+
+**File:** `js/gallery3d/shaders.js`
+
+Reduce hard-coded multipliers (the uniform values alone aren't enough because the shader has its own amplifiers):
+
+| Line | Effect | Old multiplier | New multiplier |
+|---|---|---|---|
+| 190 | Fresnel color | `* u_fresnelStrength` | `* u_fresnelStrength * 0.6` |
+| 191 | Specular 1 | `0.04 + gloss * 0.11` | `0.02 + gloss * 0.06` |
+| 192 | Specular 2 | `0.02 + gloss * 0.07` | `0.01 + gloss * 0.04` |
+| 194 | Edge glow | `* 0.11` | `* 0.05` |
+| 195 | Edge line | `* 0.17` | `* 0.08` |
+| 146 | Surface imperfection | `mix(0.0014, 0.0032, ql)` | `mix(0.0008, 0.0018, ql)` |
+
+Photos should read as solid matte/satin prints with a touch of material quality.
+
+---
+
+## Phase 4: Wire click-to-inspect interaction
+
+### 4a. InputController.js — Add click handler
+
+- Accept new `onClick` callback in constructor
+- Bind click on shell, only fire if `event.target` is the canvas
+- Dispose in cleanup
+
+### 4b. App.js — Orchestrate focus
+
+- In `onClick` callback: if already focused → exit. Otherwise raycast. If hit is the active item → `sceneController.enterFocus(index)`. If hit is a different visible item → navigate to it first (`scrollToIndex` + set `pendingFocusIndex`), then in the `onActiveIndexChange` callback, check if `pendingFocusIndex` matches and auto-enter focus.
+- In `onProgress` callback: if focused → exit focus before updating progress (scroll dismisses focus).
+- Wire `uiController._onFocusExit` to exit focus from overlay/Escape.
+- Add `pendingFocusIndex = -1` state to track "click a flanking photo → scroll to it → then focus".
+- Breakpoint: already changed to 980px (done in previous work).
+
+---
+
+## Phase 5: Focus mode UI
+
+### 5a. UIController.js — Focus overlay + Escape
+
+- Add `setFocusMode(active)` method
+- Creates/toggles a `#galleryFocusOverlay` div (fixed, z-index 3, dark semi-transparent)
+- Clicking overlay calls `_onFocusExit` callback
+- Auto-opens detail panel on focus enter
+- Escape key checks `isFocusMode` first before closing panels
+
+### 5b. gallery.css — Focus overlay + cursor
+
+```css
+.gallery-focus-overlay { position:fixed; inset:0; z-index:3; background:rgba(0,0,0,0); pointer-events:none; transition:background 0.6s }
+.gallery-focus-overlay.is-active { background:rgba(0,0,0,0.72); pointer-events:auto; cursor:pointer }
+```
+
+---
+
+## Implementation Order
+
+1. `gallery-sequence.json` — zero scene data (no deps)
+2. `SceneController.js` — new SCENE_TUNING + V-shape update() + focus state (core change)
+3. `shaders.js` — reduce glass multipliers (independent)
+4. `InputController.js` — add click handler
+5. `App.js` — wire click→focus, scroll→exit, UIController callback
+6. `UIController.js` — focus overlay, Escape handling
+7. `gallery.css` — overlay styles
+
+Steps 1-3 are independent visual improvements. Steps 4-7 add the interaction layer.
+
+---
+
+## Verification
+
+1. **Angle:** Scroll through gallery — flanking photos should be clearly tilted (~28°), center photo nearly face-on
+2. **Density:** Only ~3 photos visible on desktop, ~2 on mobile. Center photo fully opaque, flanking clearly fading
+3. **Focus mode:** Click the center photo → it expands to hero size, face-on, dark overlay appears, detail panel opens. Click overlay / press Escape / scroll → exits smoothly
+4. **Glass effect:** Photos should look like solid prints with subtle material quality, not translucent glass
+5. **Mobile:** Touch tap on active photo enters focus. Scroll works normally
+6. **Existing tests:** `node scripts/gallery-dropdown-check.js` should still pass (UI panels still work the same way)
+
+## Key Files
+- `js/gallery3d/SceneController.js` — V-shape layout, focus state machine (biggest change)
+- `js/gallery3d/App.js` — click wiring, scroll-exits-focus
+- `js/gallery3d/shaders.js` — reduce glass multipliers
+- `js/gallery3d/InputController.js` — add click handler
+- `js/gallery3d/UIController.js` — focus overlay, Escape priority
+- `css/gallery.css` — overlay styles
+- `photos/gallery-sequence.json` — zero scene overrides

@@ -1,5 +1,6 @@
 import type { ISystem, Vec2 } from '../types';
 import { GameWorld } from '../core/world';
+import { WEAPON_ARCHETYPES } from '../data/weapons';
 import { findNearestEnemy } from './targeting';
 
 function normalize(x: number, y: number): Vec2 {
@@ -24,8 +25,10 @@ function spawnWeaponPattern(world: GameWorld, slotIndex: number, baseDirection: 
   const spreadRad = (runtime.spreadAngleDeg * Math.PI) / 180;
   const projectiles = Math.max(1, runtime.projectilesPerAttack);
 
+  const archetype = WEAPON_ARCHETYPES[runtime.weaponId];
+  const hazardRank = Math.max(0, runtime.rank - 1);
+
   const spawn = (direction: Vec2): void => {
-    const mortarLike = runtime.weaponId === 'fungal_mortar' || runtime.weaponId === 'mycelium_apocalypse';
     world.spawnPlayerProjectile({
       direction,
       weaponId: runtime.weaponId,
@@ -35,9 +38,15 @@ function spawnWeaponPattern(world: GameWorld, slotIndex: number, baseDirection: 
       damage: runtime.damage,
       pierce: runtime.pierce,
       colorHex: runtime.colorHex,
-      hazardRadius: mortarLike ? 68 + runtime.rank * 8 : 0,
-      hazardDuration: mortarLike ? 3 + runtime.rank * 0.35 : 0,
-      hazardDamagePerSecond: mortarLike ? runtime.damage * 0.32 : 0
+      hazardRadius: archetype?.hazardRadiusBase !== undefined
+        ? archetype.hazardRadiusBase + (archetype.hazardRadiusPerRank ?? 0) * hazardRank
+        : 0,
+      hazardDuration: archetype?.hazardDurationBase !== undefined
+        ? archetype.hazardDurationBase + (archetype.hazardDurationPerRank ?? 0) * hazardRank
+        : 0,
+      hazardDamagePerSecond: archetype?.hazardDamageMultiplier !== undefined
+        ? runtime.damage * archetype.hazardDamageMultiplier
+        : 0
     });
   };
 

@@ -23,7 +23,7 @@
         <p>
           Move with <strong>WASD</strong>. Weapons auto-fire. Build up to <strong>4 weapons</strong>, stack catalysts,
           and evolve late-game with elite chests. Press <strong>M</strong> to mute, <strong>O</strong> for settings,
-          <strong>R</strong> to restart, and <strong>N</strong> for a new seed.
+          <strong>H</strong> for handbook, and use <strong>Shift+R</strong>/<strong>Shift+N</strong> for restart/new seed.
         </p>
         <button class="btn-primary" id="startGameBtn" type="button">Begin Run</button>
       </div>
@@ -62,9 +62,14 @@
       </div>
     </section>
 
-    <button class="settings-toggle hidden" id="settingsToggleBtn" type="button" aria-haspopup="dialog">
-      Settings
-    </button>
+    <div class="top-controls" id="topControls">
+      <button class="help-toggle hidden" id="helpToggleBtn" type="button" aria-haspopup="dialog">
+        Help
+      </button>
+      <button class="settings-toggle hidden" id="settingsToggleBtn" type="button" aria-haspopup="dialog">
+        Settings
+      </button>
+    </div>
 
     <div class="pause-banner hidden" id="pauseBanner">Paused - Press Esc to Resume</div>
 
@@ -93,8 +98,22 @@
         <p id="runSummary">Survived 0.0s</p>
         <div class="actions">
           <button class="btn-primary" id="restartRunBtn" type="button">Run Again</button>
+          <button class="btn-secondary" id="copySeedBtn" type="button">Copy Seed</button>
           <a class="btn-secondary" href="/index.html">Return Home</a>
         </div>
+      </div>
+    </section>
+
+    <section class="overlay hidden help-overlay" id="helpPanel" aria-modal="true" role="dialog">
+      <div class="panel help-panel">
+        <p class="tag">Field Manual</p>
+        <h2>Forest Arcana Handbook</h2>
+        <div class="help-toolbar">
+          <input id="helpSearch" type="search" placeholder="Search weapons, catalysts, enemies..." autocomplete="off">
+          <button class="btn-secondary" id="helpCloseBtn" type="button">Close</button>
+        </div>
+        <div class="help-tabs" id="helpTabs" role="tablist" aria-label="Handbook sections"></div>
+        <div class="help-content" id="helpContent"></div>
       </div>
     </section>
 

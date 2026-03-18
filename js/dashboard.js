@@ -15,8 +15,14 @@ function initServiceStatusChecks() {
   if (!cards.length) return;
 
   const refreshButton = document.getElementById('servicesRefreshBtn');
+  let lastRunAt = 0;
+  let isChecking = false;
 
   const runChecks = async () => {
+    if (isChecking) return;
+    isChecking = true;
+    lastRunAt = Date.now();
+
     if (refreshButton) {
       refreshButton.disabled = true;
       refreshButton.textContent = 'Checking...';
@@ -31,6 +37,8 @@ function initServiceStatusChecks() {
       refreshButton.disabled = false;
       refreshButton.textContent = 'Refresh Status';
     }
+
+    isChecking = false;
   };
 
   if (refreshButton) {
@@ -41,7 +49,18 @@ function initServiceStatusChecks() {
 
   runChecks();
 
-  const intervalId = window.setInterval(runChecks, STATUS_REFRESH_INTERVAL_MS);
+  const intervalId = window.setInterval(() => {
+    if (document.hidden) return;
+    runChecks();
+  }, STATUS_REFRESH_INTERVAL_MS);
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    if (Date.now() - lastRunAt > 20 * 1000) {
+      runChecks();
+    }
+  });
+
   window.addEventListener('beforeunload', () => {
     window.clearInterval(intervalId);
   }, { once: true });
@@ -66,23 +85,23 @@ async function checkServiceCard(card) {
 
     setServiceStatus(card, {
       state: 'online',
-      label: 'Online',
-      title: `${serviceName}: online (${latencyMs}ms)`
+      label: 'Reachable',
+      title: `${serviceName}: reachable (${latencyMs}ms)`
     });
 
     return {
-      state: 'online',
+      state: 'reachable',
       latencyMs
     };
   } catch (_err) {
     setServiceStatus(card, {
       state: 'offline',
-      label: 'Offline',
-      title: `${serviceName}: offline`
+      label: 'Unreachable',
+      title: `${serviceName}: unreachable`
     });
 
     return {
-      state: 'offline',
+      state: 'unreachable',
       latencyMs: null
     };
   }
@@ -131,18 +150,18 @@ function updateStatusSummary(results) {
   if (!summaryEl) return;
 
   const total = results.length;
-  const online = results.filter((result) => result.state === 'online');
-  const offline = results.filter((result) => result.state === 'offline');
+  const reachable = results.filter((result) => result.state === 'reachable');
+  const unreachable = results.filter((result) => result.state === 'unreachable');
 
-  let summary = `${online.length}/${total} services online`;
+  let summary = `${reachable.length}/${total} services reachable`;
 
-  if (offline.length > 0) {
-    summary += `, ${offline.length} offline`;
+  if (unreachable.length > 0) {
+    summary += `, ${unreachable.length} unreachable`;
   }
 
-  if (online.length > 0) {
+  if (reachable.length > 0) {
     const avgLatency = Math.round(
-      online.reduce((sum, result) => sum + result.latencyMs, 0) / online.length
+      reachable.reduce((sum, result) => sum + result.latencyMs, 0) / reachable.length
     );
     summary += ` · avg ${avgLatency}ms`;
   }

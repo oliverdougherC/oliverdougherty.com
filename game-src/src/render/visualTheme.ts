@@ -49,8 +49,16 @@ function enemyPalette(mode: ColorVisionMode): EnemyPalette {
   return BASE_ENEMIES;
 }
 
+function xpPalette(mode: ColorVisionMode): { fill: number; stroke: number } {
+  if (mode === 'deuteranopia') return { fill: 0xffd65e, stroke: 0xfff9de };
+  if (mode === 'protanopia') return { fill: 0x88f4ff, stroke: 0xedfbff };
+  if (mode === 'tritanopia') return { fill: 0xffea74, stroke: 0xfff9de };
+  return { fill: 0xffd35a, stroke: 0xfff7d2 };
+}
+
 export function createVisualTheme(mode: ColorVisionMode): VisualThemeTokens {
   const enemies = enemyPalette(mode);
+  const xp = xpPalette(mode);
   return {
     player: { fill: 0xe7ffff, stroke: 0xffffff, aura: 0x95feff },
     projectiles: {
@@ -60,8 +68,8 @@ export function createVisualTheme(mode: ColorVisionMode): VisualThemeTokens {
       enemyStroke: 0xfff0df
     },
     pickups: {
-      xpFill: 0x7f5cff,
-      xpStroke: 0xf1ebff,
+      xpFill: xp.fill,
+      xpStroke: xp.stroke,
       chestFill: 0x4e2f21,
       chestStroke: 0xffdb95
     },

@@ -88,4 +88,21 @@ describe('enemy ai spitter fairness', () => {
     expect(world.enemyProjectiles.size).toBe(0);
     expect(enemy.spitCooldown).toBe(0);
   });
+
+  it('keeps grave bell from firing inside the expanded minimum distance gate', () => {
+    const world = new GameWorld(2029, false);
+    const ai = new EnemyAISystem();
+
+    world.resetRun(2029);
+    const enemyId = world.spawnEnemy('grave_bell', { x: 180, y: 0 });
+    const enemy = world.enemyComponents.get(enemyId);
+    expect(enemy).toBeTruthy();
+    if (!enemy) return;
+    enemy.spitCooldown = 0;
+
+    ai.update(1 / 60, world);
+
+    expect(world.enemyProjectiles.size).toBe(0);
+    expect(enemy.spitCooldown).toBe(0);
+  });
 });

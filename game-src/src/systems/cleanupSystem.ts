@@ -4,7 +4,8 @@ import { GameWorld } from '../core/world';
 export class CleanupSystem implements ISystem<GameWorld> {
   update(_dt: number, world: GameWorld): void {
     const playerPos = world.getPlayerPosition();
-    const despawnRadiusSq = world.config.enemyDespawnRadius * world.config.enemyDespawnRadius;
+    const despawnRadiusBase = Math.max(world.config.enemyDespawnRadius, world.viewport.halfDiagonal + 650);
+    const despawnRadiusSq = despawnRadiusBase * despawnRadiusBase;
 
     for (const enemyId of world.enemies) {
       const health = world.health.get(enemyId);
@@ -29,7 +30,7 @@ export class CleanupSystem implements ISystem<GameWorld> {
 
       const dx = pos.x - playerPos.x;
       const dy = pos.y - playerPos.y;
-      if (dx * dx + dy * dy > (world.config.enemyDespawnRadius + 760) ** 2) {
+      if (dx * dx + dy * dy > (despawnRadiusBase + 760) ** 2) {
         world.markForRemoval(projectileId);
       }
     }
@@ -40,7 +41,7 @@ export class CleanupSystem implements ISystem<GameWorld> {
 
       const dx = pos.x - playerPos.x;
       const dy = pos.y - playerPos.y;
-      if (dx * dx + dy * dy > (world.config.enemyDespawnRadius + 820) ** 2) {
+      if (dx * dx + dy * dy > (despawnRadiusBase + 820) ** 2) {
         world.markForRemoval(projectileId);
       }
     }
@@ -50,7 +51,7 @@ export class CleanupSystem implements ISystem<GameWorld> {
       if (!pos) continue;
       const dx = pos.x - playerPos.x;
       const dy = pos.y - playerPos.y;
-      if (dx * dx + dy * dy > (world.config.enemyDespawnRadius + 500) ** 2) {
+      if (dx * dx + dy * dy > (despawnRadiusBase + 500) ** 2) {
         world.markForRemoval(chestId);
       }
     }

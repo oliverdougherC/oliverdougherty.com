@@ -1,0 +1,1 @@
+/Users/ofhd/.codex/skills/develop-web-game/scripts/web_game_playwright_client.js

@@ -30,6 +30,7 @@ import type {
   RendererPolicy,
   RendererPreference,
   TextureDetail,
+  ViewportMetrics,
   VisualRuntimeSettings,
   VisualThemeTokens
 } from '../types';
@@ -48,16 +49,18 @@ function createCircleGraphic(radius: number, fill: number, stroke: number, strok
 
 function createXpGraphic(fill: number, stroke: number): Graphics {
   const graphic = new Graphics();
-  graphic.circle(0, 0, 7.4);
-  graphic.fill({ color: fill, alpha: 0.2 });
+  graphic.circle(0, 0, 8.8);
+  graphic.fill({ color: fill, alpha: 0.34 });
+  graphic.circle(0, 0, 6.2);
+  graphic.fill({ color: stroke, alpha: 0.2 });
   graphic.poly([
-    { x: 0, y: -6.3 },
-    { x: 6.3, y: 0 },
-    { x: 0, y: 6.3 },
-    { x: -6.3, y: 0 }
+    { x: 0, y: -7.1 },
+    { x: 7.1, y: 0 },
+    { x: 0, y: 7.1 },
+    { x: -7.1, y: 0 }
   ]);
   graphic.fill({ color: fill, alpha: 1 });
-  graphic.stroke({ width: 1.1, color: stroke, alpha: 0.95 });
+  graphic.stroke({ width: 1.3, color: stroke, alpha: 0.96 });
   graphic.poly([
     { x: 0, y: -3.3 },
     { x: 3.3, y: 0 },
@@ -866,6 +869,17 @@ export class PixiRenderAdapter implements IRenderAdapter<GameWorld> {
 
   getCanvas(): HTMLCanvasElement | null {
     return this.app?.canvas ?? null;
+  }
+
+  getViewportMetrics(): ViewportMetrics {
+    const canvas = this.app?.canvas ?? null;
+    const cssWidth = Math.max(1, canvas?.clientWidth || this.mountEl?.clientWidth || this.app?.screen.width || 1280);
+    const cssHeight = Math.max(1, canvas?.clientHeight || this.mountEl?.clientHeight || this.app?.screen.height || 720);
+    return {
+      cssWidth,
+      cssHeight,
+      halfDiagonal: Math.hypot(cssWidth * 0.5, cssHeight * 0.5)
+    };
   }
 
   render(world: GameWorld, _alpha: number, frameTimeMs: number): void {
@@ -1678,8 +1692,8 @@ export class PixiRenderAdapter implements IRenderAdapter<GameWorld> {
       graphic.visible = true;
       graphic.position.set(sx, sy);
       graphic.rotation = (nowMs * 0.0011 + xpId * 0.21) % (Math.PI * 2);
-      graphic.alpha = 0.84 + glint + lightAmount * 0.06;
-      this.setNodeScale(graphic, 16, wobble);
+      graphic.alpha = 0.9 + glint + lightAmount * 0.08;
+      this.setNodeScale(graphic, 18, wobble);
       this.visibleEntities += 1;
     }
 
@@ -1800,6 +1814,29 @@ export class PixiRenderAdapter implements IRenderAdapter<GameWorld> {
       const pos = world.positions.get(enemyId);
       if (!pos) continue;
       drawIndicator(pos.x, pos.y, this.theme.elite.crown, false);
+    }
+
+    if (Math.max(width, height) >= 1700) {
+      const pressureCandidates: Array<{ x: number; y: number; score: number }> = [];
+      for (const enemyId of world.enemies) {
+        const component = world.enemyComponents.get(enemyId);
+        if (!component) continue;
+        const archetype = ENEMY_ARCHETYPES[component.archetypeId];
+        if (!archetype || archetype.isElite) continue;
+        const pos = world.positions.get(enemyId);
+        if (!pos) continue;
+        const sx = pos.x - camera.x + centerX;
+        const sy = pos.y - camera.y + centerY;
+        if (sx >= 0 && sx <= width && sy >= 0 && sy <= height) continue;
+        const distance = Math.hypot(pos.x - camera.x, pos.y - camera.y);
+        const score = archetype.threat / Math.max(1, distance);
+        pressureCandidates.push({ x: pos.x, y: pos.y, score });
+      }
+      pressureCandidates.sort((a, b) => b.score - a.score);
+      for (const candidate of pressureCandidates.slice(0, 4)) {
+        if (emitted >= 12) break;
+        drawIndicator(candidate.x, candidate.y, this.theme.projectiles.enemy, false);
+      }
     }
 
     for (const chestId of world.chests) {

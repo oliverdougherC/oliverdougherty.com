@@ -24,7 +24,8 @@ export class ProjectileSystem implements ISystem<GameWorld> {
         world.spawnHazard(projectilePos, {
           radius: projectile.hazardRadius,
           duration: projectile.hazardDuration,
-          damagePerSecond: projectile.hazardDamagePerSecond
+          damagePerSecond: projectile.hazardDamagePerSecond,
+          team: 'player'
         });
       }
 
@@ -42,7 +43,8 @@ export class ProjectileSystem implements ISystem<GameWorld> {
       world.spawnHazard(projectilePos, {
         radius: projectile.hazardRadius,
         duration: projectile.hazardDuration,
-        damagePerSecond: projectile.hazardDamagePerSecond
+        damagePerSecond: projectile.hazardDamagePerSecond,
+        team: 'enemy'
       });
       world.markForRemoval(projectileId);
     }
@@ -51,6 +53,7 @@ export class ProjectileSystem implements ISystem<GameWorld> {
       const hazard = world.hazardComponents.get(hazardId);
       if (!hazard) continue;
       hazard.age += dt;
+      hazard.armDelay = Math.max(0, hazard.armDelay - dt);
       if (hazard.age >= hazard.lifetime) {
         world.markForRemoval(hazardId);
       }

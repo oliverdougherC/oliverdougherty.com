@@ -30,6 +30,7 @@
 .hero-title {
   font-family: var(--font-display);
   font-weight: var(--weight-normal);
+  text-shadow: 0.012em 0 currentColor, -0.012em 0 currentColor;
   font-size: var(--text-hero);
   line-height: var(--leading-none);
   letter-spacing: var(--tracking-tighter);
@@ -38,6 +39,7 @@
 
 .hero-subtitle {
   font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
   color: var(--color-text-secondary);
   line-height: var(--leading-relaxed);
 }

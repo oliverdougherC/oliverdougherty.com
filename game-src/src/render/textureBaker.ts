@@ -275,10 +275,14 @@ function drawPickupTexture(theme: VisualThemeTokens, detail: TextureDetail, kind
   ctx.clearRect(0, 0, size, size);
 
   if (kind === 'xp') {
-    const radius = size * 0.36;
-    ctx.fillStyle = colorToCss(theme.pickups.xpFill, 0.36);
+    const radius = size * 0.4;
+    ctx.fillStyle = colorToCss(theme.pickups.xpFill, 0.56);
     ctx.beginPath();
-    ctx.arc(center, center, radius * 1.25, 0, Math.PI * 2);
+    ctx.arc(center, center, radius * 1.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = colorToCss(theme.pickups.xpStroke, 0.24);
+    ctx.beginPath();
+    ctx.arc(center, center, radius * 1.02, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = colorToCss(theme.pickups.xpFill, 0.92);
     ctx.beginPath();

@@ -134,7 +134,7 @@ export class EnemyAISystem implements ISystem<GameWorld> {
           setVelocity(enemyVel, strafe, baseSpeed * 0.72);
         }
 
-        const fireDistanceMin = Math.max(150, archetype.radius * 5.2);
+        const fireDistanceMin = Math.max(200, archetype.radius * 5.2);
         if (enemyData.spitCooldown <= 0 && distance <= archetype.spit.range * 1.22 && distance >= fireDistanceMin) {
           if (projectedEnemyProjectileCount >= projectileCap || projectedHazardCount >= hazardCap) {
             enemyData.spitCooldown = world.rng.float(archetype.spit.cooldown * 0.9, archetype.spit.cooldown * 1.2);

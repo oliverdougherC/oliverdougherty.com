@@ -15,9 +15,13 @@ export class XpSystem implements ISystem<GameWorld> {
       const distance = Math.hypot(dx, dy);
       const magnetRadius = world.playerStats.pickupRadius;
 
-      if (distance <= magnetRadius + 120 && distance > 0.001) {
+      const outerEdge = magnetRadius + 120;
+      if (distance <= outerEdge && distance > 0.001) {
         const pull = distance <= magnetRadius ? 1 : 0.45;
-        const speed = 220 + (magnetRadius - Math.min(magnetRadius, distance)) * 2;
+        // gradient applies across the full attraction range so outer-zone orbs
+        // accelerate smoothly as they approach the pickup boundary
+        const proximityFactor = Math.max(0, outerEdge - distance) / outerEdge;
+        const speed = 220 + proximityFactor * magnetRadius * 2;
         xpVel.x = (dx / distance) * speed * pull;
         xpVel.y = (dy / distance) * speed * pull;
       } else {

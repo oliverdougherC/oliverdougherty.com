@@ -151,6 +151,7 @@
 .hero-title {
   font-family: var(--font-display);
   font-weight: var(--weight-normal);
+  text-shadow: 0.012em 0 currentColor, -0.012em 0 currentColor;
   line-height: var(--leading-none);
   text-transform: uppercase;
   margin: 0;
@@ -193,6 +194,7 @@
 
 .hero-subtitle {
   font-size: var(--text-2xl);
+  font-weight: var(--weight-medium);
   color: var(--color-text-secondary);
   line-height: var(--leading-relaxed);
   max-width: 500px;
@@ -986,6 +988,55 @@
 
 .project-item:last-child {
   border-bottom: none;
+}
+
+/* ========================================
+   Light Mode Refinements
+   ======================================== */
+
+html[data-color-mode="light"] .orb-1 {
+  background: radial-gradient(circle, rgba(36, 93, 82, 0.2) 0%, transparent 62%);
+}
+
+html[data-color-mode="light"] .orb-2 {
+  background: radial-gradient(circle, rgba(106, 90, 31, 0.14) 0%, transparent 62%);
+}
+
+html[data-color-mode="light"] .orb-3 {
+  background: radial-gradient(circle, rgba(47, 92, 174, 0.12) 0%, transparent 60%);
+}
+
+html[data-color-mode="light"] .hero-title.text-gradient .mask-inner {
+  color: var(--color-accent);
+  -webkit-text-fill-color: var(--color-accent);
+}
+
+html[data-color-mode="light"] .contact-link:hover {
+  box-shadow: 0 8px 24px rgba(36, 93, 82, 0.16);
+}
+
+html[data-color-mode="light"] .bored-void {
+  background: #e8e0ce;
+}
+
+html[data-color-mode="light"] .bored-void::before {
+  background: linear-gradient(180deg, rgba(232, 224, 206, 0) 0%, rgba(232, 224, 206, 1) 100%);
+}
+
+html[data-color-mode="light"] .bored-void-inner::before {
+  background:
+    radial-gradient(
+      ellipse at center,
+      rgba(210, 169, 84, 0.2) 0%,
+      rgba(210, 169, 84, 0.08) 40%,
+      rgba(232, 224, 206, 0) 72%
+    ),
+    radial-gradient(
+      ellipse at center,
+      rgba(255, 247, 224, 0.2) 0%,
+      rgba(255, 247, 224, 0.08) 40%,
+      rgba(232, 224, 206, 0) 72%
+    );
 }
 
 /* ========================================

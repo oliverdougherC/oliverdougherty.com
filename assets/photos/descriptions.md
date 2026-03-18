@@ -1,0 +1,26 @@
+## Descriptions of what the accompanying photos contain
+
+- ```squirrel.jpg``` &rarr; A head-on shot of a squirrel standing in a grassy field.
+- ```lighthouse.jpg``` &rarr; A medium-long zoom shot of a white lighthouse sitting alone at the end of a peninsula.
+- ```Caught.jpg``` &rarr; A near birds-eye view down onto a staircase where a young woman looks up into the camera as she walks up the stairs.
+- ```looking_for_shells.jpg``` &rarr; A long zoom shot of 1 woman and 2 children on a rocky beach looking for shells.
+- ```ember_m4.jpg``` &rarr; A close up of the rear end of a BMW M4 competition, showing off the badges and the "EMBER M4" license plate.
+- ```pond.jpg``` &rarr; A close-medium top view shot of a coi pond.
+- ```nose.jpg``` &rarr; A medium, 30 degree shot of the front end of a Audi RS6.
+- ```stare.jpg``` &rarr; A medium, perfectly head on shot of an Audi RS6.
+- ```hills.jpg``` &rarr; A landscape shot of rolling, green hills.
+- ```fog.jpg``` &rarr; A landscape shot of a bed of fog laying on distant hills.
+- ```swing.jpg``` &rarr; A long, 45 degree shot of two men in the follow through of their golf swing.
+- ```stroller.jpg``` &rarr; A long, 80 degree shot of a young woman pushing a stroller.
+- ```putt.jpg``` &rarr; A long shot of 2 men while 1 putts a golf ball.
+- ```hawk.jpg``` &rarr; A zoomed shot of a hawk sitting on a tree branch.
+- ```in_flight.jpg``` &rarr; A zoomed shot of a small bird as it zips downward.
+- ```moon.jpg``` &rarr; A zoomed shot of the moon.
+- ```chairs.jpg``` &rarr; A rear shot of 2 chairs on a tropical beach.
+- ```yellow.jpg``` &rarr; A stylized night shot of a yellow traffic light.
+- ```night.jpg``` &rarr; A wide angle shot of a small park at night.
+- ```yield.jpg``` &rarr; A stylized close up of a yield sign.
+- ```lights.jpg``` &rarr; A styled shot of a large, concrete building from the sidewalk.
+- ```union.jpg``` &rarr; A long, night shot of a big, union building with a dome roof.
+- ```sitting.jpg``` &rarr; A zoomed, slightly raised shot of a squirrel sitting on a fence.
+- ```forest.jpg``` &rarr; A landscape shot of a seeming neverending forest.

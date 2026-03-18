@@ -139,14 +139,14 @@ export const ENEMY_ARCHETYPES: Record<string, EnemyArchetype> = {
     colorHex: 0xb8d8c0,
     weight: 0.28,
     spit: {
-      cooldown: 1.64,
+      cooldown: 1.9,
       range: 860,
       projectileSpeed: 186,
       projectileLifetime: 1.72,
       projectileRadius: 9,
       projectileDamage: 12,
-      hazardRadius: 78,
-      hazardDuration: 4.8,
+      hazardRadius: 70,
+      hazardDuration: 4.2,
       hazardDamagePerSecond: 13
     }
   },
