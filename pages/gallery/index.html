@@ -2,10 +2,10 @@
 <html lang="en" data-theme="gallery">
 
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gallery - Oliver Dougherty</title>
-  <meta name="description" content="A curated photography archive of landscapes, wildlife, and field notes from recent shoots.">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Oliver - Photo Gallery</title>
+  <meta name="description" content="A curated photo gallery of selected works from recent shoots.">
   <link rel="icon" type="image/svg+xml" href="../../favicon.svg">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -67,11 +67,10 @@
       <div class="hero-aurora hero-aurora--two"></div>
       <div class="container gallery-hero-layout">
         <div class="hero-copy">
-          <span class="hero-tag">Photography Archive</span>
-          <h1 class="hero-title text-display">Field Notes & Light Studies</h1>
-          <p class="hero-subtitle">
-            Coastlines, chance encounters, night studies, and detail frames gathered across late 2025.
-          </p>
+          <h1 class="hero-title text-display">
+            Photo<br>
+            <em>Gallery</em>
+          </h1>
         </div>
 
         <aside class="hero-feature-card" id="galleryHeroFeature">
@@ -83,16 +82,6 @@
               <img id="galleryHeroImage" src="" alt="" class="hero-feature-image">
             </picture>
           </button>
-          <div class="hero-feature-body">
-            <div class="hero-feature-header">
-              <div class="hero-feature-header-copy">
-                <p class="hero-feature-label">Featured frame</p>
-                <h2 class="hero-feature-title" id="galleryHeroTitle">Loading gallery…</h2>
-              </div>
-            </div>
-            <p class="hero-feature-meta" id="galleryHeroMeta">Pulling metadata from the archive.</p>
-            <p class="hero-feature-support" id="galleryHeroSupport"></p>
-          </div>
         </aside>
       </div>
     </header>
@@ -141,36 +130,8 @@
       </div>
     </section>
 
-    <section class="gallery-section gallery-section--featured" id="galleryFeaturedSection" hidden
-      aria-labelledby="galleryFeaturedHeading">
+    <section class="gallery-section gallery-section--archive" id="galleryArchiveSection" hidden>
       <div class="container-wide">
-          <div class="section-head">
-          <div>
-            <p class="section-kicker">Featured</p>
-            <h2 class="section-title" id="galleryFeaturedHeading">Curated frames</h2>
-          </div>
-          <p class="section-copy">
-            A quieter sequence of anchor frames drawn from the collection.
-          </p>
-        </div>
-
-        <div class="featured-grid" id="galleryFeaturedGrid"></div>
-      </div>
-    </section>
-
-    <section class="gallery-section gallery-section--archive" id="galleryArchiveSection" hidden
-      aria-labelledby="galleryArchiveHeading">
-      <div class="container-wide">
-        <div class="section-head">
-          <div>
-            <p class="section-kicker">Archive</p>
-            <h2 class="section-title" id="galleryArchiveHeading">All photographs</h2>
-          </div>
-          <p class="section-copy" id="galleryArchiveCopy">
-            The full archive, arranged with more room to look at each frame.
-          </p>
-        </div>
-
         <div class="archive-grid" id="galleryArchiveGrid"></div>
       </div>
     </section>
@@ -223,7 +184,7 @@
 
       <aside class="lightbox-panel" id="lightboxPanel">
         <div class="lightbox-panel-header">
-          <p class="lightbox-eyebrow" id="lightboxEyebrow">Archive</p>
+          <p class="lightbox-eyebrow" id="lightboxEyebrow">Gallery</p>
           <h2 class="lightbox-title" id="lightboxTitle"></h2>
           <p class="lightbox-subline" id="lightboxSubline"></p>
         </div>

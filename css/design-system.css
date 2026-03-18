@@ -872,9 +872,13 @@ a:hover {
   left: 0;
   right: 0;
   z-index: calc(var(--z-modal) + 2);
-  padding: var(--space-10) 0;
+  padding: var(--space-6) 0;
   background: transparent;
-  transition: all var(--duration-base) var(--ease-smooth);
+  transition:
+    background var(--duration-base) var(--ease-smooth),
+    backdrop-filter var(--duration-base) var(--ease-smooth),
+    -webkit-backdrop-filter var(--duration-base) var(--ease-smooth),
+    border-bottom-color var(--duration-base) var(--ease-smooth);
 }
 
 body.nav-open {
@@ -908,7 +912,6 @@ body.nav-open .nav.scrolled {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--color-border);
-  padding: var(--space-4) 0;
 }
 
 .nav-inner {

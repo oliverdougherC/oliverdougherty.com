@@ -25,7 +25,7 @@ const TEXT_EXTENSIONS = new Set([
 
 const TEXT_FILENAMES = new Set(['.gitignore', '.gitattributes']);
 
-const SKIP_DIRECTORIES = new Set(['.git', 'dist', 'node_modules']);
+const SKIP_DIRECTORIES = new Set(['.git', '.claude', 'dist', 'node_modules', 'output']);
 const SKIP_PREFIXES = ['assets/photos/thumbs', 'assets/photos/medium', 'assets/photos/large', 'pages/game/assets'];
 
 function rel(filePath) {

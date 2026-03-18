@@ -92,16 +92,10 @@ async function assertSharedChrome(page, label) {
     hasNoise: Boolean(document.querySelector('.noise-overlay')),
     hasFooter: Boolean(document.querySelector('.gallery-footer.footer')),
     hasHeroFeature: Boolean(document.getElementById('galleryHeroFeature')),
-    hasHeroCount: Boolean(document.getElementById('galleryHeroCount')),
-    hasHeroRange: Boolean(document.getElementById('galleryHeroRange')),
-    hasHeroThemes: Boolean(document.getElementById('galleryHeroThemes')),
-    hasHeroSupport: Boolean(document.getElementById('galleryHeroSupport')),
     hasHeroStrip: Boolean(document.getElementById('galleryHeroStrip')),
     hasToolbar: Boolean(document.querySelector('.gallery-toolbar-section')),
     hasSearch: Boolean(document.getElementById('gallerySearch')),
-    heroTitle: document.getElementById('galleryHeroTitle')?.textContent?.trim() || '',
-    hasHeroTheme: Boolean(document.getElementById('galleryHeroTheme')),
-    heroSupport: document.getElementById('galleryHeroSupport')?.textContent?.trim() || ''
+    hasHeroTheme: Boolean(document.getElementById('galleryHeroTheme'))
   }));
 
   assert(state.theme === 'gallery', `[${label}] gallery theme attr missing`);
@@ -113,17 +107,10 @@ async function assertSharedChrome(page, label) {
   assert(state.hasNoise, `[${label}] noise overlay missing`);
   assert(state.hasFooter, `[${label}] gallery footer missing`);
   assert(state.hasHeroFeature, `[${label}] hero feature missing`);
-  assert(state.hasHeroCount, `[${label}] hero count summary missing`);
-  assert(state.hasHeroRange, `[${label}] hero range summary missing`);
-  assert(state.hasHeroThemes, `[${label}] hero themes summary missing`);
-  assert(state.hasHeroSupport, `[${label}] hero support copy missing`);
   assert(!state.hasHeroStrip, `[${label}] legacy hero strip should not be present`);
   assert(!state.hasToolbar, `[${label}] category toolbar should not be present`);
   assert(!state.hasSearch, `[${label}] gallery search should not be present`);
   assert(!state.hasHeroTheme, `[${label}] hero category label should not be present`);
-  assert(state.heroTitle && !state.heroTitle.includes('Loading'), `[${label}] hero title did not hydrate`);
-  assert(!/^(A7RII|DSC0|IMG_)/.test(state.heroTitle), `[${label}] hero title still uses legacy filename metadata`);
-  assert(Boolean(state.heroSupport), `[${label}] hero support copy missing`);
 
   await page.click('[data-theme-toggle]');
   await page.waitForFunction(
@@ -144,8 +131,6 @@ async function assertDesktopFlow(page) {
     entryCount: window.__galleryState.getEntries().length,
     archiveCount: document.querySelectorAll('#galleryArchiveGrid .photo-card').length,
     featuredCount: document.querySelectorAll('#galleryFeaturedGrid .photo-card').length,
-    heroTitle: document.getElementById('galleryHeroTitle')?.textContent?.trim() || '',
-    heroSupport: document.getElementById('galleryHeroSupport')?.textContent?.trim() || '',
     hasCardEyebrow: Boolean(document.querySelector('#galleryArchiveGrid .photo-card .photo-eyebrow')),
     firstArchiveCard: {
       hasMeta: Boolean(document.querySelector('#galleryArchiveGrid .photo-card .photo-meta')?.textContent?.trim()),
@@ -162,8 +147,6 @@ async function assertDesktopFlow(page) {
   assert(initial.entryCount >= 20, `[desktop] expected full archive, got ${initial.entryCount}`);
   assert(initial.archiveCount === initial.entryCount, `[desktop] archive grid count mismatch`);
   assert(initial.featuredCount > 0, `[desktop] featured grid is empty`);
-  assert(initial.heroTitle === 'Lighthouse', `[desktop] expected lighthouse lead hero, got ${initial.heroTitle || '(empty)'}`);
-  assert(Boolean(initial.heroSupport), '[desktop] hero support copy did not hydrate');
   assert(!initial.hasCardEyebrow, '[desktop] category eyebrow should not render on cards');
   assert(initial.firstArchiveCard.hasMeta, '[desktop] compact card meta is missing');
   assert(!initial.firstArchiveCard.hasLegacyCaption, '[desktop] legacy card description should not render');

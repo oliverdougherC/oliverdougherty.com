@@ -38,9 +38,6 @@ function cacheElements() {
     heroSourceAvif: document.getElementById('galleryHeroSourceAvif'),
     heroSourceWebp: document.getElementById('galleryHeroSourceWebp'),
     heroImage: document.getElementById('galleryHeroImage'),
-    heroTitle: document.getElementById('galleryHeroTitle'),
-    heroMeta: document.getElementById('galleryHeroMeta'),
-    heroSupport: document.getElementById('galleryHeroSupport'),
     heroOpen: document.getElementById('galleryHeroOpen'),
     loading: document.getElementById('galleryLoading'),
     empty: document.getElementById('galleryEmpty'),
@@ -48,8 +45,6 @@ function cacheElements() {
     emptyCopy: document.getElementById('galleryEmptyCopy'),
     error: document.getElementById('galleryError'),
     errorCopy: document.getElementById('galleryErrorCopy'),
-    featuredSection: document.getElementById('galleryFeaturedSection'),
-    featuredGrid: document.getElementById('galleryFeaturedGrid'),
     archiveSection: document.getElementById('galleryArchiveSection'),
     archiveGrid: document.getElementById('galleryArchiveGrid'),
     lightbox: document.getElementById('lightbox'),
@@ -305,7 +300,7 @@ function syncHeroFeature() {
       makeResponsiveCandidate(entry.assets.mediumAvif, entry.assets.mediumWidth),
       makeResponsiveCandidate(entry.assets.largeAvif, entry.assets.largeWidth)
     ]),
-    '(max-width: 900px) 100vw, 32vw'
+    '(max-width: 900px) 100vw, 40vw'
   );
   setPictureSource(
     gallery.elements.heroSourceWebp,
@@ -313,7 +308,7 @@ function syncHeroFeature() {
       makeResponsiveCandidate(entry.assets.mediumWebp, entry.assets.mediumWidth),
       makeResponsiveCandidate(entry.assets.largeWebp, entry.assets.largeWidth)
     ]),
-    '(max-width: 900px) 100vw, 32vw'
+    '(max-width: 900px) 100vw, 40vw'
   );
 
   if (gallery.elements.heroImage) {
@@ -323,24 +318,7 @@ function syncHeroFeature() {
       makeResponsiveCandidate(entry.assets.mediumJpg, entry.assets.mediumWidth),
       makeResponsiveCandidate(entry.assets.largeJpg, entry.assets.largeWidth)
     ]);
-    gallery.elements.heroImage.sizes = '(max-width: 900px) 100vw, 32vw';
-  }
-
-  if (gallery.elements.heroTitle) {
-    gallery.elements.heroTitle.textContent = entry.displayTitle;
-  }
-
-  if (gallery.elements.heroMeta) {
-    gallery.elements.heroMeta.textContent = [
-      entry.location,
-      entry.dateLabel
-    ].filter(Boolean).join(' · ');
-  }
-
-  if (gallery.elements.heroSupport) {
-    const supportCopy = pickHeroSupportCopy(entry);
-    gallery.elements.heroSupport.hidden = !supportCopy;
-    gallery.elements.heroSupport.textContent = supportCopy;
+    gallery.elements.heroImage.sizes = '(max-width: 900px) 100vw, 40vw';
   }
 
   if (gallery.elements.heroOpen) {
@@ -350,13 +328,11 @@ function syncHeroFeature() {
 
 function renderGallery() {
   const visibleEntries = gallery.entries;
-  const visibleFeatured = gallery.featuredEntries;
 
   gallery.visibleEntries = visibleEntries;
 
   if (!visibleEntries.length) {
-    gallery.elements.featuredSection.hidden = true;
-    gallery.elements.archiveSection.hidden = true;
+    if (gallery.elements.archiveSection) gallery.elements.archiveSection.hidden = true;
     showEmptyState(
       'No photographs found',
       'The archive does not contain any published photographs yet.'
@@ -366,16 +342,7 @@ function renderGallery() {
 
   hideStatusStates();
 
-  const showFeaturedSection = visibleFeatured.length > 0;
-  gallery.elements.featuredSection.hidden = !showFeaturedSection;
-  gallery.elements.archiveSection.hidden = false;
-
-  if (showFeaturedSection) {
-    renderPhotoGrid(gallery.elements.featuredGrid, visibleFeatured, 'featured');
-  } else {
-    gallery.elements.featuredGrid.replaceChildren();
-  }
-
+  if (gallery.elements.archiveSection) gallery.elements.archiveSection.hidden = false;
   renderPhotoGrid(gallery.elements.archiveGrid, visibleEntries, 'archive');
 }
 
@@ -415,6 +382,13 @@ function createPhotoCard(entry, { context, index }) {
 
   const media = document.createElement('div');
   media.className = 'photo-media';
+
+  const naturalRatio = entry.width / entry.height;
+  const isFeatureHero = context === 'featured' && index === 0;
+  const clampedRatio = isFeatureHero
+    ? Math.max(1.4, Math.min(naturalRatio, 1.78))
+    : Math.max(1, Math.min(naturalRatio, 1.78));
+  media.style.aspectRatio = `${clampedRatio.toFixed(3)} / 1`;
 
   const picture = document.createElement('picture');
   const imageSizes = getCardImageSizes(context, index);
@@ -464,19 +438,7 @@ function createPhotoCard(entry, { context, index }) {
   picture.append(sourceAvif, sourceWebp, image);
   media.appendChild(picture);
 
-  const overlay = document.createElement('div');
-  overlay.className = 'photo-info';
-
-  const title = document.createElement('h3');
-  title.className = 'photo-title';
-  title.textContent = entry.displayTitle;
-
-  const meta = document.createElement('p');
-  meta.className = 'photo-meta';
-  meta.textContent = buildCardMeta(entry);
-
-  overlay.append(title, meta);
-  button.append(media, overlay);
+  button.append(media);
   article.appendChild(button);
 
   button.addEventListener('click', () => {
@@ -513,8 +475,7 @@ function showEmptyState(title, copy) {
 function showErrorState(copy) {
   gallery.elements.loading.hidden = true;
   gallery.elements.empty.hidden = true;
-  gallery.elements.featuredSection.hidden = true;
-  gallery.elements.archiveSection.hidden = true;
+  if (gallery.elements.archiveSection) gallery.elements.archiveSection.hidden = true;
   gallery.elements.error.hidden = false;
   gallery.elements.errorCopy.textContent = copy;
 }
@@ -575,7 +536,7 @@ function renderLightboxEntry(entry) {
       makeResponsiveCandidate(entry.assets.mediumAvif, entry.assets.mediumWidth),
       makeResponsiveCandidate(entry.assets.largeAvif, entry.assets.largeWidth)
     ]),
-    '(max-width: 900px) 100vw, calc(100vw - 480px)'
+    '(max-width: 900px) 100vw, calc(100vw - 400px)'
   );
   setPictureSource(
     gallery.elements.lightboxSourceWebp,
@@ -583,7 +544,7 @@ function renderLightboxEntry(entry) {
       makeResponsiveCandidate(entry.assets.mediumWebp, entry.assets.mediumWidth),
       makeResponsiveCandidate(entry.assets.largeWebp, entry.assets.largeWidth)
     ]),
-    '(max-width: 900px) 100vw, calc(100vw - 480px)'
+    '(max-width: 900px) 100vw, calc(100vw - 400px)'
   );
 
   gallery.elements.lightboxImage.src = entry.assets.largeJpg || entry.assets.mediumJpg || entry.assets.original;
@@ -592,15 +553,12 @@ function renderLightboxEntry(entry) {
     makeResponsiveCandidate(entry.assets.mediumJpg, entry.assets.mediumWidth),
     makeResponsiveCandidate(entry.assets.largeJpg, entry.assets.largeWidth)
   ]);
-  gallery.elements.lightboxImage.sizes = '(max-width: 900px) 100vw, calc(100vw - 480px)';
+  gallery.elements.lightboxImage.sizes = '(max-width: 900px) 100vw, calc(100vw - 400px)';
 
   gallery.elements.lightboxCounter.textContent = `${String(gallery.currentIndex + 1).padStart(2, '0')} / ${String(gallery.entries.length).padStart(2, '0')}`;
   gallery.elements.lightboxEyebrow.textContent = entry.featured ? 'Featured frame' : 'Archive frame';
   gallery.elements.lightboxTitle.textContent = entry.displayTitle;
-  gallery.elements.lightboxSubline.textContent = [
-    entry.location,
-    entry.dateLabel
-  ].filter(Boolean).join(' · ');
+  gallery.elements.lightboxSubline.textContent = '';
   gallery.elements.lightboxNotes.textContent = buildNarrativeCopy(entry);
   gallery.elements.lightboxMeta.replaceChildren(buildLightboxMeta(entry));
 
@@ -630,18 +588,24 @@ function buildNarrativeCopy(entry) {
 
 function buildLightboxMeta(entry) {
   const fragment = document.createDocumentFragment();
-  const rows = [
+
+  // Primary meta rows (always visible)
+  const primaryRows = [
     entry.location ? ['Location', entry.location] : null,
     entry.dateLabel ? ['Date', entry.dateLabel] : null,
+    entry.exif?.focalLength ? ['Focal length', `${entry.exif.focalLength}mm`] : null,
+    entry.exif?.aperture ? ['Aperture', `f/${entry.exif.aperture}`] : null
+  ].filter(Boolean);
+
+  // Additional EXIF details (hidden behind accordion)
+  const expandedRows = [
     entry.exif?.camera ? ['Camera', entry.exif.camera] : null,
     entry.exif?.lens ? ['Lens', entry.exif.lens] : null,
-    entry.exif?.focalLength ? ['Focal length', `${entry.exif.focalLength}mm`] : null,
-    entry.exif?.aperture ? ['Aperture', `f/${entry.exif.aperture}`] : null,
     entry.exif?.shutter ? ['Shutter', `${entry.exif.shutter}s`] : null,
     entry.exif?.iso ? ['ISO', String(entry.exif.iso)] : null
   ].filter(Boolean);
 
-  rows.forEach(([label, value]) => {
+  const renderRow = ([label, value]) => {
     const row = document.createElement('div');
     row.className = 'lightbox-meta-row';
 
@@ -654,8 +618,31 @@ function buildLightboxMeta(entry) {
     desc.textContent = value;
 
     row.append(term, desc);
-    fragment.appendChild(row);
+    return row;
+  };
+
+  primaryRows.forEach((rowData) => {
+    fragment.appendChild(renderRow(rowData));
   });
+
+  if (expandedRows.length > 0) {
+    const details = document.createElement('details');
+    details.className = 'lightbox-meta-details';
+
+    const summary = document.createElement('summary');
+    summary.className = 'lightbox-meta-summary';
+    summary.textContent = 'Additional Info';
+
+    const detailsContent = document.createElement('div');
+    detailsContent.className = 'lightbox-meta-expanded';
+
+    expandedRows.forEach((rowData) => {
+      detailsContent.appendChild(renderRow(rowData));
+    });
+
+    details.append(summary, detailsContent);
+    fragment.appendChild(details);
+  }
 
   return fragment;
 }
@@ -813,16 +800,6 @@ function basenameFromPath(value) {
   return segments[segments.length - 1];
 }
 
-function pickHeroSupportCopy(entry) {
-  return [
-    entry.hero?.teaser,
-    entry.notes,
-    entry.description
-  ]
-    .map((value) => String(value || '').trim())
-    .find(Boolean) || '';
-}
-
 function getCardImageSizes(context, index) {
   if (context === 'featured') {
     return index === 0
@@ -831,13 +808,6 @@ function getCardImageSizes(context, index) {
   }
 
   return '(max-width: 900px) 100vw, (max-width: 1440px) 41vw, 580px';
-}
-
-function buildCardMeta(entry) {
-  return [
-    entry.location,
-    entry.dateShortLabel
-  ].filter(Boolean).join(' · ');
 }
 
 function normalizeGalleryKey(value) {
