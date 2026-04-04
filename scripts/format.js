@@ -25,8 +25,26 @@ const TEXT_EXTENSIONS = new Set([
 
 const TEXT_FILENAMES = new Set(['.gitignore', '.gitattributes']);
 
-const SKIP_DIRECTORIES = new Set(['.git', '.claude', '.codex-tmp', 'dist', 'node_modules', 'output']);
-const SKIP_PREFIXES = ['assets/photos/thumbs', 'assets/photos/medium', 'assets/photos/large', 'pages/game/assets'];
+const SKIP_DIRECTORIES = new Set([
+  '.git',
+  '.claude',
+  '.codex-tmp',
+  '.idea',
+  '.omx',
+  '.vscode',
+  'dist',
+  'node_modules',
+  'output'
+]);
+const SKIP_PREFIXES = [
+  'assets/photos/thumbs',
+  'assets/photos/medium',
+  'assets/photos/large',
+  'pages/dashboard/assets',
+  'pages/game/assets',
+  'image-transform',
+  'image-transform/target'
+];
 
 function rel(filePath) {
   return path.relative(ROOT, filePath);

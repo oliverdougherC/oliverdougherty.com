@@ -6,6 +6,11 @@
   "scripts": {
     "optimize-images": "node scripts/optimize-images.js",
     "build:deploy": "node scripts/build-deploy.js",
+    "utilities:build": "vite build --config vite.config.utilities.mts",
+    "utilities:typecheck": "tsc -p tsconfig.utilities.json --noEmit",
+    "utilities:test": "vitest run --config vitest.utilities.config.mts",
+    "utilities:check": "npm run utilities:typecheck && npm run utilities:test",
+    "utilities:browser-check": "node scripts/utilities-check.js",
     "game:dev": "vite --config vite.config.game.mts",
     "game:build": "vite build --config vite.config.game.mts",
     "game:typecheck": "tsc -p tsconfig.game.json --noEmit",
@@ -22,7 +27,7 @@
     "nav:check": "node scripts/nav-overlay-check.js",
     "smoke": "node scripts/smoke.js",
     "quality": "npm run lint && npm run format:check && npm run check-links && npm run smoke",
-    "quality:full": "npm run quality && npm run game:check"
+    "quality:full": "npm run quality && npm run game:check && npm run utilities:check"
   },
   "devDependencies": {
     "@types/node": "^25.3.0",

@@ -1,26 +1,23 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dashboard">
+<html lang="en" data-theme="utilities">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Services - Oliver Dougherty</title>
-  <meta name="description" content="Self-hosted services and applications.">
+  <title>Utilities - Oliver Dougherty</title>
+  <meta name="description" content="Interactive utilities and experiments built into the site.">
   <link rel="icon" type="image/svg+xml" href="../../favicon.svg">
 
-  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
 
-  <!-- Styles -->
   <link rel="stylesheet" href="../../css/design-system.css">
-  <link rel="stylesheet" href="../../css/dashboard.css">
+  <link rel="stylesheet" href="../../css/utilities.css">
   <link rel="stylesheet" href="../../css/cursor.css">
 </head>
 <body>
   <div class="noise-overlay"></div>
 
-  <!-- Navigation -->
   <nav class="nav" id="nav">
     <div class="nav-inner container">
       <a href="../../index.html" class="nav-logo" data-cursor="hover">
@@ -39,7 +36,6 @@
     </div>
   </nav>
 
-  <!-- Fullscreen Menu Overlay -->
   <div class="nav-overlay" id="navOverlay">
     <div class="nav-overlay-bg"></div>
     <div class="nav-links container" id="navLinks">
@@ -48,7 +44,7 @@
       <a href="../resume/index.html" class="nav-link nav-link--resume" data-cursor="hover">Resume</a>
       <a href="../gallery/index.html" class="nav-link nav-link--gallery" data-cursor="hover">Gallery</a>
       <a href="../archive/index.html" class="nav-link nav-link--archive" data-cursor="hover">Archive</a>
-      <a href="../dashboard/index.html" class="nav-link nav-link--dashboard active" aria-current="page" data-cursor="hover">Services</a>
+      <a href="../dashboard/index.html" class="nav-link nav-link--utilities active" aria-current="page" data-cursor="hover">Utilities</a>
 
       <div class="nav-menu-footer">
         <a href="mailto:oliverfdougherty@gmail.com" class="footer-link" data-cursor="hover">Contact</a>
@@ -57,346 +53,170 @@
     </div>
   </div>
 
-  <main class="dashboard-main">
-    <!-- Hero -->
-    <header class="dashboard-hero">
+  <main class="utilities-main">
+    <header class="utilities-hero">
       <div class="container">
-        <div class="hero-content" data-animate="fade-up">
-          <span class="hero-tag">Services</span>
-          <h1 class="hero-title">Self-Hosted Hub</h1>
-          <p class="hero-subtitle">
-            Public-facing applications and services running on PlatinumLabs infrastructure.
-          </p>
+        <div class="utilities-hero-copy" data-animate="fade-up">
+          <span class="hero-tag">Utilities</span>
+          <h1 class="hero-title">Cool Stuff.</h1>
+          <p class="hero-subtitle">A collection of fun, little tools and toys.</p>
         </div>
       </div>
     </header>
 
-    <!-- Services Grid -->
-    <section class="services-section section">
+    <section class="utilities-stage section">
       <div class="container">
-        <div class="status-toolbar" data-animate="fade-up">
-          <div class="status-toolbar-meta">
-            <p class="status-summary" id="servicesStatusSummary">Checking service health...</p>
-            <p class="status-last-checked" id="servicesLastChecked" aria-live="polite"></p>
+        <div class="section-heading" data-animate="fade-up">
+          <span class="section-tag">Featured Utility</span>
+          <h2 class="section-title text-display">Image Transform</h2>
+          <p class="section-desc">
+            Rebuild one image using the pixels of another, then watch the reconstruction pull itself into place.
+          </p>
+        </div>
+
+        <section class="utility-shell" id="utilitiesApp" data-animate="fade-up" aria-labelledby="imageTransformTitle">
+          <div class="utility-shell-header">
+            <div>
+              <span class="utility-kicker">Single Utility</span>
+              <h3 class="utility-title" id="imageTransformTitle">Image Transform</h3>
+            </div>
+            <div class="utility-status-cluster">
+              <span class="utility-status-chip utility-status-chip--idle" id="transformStatusChip">Idle</span>
+              <p class="utility-status-copy" id="transformStatusText" aria-live="polite">Load two images or start from a demo pair.</p>
+            </div>
           </div>
-          <button type="button" class="status-refresh-btn" id="servicesRefreshBtn">Refresh Status</button>
-        </div>
 
-        <div class="section-label">
-          <span class="label-text">Media & Entertainment</span>
-          <div class="label-line"></div>
-        </div>
+          <div class="utility-layout">
+            <div class="utility-rail">
+              <div class="utility-toolbar">
+                <div class="utility-input-grid" aria-label="Image inputs">
+                  <label class="utility-dropzone" id="sourceDropzone">
+                    <input type="file" id="transformSourceInput" accept="image/*">
+                    <span class="utility-dropzone-label">Source image</span>
+                    <strong>Borrow from this.</strong>
+                    <span class="utility-dropzone-copy">Click or drag an image here</span>
+                    <span class="utility-dropzone-meta" id="transformSourceSelection">No source selected</span>
+                  </label>
 
-        <div class="services-grid" id="servicesGrid">
+                  <label class="utility-dropzone" id="targetDropzone">
+                    <input type="file" id="transformTargetInput" accept="image/*">
+                    <span class="utility-dropzone-label">Target image</span>
+                    <strong>Rebuild toward this.</strong>
+                    <span class="utility-dropzone-copy">Click or drag an image here</span>
+                    <span class="utility-dropzone-meta" id="transformTargetSelection">No target selected</span>
+                  </label>
+                </div>
 
-          <!-- Jellyfin -->
-          <a href="https://media.platinumlabs.dev" class="service-card" data-animate="fade-up" target="_blank" rel="noopener noreferrer" data-health-url="https://media.platinumlabs.dev">
-            <div class="service-icon jellyfin-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
-                <g fill="currentColor">
-                  <path d="M12.001 9.663c-.877 0-3.704 5.127-3.275 5.99.43.865 6.125.856 6.55 0 .425-.854-2.394-5.99-3.275-5.99z"/>
-                  <path d="M12.001 2C9.354 2 .836 17.446 2.134 20.055c1.298 2.608 18.45 2.578 19.735 0C23.154 17.476 14.649 2 12 2Zm6.468 15.794c-.842 1.69-12.08 1.71-12.932 0-.85-1.71 4.732-11.832 6.464-11.832 1.732 0 7.31 10.139 6.468 11.832z"/>
-                </g>
-              </svg>
-            </div>
-            <div class="service-info">
-              <div class="service-header">
-                <h2 class="service-name">Jellyfin</h2>
-                <span class="service-status checking" data-service-status>
-                  <span class="status-dot"></span>
-                  <span class="status-text">Checking...</span>
-                </span>
-              </div>
-              <p class="service-desc">Media streaming server for movies, TV shows, and music.</p>
-              <span class="service-url">media.platinumlabs.dev</span>
-            </div>
-            <div class="service-arrow">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="7" y1="17" x2="17" y2="7"/>
-                <polyline points="7 7 17 7 17 17"/>
-              </svg>
-            </div>
-          </a>
+                <div class="utility-controls-card">
+                  <div class="utility-controls-grid">
+                    <label class="control-field" for="transformPreset">
+                      <span class="control-label">Quality preset</span>
+                      <select id="transformPreset" class="control-select">
+                        <option value="fast">Fast · 256px</option>
+                        <option value="balanced" selected>Balanced · 384px</option>
+                        <option value="detailed">Detailed · 512px</option>
+                      </select>
+                    </label>
 
-          <!-- Jellyseerr -->
-          <a href="https://request.platinumlabs.dev" class="service-card" data-animate="fade-up" target="_blank" rel="noopener noreferrer" data-health-url="https://request.platinumlabs.dev">
-            <div class="service-icon jellyseerr-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor">
-                <path d="M312.069,53.445c-71.26-71.26-187.194-71.26-258.454,0c-71.261,71.26-71.261,187.206,0,258.466c71.26,71.26,187.194,71.26,258.454,0S383.329,124.705,312.069,53.445z M286.694,286.536c-57.351,57.34-150.353,57.34-207.704-0.011s-57.351-150.353,0-207.693c57.351-57.351,150.342-57.351,207.693,0S344.045,229.174,286.694,286.536z"/>
-                <path d="M101.911,112.531c-29.357,37.725-31.801,89.631-7.321,129.702c1.877,3.087,5.902,4.048,8.978,2.182c3.065-1.888,4.037-5.903,2.16-8.978c-21.666-35.456-19.506-81.538,6.469-114.876c2.226-2.837,1.713-6.938-1.135-9.154C108.227,109.193,104.125,109.695,101.911,112.531z"/>
-                <path d="M498.544,447.722l-132.637-129.2c-7.255-7.07-18.84-6.982-26.008,0.174l-21.033,21.033c-7.156,7.156-7.234,18.742-0.153,25.986l129.19,132.636c14.346,17.324,35.542,18.35,51.917,1.964C516.216,483.951,515.857,462.068,498.544,447.722z"/>
-              </svg>
-            </div>
-            <div class="service-info">
-              <div class="service-header">
-                <h2 class="service-name">Jellyseerr</h2>
-                <span class="service-status checking" data-service-status>
-                  <span class="status-dot"></span>
-                  <span class="status-text">Checking...</span>
-                </span>
-              </div>
-              <p class="service-desc">Request movies and TV shows to be added to the library.</p>
-              <span class="service-url">request.platinumlabs.dev</span>
-            </div>
-            <div class="service-arrow">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="7" y1="17" x2="17" y2="7"/>
-                <polyline points="7 7 17 7 17 17"/>
-              </svg>
-            </div>
-          </a>
+                    <div class="control-group">
+                      <span class="control-label">Actions</span>
+                      <div class="control-actions">
+                        <button type="button" class="btn-primary-utility" id="transformGenerateBtn">Generate transform</button>
+                        <button type="button" class="btn-secondary-utility" id="transformSwapBtn">Swap images</button>
+                        <button type="button" class="btn-secondary-utility" id="transformResetBtn">Reset</button>
+                      </div>
+                    </div>
+                  </div>
 
-        </div>
-
-        <div class="section-label">
-          <span class="label-text">Storage & Photos</span>
-          <div class="label-line"></div>
-        </div>
-
-        <div class="services-grid">
-
-          <!-- Nextcloud -->
-          <a href="https://storage.platinumlabs.dev" class="service-card" data-animate="fade-up" target="_blank" rel="noopener noreferrer" data-health-url="https://storage.platinumlabs.dev">
-            <div class="service-icon nextcloud-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="currentColor">
-                <path d="M16.027 8.713c-3.333 0-6.136 2.287-6.991 5.355-0.744-1.641-2.391-2.808-4.301-2.808-2.609 0.016-4.724 2.131-4.735 4.74 0.011 2.609 2.125 4.724 4.735 4.74 1.911 0 3.552-1.167 4.301-2.813 0.855 3.073 3.657 5.36 6.991 5.36 3.312 0 6.099-2.26 6.973-5.308 0.755 1.615 2.375 2.761 4.26 2.761 2.615-0.016 4.729-2.131 4.74-4.74-0.011-2.609-2.125-4.724-4.74-4.74-1.885 0-3.505 1.147-4.265 2.761-0.869-3.048-3.656-5.308-6.968-5.308zM16.027 11.495c2.5 0 4.5 2 4.5 4.505s-2 4.505-4.5 4.505c-2.496 0.011-4.516-2.016-4.505-4.505 0-2.505 2-4.505 4.505-4.505zM4.735 14.041c1.099 0 1.959 0.86 1.959 1.959s-0.86 1.959-1.959 1.959c-1.084 0.011-1.969-0.876-1.953-1.959 0-1.099 0.859-1.959 1.953-1.959zM27.26 14.041c1.1 0 1.959 0.86 1.959 1.959s-0.859 1.959-1.959 1.959c-1.083 0.011-1.963-0.876-1.953-1.959 0-1.099 0.86-1.959 1.953-1.959z"/>
-              </svg>
-            </div>
-            <div class="service-info">
-              <div class="service-header">
-                <h2 class="service-name">Nextcloud</h2>
-                <span class="service-status checking" data-service-status>
-                  <span class="status-dot"></span>
-                  <span class="status-text">Checking...</span>
-                </span>
-              </div>
-              <p class="service-desc">Cloud storage, file sync, and collaboration platform.</p>
-              <span class="service-url">storage.platinumlabs.dev</span>
-            </div>
-            <div class="service-arrow">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="7" y1="17" x2="17" y2="7"/>
-                <polyline points="7 7 17 7 17 17"/>
-              </svg>
-            </div>
-          </a>
-
-          <!-- Immich -->
-          <a href="https://photo.platinumlabs.dev" class="service-card" data-animate="fade-up" target="_blank" rel="noopener noreferrer" data-health-url="https://photo.platinumlabs.dev">
-            <div class="service-icon immich-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor">
-                <path d="M238.8 155.5c33.5 29.7 60.5 61.5 77.9 91.5 29.9-53.4 49.8-116.9 50.1-157.3v-.8c0-59.8-59.7-83.1-111.1-83.1S144.6 29 144.6 88.8V92c28.7 12.8 62.6 35.6 94.2 63.5"/>
-                <path d="M55.9 318.6c21-23.3 53.1-48.6 89.4-69.9 38.6-22.7 77.2-38.6 111.1-45.8-41.6-44.9-95.8-83.5-134.1-96.2-.3-.1-.5-.2-.7-.2-57-18.7-97.6 30.9-113.5 79.8S-4.1 299.1 52.8 317.6c.8.2 1.8.6 3.1 1"/>
-                <path d="M503.9 185.4C488 136.6 447.4 87 390.5 105.5c-.8.3-1.8.6-3.1 1-3.3 31.2-14.4 70.5-31.2 109.1-17.9 41.1-39.8 76.6-62.9 102.4 60 11.9 126.5 11.3 165.1-1 .3-.1.5-.2.7-.2 57-18.6 60.6-82.5 44.8-131.4"/>
-                <path d="M205 366.3c-9.7-43.7-12.8-85.3-9.3-119.8-55.5 25.7-109 65.3-133 97.8-.2.2-.3.4-.5.6-35.2 48.4-.6 102.3 41 132.5s103.5 46.4 138.7-1.9c.5-.7 1.1-1.5 1.9-2.6-15.6-27.1-29.7-65.5-38.8-106.6"/>
-                <path d="M448.8 341.9c-30.7 6.5-71.5 8.1-113.4 4-44.6-4.3-85.1-14.2-116.8-28.2 7.2 60.8 28.4 123.8 51.9 156.7.2.2.3.4.5.6 35.2 48.4 97.1 32.2 138.7 1.9 41.6-30.2 76.2-84.1 41-132.5-.5-.6-1.1-1.4-1.9-2.5"/>
-              </svg>
-            </div>
-            <div class="service-info">
-              <div class="service-header">
-                <h2 class="service-name">Immich</h2>
-                <span class="service-status checking" data-service-status>
-                  <span class="status-dot"></span>
-                  <span class="status-text">Checking...</span>
-                </span>
-              </div>
-              <p class="service-desc">Self-hosted photo and video backup solution.</p>
-              <span class="service-url">photo.platinumlabs.dev</span>
-            </div>
-            <div class="service-arrow">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="7" y1="17" x2="17" y2="7"/>
-                <polyline points="7 7 17 7 17 17"/>
-              </svg>
-            </div>
-          </a>
-
-        </div>
-
-        <div class="section-label">
-          <span class="label-text">AI & Tools</span>
-          <div class="label-line"></div>
-        </div>
-
-        <div class="services-grid">
-
-          <!-- OpenWebUI -->
-          <a href="https://ai.platinumlabs.dev" class="service-card" data-animate="fade-up" target="_blank" rel="noopener noreferrer" data-health-url="https://ai.platinumlabs.dev">
-            <div class="service-icon openwebui-icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor">
-                <path fill-rule="evenodd" clip-rule="evenodd" d="M168.64 23.253c4.608 1.814 8.768 4.8 12.544 8.747 6.293 6.528 11.605 15.872 15.659 26.944 4.074 11.136 6.72 23.467 7.722 35.84a107.824 107.824 0 0143.712-13.568l1.088-.085c18.56-1.494 36.907 1.856 52.907 10.112a103.091 103.091 0 016.336 3.626c1.067-12.138 3.669-24.192 7.68-35.072 4.053-11.093 9.365-20.416 15.637-26.965a35.628 35.628 0 0112.566-8.747c5.482-2.133 11.306-2.517 16.981-.896 8.555 2.432 15.893 7.851 21.675 15.723 5.29 7.19 9.258 16.405 11.968 27.456 4.906 19.925 5.76 46.144 2.453 77.76l1.131.853.554.406c16.15 12.288 27.392 29.802 33.344 50.133 9.28 31.723 4.608 67.307-11.392 87.211l-.384.448.043.064c8.896 16.256 14.293 33.429 15.445 51.2l.043.64c1.365 22.72-4.267 45.589-17.365 68.053l-.15.213.214.512c10.069 24.683 13.226 49.536 9.344 74.368l-.128.832a13.888 13.888 0 01-15.936 11.435 13.83 13.83 0 01-11.31-10.43 13.828 13.828 0 01-.21-5.399c3.562-22.038.213-44.139-10.24-66.624a13.713 13.713 0 01.853-13.163l.085-.128c12.886-19.712 18.219-39.04 17.067-58.027-.981-16.618-6.933-32.938-17.067-48.49a13.737 13.737 0 013.84-18.902l.192-.128c5.184-3.392 9.963-12.053 12.374-23.893a90.218 90.218 0 00-2.027-42.112c-4.373-14.933-12.373-27.392-23.573-35.904-12.694-9.685-29.504-14.357-50.774-13.013a13.93 13.93 0 01-13.482-7.915c-6.699-14.187-16.47-24.341-28.651-30.635a70.145 70.145 0 00-37.803-7.082c-26.56 2.112-49.984 17.088-56.96 35.968a13.91 13.91 0 01-13.013 9.066c-22.763.043-40.384 5.376-53.269 14.998-11.136 8.32-18.731 19.946-22.742 33.877a86.824 86.824 0 00-1.45 40.235c2.389 11.904 7.061 21.76 12.416 27.072l.17.149c4.523 4.416 5.483 11.307 2.326 16.747-7.68 13.269-13.419 33.045-14.358 52.053-1.066 21.717 3.968 40.576 15.339 54.101l.341.406a13.711 13.711 0 012.027 14.72c-12.288 26.368-16.064 48.042-11.989 65.109a13.91 13.91 0 01-27.072 6.357c-5.184-21.717-1.664-46.592 10.09-74.624l.299-.746-.17-.256a92.574 92.574 0 01-12.758-27.926l-.107-.405a122.965 122.965 0 01-3.776-38.08c.939-19.413 5.931-39.296 13.27-55.253l.256-.555-.043-.043c-6.25-8.917-10.88-20.33-13.44-32.96l-.107-.512a114.176 114.176 0 011.984-53.12c5.59-19.52 16.576-36.288 32.768-48.405 1.28-.96 2.624-1.92 3.968-2.816-3.392-31.851-2.538-58.24 2.39-78.293 2.709-11.051 6.698-20.267 11.989-27.456 5.76-7.851 13.099-13.27 21.653-15.723 5.675-1.621 11.52-1.259 17.003.896v.021zm87.808 193.92c19.968 0 38.4 6.678 52.181 18.24 13.44 11.243 21.44 26.347 21.44 41.387 0 18.944-8.661 33.707-24.17 43.136-13.227 8-30.955 11.883-51.264 11.883-21.526 0-39.915-5.526-53.184-15.659-13.163-10.027-20.544-24.107-20.544-39.36 0-15.083 8.49-30.229 22.528-41.515 14.25-11.456 33.066-18.112 53.013-18.112zm0 19.115a65.498 65.498 0 00-40.875 13.867c-9.834 7.893-15.402 17.813-15.402 26.666 0 9.131 4.48 17.686 13.013 24.192 9.707 7.403 23.979 11.691 41.451 11.691 17.045 0 31.424-3.136 41.216-9.088 9.877-5.973 14.933-14.635 14.933-26.816 0-9.024-5.248-18.987-14.571-26.795-10.325-8.64-24.32-13.717-39.765-13.717zm14.123 25.813l.085.086a7.431 7.431 0 01-1.195 10.453l-6.229 4.907v9.514a7.999 7.999 0 01-8.021 7.958 8.004 8.004 0 01-8.022-7.958v-9.813l-5.781-4.651a7.4 7.4 0 01-1.109-10.453 7.53 7.53 0 0110.538-1.088l4.587 3.669 4.693-3.712a7.533 7.533 0 0110.454 1.088zm-107.52-40.938c10.197 0 18.496 8.32 18.496 18.581a18.564 18.564 0 01-18.518 18.581 18.559 18.559 0 01-18.496-18.56 18.565 18.565 0 015.399-13.129 18.609 18.609 0 0113.119-5.473zm185.728 0c10.24 0 18.517 8.32 18.517 18.581a18.559 18.559 0 01-18.517 18.581 18.56 18.56 0 01-18.496-18.56 18.56 18.56 0 0118.496-18.602zM158.72 49.067l-.064.042a14.06 14.06 0 00-6.08 5.078l-.107.128c-2.944 4.032-5.504 9.962-7.424 17.749-3.626 14.763-4.608 34.795-2.645 59.349 9.173-2.73 19.179-4.437 29.952-5.056l.213-.021.406-.725a69.41 69.41 0 013.157-5.099c2.624-16.448.469-36.096-5.397-52.139-2.859-7.765-6.336-13.866-9.664-17.344a13.403 13.403 0 00-2.283-1.92l-.064-.042zm195.712.853l-.043.021a13.396 13.396 0 00-2.282 1.92c-3.328 3.478-6.827 9.6-9.664 17.366-6.187 16.938-8.256 37.888-4.907 54.869l1.237 2.069.171.299h.64a110.599 110.599 0 0131.275 4.523c1.834-23.979.81-43.584-2.731-58.07-1.92-7.786-4.48-13.717-7.445-17.749l-.086-.128a14.054 14.054 0 00-6.08-5.099h-.085v-.021z"/>
-              </svg>
-            </div>
-            <div class="service-info">
-              <div class="service-header">
-                <h2 class="service-name">OpenWebUI</h2>
-                <span class="service-status checking" data-service-status>
-                  <span class="status-dot"></span>
-                  <span class="status-text">Checking...</span>
-                </span>
-              </div>
-              <p class="service-desc">AI chat interface for local and cloud language models.</p>
-              <span class="service-url">ai.platinumlabs.dev</span>
-            </div>
-            <div class="service-arrow">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="7" y1="17" x2="17" y2="7"/>
-                <polyline points="7 7 17 7 17 17"/>
-              </svg>
-            </div>
-          </a>
-
-          <!-- Encoding DB -->
-          <a href="https://encodingdb.platinumlabs.dev" class="service-card" data-animate="fade-up" target="_blank" rel="noopener noreferrer" data-health-url="https://encodingdb.platinumlabs.dev">
-            <div class="service-icon encodingdb-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <ellipse cx="12" cy="5" rx="9" ry="3"/>
-                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
-                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
-              </svg>
-            </div>
-            <div class="service-info">
-              <div class="service-header">
-                <h2 class="service-name">Encoding DB</h2>
-                <span class="service-status checking" data-service-status>
-                  <span class="status-dot"></span>
-                  <span class="status-text">Checking...</span>
-                </span>
-              </div>
-              <p class="service-desc">FFmpeg-based video encoding database and settings reference.</p>
-              <span class="service-url">encodingdb.platinumlabs.dev</span>
-            </div>
-            <div class="service-arrow">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="7" y1="17" x2="17" y2="7"/>
-                <polyline points="7 7 17 7 17 17"/>
-              </svg>
-            </div>
-          </a>
-
-        </div>
-
-        <div class="section-label">
-          <span class="label-text">External Links</span>
-          <div class="label-line"></div>
-        </div>
-
-        <div class="services-grid">
-
-          <!-- GitHub -->
-          <a href="https://github.com/oliverdougherC" class="service-card service-card-external" data-animate="fade-up" target="_blank" rel="noopener noreferrer">
-            <div class="service-icon github-icon">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-              </svg>
-            </div>
-            <div class="service-info">
-              <div class="service-header">
-                <h2 class="service-name">GitHub</h2>
-                <span class="service-status external">External</span>
-              </div>
-              <p class="service-desc">Open source projects and code repositories.</p>
-              <span class="service-url">github.com/oliverdougherC</span>
-            </div>
-            <div class="service-arrow">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="7" y1="17" x2="17" y2="7"/>
-                <polyline points="7 7 17 7 17 17"/>
-              </svg>
-            </div>
-          </a>
-
-          <!-- Computer Hardware Club -->
-          <a href="https://computerhardwareclub.org" class="service-card service-card-external" data-animate="fade-up" target="_blank" rel="noopener noreferrer">
-            <div class="service-icon chc-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="4" y="4" width="16" height="16" rx="2" ry="2"/>
-                <rect x="9" y="9" width="6" height="6"/>
-                <line x1="9" y1="1" x2="9" y2="4"/>
-                <line x1="15" y1="1" x2="15" y2="4"/>
-                <line x1="9" y1="20" x2="9" y2="23"/>
-                <line x1="15" y1="20" x2="15" y2="23"/>
-                <line x1="20" y1="9" x2="23" y2="9"/>
-                <line x1="20" y1="15" x2="23" y2="15"/>
-                <line x1="1" y1="9" x2="4" y2="9"/>
-                <line x1="1" y1="15" x2="4" y2="15"/>
-              </svg>
-            </div>
-            <div class="service-info">
-              <div class="service-header">
-                <h2 class="service-name">Hardware Club</h2>
-                <span class="service-status external">External</span>
-              </div>
-              <p class="service-desc">Computer Hardware Club at Oregon State University.</p>
-              <span class="service-url">computerhardwareclub.org</span>
-            </div>
-            <div class="service-arrow">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="7" y1="17" x2="17" y2="7"/>
-                <polyline points="7 7 17 7 17 17"/>
-              </svg>
-            </div>
-          </a>
-
-        </div>
-      </div>
-    </section>
-
-    <!-- Infrastructure Info -->
-    <section class="infra-section section">
-      <div class="container">
-        <div class="infra-card" data-animate="fade-up">
-          <div class="infra-header">
-            <span class="section-tag">Infrastructure</span>
-            <h2 class="infra-title">Powered by PlatinumLabs</h2>
-          </div>
-          <div class="infra-grid">
-            <div class="infra-item">
-              <div class="infra-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
-                  <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
-                  <line x1="6" y1="6" x2="6.01" y2="6"/>
-                  <line x1="6" y1="18" x2="6.01" y2="18"/>
-                </svg>
-              </div>
-              <div class="infra-content">
-                <h3>Dell PowerEdge R620</h3>
-                <p>Enterprise-grade server infrastructure</p>
+                  <div class="utility-demo-strip" aria-label="Demo image pairs">
+                    <span class="demo-strip-label">Try a built-in pair</span>
+                    <button type="button" class="demo-chip active" data-demo-key="pattern-face">Pattern → Face</button>
+                    <button type="button" class="demo-chip" data-demo-key="source-target">Contrast → Gradient</button>
+                    <button type="button" class="demo-chip" data-demo-key="face-pattern">Face → Pattern</button>
+                  </div>
+                </div>
               </div>
             </div>
-            <div class="infra-item">
-              <div class="infra-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                  <polyline points="22,6 12,13 2,6"/>
-                </svg>
+
+            <div class="utility-view">
+              <div class="utility-progress" aria-live="polite">
+                <div class="utility-progress-copy">
+                  <p class="utility-progress-text" id="transformProgressText">Ready for input.</p>
+                  <p class="utility-progress-meta" id="transformProgressMeta">Balanced preset · up to 384px working size</p>
+                </div>
+                <div class="utility-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="transformProgressBar">
+                  <span class="utility-progress-fill" id="transformProgressFill"></span>
+                </div>
               </div>
-              <div class="infra-content">
-                <h3>Nginx Proxy Manager</h3>
-                <p>Reverse proxy with SSL termination</p>
-              </div>
-            </div>
-            <div class="infra-item">
-              <div class="infra-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-                  <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
-                  <line x1="12" y1="22.08" x2="12" y2="12"/>
-                </svg>
-              </div>
-              <div class="infra-content">
-                <h3>Docker</h3>
-                <p>Containerized service deployment</p>
+
+              <article class="canvas-panel canvas-panel--result">
+                <div class="canvas-panel-header">
+                  <span class="canvas-eyebrow">Output</span>
+                  <h4>Reconstruction</h4>
+                  <p id="transformResultMeta">Generate a transform to begin the animation.</p>
+                </div>
+                <div class="canvas-stage canvas-stage--result">
+                  <canvas id="transformResultCanvas" width="384" height="384"></canvas>
+                  <canvas id="transformOverlayCanvas" width="384" height="384" aria-hidden="true"></canvas>
+                  <div class="canvas-placeholder" id="transformResultPlaceholder">The rearranged image will animate here.</div>
+                </div>
+
+                <div class="result-controls">
+                  <div class="result-control-buttons">
+                    <button type="button" class="btn-primary-utility" id="transformPlayBtn" disabled>Play</button>
+                    <button type="button" class="btn-secondary-utility" id="transformPauseBtn" disabled>Pause</button>
+                    <button type="button" class="btn-secondary-utility" id="transformReplayBtn" disabled>Replay</button>
+                  </div>
+
+                  <dl class="result-stats">
+                    <div>
+                      <dt>Output</dt>
+                      <dd id="transformOutputSize">—</dd>
+                    </div>
+                    <div>
+                      <dt>Pixels</dt>
+                      <dd id="transformPixelCount">—</dd>
+                    </div>
+                    <div>
+                      <dt>Processing</dt>
+                      <dd id="transformDuration">—</dd>
+                    </div>
+                  </dl>
+                </div>
+              </article>
+
+              <div class="support-panels">
+                <article class="canvas-panel canvas-panel--support">
+                  <div class="canvas-panel-header">
+                    <span class="canvas-eyebrow">Input</span>
+                    <h4>Source</h4>
+                    <p id="transformSourceMeta">Waiting for an image.</p>
+                  </div>
+                  <div class="canvas-stage">
+                    <canvas id="transformSourceCanvas" width="384" height="384"></canvas>
+                    <div class="canvas-placeholder" id="transformSourcePlaceholder">Source preview will appear here.</div>
+                  </div>
+                </article>
+
+                <article class="canvas-panel canvas-panel--support">
+                  <div class="canvas-panel-header">
+                    <span class="canvas-eyebrow">Reference</span>
+                    <h4>Target</h4>
+                    <p id="transformTargetMeta">Waiting for an image.</p>
+                  </div>
+                  <div class="canvas-stage">
+                    <canvas id="transformTargetCanvas" width="384" height="384"></canvas>
+                    <div class="canvas-placeholder" id="transformTargetPlaceholder">Target preview will appear here.</div>
+                  </div>
+                </article>
               </div>
             </div>
           </div>
-        </div>
+        </section>
       </div>
     </section>
   </main>
 
-  <!-- Footer -->
   <footer class="footer">
     <div class="container">
       <div class="footer-inner">
@@ -407,7 +227,7 @@
 
   <script src="../../js/year.js" defer></script>
   <script src="../../js/main.js" defer></script>
-  <script src="../../js/dashboard.js" defer></script>
+  <script type="module" src="./assets/utilities-app.js"></script>
 
   <div class="cursor-dot" id="cursorDot"></div>
   <div class="cursor-circle" id="cursorCircle"></div>

@@ -47,6 +47,8 @@ interface InventoryTileRefs {
   subtitle: HTMLElement;
 }
 
+const DEFAULT_PAUSE_MESSAGE = 'Paused - Press Esc to Resume';
+
 function formatRunTime(seconds: number): string {
   const total = Math.max(0, Math.floor(seconds));
   const minutes = Math.floor(total / 60);
@@ -393,13 +395,17 @@ async function main(): Promise<void> {
   }
 
   function syncSettingsControls(): void {
+    const setPercentControl = (input: HTMLInputElement, label: HTMLElement, value: number): void => {
+      const percent = Math.round(value * 100);
+      input.value = String(percent);
+      label.textContent = `${percent}%`;
+    };
+
     settingsAudioEnabled.checked = audioEnabled;
-    settingsAudioVolume.value = String(Math.round(audioVolume * 100));
-    settingsAudioVolumeValue.textContent = `${Math.round(audioVolume * 100)}%`;
+    setPercentControl(settingsAudioVolume, settingsAudioVolumeValue, audioVolume);
     settingsAudioVolume.disabled = !audioEnabled;
 
-    settingsMotionIntensity.value = String(Math.round(motionScale * 100));
-    settingsMotionIntensityValue.textContent = `${Math.round(motionScale * 100)}%`;
+    setPercentControl(settingsMotionIntensity, settingsMotionIntensityValue, motionScale);
 
     settingsRendererPreference.value = preferredRenderer;
     settingsTextureDetail.value = textureDetail === 'low' ? 'medium' : textureDetail;
@@ -407,34 +413,50 @@ async function main(): Promise<void> {
     settingsDesktopUltraLock.checked = desktopUltraLock;
     settingsColorVision.value = colorVisionMode;
     settingsCombatReadabilityMode.value = combatReadabilityMode;
-    settingsUiScale.value = String(Math.round(uiScale * 100));
-    settingsUiScaleValue.textContent = `${Math.round(uiScale * 100)}%`;
-    settingsScreenShake.value = String(Math.round(screenShake * 100));
-    settingsScreenShakeValue.textContent = `${Math.round(screenShake * 100)}%`;
-    settingsHazardOpacity.value = String(Math.round(hazardOpacity * 100));
-    settingsHazardOpacityValue.textContent = `${Math.round(hazardOpacity * 100)}%`;
-    settingsHitFlashStrength.value = String(Math.round(hitFlashStrength * 100));
-    settingsHitFlashStrengthValue.textContent = `${Math.round(hitFlashStrength * 100)}%`;
-    settingsEnemyOutlineStrength.value = String(Math.round(enemyOutlineStrength * 100));
-    settingsEnemyOutlineStrengthValue.textContent = `${Math.round(enemyOutlineStrength * 100)}%`;
-    settingsBackgroundDensity.value = String(Math.round(backgroundDensity * 100));
-    settingsBackgroundDensityValue.textContent = `${Math.round(backgroundDensity * 100)}%`;
-    settingsAtmosphereStrength.value = String(Math.round(atmosphereStrength * 100));
-    settingsAtmosphereStrengthValue.textContent = `${Math.round(atmosphereStrength * 100)}%`;
+    setPercentControl(settingsUiScale, settingsUiScaleValue, uiScale);
+    setPercentControl(settingsScreenShake, settingsScreenShakeValue, screenShake);
+    setPercentControl(settingsHazardOpacity, settingsHazardOpacityValue, hazardOpacity);
+    setPercentControl(settingsHitFlashStrength, settingsHitFlashStrengthValue, hitFlashStrength);
+    setPercentControl(settingsEnemyOutlineStrength, settingsEnemyOutlineStrengthValue, enemyOutlineStrength);
+    setPercentControl(settingsBackgroundDensity, settingsBackgroundDensityValue, backgroundDensity);
+    setPercentControl(settingsAtmosphereStrength, settingsAtmosphereStrengthValue, atmosphereStrength);
     settingsLightingQuality.value = lightingQuality;
     settingsShadowQuality.value = shadowQuality;
     settingsFogQuality.value = fogQuality;
-    settingsBloomStrength.value = String(Math.round(bloomStrength * 100));
-    settingsBloomStrengthValue.textContent = `${Math.round(bloomStrength * 100)}%`;
-    settingsGamma.value = String(Math.round(gamma * 100));
-    settingsGammaValue.textContent = `${Math.round(gamma * 100)}%`;
-    settingsEnvironmentContrast.value = String(Math.round(environmentContrast * 100));
-    settingsEnvironmentContrastValue.textContent = `${Math.round(environmentContrast * 100)}%`;
+    setPercentControl(settingsBloomStrength, settingsBloomStrengthValue, bloomStrength);
+    setPercentControl(settingsGamma, settingsGammaValue, gamma);
+    setPercentControl(settingsEnvironmentContrast, settingsEnvironmentContrastValue, environmentContrast);
     settingsMaterialDetail.value = materialDetail;
     settingsClarityPreset.value = clarityPreset;
     settingsDamageNumbers.checked = showDamageNumbers;
     settingsDirectionalIndicators.checked = showDirectionalIndicators;
     settingsDebugOverlay.checked = debugOverlayEnabled;
+  }
+
+  function commitSettingsUi(options: {
+    applyVisual?: boolean;
+    syncDebugVisibility?: boolean;
+    syncTopChrome?: boolean;
+  } = {}): void {
+    const {
+      applyVisual = false,
+      syncDebugVisibility: shouldSyncDebugVisibility = false,
+      syncTopChrome = false
+    } = options;
+
+    if (applyVisual) {
+      applyVisualSettings();
+    }
+    if (shouldSyncDebugVisibility) {
+      syncDebugVisibility();
+    }
+
+    syncSettingsControls();
+    persistSettings(world.quality);
+
+    if (syncTopChrome) {
+      syncTopChromeOffsets();
+    }
   }
 
   try {
@@ -492,29 +514,45 @@ async function main(): Promise<void> {
     new CleanupSystem()
   ];
 
-  function renderLevelChoices(): void {
-    const signature = world.pendingLevelChoices.map((choice) => choice.id).join('|');
-    if (signature === lastLevelSignature) return;
+  function renderChoiceButtons<T extends { id: string; title: string; description: string }>(
+    grid: HTMLElement,
+    choices: readonly T[],
+    rarityForChoice: (choice: T) => string,
+    onChoose: (choiceId: string) => void
+  ): void {
+    grid.innerHTML = '';
 
-    lastLevelSignature = signature;
-    upgradeGrid.innerHTML = '';
-
-    world.pendingLevelChoices.forEach((choice, index) => {
+    choices.forEach((choice, index) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'upgrade-btn';
-      button.dataset.rarity = choiceRarity(choice);
+      button.dataset.rarity = rarityForChoice(choice);
       const title = document.createElement('strong');
       title.textContent = `${index + 1}. ${choice.title}`;
       const description = document.createElement('span');
       description.textContent = choice.description;
       button.append(title, description);
       button.addEventListener('click', () => {
-        world.applyLevelChoice(choice.id);
-        levelUpModal.classList.add('hidden');
+        onChoose(choice.id);
       });
-      upgradeGrid.appendChild(button);
+      grid.appendChild(button);
     });
+  }
+
+  function renderLevelChoices(): void {
+    const signature = world.pendingLevelChoices.map((choice) => choice.id).join('|');
+    if (signature === lastLevelSignature) return;
+
+    lastLevelSignature = signature;
+    renderChoiceButtons(
+      upgradeGrid,
+      world.pendingLevelChoices,
+      (choice) => choiceRarity(choice),
+      (choiceId) => {
+        world.applyLevelChoice(choiceId);
+        levelUpModal.classList.add('hidden');
+      }
+    );
   }
 
   function renderChestChoices(): void {
@@ -522,24 +560,15 @@ async function main(): Promise<void> {
     if (signature === lastChestSignature) return;
 
     lastChestSignature = signature;
-    chestGrid.innerHTML = '';
-
-    world.pendingChestChoices.forEach((choice, index) => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'upgrade-btn';
-      button.dataset.rarity = choice.choiceType === 'evolve' ? 'legendary' : 'epic';
-      const title = document.createElement('strong');
-      title.textContent = `${index + 1}. ${choice.title}`;
-      const description = document.createElement('span');
-      description.textContent = choice.description;
-      button.append(title, description);
-      button.addEventListener('click', () => {
-        world.applyChestChoice(choice.id);
+    renderChoiceButtons(
+      chestGrid,
+      world.pendingChestChoices,
+      (choice) => choice.choiceType === 'evolve' ? 'legendary' : 'epic',
+      (choiceId) => {
+        world.applyChestChoice(choiceId);
         chestModal.classList.add('hidden');
-      });
-      chestGrid.appendChild(button);
-    });
+      }
+    );
   }
 
   function chooseLevelChoiceByIndex(index: number): void {
@@ -922,6 +951,13 @@ async function main(): Promise<void> {
     ].join('\n');
   }
 
+  function showCopySeedFeedback(): void {
+    copySeedBtn.textContent = 'Seed Copied';
+    window.setTimeout(() => {
+      copySeedBtn.textContent = 'Copy Seed';
+    }, 1200);
+  }
+
   function startRun(seed = world.seed): void {
     void audio.unlock();
     world.resetRun(seed);
@@ -961,7 +997,7 @@ async function main(): Promise<void> {
   function resumeRun(): void {
     if (world.uiState !== 'paused') return;
     world.uiState = 'playing';
-    pauseBanner.textContent = 'Paused - Press Esc to Resume';
+    pauseBanner.textContent = DEFAULT_PAUSE_MESSAGE;
     pauseBanner.classList.add('hidden');
     loop.resetAccumulator();
   }
@@ -1250,10 +1286,7 @@ async function main(): Promise<void> {
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(seedText);
-        copySeedBtn.textContent = 'Seed Copied';
-        window.setTimeout(() => {
-          copySeedBtn.textContent = 'Copy Seed';
-        }, 1200);
+        showCopySeedFeedback();
         return;
       }
     } catch {
@@ -1269,10 +1302,7 @@ async function main(): Promise<void> {
     temp.select();
     document.execCommand('copy');
     temp.remove();
-    copySeedBtn.textContent = 'Seed Copied';
-    window.setTimeout(() => {
-      copySeedBtn.textContent = 'Copy Seed';
-    }, 1200);
+    showCopySeedFeedback();
   });
 
   settingsAudioEnabled.addEventListener('change', () => {
@@ -1281,156 +1311,113 @@ async function main(): Promise<void> {
     if (audioEnabled) {
       void audio.unlock();
     }
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi();
   });
 
   settingsAudioVolume.addEventListener('input', () => {
     audioVolume = clamp(Number(settingsAudioVolume.value) / 100, 0, 1);
     audio.setVolume(audioVolume);
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi();
   });
 
   settingsMotionIntensity.addEventListener('input', () => {
     motionScale = clamp(Number(settingsMotionIntensity.value) / 100, 0, 1);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsTextureDetail.addEventListener('change', () => {
     textureDetail = parseTextureDetail(settingsTextureDetail.value);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsEdgeAntialiasing.addEventListener('change', () => {
     edgeAntialiasing = parseEdgeAntialiasingMode(settingsEdgeAntialiasing.value);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsDesktopUltraLock.addEventListener('change', () => {
     desktopUltraLock = settingsDesktopUltraLock.checked;
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsColorVision.addEventListener('change', () => {
     colorVisionMode = parseColorVisionMode(settingsColorVision.value);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsCombatReadabilityMode.addEventListener('change', () => {
     combatReadabilityMode = parseCombatReadabilityMode(settingsCombatReadabilityMode.value);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsUiScale.addEventListener('input', () => {
     uiScale = clamp(Number(settingsUiScale.value) / 100, 0.9, 1.25);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
-    syncTopChromeOffsets();
+    commitSettingsUi({ applyVisual: true, syncTopChrome: true });
   });
 
   settingsScreenShake.addEventListener('input', () => {
     screenShake = clamp(Number(settingsScreenShake.value) / 100, 0, 1);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsHazardOpacity.addEventListener('input', () => {
     hazardOpacity = clamp(Number(settingsHazardOpacity.value) / 100, 0.45, 1);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsHitFlashStrength.addEventListener('input', () => {
     hitFlashStrength = clamp(Number(settingsHitFlashStrength.value) / 100, 0, 1);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsEnemyOutlineStrength.addEventListener('input', () => {
     enemyOutlineStrength = clamp(Number(settingsEnemyOutlineStrength.value) / 100, 0.5, 1.5);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsBackgroundDensity.addEventListener('input', () => {
     backgroundDensity = clamp(Number(settingsBackgroundDensity.value) / 100, 0.25, 1);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsAtmosphereStrength.addEventListener('input', () => {
     atmosphereStrength = clamp(Number(settingsAtmosphereStrength.value) / 100, 0, 1);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsLightingQuality.addEventListener('change', () => {
     lightingQuality = parseLightingQuality(settingsLightingQuality.value);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsShadowQuality.addEventListener('change', () => {
     shadowQuality = parseShadowQuality(settingsShadowQuality.value);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsFogQuality.addEventListener('change', () => {
     fogQuality = parseFogQuality(settingsFogQuality.value);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsBloomStrength.addEventListener('input', () => {
     bloomStrength = clamp(Number(settingsBloomStrength.value) / 100, 0, 1);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsGamma.addEventListener('input', () => {
     gamma = clamp(Number(settingsGamma.value) / 100, 0.85, 1.2);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsEnvironmentContrast.addEventListener('input', () => {
     environmentContrast = clamp(Number(settingsEnvironmentContrast.value) / 100, 0.8, 1.25);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsMaterialDetail.addEventListener('change', () => {
     materialDetail = parseMaterialDetail(settingsMaterialDetail.value);
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsClarityPreset.addEventListener('change', () => {
@@ -1471,29 +1458,22 @@ async function main(): Promise<void> {
       backgroundDensity = clamp(backgroundDensity, 0.6, 0.84);
       atmosphereStrength = clamp(atmosphereStrength, 0.45, 0.72);
     }
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsDamageNumbers.addEventListener('change', () => {
     showDamageNumbers = settingsDamageNumbers.checked;
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsDirectionalIndicators.addEventListener('change', () => {
     showDirectionalIndicators = settingsDirectionalIndicators.checked;
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsDebugOverlay.addEventListener('change', () => {
     debugOverlayEnabled = settingsDebugOverlay.checked;
-    syncDebugVisibility();
-    persistSettings(world.quality);
+    commitSettingsUi({ syncDebugVisibility: true });
   });
 
   settingsPresetPainterlyBalanced.addEventListener('click', () => {
@@ -1510,9 +1490,7 @@ async function main(): Promise<void> {
     resolutionScale = 1;
     postFxSoftness = clamp(postFxSoftness, 0.12, 0.2);
     clarityPreset = 'balanced';
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsPresetPainterlyCombat.addEventListener('click', () => {
@@ -1529,9 +1507,7 @@ async function main(): Promise<void> {
     resolutionScale = Math.min(resolutionScale, 0.92);
     postFxSoftness = Math.min(0.08, postFxSoftness);
     clarityPreset = 'competitive';
-    applyVisualSettings();
-    syncSettingsControls();
-    persistSettings(world.quality);
+    commitSettingsUi({ applyVisual: true });
   });
 
   settingsRendererPreference.addEventListener('change', () => {
@@ -1627,8 +1603,7 @@ async function main(): Promise<void> {
       if (audioEnabled) {
         void audio.unlock();
       }
-      syncSettingsControls();
-      persistSettings(world.quality);
+      commitSettingsUi();
       event.preventDefault();
       return;
     }

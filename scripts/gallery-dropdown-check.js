@@ -1,8 +1,12 @@
 #!/usr/bin/env node
 
 const path = require('node:path');
-const { spawn } = require('node:child_process');
 const { chromium } = require('playwright');
+const {
+  clearStoredTheme,
+  startLocalStaticServer,
+  waitForServer
+} = require('./lib/playwright-static');
 
 const ROOT = path.resolve(__dirname, '..');
 const DEFAULT_BASE_URL = 'http://127.0.0.1:4173';
@@ -12,51 +16,6 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
-}
-
-function isLocalBaseUrl(url) {
-  return url.startsWith('http://127.0.0.1:') || url.startsWith('http://localhost:');
-}
-
-function parsePortFromBaseUrl(url) {
-  const match = url.match(/^http:\/\/[^:]+:(\d+)$/);
-  return match ? Number(match[1]) : 4173;
-}
-
-async function waitForServer(url, timeoutMs = 10000) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    try {
-      const response = await fetch(url, { method: 'GET' });
-      if (response.ok) return;
-    } catch (_error) {
-      // Retry until timeout.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 220));
-  }
-  throw new Error(`Timed out waiting for local server at ${url}`);
-}
-
-function startLocalServerIfNeeded() {
-  if (!isLocalBaseUrl(BASE_URL) || process.env.GALLERY_CHECK_URL) {
-    return null;
-  }
-
-  const port = parsePortFromBaseUrl(BASE_URL);
-  return spawn('python3', ['-m', 'http.server', String(port), '--bind', '127.0.0.1'], {
-    cwd: ROOT,
-    stdio: 'ignore'
-  });
-}
-
-async function clearStoredTheme(context) {
-  await context.addInitScript(() => {
-    try {
-      window.localStorage.removeItem('od-color-mode');
-    } catch (_error) {
-      // Ignore storage access issues in automation contexts.
-    }
-  });
 }
 
 async function waitForGalleryReady(page, timeoutMs = 12000) {
@@ -260,7 +219,7 @@ async function runScenario({ viewport, isMobile = false, hasTouch = false, label
 }
 
 async function main() {
-  const server = startLocalServerIfNeeded();
+  const server = startLocalStaticServer({ url: BASE_URL, cwd: ROOT, skip: Boolean(process.env.GALLERY_CHECK_URL) });
 
   try {
     await waitForServer(BASE_URL);

@@ -20,7 +20,13 @@ function walk(dir, matcher, output = []) {
     const fullPath = path.join(dir, entry.name);
 
     if (entry.isDirectory()) {
-      if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.git') {
+      if (
+        entry.name === 'node_modules' ||
+        entry.name === 'dist' ||
+        entry.name === '.git' ||
+        entry.name === 'target' ||
+        entry.name === 'image-transform'
+      ) {
         continue;
       }
       walk(fullPath, matcher, output);

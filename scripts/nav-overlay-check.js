@@ -2,8 +2,11 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
 const { chromium, devices } = require('playwright');
+const {
+  startLocalStaticServer,
+  waitForServer
+} = require('./lib/playwright-static');
 
 const ROOT = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT, 'output', 'playwright', 'nav-overlay-check');
@@ -20,41 +23,6 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
-}
-
-function isLocalBaseUrl(url) {
-  return url.startsWith('http://127.0.0.1:') || url.startsWith('http://localhost:');
-}
-
-function parsePortFromBaseUrl(url) {
-  const match = url.match(/^http:\/\/[^:]+:(\d+)$/);
-  return match ? Number(match[1]) : 4173;
-}
-
-function startLocalServerIfNeeded() {
-  if (!isLocalBaseUrl(BASE_URL) || process.env.NAV_CHECK_URL) {
-    return null;
-  }
-
-  const port = parsePortFromBaseUrl(BASE_URL);
-  return spawn('python3', ['-m', 'http.server', String(port)], {
-    cwd: ROOT,
-    stdio: 'ignore'
-  });
-}
-
-async function waitForServer(url, timeoutMs = 10000) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    try {
-      const response = await fetch(url, { method: 'GET' });
-      if (response.ok) return;
-    } catch (_error) {
-      // Retry until timeout.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 220));
-  }
-  throw new Error(`Timed out waiting for local server at ${url}`);
 }
 
 async function waitForMenuState(page, expectedOpen) {
@@ -263,7 +231,12 @@ async function assertThemeToggleGeometry(page) {
 async function run() {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
-  const server = startLocalServerIfNeeded();
+  const server = startLocalStaticServer({
+    url: BASE_URL,
+    cwd: ROOT,
+    skip: Boolean(process.env.NAV_CHECK_URL),
+    bindHost: null
+  });
   let browser;
 
   try {
