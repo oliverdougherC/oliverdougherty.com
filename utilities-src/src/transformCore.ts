@@ -1,3 +1,4 @@
+import { analyzeTransformImages, type TransformImageAnalysis } from './transformIntelligence';
 import type { PreparedImageData, TransformComputationResult } from './types';
 
 export class TransformError extends Error {
@@ -110,7 +111,8 @@ export function matchPackedPixels(
   hooks?: {
     onProgress?: (completed: number, total: number) => void;
     isCancelled?: () => boolean;
-  }
+  },
+  analysis?: TransformImageAnalysis
 ) {
   if (sourcePacked.length !== targetPacked.length) {
     throw new TransformError('Source and target images must have the same pixel count.');
@@ -123,8 +125,15 @@ export function matchPackedPixels(
   const { buckets, shift, bucketCount } = buildBucketMap(sourcePacked, quantizationBits);
   const assignment = new Uint32Array(targetPacked.length);
   const used = new Uint8Array(sourcePacked.length);
+  const targetOrder = analysis
+    ? Array.from({ length: targetPacked.length }, (_value, index) => index).sort((left, right) => {
+        const delta = analysis.targetPriorityByIndex[right] - analysis.targetPriorityByIndex[left];
+        return delta === 0 ? left - right : delta;
+      })
+    : null;
 
-  for (let targetIndex = 0; targetIndex < targetPacked.length; targetIndex += 1) {
+  for (let orderedIndex = 0; orderedIndex < targetPacked.length; orderedIndex += 1) {
+    const targetIndex = targetOrder ? targetOrder[orderedIndex] : orderedIndex;
     if (hooks?.isCancelled?.()) {
       throw new TransformError('Transform cancelled.');
     }
@@ -150,7 +159,17 @@ export function matchPackedPixels(
             continue;
           }
 
-          const distance = weightedDistance(sourcePacked[sourceIndex], targetRgb);
+          let distance = weightedDistance(sourcePacked[sourceIndex], targetRgb);
+          if (analysis) {
+            const donorUsefulness = analysis.sourceUsefulnessByIndex[sourceIndex];
+            const donorNearWhite = analysis.sourceNearWhiteByIndex[sourceIndex];
+            const targetNeed = analysis.targetNeedByIndex[targetIndex];
+            const targetFlatBright = analysis.targetNearWhiteByIndex[targetIndex] * (1 - targetNeed);
+            distance += (1 - donorUsefulness) * targetNeed * 50_000;
+            distance += donorNearWhite * targetNeed * 34_000;
+            distance += donorUsefulness * targetFlatBright * 14_000;
+          }
+
           if (distance < bestDistance) {
             bestDistance = distance;
             bestIndex = sourceIndex;
@@ -169,8 +188,8 @@ export function matchPackedPixels(
     used[bestIndex] = 1;
     assignment[targetIndex] = bestIndex;
 
-    if (hooks?.onProgress && (targetIndex + 1 === targetPacked.length || (targetIndex + 1) % 256 === 0)) {
-      hooks.onProgress(targetIndex + 1, targetPacked.length);
+    if (hooks?.onProgress && (orderedIndex + 1 === targetPacked.length || (orderedIndex + 1) % 256 === 0)) {
+      hooks.onProgress(orderedIndex + 1, targetPacked.length);
     }
   }
 
@@ -205,7 +224,8 @@ export function transformPreparedImages(
 
   const sourcePacked = packRgbPixels(source.pixels);
   const targetPacked = packRgbPixels(target.pixels);
-  const assignment = matchPackedPixels(sourcePacked, targetPacked, quantizationBits, hooks);
+  const analysis = analyzeTransformImages(source, target, quantizationBits);
+  const assignment = matchPackedPixels(sourcePacked, targetPacked, quantizationBits, hooks, analysis);
 
   return {
     source,

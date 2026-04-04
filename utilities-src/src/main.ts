@@ -1,5 +1,12 @@
 import { getPreset } from './presets';
-import { buildResultPixels, resolveOutputDimensions, transformPreparedImages } from './transformCore';
+import { buildTransformRenderPlan } from './transformRenderPlan';
+import {
+  createTransformAnimationState,
+  renderTransformAnimationPixels,
+  resolveAccentParticlesFrame,
+  type TransformAnimationState
+} from './transformAnimation';
+import { resolveOutputDimensions, transformPreparedImages } from './transformCore';
 import type { PreparedImageTransfer, TransformMetadata, TransformPresetId } from './types';
 import type { WorkerRequest, WorkerResponse } from './workerTypes';
 
@@ -26,18 +33,6 @@ interface ActiveTransform {
   assignment: Uint32Array;
 }
 
-interface MotionParticle {
-  color: string;
-  sourceX: number;
-  sourceY: number;
-  targetX: number;
-  targetY: number;
-  size: number;
-  delay: number;
-  driftX: number;
-  driftY: number;
-}
-
 const DEMOS: Record<string, { source: ImageSelection; target: ImageSelection }> = {
   'pattern-face': {
     source: { kind: 'demo', label: 'Pattern', url: '../../assets/utilities/pattern.png' },
@@ -59,64 +54,6 @@ function asArrayBuffer(buffer: ArrayBufferLike) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
-}
-
-function easeInOutCubic(value: number) {
-  return value < 0.5 ? 4 * value * value * value : 1 - Math.pow(-2 * value + 2, 3) / 2;
-}
-
-function hash01(seed: number) {
-  let value = seed | 0;
-  value = Math.imul(value ^ 61, 9);
-  value ^= value >>> 4;
-  value = Math.imul(value, 0x27d4eb2d);
-  value ^= value >>> 15;
-  return (value >>> 0) / 0xffffffff;
-}
-
-function buildMotionParticles(transform: ActiveTransform, presetId: TransformPresetId) {
-  const preset = getPreset(presetId);
-  const width = transform.metadata.outputWidth;
-  const height = transform.metadata.outputHeight;
-  const totalPixels = transform.assignment.length;
-  const step = Math.max(1, Math.floor(Math.sqrt(totalPixels / preset.animationParticleBudget)));
-  const offset = Math.floor(step / 2);
-  const particles: MotionParticle[] = [];
-
-  for (let y = offset; y < height; y += step) {
-    for (let x = offset; x < width; x += step) {
-      const targetIndex = y * width + x;
-      const sourceIndex = transform.assignment[targetIndex];
-      const sourceX = (sourceIndex % width) + 0.5;
-      const sourceY = Math.floor(sourceIndex / width) + 0.5;
-      const targetX = x + 0.5;
-      const targetY = y + 0.5;
-      const deltaX = targetX - sourceX;
-      const deltaY = targetY - sourceY;
-      const distance = Math.hypot(deltaX, deltaY);
-      const driftSeed = hash01(targetIndex + 17);
-      const driftMagnitude = (driftSeed - 0.5) * Math.min(26, Math.max(step * 3.5, distance * 0.18 + 3));
-      const inverseDistance = distance > 0 ? 1 / distance : 0;
-      const pixelOffset = sourceIndex * 4;
-      const red = transform.source.pixels[pixelOffset];
-      const green = transform.source.pixels[pixelOffset + 1];
-      const blue = transform.source.pixels[pixelOffset + 2];
-
-      particles.push({
-        color: `rgb(${red} ${green} ${blue})`,
-        sourceX,
-        sourceY,
-        targetX,
-        targetY,
-        size: Math.max(1.2, step * 0.92),
-        delay: hash01(targetIndex + 101) * 0.26,
-        driftX: distance > 0 ? (-deltaY * inverseDistance) * driftMagnitude : 0,
-        driftY: distance > 0 ? (deltaX * inverseDistance) * driftMagnitude : driftMagnitude
-      });
-    }
-  }
-
-  return particles;
 }
 
 class UtilitiesApp {
@@ -165,9 +102,9 @@ class UtilitiesApp {
   private worker: Worker | null = null;
   private activeRequestId = 0;
   private activeTransform: ActiveTransform | null = null;
+  private animationState: TransformAnimationState | null = null;
+  private animationFramePixels: Uint8ClampedArray | null = null;
   private finalResultImageData: ImageData | null = null;
-  private sourceStageImageData: ImageData | null = null;
-  private motionParticles: MotionParticle[] = [];
   private animationFrameId = 0;
   private animationStartedAt = 0;
   private animationElapsedMs = 0;
@@ -393,9 +330,9 @@ class UtilitiesApp {
     this.cancelActiveRequest();
     this.pauseAnimation();
     this.activeTransform = null;
+    this.animationState = null;
+    this.animationFramePixels = null;
     this.finalResultImageData = null;
-    this.sourceStageImageData = null;
-    this.motionParticles = [];
     this.updateCanvasPlaceholder(this.resultPlaceholder, true);
     this.resultMeta.textContent = 'Generating transform…';
     this.outputSize.textContent = '—';
@@ -605,24 +542,37 @@ class UtilitiesApp {
     this.outputSize.textContent = `${transform.metadata.outputWidth} × ${transform.metadata.outputHeight}`;
     this.pixelCount.textContent = transform.metadata.pixelCount.toLocaleString();
     this.duration.textContent = `${transform.metadata.processingMs.toFixed(0)} ms`;
-    this.sourceStageImageData = new ImageData(
-      new Uint8ClampedArray(transform.source.pixels),
-      transform.metadata.outputWidth,
-      transform.metadata.outputHeight
+    const renderPlan = buildTransformRenderPlan(
+      {
+        width: transform.source.width,
+        height: transform.source.height,
+        pixels: transform.source.pixels
+      },
+      {
+        width: transform.target.width,
+        height: transform.target.height,
+        pixels: transform.target.pixels
+      },
+      transform.assignment,
+      transform.metadata.quantizationBits
     );
+    const finalResultPixels = renderPlan.finalPixels;
     this.finalResultImageData = new ImageData(
-      buildResultPixels(
-        {
-          width: transform.source.width,
-          height: transform.source.height,
-          pixels: transform.source.pixels
-        },
-        transform.assignment
-      ),
+      finalResultPixels.slice(),
       transform.metadata.outputWidth,
       transform.metadata.outputHeight
     );
-    this.motionParticles = buildMotionParticles(transform, transform.metadata.presetId);
+    this.animationState = createTransformAnimationState({
+      width: transform.metadata.outputWidth,
+      height: transform.metadata.outputHeight,
+      sourcePixels: transform.source.pixels,
+      finalPixels: finalResultPixels,
+      assignment: transform.assignment,
+      tintStrengthByTarget: renderPlan.tintStrengthByTarget,
+      cheatedTargetPixels: renderPlan.cheatedTargetPixels,
+      preset: getPreset(transform.metadata.presetId)
+    });
+    this.animationFramePixels = new Uint8ClampedArray(finalResultPixels.length);
 
     this.resetResultCanvas();
 
@@ -634,7 +584,7 @@ class UtilitiesApp {
     } else {
       this.setState('ready', 'Transform ready. Press play or replay to run the animation.');
       this.setProgress(0, 'Transform ready to animate.', `${transform.metadata.outputWidth}×${transform.metadata.outputHeight} working size`);
-      this.resultMeta.textContent = 'The result starts as the source image, then peels apart into a new reconstruction.';
+      this.resultMeta.textContent = 'Pixels from the source image shift into their assigned landing positions.';
       this.playAnimation();
     }
   }
@@ -700,44 +650,34 @@ class UtilitiesApp {
   }
 
   private renderAnimationFrame(phase: number) {
-    if (!this.sourceStageImageData) {
+    if (!this.animationState) {
       return;
     }
 
-    this.resultContext.putImageData(this.sourceStageImageData, 0, 0);
-
-    if (phase > 0) {
-      this.resultContext.save();
-      this.resultContext.fillStyle = `rgba(11, 9, 6, ${0.08 + phase * 0.34})`;
-      this.resultContext.fillRect(0, 0, this.resultCanvas.width, this.resultCanvas.height);
-      this.resultContext.restore();
-    }
+    const framePixels = renderTransformAnimationPixels(
+      this.animationState,
+      phase,
+      this.animationFramePixels ?? undefined
+    );
+    const imageDataPixels =
+      framePixels.buffer instanceof ArrayBuffer ? framePixels : new Uint8ClampedArray(framePixels);
+    this.resultContext.putImageData(
+      new ImageData(imageDataPixels as Uint8ClampedArray<ArrayBuffer>, this.animationState.width, this.animationState.height),
+      0,
+      0
+    );
 
     this.overlayContext.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
 
-    for (const particle of this.motionParticles) {
-      const localPhase = clamp((phase - particle.delay) / Math.max(0.18, 1 - particle.delay), 0, 1);
-      if (localPhase <= 0 || localPhase >= 1) {
-        continue;
-      }
-
-      const eased = easeInOutCubic(localPhase);
-      const arc = Math.sin(localPhase * Math.PI);
-      const x = particle.sourceX + (particle.targetX - particle.sourceX) * eased + particle.driftX * arc;
-      const y = particle.sourceY + (particle.targetY - particle.sourceY) * eased + particle.driftY * arc;
-      const alpha = Math.sin(localPhase * Math.PI);
-      if (alpha <= 0.05) {
-        continue;
-      }
-
+    for (const particle of resolveAccentParticlesFrame(this.animationState, phase)) {
       this.overlayContext.save();
-      this.overlayContext.globalAlpha = clamp(alpha * 0.95, 0.18, 0.9);
+      this.overlayContext.globalAlpha = particle.alpha;
       this.overlayContext.fillStyle = particle.color;
       this.overlayContext.fillRect(
-        Math.round(x - particle.size / 2),
-        Math.round(y - particle.size / 2),
-        Math.max(1, Math.round(particle.size)),
-        Math.max(1, Math.round(particle.size))
+        Math.round(particle.x - particle.size / 2),
+        Math.round(particle.y - particle.size / 2),
+        particle.size,
+        particle.size
       );
       this.overlayContext.restore();
     }
@@ -752,7 +692,7 @@ class UtilitiesApp {
     const preset = getPreset(this.activeTransform.metadata.presetId);
     const durationMs = preset.animationDurationMs;
     this.setState('animating', 'Animating the result image…');
-    this.resultMeta.textContent = 'Pixels lift out of the source image and travel into the new composition.';
+    this.resultMeta.textContent = 'The source pixels are physically rearranging into the new image.';
     this.syncButtons();
 
     const step = (timestamp: number) => {
@@ -777,7 +717,7 @@ class UtilitiesApp {
         this.animationElapsedMs = durationMs;
         this.renderCompleteResult();
         this.setState('complete', 'Animation complete.');
-        this.resultMeta.textContent = 'Every sampled fragment has settled into the final reconstruction.';
+        this.resultMeta.textContent = 'Every source pixel has reached its final landing position.';
         this.syncButtons();
         return;
       }
@@ -818,9 +758,9 @@ class UtilitiesApp {
     this.cancelActiveRequest();
     this.pauseAnimation();
     this.activeTransform = null;
+    this.animationState = null;
+    this.animationFramePixels = null;
     this.finalResultImageData = null;
-    this.sourceStageImageData = null;
-    this.motionParticles = [];
     this.sourceSelection = null;
     this.targetSelection = null;
     this.sourceContext.clearRect(0, 0, this.sourceCanvas.width, this.sourceCanvas.height);
