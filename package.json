@@ -1,8 +1,8 @@
 {
-  "name": "oliver-unified-v2",
+  "name": "oliver-unified",
   "version": "1.0.0",
   "private": true,
-  "description": "Oliver Dougherty - Portfolio Website",
+  "description": "Oliver Unified static portfolio site",
   "scripts": {
     "optimize-images": "node scripts/optimize-images.js",
     "build:deploy": "node scripts/build-deploy.js",

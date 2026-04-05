@@ -46,8 +46,9 @@ async function waitForInputSettle(page, timeoutMs = 5000) {
 }
 
 async function run() {
-  const target = process.argv[2] || process.env.GALLERY_PERF_URL || 'http://127.0.0.1:4173/pages/gallery/index.html';
-  const serverProcess = startLocalStaticServer({ url: target, cwd: ROOT, skip: Boolean(process.env.GALLERY_PERF_URL) });
+  let target = process.argv[2] || process.env.GALLERY_PERF_URL || 'http://127.0.0.1:4173/pages/gallery/index.html';
+  const serverProcess = await startLocalStaticServer({ url: target, cwd: ROOT, skip: Boolean(process.env.GALLERY_PERF_URL) });
+  target = serverProcess?.url || target;
   await waitForServer(target);
 
   const browser = await chromium.launch({ headless: true, args: WEBGL_ARGS });

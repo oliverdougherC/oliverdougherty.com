@@ -83,6 +83,34 @@ async function waitForProgressFill(page, minimumPercent, timeout = 15000, label 
   }
 }
 
+async function readStatusText(page) {
+  return page
+    .evaluate(() => document.getElementById('transformStatusText')?.textContent?.trim() ?? '')
+    .catch(() => '');
+}
+
+async function loadUtilitiesPage(page, pageUrl, readyPattern, timeout, label) {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    if (attempt === 1) {
+      await page.goto(pageUrl, { waitUntil: 'networkidle' });
+    } else {
+      await page.reload({ waitUntil: 'networkidle' });
+    }
+
+    try {
+      await waitForStatusMatch(page, readyPattern, timeout, label);
+      return;
+    } catch (error) {
+      const currentStatus = await readStatusText(page);
+      const shouldRetry = attempt === 1 && /failed to fetch/i.test(currentStatus);
+
+      if (!shouldRetry) {
+        throw error;
+      }
+    }
+  }
+}
+
 async function createInvalidImageFile() {
   const invalidPath = path.join(os.tmpdir(), `od-invalid-image-${Date.now()}.txt`);
   fs.writeFileSync(invalidPath, 'not an image');
@@ -170,24 +198,23 @@ async function readLayoutMetrics(page) {
 }
 
 async function main() {
-  const server = startLocalStaticServer({
+  const server = await startLocalStaticServer({
     url: BASE_URL,
     cwd: ROOT
   });
+  const baseUrl = server?.url || BASE_URL;
 
   const browser = await chromium.launch({ headless: true });
 
   try {
-    await waitForServer(`${BASE_URL}/pages/dashboard/index.html`);
+    await waitForServer(`${baseUrl}/pages/dashboard/index.html`);
 
     const page = await browser.newPage({
       viewport: { width: 1440, height: 1100 }
     });
 
-    const pageUrl = `${BASE_URL}/pages/dashboard/index.html`;
-    await page.goto(pageUrl, { waitUntil: 'networkidle' });
-
-    await waitForStatusMatch(page, 'Transform ready|Animation complete|Reduced motion', 30000);
+    const pageUrl = `${baseUrl}/pages/dashboard/index.html`;
+    await loadUtilitiesPage(page, pageUrl, 'Transform ready|Animation complete|Reduced motion', 30000, 'default demo');
     await waitForProgressFill(page, 90, 20000);
 
     const afterDemo = await page.evaluate(() => ({
@@ -386,8 +413,13 @@ async function main() {
         value: undefined
       });
     });
-    await noWorkerPage.goto(pageUrl, { waitUntil: 'networkidle' });
-    await waitForStatusMatch(noWorkerPage, 'Transform ready|Animation complete|Reduced motion', 30000, 'main-thread fallback');
+    await loadUtilitiesPage(
+      noWorkerPage,
+      pageUrl,
+      'Transform ready|Animation complete|Reduced motion',
+      30000,
+      'main-thread fallback'
+    );
 
     const noWorkerState = await noWorkerPage.evaluate(() => ({
       status: document.getElementById('transformStatusText')?.textContent?.trim(),
@@ -406,8 +438,7 @@ async function main() {
       viewport: { width: 390, height: 844 }
     });
     await mobilePage.emulateMedia({ reducedMotion: 'reduce' });
-    await mobilePage.goto(pageUrl, { waitUntil: 'networkidle' });
-    await waitForStatusMatch(mobilePage, 'Reduced motion', 30000);
+    await loadUtilitiesPage(mobilePage, pageUrl, 'Reduced motion', 30000, 'reduced-motion startup');
 
     const mobileState = await mobilePage.evaluate(() => ({
       width: window.innerWidth,

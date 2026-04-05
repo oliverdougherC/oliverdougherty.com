@@ -11,7 +11,7 @@ const {
 const ROOT = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT, 'output', 'playwright', 'nav-overlay-check');
 const DEFAULT_BASE_URL = 'http://127.0.0.1:4173';
-const BASE_URL = process.env.NAV_CHECK_URL || DEFAULT_BASE_URL;
+let baseUrl = process.env.NAV_CHECK_URL || DEFAULT_BASE_URL;
 const PAGES = [
   { label: 'home', route: '/' },
   { label: 'archive', route: '/pages/archive/index.html' },
@@ -151,7 +151,7 @@ function assertClosed(state, label) {
 }
 
 async function assertDesktopGeometry(page, pageInfo) {
-  await page.goto(`${BASE_URL}${pageInfo.route}`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}${pageInfo.route}`, { waitUntil: 'networkidle' });
   await closeMenu(page);
   await openMenu(page);
   let state = await collectNavState(page);
@@ -159,7 +159,7 @@ async function assertDesktopGeometry(page, pageInfo) {
   assertDesktopLinkVisibility(state, `${pageInfo.label}:desktop:top`);
   await closeMenu(page);
 
-  await page.goto(`${BASE_URL}${pageInfo.route}`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}${pageInfo.route}`, { waitUntil: 'networkidle' });
   await scrollPage(page);
   await openMenu(page);
   state = await collectNavState(page);
@@ -169,7 +169,7 @@ async function assertDesktopGeometry(page, pageInfo) {
 }
 
 async function assertMobileGeometry(page, pageInfo) {
-  await page.goto(`${BASE_URL}${pageInfo.route}`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}${pageInfo.route}`, { waitUntil: 'networkidle' });
   await scrollPage(page);
   await openMenu(page);
   const state = await collectNavState(page);
@@ -179,7 +179,7 @@ async function assertMobileGeometry(page, pageInfo) {
 }
 
 async function assertInteractions(page) {
-  await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
 
   await openMenu(page);
   await closeMenu(page);
@@ -211,7 +211,7 @@ async function assertInteractions(page) {
 }
 
 async function assertThemeToggleGeometry(page) {
-  await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
   await scrollPage(page);
   await openMenu(page);
 
@@ -231,16 +231,17 @@ async function assertThemeToggleGeometry(page) {
 async function run() {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
-  const server = startLocalStaticServer({
-    url: BASE_URL,
+  const server = await startLocalStaticServer({
+    url: baseUrl,
     cwd: ROOT,
     skip: Boolean(process.env.NAV_CHECK_URL),
     bindHost: null
   });
+  baseUrl = server?.url || baseUrl;
   let browser;
 
   try {
-    await waitForServer(BASE_URL);
+    await waitForServer(baseUrl);
     browser = await chromium.launch({ headless: true });
 
     const desktopContext = await browser.newContext({ viewport: { width: 1600, height: 1100 } });
