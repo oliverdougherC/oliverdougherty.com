@@ -28,6 +28,7 @@ export interface MatchingSearchContext {
   targetPacked: Uint32Array;
   buckets: Map<number, number[]>;
   bucketGroups: Map<number, number[]>;
+  bucketGroupIndicesByBucket: Int32Array[];
   bucketEntryIndexByKey: Map<number, number>;
   bucketKeys: Uint32Array;
   bucketRed: Uint8Array;
@@ -37,6 +38,9 @@ export interface MatchingSearchContext {
   shift: number;
   bucketCount: number;
   groupRgbValues: Uint32Array;
+  groupRed: Uint8Array;
+  groupGreen: Uint8Array;
+  groupBlue: Uint8Array;
   groupNearWhiteByGroup: Float32Array;
   groupMinDonorByGroup: Int32Array;
   groupMaxDonorByGroup: Int32Array;
@@ -46,6 +50,17 @@ export interface MatchingSearchContext {
   donorNextByUsefulness: Int32Array;
   donorPrevByUsefulness: Int32Array;
   usefulnessBySource: Float32Array;
+  targetRed: Uint8Array;
+  targetGreen: Uint8Array;
+  targetBlue: Uint8Array;
+  targetBucketRed: Uint8Array;
+  targetBucketGreen: Uint8Array;
+  targetBucketBlue: Uint8Array;
+  targetBucketKeyByIndex: Int32Array;
+  targetUsefulnessCoefficient: Float32Array;
+  targetNearWhiteCoefficient: Float32Array;
+  targetPreferMaxUsefulness: Uint8Array;
+  bucketSearchOrderByTargetBucketKey: Map<number, BucketSearchOrder>;
   analysis?: TransformImageAnalysis;
 }
 
@@ -64,6 +79,11 @@ interface FreeListState {
   head: number;
   nextFree: Int32Array;
   prevFree: Int32Array;
+}
+
+interface BucketSearchOrder {
+  bucketIndices: Int32Array;
+  shellDistances: Uint8Array;
 }
 
 interface PackedMatchComputation {
@@ -122,6 +142,26 @@ function weightedDistance(left: number, right: number) {
   const rightGreen = (right >> 8) & 0xff;
   const rightBlue = right & 0xff;
 
+  const redMean = (leftRed + rightRed) >> 1;
+  const deltaRed = leftRed - rightRed;
+  const deltaGreen = leftGreen - rightGreen;
+  const deltaBlue = leftBlue - rightBlue;
+
+  return (
+    (((512 + redMean) * deltaRed * deltaRed) >> 8) +
+    4 * deltaGreen * deltaGreen +
+    (((767 - redMean) * deltaBlue * deltaBlue) >> 8)
+  );
+}
+
+function weightedDistanceFromChannels(
+  leftRed: number,
+  leftGreen: number,
+  leftBlue: number,
+  rightRed: number,
+  rightGreen: number,
+  rightBlue: number
+) {
   const redMean = (leftRed + rightRed) >> 1;
   const deltaRed = leftRed - rightRed;
   const deltaGreen = leftGreen - rightGreen;
@@ -305,11 +345,28 @@ export function createMatchingSearchContext(
   const { buckets, shift, bucketCount } = buildBucketMap(sourcePacked, quantizationBits);
   const groupedDonorState = buildGroupedDonorState(sourcePacked, shift, analysis);
   const bucketKeys = Uint32Array.from(groupedDonorState.bucketGroups.keys());
+  const bucketGroupIndicesByBucket = Array.from(
+    bucketKeys,
+    (key) => Int32Array.from(groupedDonorState.bucketGroups.get(key) ?? [])
+  );
   const bucketRed = new Uint8Array(bucketKeys.length);
   const bucketGreen = new Uint8Array(bucketKeys.length);
   const bucketBlue = new Uint8Array(bucketKeys.length);
   const bucketRemainingGroupCount = new Int32Array(bucketKeys.length);
   const bucketEntryIndexByKey = new Map<number, number>();
+  const groupRed = new Uint8Array(groupedDonorState.groupRgbValues.length);
+  const groupGreen = new Uint8Array(groupedDonorState.groupRgbValues.length);
+  const groupBlue = new Uint8Array(groupedDonorState.groupRgbValues.length);
+  const targetRed = new Uint8Array(targetPacked.length);
+  const targetGreen = new Uint8Array(targetPacked.length);
+  const targetBlue = new Uint8Array(targetPacked.length);
+  const targetBucketRed = new Uint8Array(targetPacked.length);
+  const targetBucketGreen = new Uint8Array(targetPacked.length);
+  const targetBucketBlue = new Uint8Array(targetPacked.length);
+  const targetBucketKeyByIndex = new Int32Array(targetPacked.length);
+  const targetUsefulnessCoefficient = new Float32Array(targetPacked.length);
+  const targetNearWhiteCoefficient = new Float32Array(targetPacked.length);
+  const targetPreferMaxUsefulness = new Uint8Array(targetPacked.length);
 
   for (let bucketIndex = 0; bucketIndex < bucketKeys.length; bucketIndex += 1) {
     const key = bucketKeys[bucketIndex];
@@ -317,7 +374,37 @@ export function createMatchingSearchContext(
     bucketRed[bucketIndex] = (key >> 16) & 0xff;
     bucketGreen[bucketIndex] = (key >> 8) & 0xff;
     bucketBlue[bucketIndex] = key & 0xff;
-    bucketRemainingGroupCount[bucketIndex] = groupedDonorState.bucketGroups.get(key)?.length ?? 0;
+    bucketRemainingGroupCount[bucketIndex] = bucketGroupIndicesByBucket[bucketIndex]?.length ?? 0;
+  }
+
+  for (let groupIndex = 0; groupIndex < groupedDonorState.groupRgbValues.length; groupIndex += 1) {
+    const rgb = groupedDonorState.groupRgbValues[groupIndex];
+    groupRed[groupIndex] = (rgb >> 16) & 0xff;
+    groupGreen[groupIndex] = (rgb >> 8) & 0xff;
+    groupBlue[groupIndex] = rgb & 0xff;
+  }
+
+  for (let targetIndex = 0; targetIndex < targetPacked.length; targetIndex += 1) {
+    const rgb = targetPacked[targetIndex];
+    const red = (rgb >> 16) & 0xff;
+    const green = (rgb >> 8) & 0xff;
+    const blue = rgb & 0xff;
+    const targetNeed = analysis?.targetNeedByIndex[targetIndex] ?? 0;
+    const targetFlatBright = (analysis?.targetNearWhiteByIndex[targetIndex] ?? 0) * (1 - targetNeed);
+
+    targetRed[targetIndex] = red;
+    targetGreen[targetIndex] = green;
+    targetBlue[targetIndex] = blue;
+    targetBucketRed[targetIndex] = red >> shift;
+    targetBucketGreen[targetIndex] = green >> shift;
+    targetBucketBlue[targetIndex] = blue >> shift;
+    targetBucketKeyByIndex[targetIndex] =
+      (targetBucketRed[targetIndex] << 16) |
+      (targetBucketGreen[targetIndex] << 8) |
+      targetBucketBlue[targetIndex];
+    targetUsefulnessCoefficient[targetIndex] = -targetNeed * 50_000 + targetFlatBright * 14_000;
+    targetNearWhiteCoefficient[targetIndex] = targetNeed * 34_000;
+    targetPreferMaxUsefulness[targetIndex] = targetUsefulnessCoefficient[targetIndex] < 0 ? 1 : 0;
   }
 
   return {
@@ -325,6 +412,7 @@ export function createMatchingSearchContext(
     targetPacked,
     buckets,
     bucketGroups: groupedDonorState.bucketGroups,
+    bucketGroupIndicesByBucket,
     bucketEntryIndexByKey,
     bucketKeys,
     bucketRed,
@@ -334,6 +422,9 @@ export function createMatchingSearchContext(
     shift,
     bucketCount,
     groupRgbValues: groupedDonorState.groupRgbValues,
+    groupRed,
+    groupGreen,
+    groupBlue,
     groupNearWhiteByGroup: groupedDonorState.groupNearWhiteByGroup,
     groupMinDonorByGroup: groupedDonorState.groupMinDonorByGroup,
     groupMaxDonorByGroup: groupedDonorState.groupMaxDonorByGroup,
@@ -343,6 +434,17 @@ export function createMatchingSearchContext(
     donorNextByUsefulness: groupedDonorState.donorNextByUsefulness,
     donorPrevByUsefulness: groupedDonorState.donorPrevByUsefulness,
     usefulnessBySource: groupedDonorState.usefulnessBySource,
+    targetRed,
+    targetGreen,
+    targetBlue,
+    targetBucketRed,
+    targetBucketGreen,
+    targetBucketBlue,
+    targetBucketKeyByIndex,
+    targetUsefulnessCoefficient,
+    targetNearWhiteCoefficient,
+    targetPreferMaxUsefulness,
+    bucketSearchOrderByTargetBucketKey: new Map<number, BucketSearchOrder>(),
     analysis
   };
 }
@@ -483,66 +585,92 @@ function shouldUseOccupiedBucketScan(context: MatchingSearchContext) {
   return context.bucketKeys.length <= 128 && context.bucketKeys.length * 4 <= searchSpaceSize;
 }
 
+function getBucketSearchOrder(
+  context: MatchingSearchContext,
+  targetBucketKey: number,
+  centerRed: number,
+  centerGreen: number,
+  centerBlue: number
+) {
+  const cached = context.bucketSearchOrderByTargetBucketKey.get(targetBucketKey);
+  if (cached) {
+    return cached;
+  }
+
+  const order = Array.from({ length: context.bucketKeys.length }, (_value, bucketIndex) => {
+    const shellDistance = Math.max(
+      Math.abs(context.bucketRed[bucketIndex] - centerRed),
+      Math.abs(context.bucketGreen[bucketIndex] - centerGreen),
+      Math.abs(context.bucketBlue[bucketIndex] - centerBlue)
+    );
+
+    return {
+      bucketIndex,
+      shellDistance
+    };
+  });
+
+  order.sort((left, right) =>
+    left.shellDistance === right.shellDistance
+      ? left.bucketIndex - right.bucketIndex
+      : left.shellDistance - right.shellDistance
+  );
+
+  const bucketSearchOrder: BucketSearchOrder = {
+    bucketIndices: Int32Array.from(order, (entry) => entry.bucketIndex),
+    shellDistances: Uint8Array.from(order, (entry) => entry.shellDistance)
+  };
+  context.bucketSearchOrderByTargetBucketKey.set(targetBucketKey, bucketSearchOrder);
+  return bucketSearchOrder;
+}
+
 function findBestGroupedSourceIndex(
   context: MatchingSearchContext,
   targetIndex: number
 ): GroupedSearchResult {
-  const targetRgb = context.targetPacked[targetIndex];
-  const centerRed = ((targetRgb >> 16) & 0xff) >> context.shift;
-  const centerGreen = ((targetRgb >> 8) & 0xff) >> context.shift;
-  const centerBlue = (targetRgb & 0xff) >> context.shift;
-  const targetNeed = context.analysis?.targetNeedByIndex[targetIndex] ?? 0;
-  const targetFlatBright =
-    (context.analysis?.targetNearWhiteByIndex[targetIndex] ?? 0) * (1 - targetNeed);
-  const usefulnessCoefficient = -targetNeed * 50_000 + targetFlatBright * 14_000;
-  const nearWhiteCoefficient = targetNeed * 34_000;
-  const preferMaxUsefulness = usefulnessCoefficient < 0;
+  const centerRed = context.targetBucketRed[targetIndex];
+  const centerGreen = context.targetBucketGreen[targetIndex];
+  const centerBlue = context.targetBucketBlue[targetIndex];
+  const targetBucketKey = context.targetBucketKeyByIndex[targetIndex];
+  const usefulnessCoefficient = context.targetUsefulnessCoefficient[targetIndex];
+  const nearWhiteCoefficient = context.targetNearWhiteCoefficient[targetIndex];
+  const preferMaxUsefulness = context.targetPreferMaxUsefulness[targetIndex] === 1;
+  const targetRed = context.targetRed[targetIndex];
+  const targetGreen = context.targetGreen[targetIndex];
+  const targetBlue = context.targetBlue[targetIndex];
 
   let bestIndex = -1;
   let bestDistance = Number.POSITIVE_INFINITY;
   let evaluatedGroupCount = 0;
   let evaluatedCandidateCount = 0;
   if (shouldUseOccupiedBucketScan(context)) {
-    let nearestShellDistance = Number.POSITIVE_INFINITY;
+    const bucketSearchOrder = getBucketSearchOrder(
+      context,
+      targetBucketKey,
+      centerRed,
+      centerGreen,
+      centerBlue
+    );
+    let nearestShellDistance = -1;
 
-    for (let bucketIndex = 0; bucketIndex < context.bucketKeys.length; bucketIndex += 1) {
+    for (
+      let orderedBucketIndex = 0;
+      orderedBucketIndex < bucketSearchOrder.bucketIndices.length;
+      orderedBucketIndex += 1
+    ) {
+      const bucketIndex = bucketSearchOrder.bucketIndices[orderedBucketIndex];
       if (context.bucketRemainingGroupCount[bucketIndex] <= 0) {
         continue;
       }
 
-      const shellDistance = Math.max(
-        Math.abs(context.bucketRed[bucketIndex] - centerRed),
-        Math.abs(context.bucketGreen[bucketIndex] - centerGreen),
-        Math.abs(context.bucketBlue[bucketIndex] - centerBlue)
-      );
-      if (shellDistance < nearestShellDistance) {
+      const shellDistance = bucketSearchOrder.shellDistances[orderedBucketIndex];
+      if (nearestShellDistance === -1) {
         nearestShellDistance = shellDistance;
-      }
-    }
-
-    if (!Number.isFinite(nearestShellDistance)) {
-      return {
-        sourceIndex: -1,
-        evaluatedCandidateCount: 0,
-        evaluatedGroupCount: 0
-      };
-    }
-
-    for (let bucketIndex = 0; bucketIndex < context.bucketKeys.length; bucketIndex += 1) {
-      if (context.bucketRemainingGroupCount[bucketIndex] <= 0) {
-        continue;
+      } else if (shellDistance !== nearestShellDistance) {
+        break;
       }
 
-      const shellDistance = Math.max(
-        Math.abs(context.bucketRed[bucketIndex] - centerRed),
-        Math.abs(context.bucketGreen[bucketIndex] - centerGreen),
-        Math.abs(context.bucketBlue[bucketIndex] - centerBlue)
-      );
-      if (shellDistance !== nearestShellDistance) {
-        continue;
-      }
-
-      const groupIndices = context.bucketGroups.get(context.bucketKeys[bucketIndex]);
+      const groupIndices = context.bucketGroupIndicesByBucket[bucketIndex];
       if (!groupIndices) {
         continue;
       }
@@ -563,11 +691,16 @@ function findBestGroupedSourceIndex(
         evaluatedGroupCount += 1;
         evaluatedCandidateCount += 1;
 
-        let distance = weightedDistance(context.groupRgbValues[groupIndex], targetRgb);
-        if (context.analysis) {
-          distance += usefulnessCoefficient * context.usefulnessBySource[sourceIndex];
-          distance += nearWhiteCoefficient * context.groupNearWhiteByGroup[groupIndex];
-        }
+        let distance = weightedDistanceFromChannels(
+          context.groupRed[groupIndex],
+          context.groupGreen[groupIndex],
+          context.groupBlue[groupIndex],
+          targetRed,
+          targetGreen,
+          targetBlue
+        );
+        distance += usefulnessCoefficient * context.usefulnessBySource[sourceIndex];
+        distance += nearWhiteCoefficient * context.groupNearWhiteByGroup[groupIndex];
 
         if (distance < bestDistance) {
           bestDistance = distance;
@@ -578,7 +711,12 @@ function findBestGroupedSourceIndex(
   } else {
     for (let radius = 0; radius < context.bucketCount && bestIndex === -1; radius += 1) {
       forEachShellBucket(centerRed, centerGreen, centerBlue, radius, context.bucketCount, (key) => {
-        const groupIndices = context.bucketGroups.get(key);
+        const bucketIndex = context.bucketEntryIndexByKey.get(key);
+        if (bucketIndex === undefined) {
+          return;
+        }
+
+        const groupIndices = context.bucketGroupIndicesByBucket[bucketIndex];
         if (!groupIndices) {
           return;
         }
@@ -599,11 +737,16 @@ function findBestGroupedSourceIndex(
           evaluatedGroupCount += 1;
           evaluatedCandidateCount += 1;
 
-          let distance = weightedDistance(context.groupRgbValues[groupIndex], targetRgb);
-          if (context.analysis) {
-            distance += usefulnessCoefficient * context.usefulnessBySource[sourceIndex];
-            distance += nearWhiteCoefficient * context.groupNearWhiteByGroup[groupIndex];
-          }
+          let distance = weightedDistanceFromChannels(
+            context.groupRed[groupIndex],
+            context.groupGreen[groupIndex],
+            context.groupBlue[groupIndex],
+            targetRed,
+            targetGreen,
+            targetBlue
+          );
+          distance += usefulnessCoefficient * context.usefulnessBySource[sourceIndex];
+          distance += nearWhiteCoefficient * context.groupNearWhiteByGroup[groupIndex];
 
           if (distance < bestDistance) {
             bestDistance = distance;
@@ -720,7 +863,6 @@ function computePackedPixelAssignment(
   hooks?: TransformHooks
 ): PackedMatchComputation {
   const assignment = new Uint32Array(context.targetPacked.length);
-  const used = new Uint8Array(context.sourcePacked.length);
   const freeList = createFreeList(context.sourcePacked.length);
   let shortlistHitCount = 0;
   let fallbackCount = 0;
@@ -750,7 +892,6 @@ function computePackedPixelAssignment(
       throw new TransformError('No unused pixels remained during matching.');
     }
 
-    used[sourceIndex] = 1;
     removeFromFreeList(freeList, sourceIndex);
     removeFromGroupedDonorState(context, sourceIndex);
     assignment[targetIndex] = sourceIndex;
