@@ -54,6 +54,11 @@ async function prepareBitmaps(
 const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 const handleWorkerRequest = createWorkerRequestHandler({
   prepareBitmaps,
+  createMatchingWorker() {
+    return new Worker(new URL('./matching.worker.ts', import.meta.url), {
+      type: 'module'
+    });
+  },
   postMessage(message, transfer) {
     workerScope.postMessage(message, transfer ?? []);
   }

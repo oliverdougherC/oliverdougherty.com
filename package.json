@@ -11,6 +11,7 @@
     "utilities:test": "vitest run --config vitest.utilities.config.mts",
     "utilities:check": "npm run utilities:typecheck && npm run utilities:test",
     "utilities:browser-check": "node scripts/utilities-check.js",
+    "utilities:perf": "node scripts/utilities-perf.js",
     "game:dev": "vite --config vite.config.game.mts",
     "game:build": "vite build --config vite.config.game.mts",
     "game:typecheck": "tsc -p tsconfig.game.json --noEmit",

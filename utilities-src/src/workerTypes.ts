@@ -26,7 +26,7 @@ export type WorkerRequest = TransformBitmapRequest | TransformPreparedRequest | 
 export interface WorkerProgressMessage {
   type: 'progress';
   requestId: number;
-  stage: 'decoding' | 'matching';
+  stage: 'decoding' | 'analyzing' | 'ranking' | 'assigning';
   progress: number;
   message: string;
 }

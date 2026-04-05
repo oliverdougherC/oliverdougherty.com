@@ -8,17 +8,8 @@ import {
 } from './transformAnimation';
 import { resolveOutputDimensions, transformPreparedImages } from './transformCore';
 import type { PreparedImageTransfer, TransformMetadata, TransformPresetId } from './types';
+import { DEMOS, resolvePlaybackButtonLabel, type ImageSelection, type SelectionKind, type StateKind } from './uiState';
 import type { WorkerRequest, WorkerResponse } from './workerTypes';
-
-type SelectionKind = 'source' | 'target';
-type StateKind = 'idle' | 'processing' | 'ready' | 'animating' | 'complete' | 'error';
-
-interface ImageSelection {
-  kind: 'file' | 'demo';
-  label: string;
-  file?: File;
-  url?: string;
-}
 
 interface HydratedTransfer {
   width: number;
@@ -32,21 +23,6 @@ interface ActiveTransform {
   target: HydratedTransfer;
   assignment: Uint32Array;
 }
-
-const DEMOS: Record<string, { source: ImageSelection; target: ImageSelection }> = {
-  'pattern-face': {
-    source: { kind: 'demo', label: 'Pattern', url: '../../assets/utilities/pattern.png' },
-    target: { kind: 'demo', label: 'Face', url: '../../assets/utilities/face.png' }
-  },
-  'source-target': {
-    source: { kind: 'demo', label: 'Contrast', url: '../../assets/utilities/source.png' },
-    target: { kind: 'demo', label: 'Gradient', url: '../../assets/utilities/target.png' }
-  },
-  'face-pattern': {
-    source: { kind: 'demo', label: 'Face', url: '../../assets/utilities/face.png' },
-    target: { kind: 'demo', label: 'Pattern', url: '../../assets/utilities/pattern.png' }
-  }
-};
 
 function asArrayBuffer(buffer: ArrayBufferLike) {
   return buffer as ArrayBuffer;
@@ -67,7 +43,6 @@ class UtilitiesApp {
   private readonly resetButton: HTMLButtonElement;
   private readonly playButton: HTMLButtonElement;
   private readonly pauseButton: HTMLButtonElement;
-  private readonly replayButton: HTMLButtonElement;
   private readonly statusChip: HTMLElement;
   private readonly statusText: HTMLElement;
   private readonly progressText: HTMLElement;
@@ -109,6 +84,8 @@ class UtilitiesApp {
   private animationStartedAt = 0;
   private animationElapsedMs = 0;
   private state: StateKind = 'idle';
+  private workerUnavailable = false;
+  private workerFallbackScheduled = false;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -120,7 +97,6 @@ class UtilitiesApp {
     this.resetButton = this.requireElement('transformResetBtn');
     this.playButton = this.requireElement('transformPlayBtn');
     this.pauseButton = this.requireElement('transformPauseBtn');
-    this.replayButton = this.requireElement('transformReplayBtn');
     this.statusChip = this.requireElement('transformStatusChip');
     this.statusText = this.requireElement('transformStatusText');
     this.progressText = this.requireElement('transformProgressText');
@@ -169,11 +145,14 @@ class UtilitiesApp {
     this.resetButton.addEventListener('click', () => {
       this.resetAll();
     });
-    this.playButton.addEventListener('click', () => this.playAnimation());
+    this.playButton.addEventListener('click', () => this.handlePlaybackButton());
     this.pauseButton.addEventListener('click', () => this.pauseAnimation());
-    this.replayButton.addEventListener('click', () => this.replayAnimation());
     this.presetSelect.addEventListener('change', () => {
       const preset = getPreset(this.selectedPreset);
+      if (this.activeTransform) {
+        this.invalidateComputedState(`Preset changed to ${preset.label}. Generate again to rebuild the transform.`);
+        return;
+      }
       this.progressMeta.textContent = `${preset.label} preset · up to ${preset.maxDimension}px working size`;
     });
 
@@ -264,8 +243,10 @@ class UtilitiesApp {
       this.targetInput.value = '';
     }
 
+    this.discardActiveRequest();
     this.clearActiveDemo();
     this.syncSelectionLabels();
+    this.invalidateComputedState('Selection updated. Generate again to rebuild the transform.');
   }
 
   private applyDemo(demoKey: string) {
@@ -294,12 +275,19 @@ class UtilitiesApp {
     const isProcessing = this.state === 'processing';
     const isAnimating = this.state === 'animating';
 
+    this.playButton.textContent = resolvePlaybackButtonLabel({
+      hasResult,
+      isProcessing,
+      isAnimating,
+      reducedMotion: this.reducedMotion,
+      animationElapsedMs: this.animationElapsedMs
+    });
+    this.presetSelect.disabled = isProcessing;
     this.generateButton.disabled = !hasBothSelections || isProcessing;
     this.swapButton.disabled = !hasBothSelections || isProcessing;
     this.resetButton.disabled = isProcessing && !hasResult;
     this.playButton.disabled = !hasResult || isProcessing || isAnimating || this.reducedMotion;
     this.pauseButton.disabled = !hasResult || !isAnimating;
-    this.replayButton.disabled = !hasResult || isProcessing;
   }
 
   private setState(state: StateKind, text: string) {
@@ -320,7 +308,87 @@ class UtilitiesApp {
     this.progressBar.setAttribute('aria-valuenow', String(percent));
   }
 
-  private async generateTransform() {
+  private clearDiagnostics() {
+    delete this.root.dataset.lastRequestId;
+    delete this.root.dataset.matcherStrategy;
+    delete this.root.dataset.fallbackCount;
+    delete this.root.dataset.shortlistHitRate;
+    delete this.root.dataset.decodeMs;
+    delete this.root.dataset.analyzeMs;
+    delete this.root.dataset.rankMs;
+    delete this.root.dataset.assignMs;
+    delete this.root.dataset.totalMs;
+    delete this.root.dataset.evaluatedCandidateCount;
+    delete this.root.dataset.evaluatedGroupCount;
+    delete this.root.dataset.averageGroupsPerTarget;
+  }
+
+  private discardActiveRequest() {
+    if (this.activeRequestId <= 0) {
+      return;
+    }
+
+    this.cancelActiveRequest();
+    this.activeRequestId += 1;
+  }
+
+  private clearAllCanvases() {
+    this.sourceContext.clearRect(0, 0, this.sourceCanvas.width, this.sourceCanvas.height);
+    this.targetContext.clearRect(0, 0, this.targetCanvas.width, this.targetCanvas.height);
+    this.clearResultSurfaces();
+  }
+
+  private invalidateComputedState(statusText: string) {
+    this.pauseAnimation();
+    this.activeTransform = null;
+    this.animationState = null;
+    this.animationFramePixels = null;
+    this.finalResultImageData = null;
+    this.clearDiagnostics();
+    this.clearAllCanvases();
+    this.updateCanvasPlaceholder(this.sourcePlaceholder, true);
+    this.updateCanvasPlaceholder(this.targetPlaceholder, true);
+    this.updateCanvasPlaceholder(this.resultPlaceholder, true);
+    this.sourceMeta.textContent = this.sourceSelection
+      ? 'Generate a transform to preview the selected source image.'
+      : 'Waiting for an image.';
+    this.targetMeta.textContent = this.targetSelection
+      ? 'Generate a transform to preview the selected target image.'
+      : 'Waiting for an image.';
+    this.resultMeta.textContent =
+      this.sourceSelection && this.targetSelection
+        ? 'Generate a transform to rebuild the current image pair.'
+        : 'Generate a transform to begin the animation.';
+    this.outputSize.textContent = '—';
+    this.pixelCount.textContent = '—';
+    this.duration.textContent = '—';
+    const preset = getPreset(this.selectedPreset);
+    this.setState('idle', statusText);
+    this.setProgress(
+      0,
+      this.sourceSelection && this.targetSelection
+        ? 'Selections are ready. Generate a new transform to continue.'
+        : 'Ready for input.',
+      `${preset.label} preset · up to ${preset.maxDimension}px working size`
+    );
+  }
+
+  private syncDiagnostics(metadata: TransformMetadata, requestId: number) {
+    this.root.dataset.lastRequestId = String(requestId);
+    this.root.dataset.matcherStrategy = metadata.matcherStrategy;
+    this.root.dataset.fallbackCount = String(metadata.fallbackCount);
+    this.root.dataset.shortlistHitRate = metadata.shortlistHitRate.toFixed(4);
+    this.root.dataset.decodeMs = metadata.timingsMs.decode.toFixed(2);
+    this.root.dataset.analyzeMs = metadata.timingsMs.analyze.toFixed(2);
+    this.root.dataset.rankMs = metadata.timingsMs.rank.toFixed(2);
+    this.root.dataset.assignMs = metadata.timingsMs.assign.toFixed(2);
+    this.root.dataset.totalMs = metadata.timingsMs.total.toFixed(2);
+    this.root.dataset.evaluatedCandidateCount = String(metadata.evaluatedCandidateCount);
+    this.root.dataset.evaluatedGroupCount = String(metadata.evaluatedGroupCount);
+    this.root.dataset.averageGroupsPerTarget = metadata.averageGroupsPerTarget.toFixed(4);
+  }
+
+  private async generateTransform(options?: { forceMainThread?: boolean; retryMessage?: string }) {
     if (!this.sourceSelection || !this.targetSelection) {
       this.setState('error', 'Choose both a source image and a target image.');
       this.setProgress(0, 'Two images are required before generating a transform.');
@@ -333,6 +401,7 @@ class UtilitiesApp {
     this.animationState = null;
     this.animationFramePixels = null;
     this.finalResultImageData = null;
+    this.clearDiagnostics();
     this.updateCanvasPlaceholder(this.resultPlaceholder, true);
     this.resultMeta.textContent = 'Generating transform…';
     this.outputSize.textContent = '—';
@@ -342,16 +411,43 @@ class UtilitiesApp {
 
     const requestId = ++this.activeRequestId;
     const preset = getPreset(this.selectedPreset);
-    this.setState('processing', 'Preparing images and matching pixels…');
-    this.setProgress(0.02, 'Loading image data…', `${preset.label} preset · up to ${preset.maxDimension}px working size`);
+    this.setState('processing', 'Preparing images and analyzing pixels…');
+    this.setProgress(
+      0.02,
+      options?.retryMessage ?? 'Loading image data…',
+      `${preset.label} preset · up to ${preset.maxDimension}px working size`
+    );
 
+    let sourceBitmap: ImageBitmap | null = null;
+    let targetBitmap: ImageBitmap | null = null;
     try {
-      const [sourceBitmap, targetBitmap] = await Promise.all([
+      const bitmapResults = await Promise.allSettled([
         this.selectionToBitmap(this.sourceSelection),
         this.selectionToBitmap(this.targetSelection)
       ]);
+      const sourceResult = bitmapResults[0];
+      const targetResult = bitmapResults[1];
 
-      if (typeof Worker === 'undefined') {
+      if (sourceResult.status !== 'fulfilled' || targetResult.status !== 'fulfilled') {
+        if (sourceResult.status === 'fulfilled') {
+          sourceResult.value.close();
+        }
+        if (targetResult.status === 'fulfilled') {
+          targetResult.value.close();
+        }
+        const rejection =
+          sourceResult.status === 'rejected'
+            ? sourceResult.reason
+            : targetResult.status === 'rejected'
+              ? targetResult.reason
+              : new Error('Unable to load the selected images.');
+        throw rejection;
+      }
+
+      sourceBitmap = sourceResult.value;
+      targetBitmap = targetResult.value;
+
+      if (options?.forceMainThread || this.workerUnavailable || typeof Worker === 'undefined') {
         await this.runOnMainThread(requestId, sourceBitmap, targetBitmap);
         return;
       }
@@ -386,6 +482,8 @@ class UtilitiesApp {
 
       worker.postMessage(request, [prepared.source.pixels, prepared.target.pixels]);
     } catch (error) {
+      sourceBitmap?.close();
+      targetBitmap?.close();
       this.setState('error', error instanceof Error ? error.message : 'Unable to load the selected images.');
       this.setProgress(0, 'Image preparation failed.', 'Try different files or a demo pair.');
     }
@@ -393,12 +491,13 @@ class UtilitiesApp {
 
   private async runOnMainThread(requestId: number, sourceBitmap: ImageBitmap, targetBitmap: ImageBitmap) {
     const preset = getPreset(this.selectedPreset);
+    const totalStartedAt = performance.now();
     try {
       const prepared = this.prepareBitmapsOnMainThread(sourceBitmap, targetBitmap, preset.maxDimension);
+      const decodeMs = performance.now() - totalStartedAt;
       sourceBitmap.close();
       targetBitmap.close();
 
-      const startedAt = performance.now();
       const sourcePixels = new Uint8ClampedArray(prepared.source.pixels);
       const targetPixels = new Uint8ClampedArray(prepared.target.pixels);
       const result = transformPreparedImages(
@@ -418,9 +517,18 @@ class UtilitiesApp {
             this.handleWorkerMessage({
               type: 'progress',
               requestId,
-              stage: 'matching',
+              stage: 'assigning',
               progress: completed / total,
-              message: `Matching pixels… ${completed}/${total}`
+              message: `Assigning donors… ${completed}/${total}`
+            });
+          },
+          onStageProgress: (stage, progress, message) => {
+            this.handleWorkerMessage({
+              type: 'progress',
+              requestId,
+              stage,
+              progress,
+              message
             });
           }
         }
@@ -438,7 +546,19 @@ class UtilitiesApp {
         targetOriginalHeight: prepared.target.originalHeight,
         sourceScaled: prepared.source.scaled,
         targetScaled: prepared.target.scaled,
-        processingMs: performance.now() - startedAt
+        processingMs: decodeMs + result.timingsMs.total,
+        timingsMs: {
+          ...result.timingsMs,
+          decode: decodeMs,
+          total: decodeMs + result.timingsMs.total
+        },
+        matcherStrategy: result.matcherStrategy,
+        fallbackCount: result.matcherStats.fallbackCount,
+        shortlistHitRate: result.matcherStats.shortlistHitRate,
+        evaluatedCandidateCount: result.matcherStats.evaluatedCandidateCount,
+        evaluatedGroupCount: result.matcherStats.evaluatedGroupCount,
+        averageGroupsPerTarget: result.matcherStats.averageGroupsPerTarget,
+        workerCount: result.workerCount
       };
 
       this.handleWorkerMessage({
@@ -475,7 +595,39 @@ class UtilitiesApp {
     this.worker.addEventListener('message', (event: MessageEvent<WorkerResponse>) => {
       this.handleWorkerMessage(event.data);
     });
+    this.worker.addEventListener('error', (event) => {
+      event.preventDefault();
+      this.handleWorkerFailure('Worker unavailable. Retrying on the main thread…');
+    });
+    this.worker.addEventListener('messageerror', () => {
+      this.handleWorkerFailure('Worker communication failed. Retrying on the main thread…');
+    });
     return this.worker;
+  }
+
+  private handleWorkerFailure(message: string) {
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+    }
+    this.workerUnavailable = true;
+
+    if (
+      this.workerFallbackScheduled ||
+      this.state !== 'processing' ||
+      !this.sourceSelection ||
+      !this.targetSelection
+    ) {
+      return;
+    }
+
+    this.workerFallbackScheduled = true;
+    void this.generateTransform({
+      forceMainThread: true,
+      retryMessage: message
+    }).finally(() => {
+      this.workerFallbackScheduled = false;
+    });
   }
 
   private cancelActiveRequest() {
@@ -500,12 +652,14 @@ class UtilitiesApp {
     }
 
     if (message.type === 'error') {
+      this.clearDiagnostics();
       this.setState('error', message.message);
       this.setProgress(0, message.message, 'Try a different image pair or preset.');
       return;
     }
 
     if (message.type === 'cancelled') {
+      this.clearDiagnostics();
       this.setState('idle', 'Transform cancelled.');
       this.setProgress(0, 'Transform cancelled.');
       return;
@@ -519,6 +673,7 @@ class UtilitiesApp {
     };
 
     this.activeTransform = transform;
+    this.syncDiagnostics(transform.metadata, message.requestId);
     this.paintPreparedImage(this.sourceCanvas, this.sourceContext, transform.source);
     this.paintPreparedImage(this.targetCanvas, this.targetContext, transform.target);
     this.updateCanvasPlaceholder(this.sourcePlaceholder, false);
@@ -579,11 +734,19 @@ class UtilitiesApp {
     if (this.reducedMotion) {
       this.renderCompleteResult();
       this.setState('complete', 'Transform ready. Reduced motion is enabled, so the final result is shown immediately.');
-      this.setProgress(1, 'Transform complete.', `${transform.metadata.outputWidth}×${transform.metadata.outputHeight} working size`);
+      this.setProgress(
+        1,
+        'Transform complete.',
+        `${transform.metadata.matcherStrategy} · analyze ${transform.metadata.timingsMs.analyze.toFixed(0)} ms · assign ${transform.metadata.timingsMs.assign.toFixed(0)} ms`
+      );
       this.resultMeta.textContent = 'Final result rendered immediately for reduced motion.';
     } else {
       this.setState('ready', 'Transform ready. Press play or replay to run the animation.');
-      this.setProgress(0, 'Transform ready to animate.', `${transform.metadata.outputWidth}×${transform.metadata.outputHeight} working size`);
+      this.setProgress(
+        0,
+        'Transform ready to animate.',
+        `${transform.metadata.matcherStrategy} · analyze ${transform.metadata.timingsMs.analyze.toFixed(0)} ms · assign ${transform.metadata.timingsMs.assign.toFixed(0)} ms`
+      );
       this.resultMeta.textContent = 'Pixels from the source image shift into their assigned landing positions.';
       this.playAnimation();
     }
@@ -683,6 +846,15 @@ class UtilitiesApp {
     }
   }
 
+  private handlePlaybackButton() {
+    if (this.animationElapsedMs > 0) {
+      this.replayAnimation();
+      return;
+    }
+
+    this.playAnimation();
+  }
+
   private playAnimation() {
     if (!this.activeTransform || this.reducedMotion) {
       this.syncButtons();
@@ -715,6 +887,7 @@ class UtilitiesApp {
 
       if (phase >= 1) {
         this.animationElapsedMs = durationMs;
+        this.animationFrameId = 0;
         this.renderCompleteResult();
         this.setState('complete', 'Animation complete.');
         this.resultMeta.textContent = 'Every source pixel has reached its final landing position.';
@@ -739,7 +912,8 @@ class UtilitiesApp {
         this.animationElapsedMs += performance.now() - this.animationStartedAt;
         this.animationStartedAt = 0;
       }
-      this.setState('ready', 'Animation paused. Resume or replay at any time.');
+      this.setState('ready', 'Animation stopped. Press replay to run it again.');
+      this.resultMeta.textContent = 'The current pass stopped. Replay restarts the full rearrangement from frame zero.';
     }
   }
 
@@ -750,36 +924,17 @@ class UtilitiesApp {
 
     this.pauseAnimation();
     this.resetResultCanvas();
-    this.setProgress(0, 'Animation reset. Press play to run it again.');
+    this.setProgress(0, 'Animation reset. Replaying from the beginning.');
     this.playAnimation();
   }
 
   private resetAll() {
-    this.cancelActiveRequest();
-    this.pauseAnimation();
-    this.activeTransform = null;
-    this.animationState = null;
-    this.animationFramePixels = null;
-    this.finalResultImageData = null;
+    this.discardActiveRequest();
     this.sourceSelection = null;
     this.targetSelection = null;
-    this.sourceContext.clearRect(0, 0, this.sourceCanvas.width, this.sourceCanvas.height);
-    this.targetContext.clearRect(0, 0, this.targetCanvas.width, this.targetCanvas.height);
-    this.clearResultSurfaces();
-    this.updateCanvasPlaceholder(this.sourcePlaceholder, true);
-    this.updateCanvasPlaceholder(this.targetPlaceholder, true);
-    this.updateCanvasPlaceholder(this.resultPlaceholder, true);
-    this.sourceMeta.textContent = 'Waiting for an image.';
-    this.targetMeta.textContent = 'Waiting for an image.';
-    this.resultMeta.textContent = 'Generate a transform to begin the animation.';
-    this.outputSize.textContent = '—';
-    this.pixelCount.textContent = '—';
-    this.duration.textContent = '—';
     this.clearActiveDemo();
     this.syncSelectionLabels();
-    const preset = getPreset(this.selectedPreset);
-    this.setState('idle', 'Load two images or start from a demo pair.');
-    this.setProgress(0, 'Ready for input.', `${preset.label} preset · up to ${preset.maxDimension}px working size`);
+    this.invalidateComputedState('Load two images or start from a demo pair.');
   }
 
   private async swapSelections() {

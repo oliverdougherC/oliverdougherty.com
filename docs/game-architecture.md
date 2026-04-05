@@ -15,6 +15,7 @@ npm run game:typecheck
 npm run game:test
 npm run game:check
 npm run game:build
+npm run smoke
 ```
 
 ## Code layout
@@ -62,3 +63,4 @@ If `waves.ts` or `spawnPlanner.ts` become live gameplay dependencies again, upda
 - Favor mechanical cleanup over gameplay rewrites unless the task explicitly calls for behavior changes.
 - Because `main.ts` coordinates a large amount of DOM/runtime glue, keep refactors incremental and verification-heavy.
 - Rebuild `pages/game/` after source changes; do not patch the generated bundles directly.
+- For deploy readiness, pair `npm run game:check` with `npm run smoke` so the shipped game page is validated, not just the source project.

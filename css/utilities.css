@@ -15,7 +15,8 @@
 
 .utilities-hero {
   position: relative;
-  padding: calc(var(--nav-height) + var(--space-14)) 0 var(--space-6);
+  padding: calc(var(--nav-height) + var(--space-16)) 0 var(--space-6);
+  border-bottom: 1px solid var(--utilities-border-soft);
   background:
     radial-gradient(circle at 18% 18%, rgba(235, 228, 179, 0.14), transparent 28%),
     radial-gradient(circle at 82% 10%, rgba(166, 129, 71, 0.12), transparent 24%),
@@ -25,7 +26,7 @@
 
 .utilities-hero-copy {
   position: relative;
-  max-width: 34rem;
+  max-width: 38rem;
 }
 
 .hero-tag,
@@ -199,6 +200,31 @@
     transform var(--duration-base) var(--ease-smooth),
     background var(--duration-base) var(--ease-smooth);
   cursor: pointer;
+}
+
+.utility-dropzone-icon {
+  position: absolute;
+  top: 0.8rem;
+  right: 0.8rem;
+  display: grid;
+  place-items: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 999px;
+  border: 1px solid rgba(235, 228, 179, 0.22);
+  background: rgba(255, 249, 224, 0.06);
+  color: #ebe4b3;
+  pointer-events: none;
+}
+
+.utility-dropzone-icon svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
 }
 
 .utility-dropzone:hover,
@@ -497,7 +523,7 @@
 
 @media (max-width: 768px) {
   .utilities-hero {
-    padding: calc(var(--nav-height) + var(--space-14)) 0 var(--space-6);
+    padding: calc(var(--nav-height) + var(--space-16)) 0 var(--space-6);
   }
 
   .hero-title {

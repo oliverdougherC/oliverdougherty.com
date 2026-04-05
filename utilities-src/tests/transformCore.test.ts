@@ -94,6 +94,14 @@ describe('transform core', () => {
 
     expect(finalPixels).toHaveLength(source.pixels.length);
     expect(Array.from(finalPixels.slice(0, 4))).toEqual([0, 255, 0, 255]);
+    expect(result.matcherStrategy).toBe('single-optimized');
+    expect(result.matcherStats.shortlistRequestCount).toBe(4);
+    expect(result.timingsMs.analyze).toBeGreaterThanOrEqual(0);
+    expect(result.timingsMs.rank).toBeGreaterThanOrEqual(0);
+    expect(result.timingsMs.assign).toBeGreaterThanOrEqual(0);
+    expect(result.matcherStats.evaluatedCandidateCount).toBeGreaterThan(0);
+    expect(result.matcherStats.evaluatedGroupCount).toBeGreaterThan(0);
+    expect(result.matcherStats.averageGroupsPerTarget).toBeGreaterThan(0);
   });
 
   it('preserves informative donors for high-need target regions', () => {
@@ -198,5 +206,70 @@ describe('transform core', () => {
 
     expect(cheatedDifference).toBeLessThan(strictDifference);
     expect(Array.from(renderPlan.cheatedTargetPixels).some((value) => value === 1)).toBe(true);
+  });
+
+  it('uses duplicate exact-rgb donors to favor informative placements in high-need target regions', () => {
+    const donor = [40, 60, 80] as [number, number, number];
+    const similar = [42, 62, 82] as [number, number, number];
+    const source = imageFromRgbTriples(
+      [
+        donor, [255, 255, 255], donor, [255, 255, 255],
+        [255, 255, 255], donor, [255, 255, 255], donor,
+        donor, similar, donor, similar,
+        similar, donor, similar, donor
+      ],
+      4,
+      4
+    );
+    const target = imageFromRgbTriples(
+      [
+        donor, [248, 248, 248], donor, [248, 248, 248],
+        [248, 248, 248], donor, [248, 248, 248], donor,
+        donor, similar, donor, similar,
+        similar, donor, similar, donor
+      ],
+      4,
+      4
+    );
+
+    const result = transformPreparedImages(source, target, 5);
+    const analysis = analyzeTransformImages(source, target, 5);
+    const highNeedAverage =
+      (analysis.sourceUsefulnessByIndex[result.assignment[0]] +
+        analysis.sourceUsefulnessByIndex[result.assignment[2]] +
+        analysis.sourceUsefulnessByIndex[result.assignment[5]] +
+        analysis.sourceUsefulnessByIndex[result.assignment[7]]) /
+      4;
+    const lowNeedAverage =
+      (analysis.sourceUsefulnessByIndex[result.assignment[8]] +
+        analysis.sourceUsefulnessByIndex[result.assignment[10]] +
+        analysis.sourceUsefulnessByIndex[result.assignment[13]] +
+        analysis.sourceUsefulnessByIndex[result.assignment[15]]) /
+      4;
+
+    expect(new Set(Array.from(result.assignment)).size).toBe(result.assignment.length);
+    expect(highNeedAverage).toBeGreaterThan(lowNeedAverage);
+    expect(result.matcherStats.fallbackCount).toBe(0);
+  });
+
+  it('keeps fallback work bounded on collision-heavy inputs', () => {
+    const pixels = Array.from({ length: 64 }, (_, index) => {
+      const bucket = index % 4;
+      if (bucket === 0) return [184, 164, 142] as [number, number, number];
+      if (bucket === 1) return [186, 166, 144] as [number, number, number];
+      if (bucket === 2) return [52, 66, 84] as [number, number, number];
+      return [24, 28, 36] as [number, number, number];
+    });
+    const source = imageFromRgbTriples(pixels, 8, 8);
+    const target = imageFromRgbTriples([...pixels].reverse(), 8, 8);
+
+    const result = transformPreparedImages(source, target, 5);
+
+    expect(new Set(Array.from(result.assignment)).size).toBe(result.assignment.length);
+    expect(result.matcherStats.fallbackCount).toBe(0);
+    expect(result.matcherStats.shortlistHitRate).toBe(1);
+    expect(result.matcherStats.averageGroupsPerTarget).toBeLessThanOrEqual(4.1);
+    expect(result.matcherStats.evaluatedGroupCount).toBeLessThanOrEqual(256);
+    expect(result.matcherStats.evaluatedCandidateCount).toBe(result.matcherStats.evaluatedGroupCount);
   });
 });

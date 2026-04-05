@@ -52,21 +52,35 @@ function countNearWhitePixels(pixels, threshold = 245) {
   return count;
 }
 
-async function waitForStatusMatch(page, pattern, timeout = 15000) {
-  await page.waitForFunction((source) => {
-    const node = document.getElementById('transformStatusText');
-    if (!node || !node.textContent) return false;
-    return new RegExp(source, 'i').test(node.textContent);
-  }, pattern, { timeout });
+async function waitForStatusMatch(page, pattern, timeout = 15000, label = pattern) {
+  try {
+    await page.waitForFunction((source) => {
+      const node = document.getElementById('transformStatusText');
+      if (!node || !node.textContent) return false;
+      return new RegExp(source, 'i').test(node.textContent);
+    }, pattern, { timeout });
+  } catch (error) {
+    const currentStatus = await page
+      .evaluate(() => document.getElementById('transformStatusText')?.textContent?.trim() ?? '')
+      .catch(() => '');
+    throw new Error(`status wait failed (${label}) after ${timeout}ms; current status: ${currentStatus || 'n/a'}`);
+  }
 }
 
-async function waitForProgressFill(page, minimumPercent, timeout = 15000) {
-  await page.waitForFunction((threshold) => {
-    const fill = document.getElementById('transformProgressFill');
-    if (!fill) return false;
-    const width = Number.parseFloat(fill.style.width || '0');
-    return width >= threshold;
-  }, minimumPercent, { timeout });
+async function waitForProgressFill(page, minimumPercent, timeout = 15000, label = `${minimumPercent}%`) {
+  try {
+    await page.waitForFunction((threshold) => {
+      const fill = document.getElementById('transformProgressFill');
+      if (!fill) return false;
+      const width = Number.parseFloat(fill.style.width || '0');
+      return width >= threshold;
+    }, minimumPercent, { timeout });
+  } catch (error) {
+    const currentWidth = await page
+      .evaluate(() => document.getElementById('transformProgressFill')?.style.width ?? '')
+      .catch(() => '');
+    throw new Error(`progress wait failed (${label}) after ${timeout}ms; current width: ${currentWidth || 'n/a'}`);
+  }
 }
 
 async function createInvalidImageFile() {
@@ -112,6 +126,11 @@ async function readOverlayAlphaPixels(page) {
 
 async function readLayoutMetrics(page) {
   return page.evaluate(() => {
+    const nav = document.getElementById('nav');
+    const hero = document.querySelector('.utilities-hero');
+    const heroTitle = document.querySelector('.utilities-hero .hero-title');
+    const heroSubtitle = document.querySelector('.utilities-hero .hero-subtitle');
+    const sectionHeading = document.querySelector('.section-heading');
     const shell = document.querySelector('.utility-shell');
     const resultPanel = document.querySelector('.canvas-panel--result');
     const resultStage = document.querySelector('.canvas-stage--result');
@@ -134,6 +153,11 @@ async function readLayoutMetrics(page) {
         width: window.innerWidth,
         height: window.innerHeight
       },
+      nav: rect(nav),
+      hero: rect(hero),
+      heroTitle: rect(heroTitle),
+      heroSubtitle: rect(heroSubtitle),
+      sectionHeading: rect(sectionHeading),
       shell: rect(shell),
       panel: rect(resultPanel),
       stage: rect(resultStage),
@@ -163,23 +187,46 @@ async function main() {
     const pageUrl = `${BASE_URL}/pages/dashboard/index.html`;
     await page.goto(pageUrl, { waitUntil: 'networkidle' });
 
-    await waitForStatusMatch(page, 'Transform ready|Animation complete|Reduced motion', 20000);
+    await waitForStatusMatch(page, 'Transform ready|Animation complete|Reduced motion', 30000);
     await waitForProgressFill(page, 90, 20000);
 
     const afterDemo = await page.evaluate(() => ({
       status: document.getElementById('transformStatusText')?.textContent?.trim(),
       outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
       pixels: document.getElementById('transformPixelCount')?.textContent?.trim(),
-      replayDisabled: document.getElementById('transformReplayBtn')?.hasAttribute('disabled')
+      playLabel: document.getElementById('transformPlayBtn')?.textContent?.trim(),
+      replayButtonExists: Boolean(document.getElementById('transformReplayBtn')),
+      uploadIconCount: document.querySelectorAll('.utility-dropzone-icon').length
     }));
 
     assert(afterDemo.status && /Transform ready|Animation complete|Reduced motion/i.test(afterDemo.status), 'Default demo did not initialize.');
     assert(afterDemo.outputSize && afterDemo.outputSize !== '—', 'Default demo output size missing.');
     assert(afterDemo.pixels && afterDemo.pixels !== '—', 'Default demo pixel count missing.');
-    assert(afterDemo.replayDisabled === false, 'Replay should be enabled after the default demo loads.');
+    assert(afterDemo.playLabel === 'Replay', 'Primary playback control should switch to Replay after the default animation runs.');
+    assert(afterDemo.replayButtonExists === false, 'Dedicated replay button should not be rendered.');
+    assert(afterDemo.uploadIconCount === 2, 'Both upload dropzones should expose a visible upload icon.');
 
     const desktopLayout = await readLayoutMetrics(page);
     assert(desktopLayout.scrollWidth === desktopLayout.clientWidth, 'Utilities page should not overflow horizontally.');
+    assert(
+      desktopLayout.nav &&
+        desktopLayout.heroTitle &&
+        desktopLayout.heroTitle.top >= desktopLayout.nav.bottom + 12,
+      'Utilities hero title sits too close to the fixed navigation.'
+    );
+    assert(
+      desktopLayout.hero &&
+        desktopLayout.hero.height >= 220 &&
+        desktopLayout.hero.height <= 350,
+      'Utilities hero height is outside the intended compact desktop range.'
+    );
+    assert(
+      desktopLayout.hero &&
+        desktopLayout.sectionHeading &&
+        desktopLayout.sectionHeading.top - desktopLayout.hero.bottom >= 0 &&
+        desktopLayout.sectionHeading.top - desktopLayout.hero.bottom <= 24,
+      'Gap between the hero and the featured utility heading is outside the intended compact range.'
+    );
     assert(desktopLayout.shell && desktopLayout.shell.height < 1700, 'Utilities shell is still too tall for comfortable desktop viewing.');
     assert(desktopLayout.stage && desktopLayout.stage.height <= 640, 'Reconstruction stage is still larger than intended on desktop.');
     assert(
@@ -193,7 +240,7 @@ async function main() {
 
     const finalResultPixels = await readCanvasPixels(page, 'transformResultCanvas');
     const sourceStagePixels = await readCanvasPixels(page, 'transformSourceCanvas');
-    await page.click('#transformReplayBtn');
+    await page.click('#transformPlayBtn');
     await waitForStatusMatch(page, 'Animating', 5000);
     await waitForProgressFill(page, 65, 15000);
 
@@ -242,8 +289,8 @@ async function main() {
     assert(completedOverlayAlphaPixels === 0, 'Completed animation should leave no overlay pixels behind.');
 
     await page.click('#transformSwapBtn');
-    await waitForStatusMatch(page, 'Preparing|Matching|Animating', 5000);
-    await waitForStatusMatch(page, 'Transform ready|Animation complete|Reduced motion', 20000);
+    await waitForStatusMatch(page, 'Preparing|Analyzing|Assigning|Animating', 7000);
+    await waitForStatusMatch(page, 'Transform ready|Animation complete|Reduced motion', 30000);
 
     const sourcePath = path.join(ROOT, 'utilities-src', 'tests', 'fixtures', 'source.png');
     const targetPath = path.join(ROOT, 'utilities-src', 'tests', 'fixtures', 'target.png');
@@ -253,8 +300,8 @@ async function main() {
     await page.setInputFiles('#transformSourceInput', sourcePath);
     await page.setInputFiles('#transformTargetInput', targetPath);
     await page.click('#transformGenerateBtn');
-    await waitForStatusMatch(page, 'Preparing|Matching|Animating', 5000);
-    await waitForStatusMatch(page, 'Transform ready|Animation complete|Reduced motion', 20000);
+    await waitForStatusMatch(page, 'Preparing|Analyzing|Assigning|Animating', 7000);
+    await waitForStatusMatch(page, 'Transform ready|Animation complete|Reduced motion', 30000);
 
     const uploadedState = await page.evaluate(() => ({
       status: document.getElementById('transformStatusText')?.textContent?.trim(),
@@ -266,11 +313,28 @@ async function main() {
     assert(uploadedState.sourceMeta && /normalized|working size/i.test(uploadedState.sourceMeta), 'Source meta did not update.');
     assert(uploadedState.targetMeta && /normalized|working size/i.test(uploadedState.targetMeta), 'Target meta did not update.');
 
+    await page.setInputFiles('#transformSourceInput', whiteHeavySourcePath);
+    const staleState = await page.evaluate(() => ({
+      status: document.getElementById('transformStatusText')?.textContent?.trim(),
+      progress: document.getElementById('transformProgressText')?.textContent?.trim(),
+      outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
+      playDisabled: document.getElementById('transformPlayBtn')?.hasAttribute('disabled'),
+      sourceMeta: document.getElementById('transformSourceMeta')?.textContent?.trim(),
+      resultMeta: document.getElementById('transformResultMeta')?.textContent?.trim()
+    }));
+
+    assert(/Selection updated/i.test(staleState.status || ''), 'Selecting a new source should invalidate the old transform status.');
+    assert(/Generate a new transform|Ready for input/i.test(staleState.progress || ''), 'Selecting a new source should clear the old result progress copy.');
+    assert(staleState.outputSize === '—', 'Selecting a new source should clear the stale output metrics.');
+    assert(staleState.playDisabled === true, 'Selecting a new source should disable playback for the stale result.');
+    assert(/preview the selected source image/i.test(staleState.sourceMeta || ''), 'Selecting a new source should replace the stale source metadata.');
+    assert(/rebuild the current image pair/i.test(staleState.resultMeta || ''), 'Selecting a new source should prompt the user to regenerate.');
+
     await page.selectOption('#transformPreset', 'fast');
     await page.setInputFiles('#transformSourceInput', whiteHeavySourcePath);
     await page.setInputFiles('#transformTargetInput', whiteHeavyTargetPath);
     await page.click('#transformGenerateBtn');
-    await waitForStatusMatch(page, 'Preparing|Matching|Animating', 5000);
+    await waitForStatusMatch(page, 'Preparing|Analyzing|Assigning|Animating', 7000);
     await waitForStatusMatch(page, 'Transform ready|Animation complete|Reduced motion', 30000);
 
     const whiteHeavySourcePixels = await readCanvasPixels(page, 'transformSourceCanvas');
@@ -312,22 +376,52 @@ async function main() {
     assert(errorState.chip === 'Error', 'Invalid upload should set the error state.');
     assert(errorState.text && /unable|failed|could not/i.test(errorState.text), 'Invalid upload should surface a readable error.');
 
+    const noWorkerPage = await browser.newPage({
+      viewport: { width: 1440, height: 1100 }
+    });
+    await noWorkerPage.addInitScript(() => {
+      Object.defineProperty(window, 'Worker', {
+        configurable: true,
+        writable: true,
+        value: undefined
+      });
+    });
+    await noWorkerPage.goto(pageUrl, { waitUntil: 'networkidle' });
+    await waitForStatusMatch(noWorkerPage, 'Transform ready|Animation complete|Reduced motion', 30000, 'main-thread fallback');
+
+    const noWorkerState = await noWorkerPage.evaluate(() => ({
+      status: document.getElementById('transformStatusText')?.textContent?.trim(),
+      outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
+      matcherStrategy: document.getElementById('utilitiesApp')?.dataset.matcherStrategy ?? ''
+    }));
+
+    assert(
+      noWorkerState.status && /Transform ready|Animation complete|Reduced motion/i.test(noWorkerState.status),
+      'Utilities page should still complete when workers are unavailable.'
+    );
+    assert(noWorkerState.outputSize && noWorkerState.outputSize !== '—', 'Main-thread fallback should still render output metrics.');
+    assert(noWorkerState.matcherStrategy === 'single-optimized', 'Main-thread fallback should preserve the optimized matcher.');
+
     const mobilePage = await browser.newPage({
       viewport: { width: 390, height: 844 }
     });
     await mobilePage.emulateMedia({ reducedMotion: 'reduce' });
     await mobilePage.goto(pageUrl, { waitUntil: 'networkidle' });
-    await waitForStatusMatch(mobilePage, 'Reduced motion', 20000);
+    await waitForStatusMatch(mobilePage, 'Reduced motion', 30000);
 
     const mobileState = await mobilePage.evaluate(() => ({
       width: window.innerWidth,
       shellWidth: document.querySelector('.utility-shell')?.getBoundingClientRect().width ?? 0,
-      resultStatus: document.getElementById('transformStatusText')?.textContent?.trim()
+      resultStatus: document.getElementById('transformStatusText')?.textContent?.trim(),
+      navBottom: document.getElementById('nav')?.getBoundingClientRect().bottom ?? 0,
+      heroTitleTop: document.querySelector('.utilities-hero .hero-title')?.getBoundingClientRect().top ?? 0
     }));
 
     assert(mobileState.shellWidth <= mobileState.width, 'Utilities shell overflows the mobile viewport.');
     assert(mobileState.resultStatus && /Reduced motion/i.test(mobileState.resultStatus), 'Reduced-motion path did not complete.');
+    assert(mobileState.heroTitleTop >= mobileState.navBottom + 8, 'Mobile utilities hero title sits too close to the navigation.');
 
+    await noWorkerPage.close();
     await mobilePage.close();
     await page.close();
 

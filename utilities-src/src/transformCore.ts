@@ -1,11 +1,82 @@
 import { analyzeTransformImages, type TransformImageAnalysis } from './transformIntelligence';
-import type { PreparedImageData, TransformComputationResult } from './types';
+import type {
+  PreparedImageData,
+  TransformComputationResult,
+  TransformMatcherStats,
+  TransformStageTimingsMs
+} from './types';
 
 export class TransformError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'TransformError';
   }
+}
+
+export interface TransformHooks {
+  onProgress?: (completed: number, total: number) => void;
+  onStageProgress?: (
+    stage: 'analyzing' | 'ranking' | 'assigning',
+    progress: number,
+    message: string
+  ) => void;
+  isCancelled?: () => boolean;
+}
+
+export interface MatchingSearchContext {
+  sourcePacked: Uint32Array;
+  targetPacked: Uint32Array;
+  buckets: Map<number, number[]>;
+  bucketGroups: Map<number, number[]>;
+  bucketEntryIndexByKey: Map<number, number>;
+  bucketKeys: Uint32Array;
+  bucketRed: Uint8Array;
+  bucketGreen: Uint8Array;
+  bucketBlue: Uint8Array;
+  bucketRemainingGroupCount: Int32Array;
+  shift: number;
+  bucketCount: number;
+  groupRgbValues: Uint32Array;
+  groupNearWhiteByGroup: Float32Array;
+  groupMinDonorByGroup: Int32Array;
+  groupMaxDonorByGroup: Int32Array;
+  groupRemainingCount: Int32Array;
+  donorGroupBySource: Int32Array;
+  donorBucketKeyBySource: Int32Array;
+  donorNextByUsefulness: Int32Array;
+  donorPrevByUsefulness: Int32Array;
+  usefulnessBySource: Float32Array;
+  analysis?: TransformImageAnalysis;
+}
+
+export interface RankedCandidate {
+  sourceIndex: number;
+  distance: number;
+}
+
+export interface TargetSearchState {
+  nextRadius: number;
+  rankedCandidates: RankedCandidate[];
+  initialCandidateCount: number;
+}
+
+interface FreeListState {
+  head: number;
+  nextFree: Int32Array;
+  prevFree: Int32Array;
+}
+
+interface PackedMatchComputation {
+  assignment: Uint32Array;
+  matcherStats: TransformMatcherStats;
+  assignMs: number;
+}
+
+const INITIAL_SHORTLIST_SIZE = 8;
+const PROGRESS_REPORT_INTERVAL = 256;
+
+function nowMs() {
+  return performance.now();
 }
 
 export function resolveOutputDimensions(width: number, height: number, maxDimension: number) {
@@ -24,7 +95,7 @@ export function resolveOutputDimensions(width: number, height: number, maxDimens
   };
 }
 
-export function packRgbPixels(pixels: Uint8ClampedArray): Uint32Array {
+export function packRgbPixels(pixels: Uint8ClampedArray) {
   if (pixels.length % 4 !== 0) {
     throw new TransformError('Pixel data must be RGBA-aligned.');
   }
@@ -37,26 +108,30 @@ export function packRgbPixels(pixels: Uint8ClampedArray): Uint32Array {
 }
 
 function bucketKey(rgb: number, shift: number) {
-  const r = ((rgb >> 16) & 0xff) >> shift;
-  const g = ((rgb >> 8) & 0xff) >> shift;
-  const b = (rgb & 0xff) >> shift;
-  return (r << 16) | (g << 8) | b;
+  const red = ((rgb >> 16) & 0xff) >> shift;
+  const green = ((rgb >> 8) & 0xff) >> shift;
+  const blue = (rgb & 0xff) >> shift;
+  return (red << 16) | (green << 8) | blue;
 }
 
 function weightedDistance(left: number, right: number) {
-  const lr = (left >> 16) & 0xff;
-  const lg = (left >> 8) & 0xff;
-  const lb = left & 0xff;
-  const rr = (right >> 16) & 0xff;
-  const rg = (right >> 8) & 0xff;
-  const rb = right & 0xff;
+  const leftRed = (left >> 16) & 0xff;
+  const leftGreen = (left >> 8) & 0xff;
+  const leftBlue = left & 0xff;
+  const rightRed = (right >> 16) & 0xff;
+  const rightGreen = (right >> 8) & 0xff;
+  const rightBlue = right & 0xff;
 
-  const rMean = (lr + rr) >> 1;
-  const dr = lr - rr;
-  const dg = lg - rg;
-  const db = lb - rb;
+  const redMean = (leftRed + rightRed) >> 1;
+  const deltaRed = leftRed - rightRed;
+  const deltaGreen = leftGreen - rightGreen;
+  const deltaBlue = leftBlue - rightBlue;
 
-  return (((512 + rMean) * dr * dr) >> 8) + 4 * dg * dg + (((767 - rMean) * db * db) >> 8);
+  return (
+    (((512 + redMean) * deltaRed * deltaRed) >> 8) +
+    4 * deltaGreen * deltaGreen +
+    (((767 - redMean) * deltaBlue * deltaBlue) >> 8)
+  );
 }
 
 function buildBucketMap(sourcePacked: Uint32Array, quantizationBits: number) {
@@ -76,44 +151,92 @@ function buildBucketMap(sourcePacked: Uint32Array, quantizationBits: number) {
   return { buckets, shift, bucketCount: 1 << quantizationBits };
 }
 
-function forEachShellBucket(
-  centerR: number,
-  centerG: number,
-  centerB: number,
-  radius: number,
-  bucketCount: number,
-  callback: (key: number) => void
-) {
-  const rMin = Math.max(0, centerR - radius);
-  const rMax = Math.min(bucketCount - 1, centerR + radius);
-  const gMin = Math.max(0, centerG - radius);
-  const gMax = Math.min(bucketCount - 1, centerG + radius);
-  const bMin = Math.max(0, centerB - radius);
-  const bMax = Math.min(bucketCount - 1, centerB + radius);
-
-  for (let r = rMin; r <= rMax; r += 1) {
-    for (let g = gMin; g <= gMax; g += 1) {
-      for (let b = bMin; b <= bMax; b += 1) {
-        const shellDistance = Math.max(Math.abs(r - centerR), Math.abs(g - centerG), Math.abs(b - centerB));
-        if (shellDistance !== radius) {
-          continue;
-        }
-        callback((r << 16) | (g << 8) | b);
-      }
-    }
-  }
-}
-
-export function matchPackedPixels(
+function buildGroupedDonorState(
   sourcePacked: Uint32Array,
-  targetPacked: Uint32Array,
-  quantizationBits: number,
-  hooks?: {
-    onProgress?: (completed: number, total: number) => void;
-    isCancelled?: () => boolean;
-  },
+  shift: number,
   analysis?: TransformImageAnalysis
 ) {
+  const exactGroups = new Map<number, number[]>();
+  for (let sourceIndex = 0; sourceIndex < sourcePacked.length; sourceIndex += 1) {
+    const rgb = sourcePacked[sourceIndex];
+    const existing = exactGroups.get(rgb);
+    if (existing) {
+      existing.push(sourceIndex);
+    } else {
+      exactGroups.set(rgb, [sourceIndex]);
+    }
+  }
+
+  const bucketGroups = new Map<number, number[]>();
+  const donorBucketKeyBySource = new Int32Array(sourcePacked.length);
+  const groupRgbValues = new Uint32Array(exactGroups.size);
+  const groupNearWhiteByGroup = new Float32Array(exactGroups.size);
+  const groupMinDonorByGroup = new Int32Array(exactGroups.size);
+  const groupMaxDonorByGroup = new Int32Array(exactGroups.size);
+  const groupRemainingCount = new Int32Array(exactGroups.size);
+  const donorGroupBySource = new Int32Array(sourcePacked.length);
+  const donorNextByUsefulness = new Int32Array(sourcePacked.length);
+  const donorPrevByUsefulness = new Int32Array(sourcePacked.length);
+  donorGroupBySource.fill(-1);
+  donorNextByUsefulness.fill(-1);
+  donorPrevByUsefulness.fill(-1);
+
+  const usefulnessBySource = analysis?.sourceUsefulnessByIndex
+    ? Float32Array.from(analysis.sourceUsefulnessByIndex)
+    : new Float32Array(sourcePacked.length).fill(0.5);
+  const nearWhiteBySource = analysis?.sourceNearWhiteByIndex
+    ? analysis.sourceNearWhiteByIndex
+    : new Float32Array(sourcePacked.length);
+
+  let groupIndex = 0;
+  for (const [rgb, donors] of exactGroups.entries()) {
+    const quantizedBucketKey = bucketKey(rgb, shift);
+    const groupsForBucket = bucketGroups.get(quantizedBucketKey);
+    if (groupsForBucket) {
+      groupsForBucket.push(groupIndex);
+    } else {
+      bucketGroups.set(quantizedBucketKey, [groupIndex]);
+    }
+
+    donors.sort((left, right) => {
+      const delta = usefulnessBySource[left] - usefulnessBySource[right];
+      return delta === 0 ? left - right : delta;
+    });
+
+    groupRgbValues[groupIndex] = rgb;
+    groupNearWhiteByGroup[groupIndex] = nearWhiteBySource[donors[0]] ?? 0;
+    groupMinDonorByGroup[groupIndex] = donors[0];
+    groupMaxDonorByGroup[groupIndex] = donors[donors.length - 1];
+    groupRemainingCount[groupIndex] = donors.length;
+
+    for (let donorOffset = 0; donorOffset < donors.length; donorOffset += 1) {
+      const donorIndex = donors[donorOffset];
+      donorGroupBySource[donorIndex] = groupIndex;
+      donorBucketKeyBySource[donorIndex] = quantizedBucketKey;
+      donorPrevByUsefulness[donorIndex] = donorOffset > 0 ? donors[donorOffset - 1] : -1;
+      donorNextByUsefulness[donorIndex] =
+        donorOffset + 1 < donors.length ? donors[donorOffset + 1] : -1;
+    }
+
+    groupIndex += 1;
+  }
+
+  return {
+    bucketGroups,
+    groupRgbValues,
+    groupNearWhiteByGroup,
+    groupMinDonorByGroup,
+    groupMaxDonorByGroup,
+    groupRemainingCount,
+    donorGroupBySource,
+    donorBucketKeyBySource,
+    donorNextByUsefulness,
+    donorPrevByUsefulness,
+    usefulnessBySource
+  };
+}
+
+function validateMatchingInputs(sourcePacked: Uint32Array, targetPacked: Uint32Array, quantizationBits: number) {
   if (sourcePacked.length !== targetPacked.length) {
     throw new TransformError('Source and target images must have the same pixel count.');
   }
@@ -121,53 +244,365 @@ export function matchPackedPixels(
   if (quantizationBits < 4 || quantizationBits > 8) {
     throw new TransformError('Quantization bits must stay between 4 and 8.');
   }
+}
 
+function forEachShellBucket(
+  centerRed: number,
+  centerGreen: number,
+  centerBlue: number,
+  radius: number,
+  bucketCount: number,
+  callback: (key: number) => void
+) {
+  const redMin = Math.max(0, centerRed - radius);
+  const redMax = Math.min(bucketCount - 1, centerRed + radius);
+  const greenMin = Math.max(0, centerGreen - radius);
+  const greenMax = Math.min(bucketCount - 1, centerGreen + radius);
+  const blueMin = Math.max(0, centerBlue - radius);
+  const blueMax = Math.min(bucketCount - 1, centerBlue + radius);
+
+  for (let red = redMin; red <= redMax; red += 1) {
+    for (let green = greenMin; green <= greenMax; green += 1) {
+      for (let blue = blueMin; blue <= blueMax; blue += 1) {
+        const shellDistance = Math.max(
+          Math.abs(red - centerRed),
+          Math.abs(green - centerGreen),
+          Math.abs(blue - centerBlue)
+        );
+        if (shellDistance !== radius) {
+          continue;
+        }
+        callback((red << 16) | (green << 8) | blue);
+      }
+    }
+  }
+}
+
+function scoreCandidateDistance(context: MatchingSearchContext, sourceIndex: number, targetIndex: number) {
+  let distance = weightedDistance(context.sourcePacked[sourceIndex], context.targetPacked[targetIndex]);
+
+  if (context.analysis) {
+    const donorUsefulness = context.analysis.sourceUsefulnessByIndex[sourceIndex];
+    const donorNearWhite = context.analysis.sourceNearWhiteByIndex[sourceIndex];
+    const targetNeed = context.analysis.targetNeedByIndex[targetIndex];
+    const targetFlatBright = context.analysis.targetNearWhiteByIndex[targetIndex] * (1 - targetNeed);
+
+    distance += (1 - donorUsefulness) * targetNeed * 50_000;
+    distance += donorNearWhite * targetNeed * 34_000;
+    distance += donorUsefulness * targetFlatBright * 14_000;
+  }
+
+  return distance;
+}
+
+export function createMatchingSearchContext(
+  sourcePacked: Uint32Array,
+  targetPacked: Uint32Array,
+  quantizationBits: number,
+  analysis?: TransformImageAnalysis
+): MatchingSearchContext {
+  validateMatchingInputs(sourcePacked, targetPacked, quantizationBits);
   const { buckets, shift, bucketCount } = buildBucketMap(sourcePacked, quantizationBits);
-  const assignment = new Uint32Array(targetPacked.length);
-  const used = new Uint8Array(sourcePacked.length);
-  const targetOrder = analysis
-    ? Array.from({ length: targetPacked.length }, (_value, index) => index).sort((left, right) => {
-        const delta = analysis.targetPriorityByIndex[right] - analysis.targetPriorityByIndex[left];
-        return delta === 0 ? left - right : delta;
-      })
-    : null;
+  const groupedDonorState = buildGroupedDonorState(sourcePacked, shift, analysis);
+  const bucketKeys = Uint32Array.from(groupedDonorState.bucketGroups.keys());
+  const bucketRed = new Uint8Array(bucketKeys.length);
+  const bucketGreen = new Uint8Array(bucketKeys.length);
+  const bucketBlue = new Uint8Array(bucketKeys.length);
+  const bucketRemainingGroupCount = new Int32Array(bucketKeys.length);
+  const bucketEntryIndexByKey = new Map<number, number>();
 
-  for (let orderedIndex = 0; orderedIndex < targetPacked.length; orderedIndex += 1) {
-    const targetIndex = targetOrder ? targetOrder[orderedIndex] : orderedIndex;
-    if (hooks?.isCancelled?.()) {
-      throw new TransformError('Transform cancelled.');
+  for (let bucketIndex = 0; bucketIndex < bucketKeys.length; bucketIndex += 1) {
+    const key = bucketKeys[bucketIndex];
+    bucketEntryIndexByKey.set(key, bucketIndex);
+    bucketRed[bucketIndex] = (key >> 16) & 0xff;
+    bucketGreen[bucketIndex] = (key >> 8) & 0xff;
+    bucketBlue[bucketIndex] = key & 0xff;
+    bucketRemainingGroupCount[bucketIndex] = groupedDonorState.bucketGroups.get(key)?.length ?? 0;
+  }
+
+  return {
+    sourcePacked,
+    targetPacked,
+    buckets,
+    bucketGroups: groupedDonorState.bucketGroups,
+    bucketEntryIndexByKey,
+    bucketKeys,
+    bucketRed,
+    bucketGreen,
+    bucketBlue,
+    bucketRemainingGroupCount,
+    shift,
+    bucketCount,
+    groupRgbValues: groupedDonorState.groupRgbValues,
+    groupNearWhiteByGroup: groupedDonorState.groupNearWhiteByGroup,
+    groupMinDonorByGroup: groupedDonorState.groupMinDonorByGroup,
+    groupMaxDonorByGroup: groupedDonorState.groupMaxDonorByGroup,
+    groupRemainingCount: groupedDonorState.groupRemainingCount,
+    donorGroupBySource: groupedDonorState.donorGroupBySource,
+    donorBucketKeyBySource: groupedDonorState.donorBucketKeyBySource,
+    donorNextByUsefulness: groupedDonorState.donorNextByUsefulness,
+    donorPrevByUsefulness: groupedDonorState.donorPrevByUsefulness,
+    usefulnessBySource: groupedDonorState.usefulnessBySource,
+    analysis
+  };
+}
+
+export function resolveTargetOrder(targetLength: number, analysis?: TransformImageAnalysis) {
+  const order = Array.from({ length: targetLength }, (_value, index) => index);
+  if (!analysis) {
+    return Uint32Array.from(order);
+  }
+
+  order.sort((left, right) => {
+    const delta = analysis.targetPriorityByIndex[right] - analysis.targetPriorityByIndex[left];
+    return delta === 0 ? left - right : delta;
+  });
+
+  return Uint32Array.from(order);
+}
+
+function collectShellCandidates(
+  context: MatchingSearchContext,
+  targetIndex: number,
+  radius: number
+) {
+  const targetRgb = context.targetPacked[targetIndex];
+  const centerRed = ((targetRgb >> 16) & 0xff) >> context.shift;
+  const centerGreen = ((targetRgb >> 8) & 0xff) >> context.shift;
+  const centerBlue = (targetRgb & 0xff) >> context.shift;
+  const shellCandidates: RankedCandidate[] = [];
+
+  forEachShellBucket(centerRed, centerGreen, centerBlue, radius, context.bucketCount, (key) => {
+    const candidates = context.buckets.get(key);
+    if (!candidates) {
+      return;
     }
 
-    const targetRgb = targetPacked[targetIndex];
-    const centerR = ((targetRgb >> 16) & 0xff) >> shift;
-    const centerG = ((targetRgb >> 8) & 0xff) >> shift;
-    const centerB = (targetRgb & 0xff) >> shift;
+    for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+      const sourceIndex = candidates[candidateIndex];
+      shellCandidates.push({
+        sourceIndex,
+        distance: scoreCandidateDistance(context, sourceIndex, targetIndex)
+      });
+    }
+  });
 
-    let bestIndex = -1;
-    let bestDistance = Number.POSITIVE_INFINITY;
+  shellCandidates.sort((left, right) =>
+    left.distance === right.distance ? left.sourceIndex - right.sourceIndex : left.distance - right.distance
+  );
 
-    for (let radius = 0; radius < bucketCount && bestIndex === -1; radius += 1) {
-      forEachShellBucket(centerR, centerG, centerB, radius, bucketCount, (key) => {
-        const candidates = buckets.get(key);
-        if (!candidates) {
+  return shellCandidates;
+}
+
+function populateCandidateQueue(
+  context: MatchingSearchContext,
+  targetIndex: number,
+  state: TargetSearchState,
+  minimumCandidateCount: number
+) {
+  while (
+    state.rankedCandidates.length < minimumCandidateCount &&
+    state.nextRadius < context.bucketCount
+  ) {
+    state.rankedCandidates.push(
+      ...collectShellCandidates(context, targetIndex, state.nextRadius)
+    );
+    state.nextRadius += 1;
+  }
+}
+
+function createTargetSearchState(
+  context: MatchingSearchContext,
+  targetIndex: number,
+  minimumCandidateCount: number
+) {
+  const state: TargetSearchState = {
+    nextRadius: 0,
+    rankedCandidates: [],
+    initialCandidateCount: 0
+  };
+  populateCandidateQueue(context, targetIndex, state, minimumCandidateCount);
+  state.initialCandidateCount = state.rankedCandidates.length;
+  return state;
+}
+
+export function collectRankedCandidatesForTarget(
+  context: MatchingSearchContext,
+  targetIndex: number,
+  minimumCandidateCount: number
+) {
+  return createTargetSearchState(context, targetIndex, minimumCandidateCount).rankedCandidates;
+}
+
+export function findBestAvailableSourceIndex(
+  context: MatchingSearchContext,
+  targetIndex: number,
+  used: Uint8Array
+) {
+  const targetRgb = context.targetPacked[targetIndex];
+  const centerRed = ((targetRgb >> 16) & 0xff) >> context.shift;
+  const centerGreen = ((targetRgb >> 8) & 0xff) >> context.shift;
+  const centerBlue = (targetRgb & 0xff) >> context.shift;
+
+  let bestIndex = -1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (let radius = 0; radius < context.bucketCount && bestIndex === -1; radius += 1) {
+    forEachShellBucket(centerRed, centerGreen, centerBlue, radius, context.bucketCount, (key) => {
+      const candidates = context.buckets.get(key);
+      if (!candidates) {
+        return;
+      }
+
+      for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+        const sourceIndex = candidates[candidateIndex];
+        if (used[sourceIndex]) {
+          continue;
+        }
+
+        const distance = scoreCandidateDistance(context, sourceIndex, targetIndex);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestIndex = sourceIndex;
+        }
+      }
+    });
+  }
+
+  return bestIndex;
+}
+
+interface GroupedSearchResult {
+  sourceIndex: number;
+  evaluatedCandidateCount: number;
+  evaluatedGroupCount: number;
+}
+
+function shouldUseOccupiedBucketScan(context: MatchingSearchContext) {
+  const searchSpaceSize = context.bucketCount * context.bucketCount * context.bucketCount;
+  return context.bucketKeys.length <= 128 && context.bucketKeys.length * 4 <= searchSpaceSize;
+}
+
+function findBestGroupedSourceIndex(
+  context: MatchingSearchContext,
+  targetIndex: number
+): GroupedSearchResult {
+  const targetRgb = context.targetPacked[targetIndex];
+  const centerRed = ((targetRgb >> 16) & 0xff) >> context.shift;
+  const centerGreen = ((targetRgb >> 8) & 0xff) >> context.shift;
+  const centerBlue = (targetRgb & 0xff) >> context.shift;
+  const targetNeed = context.analysis?.targetNeedByIndex[targetIndex] ?? 0;
+  const targetFlatBright =
+    (context.analysis?.targetNearWhiteByIndex[targetIndex] ?? 0) * (1 - targetNeed);
+  const usefulnessCoefficient = -targetNeed * 50_000 + targetFlatBright * 14_000;
+  const nearWhiteCoefficient = targetNeed * 34_000;
+  const preferMaxUsefulness = usefulnessCoefficient < 0;
+
+  let bestIndex = -1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  let evaluatedGroupCount = 0;
+  let evaluatedCandidateCount = 0;
+  if (shouldUseOccupiedBucketScan(context)) {
+    let nearestShellDistance = Number.POSITIVE_INFINITY;
+
+    for (let bucketIndex = 0; bucketIndex < context.bucketKeys.length; bucketIndex += 1) {
+      if (context.bucketRemainingGroupCount[bucketIndex] <= 0) {
+        continue;
+      }
+
+      const shellDistance = Math.max(
+        Math.abs(context.bucketRed[bucketIndex] - centerRed),
+        Math.abs(context.bucketGreen[bucketIndex] - centerGreen),
+        Math.abs(context.bucketBlue[bucketIndex] - centerBlue)
+      );
+      if (shellDistance < nearestShellDistance) {
+        nearestShellDistance = shellDistance;
+      }
+    }
+
+    if (!Number.isFinite(nearestShellDistance)) {
+      return {
+        sourceIndex: -1,
+        evaluatedCandidateCount: 0,
+        evaluatedGroupCount: 0
+      };
+    }
+
+    for (let bucketIndex = 0; bucketIndex < context.bucketKeys.length; bucketIndex += 1) {
+      if (context.bucketRemainingGroupCount[bucketIndex] <= 0) {
+        continue;
+      }
+
+      const shellDistance = Math.max(
+        Math.abs(context.bucketRed[bucketIndex] - centerRed),
+        Math.abs(context.bucketGreen[bucketIndex] - centerGreen),
+        Math.abs(context.bucketBlue[bucketIndex] - centerBlue)
+      );
+      if (shellDistance !== nearestShellDistance) {
+        continue;
+      }
+
+      const groupIndices = context.bucketGroups.get(context.bucketKeys[bucketIndex]);
+      if (!groupIndices) {
+        continue;
+      }
+
+      for (let groupOffset = 0; groupOffset < groupIndices.length; groupOffset += 1) {
+        const groupIndex = groupIndices[groupOffset];
+        if (context.groupRemainingCount[groupIndex] <= 0) {
+          continue;
+        }
+
+        const sourceIndex = preferMaxUsefulness
+          ? context.groupMaxDonorByGroup[groupIndex]
+          : context.groupMinDonorByGroup[groupIndex];
+        if (sourceIndex < 0) {
+          continue;
+        }
+
+        evaluatedGroupCount += 1;
+        evaluatedCandidateCount += 1;
+
+        let distance = weightedDistance(context.groupRgbValues[groupIndex], targetRgb);
+        if (context.analysis) {
+          distance += usefulnessCoefficient * context.usefulnessBySource[sourceIndex];
+          distance += nearWhiteCoefficient * context.groupNearWhiteByGroup[groupIndex];
+        }
+
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestIndex = sourceIndex;
+        }
+      }
+    }
+  } else {
+    for (let radius = 0; radius < context.bucketCount && bestIndex === -1; radius += 1) {
+      forEachShellBucket(centerRed, centerGreen, centerBlue, radius, context.bucketCount, (key) => {
+        const groupIndices = context.bucketGroups.get(key);
+        if (!groupIndices) {
           return;
         }
 
-        for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
-          const sourceIndex = candidates[candidateIndex];
-          if (used[sourceIndex]) {
+        for (let groupOffset = 0; groupOffset < groupIndices.length; groupOffset += 1) {
+          const groupIndex = groupIndices[groupOffset];
+          if (context.groupRemainingCount[groupIndex] <= 0) {
             continue;
           }
 
-          let distance = weightedDistance(sourcePacked[sourceIndex], targetRgb);
-          if (analysis) {
-            const donorUsefulness = analysis.sourceUsefulnessByIndex[sourceIndex];
-            const donorNearWhite = analysis.sourceNearWhiteByIndex[sourceIndex];
-            const targetNeed = analysis.targetNeedByIndex[targetIndex];
-            const targetFlatBright = analysis.targetNearWhiteByIndex[targetIndex] * (1 - targetNeed);
-            distance += (1 - donorUsefulness) * targetNeed * 50_000;
-            distance += donorNearWhite * targetNeed * 34_000;
-            distance += donorUsefulness * targetFlatBright * 14_000;
+          const sourceIndex = preferMaxUsefulness
+            ? context.groupMaxDonorByGroup[groupIndex]
+            : context.groupMinDonorByGroup[groupIndex];
+          if (sourceIndex < 0) {
+            continue;
+          }
+
+          evaluatedGroupCount += 1;
+          evaluatedCandidateCount += 1;
+
+          let distance = weightedDistance(context.groupRgbValues[groupIndex], targetRgb);
+          if (context.analysis) {
+            distance += usefulnessCoefficient * context.usefulnessBySource[sourceIndex];
+            distance += nearWhiteCoefficient * context.groupNearWhiteByGroup[groupIndex];
           }
 
           if (distance < bestDistance) {
@@ -177,23 +612,258 @@ export function matchPackedPixels(
         }
       });
     }
+  }
 
-    if (bestIndex === -1) {
-      bestIndex = used.findIndex((value) => value === 0);
-      if (bestIndex === -1) {
-        throw new TransformError('No unused pixels remained during matching.');
+  return {
+    sourceIndex: bestIndex,
+    evaluatedCandidateCount,
+    evaluatedGroupCount
+  };
+}
+
+function removeFromGroupedDonorState(context: MatchingSearchContext, sourceIndex: number) {
+  const groupIndex = context.donorGroupBySource[sourceIndex];
+  if (groupIndex < 0) {
+    return;
+  }
+  const bucketKey = context.donorBucketKeyBySource[sourceIndex];
+
+  const previousIndex = context.donorPrevByUsefulness[sourceIndex];
+  const nextIndex = context.donorNextByUsefulness[sourceIndex];
+
+  if (previousIndex !== -1) {
+    context.donorNextByUsefulness[previousIndex] = nextIndex;
+  } else {
+    context.groupMinDonorByGroup[groupIndex] = nextIndex;
+  }
+
+  if (nextIndex !== -1) {
+    context.donorPrevByUsefulness[nextIndex] = previousIndex;
+  } else {
+    context.groupMaxDonorByGroup[groupIndex] = previousIndex;
+  }
+
+  context.donorPrevByUsefulness[sourceIndex] = -1;
+  context.donorNextByUsefulness[sourceIndex] = -1;
+  const remainingCount = Math.max(0, context.groupRemainingCount[groupIndex] - 1);
+  context.groupRemainingCount[groupIndex] = remainingCount;
+  if (remainingCount === 0) {
+    const bucketIndex = context.bucketEntryIndexByKey.get(bucketKey);
+    if (bucketIndex !== undefined) {
+      context.bucketRemainingGroupCount[bucketIndex] = Math.max(
+        0,
+        context.bucketRemainingGroupCount[bucketIndex] - 1
+      );
+    }
+  }
+}
+
+function createFreeList(length: number): FreeListState {
+  const nextFree = new Int32Array(length);
+  const prevFree = new Int32Array(length);
+
+  for (let index = 0; index < length; index += 1) {
+    nextFree[index] = index + 1 < length ? index + 1 : -1;
+    prevFree[index] = index - 1;
+  }
+
+  return {
+    head: length > 0 ? 0 : -1,
+    nextFree,
+    prevFree
+  };
+}
+
+function removeFromFreeList(freeList: FreeListState, index: number) {
+  const previousIndex = freeList.prevFree[index];
+  const nextIndex = freeList.nextFree[index];
+
+  if (previousIndex !== -1) {
+    freeList.nextFree[previousIndex] = nextIndex;
+  } else {
+    freeList.head = nextIndex;
+  }
+
+  if (nextIndex !== -1) {
+    freeList.prevFree[nextIndex] = previousIndex;
+  }
+
+  freeList.nextFree[index] = -1;
+  freeList.prevFree[index] = -1;
+}
+
+function maybeReportProgress(
+  stage: 'ranking' | 'assigning',
+  completed: number,
+  total: number,
+  hooks?: TransformHooks,
+  message?: string
+) {
+  if (!hooks?.onStageProgress) {
+    return;
+  }
+
+  if (completed !== total && completed % PROGRESS_REPORT_INTERVAL !== 0) {
+    return;
+  }
+
+  hooks.onStageProgress(
+    stage,
+    completed / total,
+    message ?? `${stage[0].toUpperCase()}${stage.slice(1)}… ${completed}/${total}`
+  );
+}
+
+function computePackedPixelAssignment(
+  context: MatchingSearchContext,
+  targetOrder: Uint32Array,
+  hooks?: TransformHooks
+): PackedMatchComputation {
+  const assignment = new Uint32Array(context.targetPacked.length);
+  const used = new Uint8Array(context.sourcePacked.length);
+  const freeList = createFreeList(context.sourcePacked.length);
+  let shortlistHitCount = 0;
+  let fallbackCount = 0;
+  let evaluatedCandidateCount = 0;
+  let evaluatedGroupCount = 0;
+
+  const assignStartedAt = nowMs();
+  for (let orderedIndex = 0; orderedIndex < targetOrder.length; orderedIndex += 1) {
+    if (hooks?.isCancelled?.()) {
+      throw new TransformError('Transform cancelled.');
+    }
+
+    const targetIndex = targetOrder[orderedIndex];
+    const groupedResult = findBestGroupedSourceIndex(context, targetIndex);
+    evaluatedCandidateCount += groupedResult.evaluatedCandidateCount;
+    evaluatedGroupCount += groupedResult.evaluatedGroupCount;
+
+    let sourceIndex = groupedResult.sourceIndex;
+    if (sourceIndex === -1) {
+      sourceIndex = freeList.head;
+      fallbackCount += 1;
+    } else {
+      shortlistHitCount += 1;
+    }
+
+    if (sourceIndex === -1) {
+      throw new TransformError('No unused pixels remained during matching.');
+    }
+
+    used[sourceIndex] = 1;
+    removeFromFreeList(freeList, sourceIndex);
+    removeFromGroupedDonorState(context, sourceIndex);
+    assignment[targetIndex] = sourceIndex;
+
+    if (
+      hooks?.onProgress &&
+      (orderedIndex + 1 === targetOrder.length || (orderedIndex + 1) % PROGRESS_REPORT_INTERVAL === 0)
+    ) {
+      hooks.onProgress(orderedIndex + 1, targetOrder.length);
+    }
+
+    maybeReportProgress(
+      'assigning',
+      orderedIndex + 1,
+      targetOrder.length,
+      hooks,
+      `Assigning donors… ${orderedIndex + 1}/${targetOrder.length}`
+    );
+  }
+  const assignMs = nowMs() - assignStartedAt;
+
+  return {
+    assignment,
+    matcherStats: {
+      fallbackCount,
+      shortlistHitRate: targetOrder.length > 0 ? shortlistHitCount / targetOrder.length : 1,
+      shortlistHitCount,
+      shortlistRequestCount: targetOrder.length,
+      evaluatedCandidateCount,
+      evaluatedGroupCount,
+      averageGroupsPerTarget: targetOrder.length > 0 ? evaluatedGroupCount / targetOrder.length : 0
+    },
+    assignMs
+  };
+}
+
+export function mergeRankedCandidatesIntoAssignment(
+  context: MatchingSearchContext,
+  targetOrder: Uint32Array,
+  rankedCandidatesByTarget: Array<RankedCandidate[] | undefined>,
+  hooks?: TransformHooks
+) {
+  const assignment = new Uint32Array(context.targetPacked.length);
+  const used = new Uint8Array(context.sourcePacked.length);
+  const freeList = createFreeList(context.sourcePacked.length);
+  let shortlistHitCount = 0;
+  let fallbackCount = 0;
+
+  for (let orderedIndex = 0; orderedIndex < targetOrder.length; orderedIndex += 1) {
+    const targetIndex = targetOrder[orderedIndex];
+
+    if (hooks?.isCancelled?.()) {
+      throw new TransformError('Transform cancelled.');
+    }
+
+    let sourceIndex = -1;
+    const rankedCandidates = rankedCandidatesByTarget[targetIndex];
+    if (rankedCandidates) {
+      for (let candidateIndex = 0; candidateIndex < rankedCandidates.length; candidateIndex += 1) {
+        const candidateSourceIndex = rankedCandidates[candidateIndex].sourceIndex;
+        if (!used[candidateSourceIndex]) {
+          sourceIndex = candidateSourceIndex;
+          shortlistHitCount += 1;
+          break;
+        }
       }
     }
 
-    used[bestIndex] = 1;
-    assignment[targetIndex] = bestIndex;
+    if (sourceIndex === -1) {
+      sourceIndex = freeList.head;
+      fallbackCount += 1;
+    }
 
-    if (hooks?.onProgress && (orderedIndex + 1 === targetPacked.length || (orderedIndex + 1) % 256 === 0)) {
-      hooks.onProgress(orderedIndex + 1, targetPacked.length);
+    if (sourceIndex === -1) {
+      throw new TransformError('No unused pixels remained during matching.');
+    }
+
+    used[sourceIndex] = 1;
+    removeFromFreeList(freeList, sourceIndex);
+    assignment[targetIndex] = sourceIndex;
+
+    if (
+      hooks?.onProgress &&
+      (orderedIndex + 1 === targetOrder.length || (orderedIndex + 1) % PROGRESS_REPORT_INTERVAL === 0)
+    ) {
+      hooks.onProgress(orderedIndex + 1, targetOrder.length);
     }
   }
 
-  return assignment;
+  return {
+    assignment,
+    matcherStats: {
+      fallbackCount,
+      shortlistHitRate: targetOrder.length > 0 ? shortlistHitCount / targetOrder.length : 1,
+      shortlistHitCount,
+      shortlistRequestCount: targetOrder.length,
+      evaluatedCandidateCount: shortlistHitCount,
+      evaluatedGroupCount: shortlistHitCount,
+      averageGroupsPerTarget: targetOrder.length > 0 ? shortlistHitCount / targetOrder.length : 0
+    }
+  };
+}
+
+export function matchPackedPixels(
+  sourcePacked: Uint32Array,
+  targetPacked: Uint32Array,
+  quantizationBits: number,
+  hooks?: TransformHooks,
+  analysis?: TransformImageAnalysis
+) {
+  const context = createMatchingSearchContext(sourcePacked, targetPacked, quantizationBits, analysis);
+  const targetOrder = resolveTargetOrder(targetPacked.length, analysis);
+  return computePackedPixelAssignment(context, targetOrder, hooks).assignment;
 }
 
 export function buildResultPixels(source: PreparedImageData, assignment: Uint32Array) {
@@ -213,24 +883,46 @@ export function transformPreparedImages(
   source: PreparedImageData,
   target: PreparedImageData,
   quantizationBits: number,
-  hooks?: {
-    onProgress?: (completed: number, total: number) => void;
-    isCancelled?: () => boolean;
-  }
+  hooks?: TransformHooks
 ): TransformComputationResult {
   if (source.width !== target.width || source.height !== target.height) {
     throw new TransformError('Source and target working dimensions must match.');
   }
 
+  const totalStartedAt = nowMs();
+  hooks?.onStageProgress?.('analyzing', 0, 'Analyzing image structure…');
+  const analyzeStartedAt = nowMs();
+  const analysis = analyzeTransformImages(source, target, quantizationBits);
+  const analyzeMs = nowMs() - analyzeStartedAt;
+  hooks?.onStageProgress?.('analyzing', 1, 'Image analysis complete.');
+
   const sourcePacked = packRgbPixels(source.pixels);
   const targetPacked = packRgbPixels(target.pixels);
-  const analysis = analyzeTransformImages(source, target, quantizationBits);
-  const assignment = matchPackedPixels(sourcePacked, targetPacked, quantizationBits, hooks, analysis);
+  hooks?.onStageProgress?.('ranking', 0, 'Prioritizing target regions…');
+  const rankStartedAt = nowMs();
+  const context = createMatchingSearchContext(sourcePacked, targetPacked, quantizationBits, analysis);
+  const targetOrder = resolveTargetOrder(targetPacked.length, analysis);
+  const rankMs = nowMs() - rankStartedAt;
+  hooks?.onStageProgress?.('ranking', 1, 'Target prioritization complete.');
+  const packedMatch = computePackedPixelAssignment(context, targetOrder, hooks);
+  hooks?.onStageProgress?.('assigning', 1, 'Donor assignment complete.');
+
+  const timingsMs: TransformStageTimingsMs = {
+    decode: 0,
+    analyze: analyzeMs,
+    rank: rankMs,
+    assign: packedMatch.assignMs,
+    total: nowMs() - totalStartedAt
+  };
 
   return {
     source,
     target,
-    assignment,
-    pixelCount: assignment.length
+    assignment: packedMatch.assignment,
+    pixelCount: packedMatch.assignment.length,
+    timingsMs,
+    matcherStrategy: 'single-optimized',
+    matcherStats: packedMatch.matcherStats,
+    workerCount: 1
   };
 }

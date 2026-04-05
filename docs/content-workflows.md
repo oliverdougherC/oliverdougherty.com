@@ -66,6 +66,30 @@ npm run smoke
 
 Do not hand-edit bundled files in `pages/game/assets/`.
 
+## Utilities build workflow
+
+The utilities page also has a strict source/build split:
+
+- Editable source: `utilities-src/`
+- Shipped build output: `pages/dashboard/assets/`
+
+When `utilities-src/` changes, rebuild the shipped page assets with:
+
+```bash
+npm run utilities:build
+```
+
+Then rerun:
+
+```bash
+npm run utilities:check
+npm run utilities:browser-check
+npm run utilities:perf
+npm run smoke
+```
+
+Do not hand-edit the generated utilities bundle or the hashed worker chunks in `pages/dashboard/assets/assets/`.
+
 ## Deploy build workflow
 
 `npm run build:deploy` copies the shipped static site into `dist/`. The deploy build mirrors the repo’s checked-in source plus generated game output and gallery assets. `dist/` is disposable output, not source.
@@ -78,5 +102,6 @@ The following are intentionally local-only:
 - `.omx/`
 - IDE/editor directories
 - temporary logs such as `server.log` and `server.pid`
+- ad hoc workstation logs matching `*.log` and `*.pid`
 
 If a script generates them, keep them out of commits.

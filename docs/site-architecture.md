@@ -20,7 +20,10 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `js/year.js`: footer year updates and color-mode toggle handling.
 - `js/archive.js`: archive index filtering/search.
 - `js/gallery.js`: metadata-driven gallery rendering and lightbox behavior.
-- `pages/dashboard/assets/*`: generated utilities app bundle.
+- `utilities-src/src/main.ts`: editable utilities page controller and DOM orchestration.
+- `utilities-src/src/transformCore.ts`: utilities matching pipeline and donor assignment logic.
+- `utilities-src/src/workerRuntime.ts`: shared worker/main-thread execution runtime for utilities transforms.
+- `pages/dashboard/assets/*`: generated utilities app bundle, including nested worker chunks under `pages/dashboard/assets/assets/`.
 
 ## Shared styling
 
@@ -37,10 +40,12 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `scripts/smoke.js`: structural smoke checks for critical routes, gallery data, and shipped game assets.
 - `scripts/nav-overlay-check.js`: Playwright regression check for shared navigation behavior.
 - `scripts/utilities-check.js`: Playwright regression check for the utilities page workflow.
+- `scripts/utilities-perf.js`: utilities performance probe for representative and stress-case transforms.
 
 ## Maintenance notes
 
 - Keep the hand-authored HTML model. Do not introduce a templating system unless the repo direction changes.
 - Shared page chrome lives in repeated markup plus shared JS/CSS. Prefer small, explicit cleanup over broad structural rewrites.
 - `pages/dashboard/assets/` is part of the shipped site, but it is generated from `utilities-src/` and should be treated as build output.
+- Utilities deployment readiness means more than type/tests: after utilities-source changes, rebuild the shipped bundle and rerun `utilities:browser-check` plus `utilities:perf`.
 - `pages/game/` is part of the shipped site, but it is generated from `game-src/` and should be treated as build output.

@@ -46,6 +46,12 @@ describe('worker runtime', () => {
     const success = messages.find((message) => message.type === 'success');
     expect(success).toBeDefined();
     expect(success && success.type === 'success' ? success.metadata.pixelCount : 0).toBe(4);
+    expect(success && success.type === 'success' ? success.metadata.matcherStrategy : 'parallel-experimental').toBe('single-optimized');
+    expect(success && success.type === 'success' ? success.metadata.timingsMs.total : 0).toBeGreaterThanOrEqual(0);
+    expect(success && success.type === 'success' ? success.metadata.fallbackCount : -1).toBeGreaterThanOrEqual(0);
+    expect(success && success.type === 'success' ? success.metadata.evaluatedCandidateCount : 0).toBeGreaterThan(0);
+    expect(success && success.type === 'success' ? success.metadata.evaluatedGroupCount : 0).toBeGreaterThan(0);
+    expect(success && success.type === 'success' ? success.metadata.workerCount : 0).toBe(1);
   });
 
   it('emits an error for mismatched prepared images', async () => {

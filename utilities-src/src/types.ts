@@ -1,4 +1,5 @@
 export type TransformPresetId = 'fast' | 'balanced' | 'detailed';
+export type TransformMatcherStrategy = 'single-optimized' | 'parallel-experimental';
 
 export interface TransformPreset {
   id: TransformPresetId;
@@ -15,6 +16,24 @@ export interface PreparedImageData {
   pixels: Uint8ClampedArray;
 }
 
+export interface TransformStageTimingsMs {
+  decode: number;
+  analyze: number;
+  rank: number;
+  assign: number;
+  total: number;
+}
+
+export interface TransformMatcherStats {
+  fallbackCount: number;
+  shortlistHitRate: number;
+  shortlistHitCount: number;
+  shortlistRequestCount: number;
+  evaluatedCandidateCount: number;
+  evaluatedGroupCount: number;
+  averageGroupsPerTarget: number;
+}
+
 export interface TransformMetadata {
   presetId: TransformPresetId;
   quantizationBits: number;
@@ -28,6 +47,14 @@ export interface TransformMetadata {
   sourceScaled: boolean;
   targetScaled: boolean;
   processingMs: number;
+  timingsMs: TransformStageTimingsMs;
+  matcherStrategy: TransformMatcherStrategy;
+  fallbackCount: number;
+  shortlistHitRate: number;
+  evaluatedCandidateCount: number;
+  evaluatedGroupCount: number;
+  averageGroupsPerTarget: number;
+  workerCount: number;
 }
 
 export interface TransformComputationResult {
@@ -35,6 +62,10 @@ export interface TransformComputationResult {
   target: PreparedImageData;
   assignment: Uint32Array;
   pixelCount: number;
+  timingsMs: TransformStageTimingsMs;
+  matcherStrategy: TransformMatcherStrategy;
+  matcherStats: TransformMatcherStats;
+  workerCount: number;
 }
 
 export interface PreparedImageTransfer {

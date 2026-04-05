@@ -92,6 +92,13 @@
                 <div class="utility-input-grid" aria-label="Image inputs">
                   <label class="utility-dropzone" id="sourceDropzone">
                     <input type="file" id="transformSourceInput" accept="image/*">
+                    <span class="utility-dropzone-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                        <path d="M12 4v10"></path>
+                        <path d="M8.5 8.5 12 5l3.5 3.5"></path>
+                        <path d="M5 15.5V18a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5"></path>
+                      </svg>
+                    </span>
                     <span class="utility-dropzone-label">Source image</span>
                     <strong>Borrow from this.</strong>
                     <span class="utility-dropzone-copy">Click or drag an image here</span>
@@ -100,6 +107,13 @@
 
                   <label class="utility-dropzone" id="targetDropzone">
                     <input type="file" id="transformTargetInput" accept="image/*">
+                    <span class="utility-dropzone-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                        <path d="M12 4v10"></path>
+                        <path d="M8.5 8.5 12 5l3.5 3.5"></path>
+                        <path d="M5 15.5V18a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5"></path>
+                      </svg>
+                    </span>
                     <span class="utility-dropzone-label">Target image</span>
                     <strong>Rebuild toward this.</strong>
                     <span class="utility-dropzone-copy">Click or drag an image here</span>
@@ -131,7 +145,7 @@
                   <div class="utility-demo-strip" aria-label="Demo image pairs">
                     <span class="demo-strip-label">Try a built-in pair</span>
                     <button type="button" class="demo-chip active" data-demo-key="pattern-face">Pattern → Face</button>
-                    <button type="button" class="demo-chip" data-demo-key="source-target">Contrast → Gradient</button>
+                    <button type="button" class="demo-chip" data-demo-key="source-target">Pattern → Pattern</button>
                     <button type="button" class="demo-chip" data-demo-key="face-pattern">Face → Pattern</button>
                   </div>
                 </div>
@@ -165,7 +179,6 @@
                   <div class="result-control-buttons">
                     <button type="button" class="btn-primary-utility" id="transformPlayBtn" disabled>Play</button>
                     <button type="button" class="btn-secondary-utility" id="transformPauseBtn" disabled>Pause</button>
-                    <button type="button" class="btn-secondary-utility" id="transformReplayBtn" disabled>Replay</button>
                   </div>
 
                   <dl class="result-stats">

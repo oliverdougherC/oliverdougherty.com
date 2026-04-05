@@ -29,6 +29,8 @@ npm run quality
 npm run quality:full
 npm run utilities:build
 npm run utilities:check
+npm run utilities:browser-check
+npm run utilities:perf
 npm run game:dev
 npm run game:check
 npm run game:build
@@ -40,6 +42,8 @@ npm run optimize-images
 - `npm run quality:full`: site quality plus the game and utilities typecheck/test suites.
 - `npm run utilities:build`: rebuild the shipped utilities bundle into `pages/dashboard/assets/`.
 - `npm run utilities:check`: typecheck and test the editable utilities app source.
+- `npm run utilities:browser-check`: run the Playwright regression flow against the shipped utilities page.
+- `npm run utilities:perf`: capture utilities transform timing telemetry for representative image cases.
 - `npm run game:dev`: run the game source with Vite during development.
 - `npm run game:build`: rebuild `pages/game/` from `game-src/`.
 - `npm run build:deploy`: copy the shipped site into `dist/`.
@@ -48,7 +52,7 @@ npm run optimize-images
 ## Source-of-truth rules
 
 - Edit `game-src/`; do not hand-edit `pages/game/` or `pages/game/assets/`.
-- Edit `utilities-src/`; do not hand-edit `pages/dashboard/assets/`.
+- Edit `utilities-src/`; do not hand-edit `pages/dashboard/assets/` or the hashed worker chunks nested under `pages/dashboard/assets/assets/`.
 - Edit source files in the repo root, `pages/`, `js/`, `css/`, and `assets/`; `dist/` is deploy output.
 - `assets/photos/photos.json` and `assets/photos/gallery-sequence.json` are the gallery data contracts.
 - `output/`, `.omx/`, IDE folders, and local logs are workstation artifacts and are intentionally ignored.
@@ -60,6 +64,7 @@ Run these before considering cleanup or feature work complete:
 ```bash
 npm run quality
 npm run utilities:check
+npm run utilities:browser-check
 npm run game:check
 ```
 
@@ -67,6 +72,7 @@ If you change `utilities-src/`, also rebuild the shipped utilities bundle:
 
 ```bash
 npm run utilities:build
+npm run utilities:perf
 npm run smoke
 ```
 

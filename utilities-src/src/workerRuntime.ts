@@ -1,5 +1,6 @@
 import { getPreset } from './presets';
 import { transformPreparedImages } from './transformCore';
+import type { MatchingWorkerLike } from './parallelMatcher';
 import type { PreparedImageData, PreparedImageTransfer, TransformMetadata } from './types';
 import type { WorkerRequest, WorkerResponse } from './workerTypes';
 
@@ -55,6 +56,10 @@ export function createWorkerRequestHandler(options: {
     maxDimension: number
   ) => Promise<PreparedBitmapResult>;
   postMessage: (message: WorkerResponse, transfer?: Transferable[]) => void;
+  createMatchingWorker?: () => MatchingWorkerLike;
+  hardwareConcurrency?: number;
+  supportsNestedWorkers?: boolean;
+  experimentalParallelEnabled?: boolean;
 }) {
   const cancelled = new Set<number>();
 
@@ -67,7 +72,11 @@ export function createWorkerRequestHandler(options: {
     const requestId = request.requestId;
     const preset = getPreset(request.presetId);
     const isCancelled = () => cancelled.has(requestId);
-    const postProgress = (stage: 'decoding' | 'matching', progress: number, message: string) => {
+    const postProgress = (
+      stage: 'decoding' | 'analyzing' | 'ranking' | 'assigning',
+      progress: number,
+      message: string
+    ) => {
       options.postMessage({
         type: 'progress',
         requestId,
@@ -78,7 +87,8 @@ export function createWorkerRequestHandler(options: {
     };
 
     try {
-      postProgress('decoding', 0.02, 'Decoding images…');
+      const decodeStartedAt = performance.now();
+      postProgress('decoding', 0.02, 'Preparing working image data…');
 
       let preparedSource: PreparedImageData;
       let preparedTarget: PreparedImageData;
@@ -119,20 +129,36 @@ export function createWorkerRequestHandler(options: {
         throw new CancelledTransformError();
       }
 
-      postProgress(
-        'matching',
-        0.08,
-        `Matching ${preparedTarget.width}×${preparedTarget.height} working pixels…`
-      );
-
-      const startedAt = performance.now();
+      const decodeMs = performance.now() - decodeStartedAt;
       const result = transformPreparedImages(preparedSource, preparedTarget, preset.quantizationBits, {
         isCancelled,
+        onStageProgress(stage, progress, message) {
+          const stageWeight =
+            stage === 'analyzing'
+              ? { start: 0.12, span: 0.14 }
+              : stage === 'ranking'
+                ? { start: 0.26, span: 0.22 }
+                : { start: 0.48, span: 0.52 };
+          postProgress(stage, stageWeight.start + progress * stageWeight.span, message);
+        },
         onProgress(completed, total) {
-          postProgress('matching', completed / total, `Matching pixels… ${completed}/${total}`);
+          postProgress('assigning', 0.48 + (completed / total) * 0.52, `Assigning donors… ${completed}/${total}`);
         }
       });
-      const processingMs = performance.now() - startedAt;
+
+      let workerCount = 1;
+      let matcherStrategy = result.matcherStrategy;
+      let fallbackCount = result.matcherStats.fallbackCount;
+      let shortlistHitRate = result.matcherStats.shortlistHitRate;
+      let evaluatedCandidateCount = result.matcherStats.evaluatedCandidateCount;
+      let evaluatedGroupCount = result.matcherStats.evaluatedGroupCount;
+      let averageGroupsPerTarget = result.matcherStats.averageGroupsPerTarget;
+      let timingsMs = {
+        ...result.timingsMs,
+        decode: decodeMs,
+        total: decodeMs + result.timingsMs.total
+      };
+      let assignment = result.assignment;
 
       if (isCancelled()) {
         throw new CancelledTransformError();
@@ -141,26 +167,34 @@ export function createWorkerRequestHandler(options: {
       const metadata: TransformMetadata = {
         presetId: preset.id,
         quantizationBits: preset.quantizationBits,
-        outputWidth: result.source.width,
-        outputHeight: result.source.height,
-        pixelCount: result.pixelCount,
+        outputWidth: preparedSource.width,
+        outputHeight: preparedSource.height,
+        pixelCount: assignment.length,
         sourceOriginalWidth,
         sourceOriginalHeight,
         targetOriginalWidth,
         targetOriginalHeight,
         sourceScaled,
         targetScaled,
-        processingMs
+        processingMs: timingsMs.total,
+        timingsMs,
+        matcherStrategy,
+        fallbackCount,
+        shortlistHitRate,
+        evaluatedCandidateCount,
+        evaluatedGroupCount,
+        averageGroupsPerTarget,
+        workerCount
       };
 
       const sourceTransfer = deflatePreparedImage(
-        result.source,
+        preparedSource,
         sourceOriginalWidth,
         sourceOriginalHeight,
         sourceScaled
       );
       const targetTransfer = deflatePreparedImage(
-        result.target,
+        preparedTarget,
         targetOriginalWidth,
         targetOriginalHeight,
         targetScaled
@@ -172,10 +206,10 @@ export function createWorkerRequestHandler(options: {
           requestId,
           source: sourceTransfer,
           target: targetTransfer,
-          assignment: asArrayBuffer(result.assignment.buffer),
+          assignment: asArrayBuffer(assignment.buffer),
           metadata
         },
-        [sourceTransfer.pixels, targetTransfer.pixels, asArrayBuffer(result.assignment.buffer)]
+        [sourceTransfer.pixels, targetTransfer.pixels, asArrayBuffer(assignment.buffer)]
       );
     } catch (error) {
       if (error instanceof CancelledTransformError) {
