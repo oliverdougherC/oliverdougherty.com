@@ -1,6 +1,6 @@
-# `oliver_unified_v2`
+# `Oliver-Unified`
 
-Static portfolio site for Oliver Dougherty, with a hand-authored site shell, a metadata-driven photo gallery, an archive of technical writeups, a generated utilities experience, and a separate `game-src/` project that builds into the shipped game page.
+Static portfolio site for me (Oliver Dougherty, duh), with a hand-authored site shell, a metadata-driven photo gallery, an archive of technical writeups, a generated utilities experience, and a separate `game-src/` project that builds into the shipped game page.
 
 ## Repo map
 
