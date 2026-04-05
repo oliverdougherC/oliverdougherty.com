@@ -1,5 +1,5 @@
 /**
- * Oliver Dougherty - Main JavaScript (shared)
+ * Oliver Unified main JavaScript (shared)
  * Handles navigation, scroll animations, smooth scroll, and portal glow.
  * Loaded on all pages as the shared base.
  */

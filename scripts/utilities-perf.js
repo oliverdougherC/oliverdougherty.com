@@ -113,20 +113,21 @@ async function main() {
   await createDenseFixture(denseSourcePath, 640, 420, 1);
   await createDenseFixture(denseTargetPath, 640, 420, 2);
 
-  const server = startLocalStaticServer({
+  const server = await startLocalStaticServer({
     url: BASE_URL,
     cwd: ROOT
   });
+  const baseUrl = server?.url || BASE_URL;
 
   const browser = await chromium.launch({ headless: true });
 
   try {
-    await waitForServer(`${BASE_URL}/pages/dashboard/index.html`);
+    await waitForServer(`${baseUrl}/pages/dashboard/index.html`);
 
     const page = await browser.newPage({
       viewport: { width: 1440, height: 1100 }
     });
-    await page.goto(`${BASE_URL}/pages/dashboard/index.html`, { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/pages/dashboard/index.html`, { waitUntil: 'networkidle' });
 
     const benchmarkCases = [
       {

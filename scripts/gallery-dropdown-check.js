@@ -10,7 +10,7 @@ const {
 
 const ROOT = path.resolve(__dirname, '..');
 const DEFAULT_BASE_URL = 'http://127.0.0.1:4173';
-const BASE_URL = process.env.GALLERY_CHECK_URL || DEFAULT_BASE_URL;
+let baseUrl = process.env.GALLERY_CHECK_URL || DEFAULT_BASE_URL;
 
 function assert(condition, message) {
   if (!condition) {
@@ -23,15 +23,15 @@ async function waitForGalleryReady(page, timeoutMs = 12000) {
     () => {
       const state = window.__galleryState;
       const archiveCards = document.querySelectorAll('#galleryArchiveGrid .photo-card').length;
-      const featuredCards = document.querySelectorAll('#galleryFeaturedGrid .photo-card').length;
       const loadingHidden = document.getElementById('galleryLoading')?.hidden === true;
+      const heroImage = document.getElementById('galleryHeroImage');
       return Boolean(
         state
         && typeof state.getEntries === 'function'
         && state.getEntries().length > 0
         && archiveCards > 0
-        && featuredCards > 0
         && loadingHidden
+        && heroImage?.getAttribute('src')
         && document.querySelector('[data-theme-toggle], .theme-toggle')
       );
     },
@@ -89,35 +89,37 @@ async function assertDesktopFlow(page) {
   const initial = await page.evaluate(() => ({
     entryCount: window.__galleryState.getEntries().length,
     archiveCount: document.querySelectorAll('#galleryArchiveGrid .photo-card').length,
-    featuredCount: document.querySelectorAll('#galleryFeaturedGrid .photo-card').length,
-    hasCardEyebrow: Boolean(document.querySelector('#galleryArchiveGrid .photo-card .photo-eyebrow')),
+    heroImageSrc: document.getElementById('galleryHeroImage')?.getAttribute('src') || '',
+    heroButtonEntryId: document.getElementById('galleryHeroOpen')?.dataset.entryId || '',
+    prominentCount: document.querySelectorAll('#galleryArchiveGrid .photo-card--prominent').length,
     firstArchiveCard: {
-      hasMeta: Boolean(document.querySelector('#galleryArchiveGrid .photo-card .photo-meta')?.textContent?.trim()),
+      hasPlacard: Boolean(document.querySelector('#galleryArchiveGrid .photo-card .photo-placard')),
+      hasNumber: Boolean(document.querySelector('#galleryArchiveGrid .photo-card .photo-placard-number')?.textContent?.trim()),
+      hasTitle: Boolean(document.querySelector('#galleryArchiveGrid .photo-card .photo-placard-title')?.textContent?.trim()),
       hasLegacyCaption: Boolean(document.querySelector('#galleryArchiveGrid .photo-card .photo-caption')),
-      hasLegacyTags: Boolean(document.querySelector('#galleryArchiveGrid .photo-card .photo-tags'))
+      hasLegacyTags: Boolean(document.querySelector('#galleryArchiveGrid .photo-card .photo-tags')),
+      hasLegacyEyebrow: Boolean(document.querySelector('#galleryArchiveGrid .photo-card .photo-eyebrow')),
+      hasLegacyMeta: Boolean(document.querySelector('#galleryArchiveGrid .photo-card .photo-meta'))
     },
-    emptyCopy: document.getElementById('galleryEmptyCopy')?.textContent?.trim() || '',
-    featuredRects: [...document.querySelectorAll('#galleryFeaturedGrid .photo-card')].slice(0, 3).map((card) => {
-      const rect = card.getBoundingClientRect();
-      return { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
-    })
+    emptyCopy: document.getElementById('galleryEmptyCopy')?.textContent?.trim() || ''
   }));
 
   assert(initial.entryCount >= 20, `[desktop] expected full archive, got ${initial.entryCount}`);
-  assert(initial.archiveCount === initial.entryCount, `[desktop] archive grid count mismatch`);
-  assert(initial.featuredCount > 0, `[desktop] featured grid is empty`);
-  assert(!initial.hasCardEyebrow, '[desktop] category eyebrow should not render on cards');
-  assert(initial.firstArchiveCard.hasMeta, '[desktop] compact card meta is missing');
+  assert(initial.archiveCount === initial.entryCount - 1, `[desktop] archive grid should exclude the hero feature entry`);
+  assert(Boolean(initial.heroImageSrc), '[desktop] hero feature image missing');
+  assert(Boolean(initial.heroButtonEntryId), '[desktop] hero feature entry id missing');
+  assert(initial.prominentCount > 0, '[desktop] archive grid should surface prominent cards');
+  assert(initial.firstArchiveCard.hasPlacard, '[desktop] card placard missing');
+  assert(initial.firstArchiveCard.hasNumber, '[desktop] card sequence number missing');
+  assert(initial.firstArchiveCard.hasTitle, '[desktop] card title missing');
   assert(!initial.firstArchiveCard.hasLegacyCaption, '[desktop] legacy card description should not render');
   assert(!initial.firstArchiveCard.hasLegacyTags, '[desktop] legacy card tags should not render');
+  assert(!initial.firstArchiveCard.hasLegacyEyebrow, '[desktop] category eyebrow should not render on cards');
+  assert(!initial.firstArchiveCard.hasLegacyMeta, '[desktop] legacy compact meta should not render');
   assert(initial.emptyCopy.toLowerCase().includes('archive'), '[desktop] empty-state copy should refer to the archive');
   assert(!initial.emptyCopy.toLowerCase().includes('category'), '[desktop] empty-state copy should not refer to category filtering');
-  assert(initial.featuredRects.length === 3, '[desktop] featured grid did not render expected lead cards');
-  assert(initial.featuredRects[0].width > initial.featuredRects[1].width * 1.8, '[desktop] lead featured frame should span the full row');
-  assert(Math.abs(initial.featuredRects[1].top - initial.featuredRects[2].top) < 8, '[desktop] secondary featured cards should align on the same row');
 
-  const firstCard = page.locator('#galleryFeaturedGrid .photo-card .photo-card-button').first();
-  await firstCard.click();
+  await page.click('#galleryHeroOpen');
   await page.waitForTimeout(180);
   const lightboxState = await page.evaluate(() => ({
     active: !document.getElementById('lightbox').hidden,
@@ -151,23 +153,25 @@ async function assertDesktopFlow(page) {
 
 async function assertMobileFlow(page) {
   const labelState = await page.evaluate(() => {
-    const info = document.querySelector('#galleryArchiveGrid .photo-card .photo-info');
-    if (!info) return null;
-    const styles = getComputedStyle(info);
+    const placard = document.querySelector('#galleryArchiveGrid .photo-card .photo-placard');
+    if (!placard) return null;
+    const styles = getComputedStyle(placard);
     return {
       opacity: styles.opacity,
-      hasTitle: Boolean(info.querySelector('.photo-title')?.textContent?.trim()),
-      hasMeta: Boolean(info.querySelector('.photo-meta')?.textContent?.trim()),
-      hasLegacyCaption: Boolean(info.querySelector('.photo-caption')),
-      hasEyebrow: Boolean(info.querySelector('.photo-eyebrow')),
+      hasTitle: Boolean(placard.querySelector('.photo-placard-title')?.textContent?.trim()),
+      hasNumber: Boolean(placard.querySelector('.photo-placard-number')?.textContent?.trim()),
+      hasLegacyCaption: Boolean(placard.querySelector('.photo-caption')),
+      hasEyebrow: Boolean(placard.querySelector('.photo-eyebrow')),
+      hasMeta: Boolean(placard.querySelector('.photo-meta')),
       hasToolbar: Boolean(document.querySelector('.gallery-toolbar-section'))
     };
   });
   assert(labelState && labelState.opacity !== '0', '[mobile] card labels should remain visible');
   assert(labelState.hasTitle, '[mobile] card title missing');
-  assert(labelState.hasMeta, '[mobile] card meta missing');
+  assert(labelState.hasNumber, '[mobile] card sequence number missing');
   assert(!labelState.hasLegacyCaption, '[mobile] legacy card description should not render');
   assert(!labelState.hasEyebrow, '[mobile] category eyebrow should not render');
+  assert(!labelState.hasMeta, '[mobile] legacy card meta should not render');
   assert(!labelState.hasToolbar, '[mobile] category toolbar should not be present');
 
   await page.locator('#galleryArchiveGrid .photo-card .photo-card-button').first().click();
@@ -202,7 +206,7 @@ async function runScenario({ viewport, isMobile = false, hasTouch = false, label
     const context = await browser.newContext({ viewport, isMobile, hasTouch });
     await clearStoredTheme(context);
     const page = await context.newPage();
-    await page.goto(`${BASE_URL}/pages/gallery/index.html`, { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/pages/gallery/index.html`, { waitUntil: 'networkidle' });
     await waitForGalleryReady(page);
     await assertSharedChrome(page, label);
 
@@ -219,10 +223,11 @@ async function runScenario({ viewport, isMobile = false, hasTouch = false, label
 }
 
 async function main() {
-  const server = startLocalStaticServer({ url: BASE_URL, cwd: ROOT, skip: Boolean(process.env.GALLERY_CHECK_URL) });
+  const server = await startLocalStaticServer({ url: baseUrl, cwd: ROOT, skip: Boolean(process.env.GALLERY_CHECK_URL) });
+  baseUrl = server?.url || baseUrl;
 
   try {
-    await waitForServer(BASE_URL);
+    await waitForServer(baseUrl);
     await runScenario({
       label: 'desktop',
       viewport: { width: 1440, height: 1080 }

@@ -1,4 +1,4 @@
-# `oliver_unified_v2`
+# `Oliver-Unified`
 
 Static portfolio site for Oliver Dougherty, with a hand-authored site shell, a metadata-driven photo gallery, an archive of technical writeups, a generated utilities experience, and a separate `game-src/` project that builds into the shipped game page.
 
@@ -85,6 +85,6 @@ npm run smoke
 
 ## Documentation
 
-- [Site architecture](/Users/ofhd/Developer/websites/oliver_unified_v2/docs/site-architecture.md)
-- [Content workflows](/Users/ofhd/Developer/websites/oliver_unified_v2/docs/content-workflows.md)
-- [Game architecture](/Users/ofhd/Developer/websites/oliver_unified_v2/docs/game-architecture.md)
+- [Site architecture](docs/site-architecture.md)
+- [Content workflows](docs/content-workflows.md)
+- [Game architecture](docs/game-architecture.md)
