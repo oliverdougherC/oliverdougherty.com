@@ -12,6 +12,7 @@ const {
 const ROOT = path.resolve(__dirname, '..');
 const TARGET = process.argv[2] || 'http://127.0.0.1:4173/pages/gallery/index.html';
 const OUTPUT_DIR = path.join(ROOT, 'output/playwright');
+let targetUrl = TARGET;
 
 async function waitForGalleryReady(page) {
   await page.waitForFunction(
@@ -30,7 +31,7 @@ async function captureDesktop(browser) {
   await clearStoredTheme(context);
   const page = await context.newPage();
 
-  await page.goto(TARGET, { waitUntil: 'networkidle' });
+  await page.goto(targetUrl, { waitUntil: 'networkidle' });
   await waitForGalleryReady(page);
 
   await page.screenshot({ path: path.join(OUTPUT_DIR, 'gallery-desktop-full.png'), fullPage: true });
@@ -55,7 +56,7 @@ async function captureMobile(browser) {
   await clearStoredTheme(context);
   const page = await context.newPage();
 
-  await page.goto(TARGET, { waitUntil: 'networkidle' });
+  await page.goto(targetUrl, { waitUntil: 'networkidle' });
   await waitForGalleryReady(page);
 
   await page.screenshot({ path: path.join(OUTPUT_DIR, 'gallery-mobile-full.png'), fullPage: true });
@@ -72,8 +73,9 @@ async function captureMobile(browser) {
 async function run() {
   await fs.mkdir(OUTPUT_DIR, { recursive: true });
 
-  const server = startLocalStaticServer({ url: TARGET, cwd: ROOT, skip: Boolean(process.argv[2]) });
-  await waitForServer(TARGET);
+  const server = await startLocalStaticServer({ url: TARGET, cwd: ROOT, skip: Boolean(process.argv[2]) });
+  targetUrl = server?.url || TARGET;
+  await waitForServer(targetUrl);
 
   const browser = await chromium.launch();
   try {

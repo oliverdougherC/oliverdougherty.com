@@ -1,5 +1,5 @@
 /**
- * Archive (Neurophasia) JavaScript
+ * Technical Archive JavaScript
  * Handles search and filtering. Navigation and scroll animations
  * are provided by main.js (loaded before this script).
  */

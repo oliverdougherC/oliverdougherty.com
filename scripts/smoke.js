@@ -39,6 +39,23 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+function collectHtmlFiles(dirPath, output = []) {
+  for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+    const fullPath = path.join(dirPath, entry.name);
+
+    if (entry.isDirectory()) {
+      collectHtmlFiles(fullPath, output);
+      continue;
+    }
+
+    if (entry.name.endsWith('.html')) {
+      output.push(fullPath);
+    }
+  }
+
+  return output;
+}
+
 function validatePages() {
   for (const page of REQUIRED_PAGES) {
     const pagePath = path.join(ROOT, page);
@@ -92,6 +109,14 @@ function validatePages() {
   assert(homeHtml.includes('id="boredVoid"'), 'Homepage bored-void section missing');
   assert(homeHtml.includes('id="boredPortalButton"'), 'Homepage bored portal button missing');
   assert(homeHtml.includes('href="pages/game/index.html"'), 'Homepage game route link missing');
+  assert(homeHtml.includes('Technical Archive'), 'Homepage archive portal title missing');
+  assert(!homeHtml.includes('Neurophasia'), 'Homepage still references the old archive name');
+
+  const archiveHtmlFiles = collectHtmlFiles(path.join(ROOT, 'pages', 'archive'));
+  for (const archiveFilePath of archiveHtmlFiles) {
+    const archiveFileHtml = fs.readFileSync(archiveFilePath, 'utf8');
+    assert(!archiveFileHtml.includes('Neurophasia'), `Stale archive name present in ${rel(archiveFilePath)}`);
+  }
 
   const gamePagePath = path.join(ROOT, 'pages/game/index.html');
   assert(fs.existsSync(gamePagePath), 'Game page missing: pages/game/index.html');
