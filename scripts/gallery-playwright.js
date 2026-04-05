@@ -3,42 +3,15 @@
 const { chromium } = require('playwright');
 const fs = require('node:fs/promises');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const {
+  clearStoredTheme,
+  startLocalStaticServer,
+  waitForServer
+} = require('./lib/playwright-static');
 
 const ROOT = path.resolve(__dirname, '..');
 const TARGET = process.argv[2] || 'http://127.0.0.1:4173/pages/gallery/index.html';
 const OUTPUT_DIR = path.join(ROOT, 'output/playwright');
-
-function isLocalBaseUrl(url) {
-  return url.startsWith('http://127.0.0.1:') || url.startsWith('http://localhost:');
-}
-
-function parsePortFromBaseUrl(url) {
-  const match = url.match(/^http:\/\/[^:]+:(\d+)/);
-  return match ? Number(match[1]) : 4173;
-}
-
-function startLocalServerIfNeeded(url) {
-  if (!isLocalBaseUrl(url) || process.argv[2]) return null;
-  return spawn('python3', ['-m', 'http.server', String(parsePortFromBaseUrl(url)), '--bind', '127.0.0.1'], {
-    cwd: ROOT,
-    stdio: 'ignore'
-  });
-}
-
-async function waitForServer(url, timeoutMs = 10000) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    try {
-      const response = await fetch(url, { method: 'GET' });
-      if (response.ok) return;
-    } catch (_error) {
-      // Retry until timeout.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 220));
-  }
-  throw new Error(`Timed out waiting for server at ${url}`);
-}
 
 async function waitForGalleryReady(page) {
   await page.waitForFunction(
@@ -50,16 +23,6 @@ async function waitForGalleryReady(page) {
     null,
     { timeout: 18000 }
   );
-}
-
-async function clearStoredTheme(context) {
-  await context.addInitScript(() => {
-    try {
-      window.localStorage.removeItem('od-color-mode');
-    } catch (_error) {
-      // Ignore storage issues in automation contexts.
-    }
-  });
 }
 
 async function captureDesktop(browser) {
@@ -109,7 +72,7 @@ async function captureMobile(browser) {
 async function run() {
   await fs.mkdir(OUTPUT_DIR, { recursive: true });
 
-  const server = startLocalServerIfNeeded(TARGET);
+  const server = startLocalStaticServer({ url: TARGET, cwd: ROOT, skip: Boolean(process.argv[2]) });
   await waitForServer(TARGET);
 
   const browser = await chromium.launch();

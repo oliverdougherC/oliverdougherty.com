@@ -2,45 +2,15 @@
 
 const { chromium } = require('playwright');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const {
+  clearStoredTheme,
+  startLocalStaticServer,
+  waitForServer
+} = require('./lib/playwright-static');
 
 const ROOT = path.resolve(__dirname, '..');
 const WEBGL_ARGS = ['--enable-webgl', '--ignore-gpu-blocklist', '--use-angle=swiftshader'];
 const REQUIRE_WEBGL = process.env.GALLERY_REQUIRE_WEBGL !== '0';
-
-function isLocalBaseUrl(url) {
-  return url.startsWith('http://127.0.0.1:') || url.startsWith('http://localhost:');
-}
-
-function parsePortFromBaseUrl(url) {
-  const match = url.match(/^http:\/\/[^:]+:(\d+)/);
-  return match ? Number(match[1]) : 4173;
-}
-
-function startLocalServerIfNeeded(targetUrl) {
-  if (!isLocalBaseUrl(targetUrl)) return null;
-  if (process.env.GALLERY_PERF_URL) return null;
-
-  const port = parsePortFromBaseUrl(targetUrl);
-  return spawn('python3', ['-m', 'http.server', String(port), '--bind', '127.0.0.1'], {
-    cwd: ROOT,
-    stdio: 'ignore'
-  });
-}
-
-async function waitForServer(url, timeoutMs = 10000) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    try {
-      const response = await fetch(url, { method: 'GET' });
-      if (response.ok) return;
-    } catch (_error) {
-      // Retry until timeout.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 220));
-  }
-  throw new Error(`Timed out waiting for server at ${url}`);
-}
 
 async function waitForRenderReady(page, timeoutMs = 12000) {
   const started = Date.now();
@@ -56,16 +26,6 @@ async function waitForRenderReady(page, timeoutMs = 12000) {
 
   const mode = await page.evaluate(() => window.__galleryRenderMode || null);
   return { startupMs: Date.now() - started, mode };
-}
-
-async function clearStoredTheme(context) {
-  await context.addInitScript(() => {
-    try {
-      window.localStorage.removeItem('od-color-mode');
-    } catch (_error) {
-      // Ignore storage issues in test contexts.
-    }
-  });
 }
 
 async function waitForInputSettle(page, timeoutMs = 5000) {
@@ -87,7 +47,7 @@ async function waitForInputSettle(page, timeoutMs = 5000) {
 
 async function run() {
   const target = process.argv[2] || process.env.GALLERY_PERF_URL || 'http://127.0.0.1:4173/pages/gallery/index.html';
-  const serverProcess = startLocalServerIfNeeded(target);
+  const serverProcess = startLocalStaticServer({ url: target, cwd: ROOT, skip: Boolean(process.env.GALLERY_PERF_URL) });
   await waitForServer(target);
 
   const browser = await chromium.launch({ headless: true, args: WEBGL_ARGS });

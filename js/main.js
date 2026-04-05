@@ -269,20 +269,6 @@ function debounce(func, wait) {
 }
 
 /**
- * Utility: Throttle function
- */
-function throttle(func, limit) {
-  let inThrottle;
-  return function (...args) {
-    if (!inThrottle) {
-      func.apply(this, args);
-      inThrottle = true;
-      setTimeout(() => inThrottle = false, limit);
-    }
-  };
-}
-
-/**
  * Portal card cursor-following glow effect (landing page only)
  * Throttled with requestAnimationFrame to avoid excessive reflows
  */
