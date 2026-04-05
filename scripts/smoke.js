@@ -76,9 +76,17 @@ function validatePages() {
   assert(!galleryHtml.includes('data-disable-color-mode="true"'), 'Gallery should participate in shared color mode');
 
   const dashboardHtml = fs.readFileSync(path.join(ROOT, 'pages/dashboard/index.html'), 'utf8');
-  assert(dashboardHtml.includes('id="servicesRefreshBtn"'), 'Services refresh button missing');
-  assert(dashboardHtml.includes('data-health-url='), 'Services health check attributes missing');
-  assert(dashboardHtml.includes('js/dashboard.js'), 'Dashboard status script include missing');
+  assert(dashboardHtml.includes('Utilities - Oliver Dougherty'), 'Utilities page title missing');
+  assert(dashboardHtml.includes('id="utilitiesApp"'), 'Utilities app shell missing');
+  assert(dashboardHtml.includes('id="transformGenerateBtn"'), 'Utilities generate button missing');
+  assert(dashboardHtml.includes('id="transformSourceCanvas"'), 'Utilities source canvas missing');
+  assert(dashboardHtml.includes('id="transformResultCanvas"'), 'Utilities result canvas missing');
+  assert(dashboardHtml.includes('assets/utilities-app.js'), 'Utilities bundle include missing');
+  assert(!dashboardHtml.includes('servicesRefreshBtn'), 'Legacy services refresh UI should not ship');
+  assert(!dashboardHtml.includes('data-health-url='), 'Legacy service health attributes should not ship');
+
+  const utilitiesBundlePath = path.join(ROOT, 'pages', 'dashboard', 'assets', 'utilities-app.js');
+  assert(fs.existsSync(utilitiesBundlePath), 'Utilities bundle missing: pages/dashboard/assets/utilities-app.js');
 
   const homeHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   assert(homeHtml.includes('id="boredVoid"'), 'Homepage bored-void section missing');
