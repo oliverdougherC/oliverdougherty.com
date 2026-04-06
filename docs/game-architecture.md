@@ -4,8 +4,8 @@
 
 - `game-src/` is the editable game project.
 - `pages/game/` is the generated, shipped build output.
-- `vite.config.game.mts` points Vite at `game-src/` and emits into `pages/game/`.
-- `vitest.game.config.mts` and `tsconfig.game.json` define the game test/typecheck surface.
+- `config/vite.game.mts` points Vite at `game-src/` and emits into `pages/game/`.
+- `config/vitest.game.mts` and `config/tsconfig.game.json` define the game test/typecheck surface.
 
 ## Commands
 

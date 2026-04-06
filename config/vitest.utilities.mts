@@ -16,7 +16,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@utilities': path.resolve(__dirname, 'utilities-src/src')
+      '@utilities': path.resolve(__dirname, '../utilities-src/src')
     }
   }
 });

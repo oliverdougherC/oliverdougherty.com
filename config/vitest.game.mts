@@ -16,7 +16,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'game-src/src')
+      '@': path.resolve(__dirname, '../game-src/src')
     }
   }
 });
