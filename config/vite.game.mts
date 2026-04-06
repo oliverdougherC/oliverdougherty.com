@@ -6,16 +6,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export default defineConfig({
-  root: path.resolve(__dirname, 'game-src'),
+  root: path.resolve(__dirname, '../game-src'),
   base: './',
   build: {
-    outDir: path.resolve(__dirname, 'pages/game'),
+    outDir: path.resolve(__dirname, '../pages/game'),
     emptyOutDir: true,
     target: 'es2022'
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'game-src/src')
+      '@': path.resolve(__dirname, '../game-src/src')
     }
   },
   server: {
