@@ -199,8 +199,8 @@ async function readLayoutMetrics(page) {
 
 function isRetroVmAssetRequest(url) {
   return (
-    url.includes('copy.sh/v86/bios/') ||
-    url.includes('i.copy.sh/TinyCore-11.0.iso')
+    url.includes('/assets/utilities/vm/') ||
+    url.includes('copy.sh/v86/bios/')
   );
 }
 
@@ -212,17 +212,54 @@ async function readRetroVmState(page) {
 
     return {
       state: root?.dataset.vmState ?? '',
+      captureState: root?.dataset.vmCaptureState ?? '',
+      networkReady: root?.dataset.vmNetworkReady ?? '',
       running: root?.dataset.vmRunning ?? '',
       supported: root?.dataset.vmSupported ?? '',
       booted: root?.dataset.vmBooted ?? '',
       status: document.getElementById('retroVmStatusText')?.textContent?.trim() ?? '',
       chip: document.getElementById('retroVmStatusChip')?.textContent?.trim() ?? '',
+      captureBadge: document.getElementById('retroVmCaptureBadge')?.textContent?.trim() ?? '',
+      screenBadge: document.getElementById('retroVmScreenBadge')?.textContent?.trim() ?? '',
+      assetLabel: document.getElementById('retroVmAssetLabel')?.textContent?.trim() ?? '',
+      bridgeLabel: document.getElementById('retroVmBridgeLabel')?.textContent?.trim() ?? '',
       progress: document.getElementById('retroVmProgressText')?.textContent?.trim() ?? '',
       progressWidth: progressFill instanceof HTMLElement ? progressFill.style.width : '',
       launchDisabled: document.getElementById('retroVmLaunchBtn')?.hasAttribute('disabled') ?? false,
       resetDisabled: document.getElementById('retroVmResetBtn')?.hasAttribute('disabled') ?? false,
       fullscreenDisabled: document.getElementById('retroVmFullscreenBtn')?.hasAttribute('disabled') ?? false,
       placeholderHidden: placeholder?.classList.contains('is-hidden') ?? false
+    };
+  });
+}
+
+async function readRetroVmFullscreenMetrics(page) {
+  return page.evaluate(() => {
+    const shell = document.getElementById('retroVmScreenShell');
+    const screen = document.getElementById('retroVmScreen');
+    const chrome = document.querySelector('.vm-screen-chrome');
+    const bezel = document.querySelector('.vm-screen-bezel');
+    const canvas = document.querySelector('#retroVmScreen canvas');
+    const rect = (element) =>
+      element instanceof HTMLElement || element instanceof HTMLCanvasElement
+        ? {
+            left: element.getBoundingClientRect().left,
+            right: element.getBoundingClientRect().right,
+            top: element.getBoundingClientRect().top,
+            bottom: element.getBoundingClientRect().bottom,
+            width: element.getBoundingClientRect().width,
+            height: element.getBoundingClientRect().height
+          }
+        : null;
+
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      fullscreenElementId: document.fullscreenElement instanceof HTMLElement ? document.fullscreenElement.id : '',
+      shell: rect(shell),
+      screen: rect(screen),
+      canvas: rect(canvas),
+      chromeDisplay: chrome instanceof HTMLElement ? getComputedStyle(chrome).display : '',
+      bezelPadding: bezel instanceof HTMLElement ? getComputedStyle(bezel).padding : ''
     };
   });
 }
@@ -310,6 +347,10 @@ async function main() {
     assert(initialVmState.running === 'false', 'Retro VM should not report a running session before launch.');
     assert(initialVmState.supported === 'true', 'Retro VM should be available on desktop.');
     assert(initialVmState.launchDisabled === false, 'Retro VM launch should be available on desktop.');
+    assert(initialVmState.networkReady === 'false', 'Retro VM should default to offline until a relay URL is configured.');
+    assert(/local only/i.test(initialVmState.screenBadge), 'Retro VM should surface Tiny Core local-only status when no relay is configured.');
+    assert(/tiny core linux 11/i.test(initialVmState.assetLabel), 'Retro VM should advertise the Tiny Core rollback image.');
+    assert(/offline-first rollback/i.test(initialVmState.bridgeLabel), 'Retro VM should surface offline-first bridge copy by default.');
     assert(retroVmRequests.length === 0, 'Retro VM should not fetch guest assets before launch.');
 
     const finalResultPixels = await readCanvasPixels(page, 'transformResultCanvas');
@@ -461,15 +502,53 @@ async function main() {
     assert(launchedVmState.launchDisabled === true, 'Retro VM launch should disable while a session is active.');
     assert(launchedVmState.resetDisabled === false, 'Retro VM reset should enable while a session is active.');
     assert(launchedVmState.fullscreenDisabled === false, 'Retro VM fullscreen should enable after launch.');
+    assert(launchedVmState.captureState === 'uncaptured', 'Retro VM should start in the uncaptured mouse state.');
+    assert(/click desktop to capture/i.test(launchedVmState.captureBadge), 'Retro VM should advertise click-to-capture before pointer lock.');
+
+    await page.click('#retroVmScreen');
+    await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmCaptureState === 'captured');
+    const capturedVmState = await readRetroVmState(page);
+    assert(/captured/i.test(capturedVmState.captureBadge), 'Retro VM should show captured state after clicking the desktop.');
+    assert(/mouse is captured/i.test(capturedVmState.status), 'Retro VM should explain how to release captured mouse input.');
+
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmCaptureState === 'uncaptured');
 
     await page.click('#retroVmFullscreenBtn');
     await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmState === 'fullscreen');
+    const fullscreenMetrics = await readRetroVmFullscreenMetrics(page);
+    assert(fullscreenMetrics.fullscreenElementId === 'retroVmScreenShell', 'Retro VM should enter fullscreen on the VM shell.');
+    assert(fullscreenMetrics.chromeDisplay === 'none', 'Retro VM fullscreen should hide the decorative chrome.');
+    assert(fullscreenMetrics.bezelPadding === '0px', 'Retro VM fullscreen bezel should not add padding.');
+    assert(
+      fullscreenMetrics.shell &&
+        Math.abs(fullscreenMetrics.shell.width - fullscreenMetrics.viewport.width) <= 2 &&
+        Math.abs(fullscreenMetrics.shell.height - fullscreenMetrics.viewport.height) <= 2,
+      'Retro VM fullscreen shell should fill the viewport.'
+    );
+    assert(
+      fullscreenMetrics.screen &&
+        Math.abs(fullscreenMetrics.screen.width - fullscreenMetrics.viewport.width) <= 2 &&
+        Math.abs(fullscreenMetrics.screen.height - fullscreenMetrics.viewport.height) <= 2,
+      'Retro VM fullscreen guest viewport should fill the screen.'
+    );
+    assert(
+      fullscreenMetrics.canvas &&
+        Math.abs(fullscreenMetrics.canvas.width / fullscreenMetrics.canvas.height - 1024 / 768) < 0.02,
+      'Retro VM fullscreen should preserve the guest aspect ratio.'
+    );
+    await page.click('#retroVmScreen');
+    await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmCaptureState === 'captured');
     await page.evaluate(() => document.exitFullscreen());
     await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmState === 'running');
+    await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmCaptureState === 'uncaptured');
 
-    await page.click('#retroVmResetBtn');
+    await page.evaluate(() => document.getElementById('retroVmResetBtn')?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
     await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmState === 'idle');
+    const exitedFullscreenMetrics = await readRetroVmFullscreenMetrics(page);
+    assert(exitedFullscreenMetrics.fullscreenElementId === '', 'Retro VM reset should leave fullscreen cleanly.');
     const resetVmState = await readRetroVmState(page);
+    assert(resetVmState.captureState === 'uncaptured', 'Retro VM should clear capture state after reset.');
     assert(resetVmState.running === 'false', 'Retro VM should clear its running flag after reset.');
     assert(resetVmState.booted === 'false', 'Retro VM should clear its booted flag after reset.');
     assert(resetVmState.placeholderHidden === false, 'Retro VM placeholder should return after reset.');

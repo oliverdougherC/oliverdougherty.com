@@ -60,16 +60,25 @@ describe('retro VM support helpers', () => {
 
     expect(progress).toMatch(/25%/i);
 
-    const view = resolveRetroVmStatusView(
-      'loading',
-      {
-        loadedBytes: 5 * 1024 * 1024,
-        totalBytes: 20 * 1024 * 1024
-      },
-      'Ready to launch.'
-    );
+    const view = resolveRetroVmStatusView('loading', {
+      loadedBytes: 5 * 1024 * 1024,
+      totalBytes: 20 * 1024 * 1024
+    });
 
     expect(view.chipLabel).toBe('Loading');
     expect(view.progressText).toMatch(/25%/i);
+  });
+
+  it('uses the configured guest name in running copy', () => {
+    const view = resolveRetroVmStatusView(
+      'running',
+      {
+        loadedBytes: 0,
+        totalBytes: null
+      },
+      'Alpine'
+    );
+
+    expect(view.statusText).toMatch(/Alpine is booting locally/i);
   });
 });

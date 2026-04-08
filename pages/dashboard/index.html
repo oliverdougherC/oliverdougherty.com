@@ -145,8 +145,8 @@
                   <div class="utility-demo-strip" aria-label="Demo image pairs">
                     <span class="demo-strip-label">Try a built-in pair</span>
                     <button type="button" class="demo-chip active" data-demo-key="pattern-face">Pattern → Face</button>
-                    <button type="button" class="demo-chip" data-demo-key="source-target">Pattern → Pattern</button>
-                    <button type="button" class="demo-chip" data-demo-key="face-pattern">Face → Pattern</button>
+                    <button type="button" class="demo-chip" data-demo-key="source-target">Pattern → Lucki</button>
+                    <button type="button" class="demo-chip" data-demo-key="face-pattern">Pattern → Keef</button>
                   </div>
                 </div>
               </div>
@@ -235,7 +235,7 @@
           </p>
         </div>
 
-        <section class="utility-shell utility-shell--vm" id="retroVmApp" data-animate="fade-up" aria-labelledby="retroVmTitle" data-vm-state="idle" data-vm-supported="unknown" data-vm-running="false" data-vm-booted="false">
+        <section class="utility-shell utility-shell--vm" id="retroVmApp" data-animate="fade-up" aria-labelledby="retroVmTitle" data-vm-state="idle" data-vm-supported="unknown" data-vm-running="false" data-vm-booted="false" data-vm-capture-state="uncaptured" data-vm-network-enabled="false" data-vm-relay-url="" data-vm-asset-label="Tiny Core Linux 11 · 20 MB remastered retro ISO" data-vm-session-label="Ephemeral per tab · clean boot every launch" data-vm-bridge-label-online="Clipboard paste + experimental relay hook" data-vm-bridge-label-offline="Clipboard paste only · offline-first rollback" data-vm-support-note-online="Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. Relay-backed networking remains experimental." data-vm-support-note-offline="Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first." data-vm-screen-badge-online="Experimental relay" data-vm-screen-badge-offline="Local only" data-vm-progress-meta="Remastered Tiny Core 11 guest · retro desktop utility">
           <div class="utility-shell-header">
             <div>
               <span class="utility-kicker">Experimental VM</span>
@@ -263,7 +263,7 @@
                   <dl class="vm-meta-grid">
                     <div>
                       <dt class="control-label">Guest</dt>
-                      <dd id="retroVmAssetLabel">Tiny Core Linux 11 · 19 MB ISO</dd>
+                      <dd id="retroVmAssetLabel">Tiny Core Linux 11 · 20 MB remastered retro ISO</dd>
                     </div>
                     <div>
                       <dt class="control-label">Session</dt>
@@ -271,7 +271,7 @@
                     </div>
                     <div>
                       <dt class="control-label">Bridge</dt>
-                      <dd id="retroVmBridgeLabel">Clipboard paste only · guest networking disabled</dd>
+                      <dd id="retroVmBridgeLabel">Clipboard paste only · offline-first rollback</dd>
                     </div>
                   </dl>
                 </article>
@@ -288,7 +288,7 @@
                   </div>
 
                   <p class="vm-support-note" id="retroVmSupportNote">
-                    Desktop browser recommended. Click into the VM screen once it starts to capture input.
+                    Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first.
                   </p>
                 </article>
 
@@ -297,7 +297,7 @@
                   <ul class="vm-note-list">
                     <li>No server-side compute.</li>
                     <li>No saved writable state after reset or tab close.</li>
-                    <li>No guest internet or in-guest browser in v1.</li>
+                    <li>Guest internet is intentionally deferred in this rollback.</li>
                     <li>Designed for keyboard + mouse desktops first.</li>
                   </ul>
                 </article>
@@ -308,7 +308,7 @@
               <div class="utility-progress" aria-live="polite">
                 <div class="utility-progress-copy">
                   <p class="utility-progress-text" id="retroVmProgressText">Runtime is idle.</p>
-                  <p class="utility-progress-meta" id="retroVmProgressMeta">Tiny Core Linux 11 · keyboard + mouse desktop utility</p>
+                  <p class="utility-progress-meta" id="retroVmProgressMeta">Remastered Tiny Core 11 guest · retro desktop utility</p>
                 </div>
                 <div class="utility-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
                   <span class="utility-progress-fill" id="retroVmProgressFill" style="width: 0%;"></span>
@@ -326,7 +326,8 @@
                   <div class="vm-screen-chrome">
                     <span class="vm-screen-led"></span>
                     <span class="vm-screen-title">Retro VM Console</span>
-                    <span class="vm-screen-badge">Local only</span>
+                    <span class="vm-capture-badge" id="retroVmCaptureBadge" aria-live="polite">Click desktop to capture mouse</span>
+                    <span class="vm-screen-badge" id="retroVmScreenBadge">Local only</span>
                   </div>
                   <div class="vm-screen-bezel">
                     <div class="vm-screen" id="retroVmScreen"></div>
