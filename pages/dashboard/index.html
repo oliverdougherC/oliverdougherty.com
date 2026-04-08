@@ -226,6 +226,123 @@
             </div>
           </div>
         </section>
+
+        <div class="utility-section-break" data-animate="fade-up">
+          <span class="section-tag">Experimental Utility</span>
+          <h2 class="section-title text-display">Retro VM</h2>
+          <p class="section-desc">
+            A browser-local x86 machine that boots on demand, runs entirely on the client, and wipes its writable state when the tab is closed or reset.
+          </p>
+        </div>
+
+        <section class="utility-shell utility-shell--vm" id="retroVmApp" data-animate="fade-up" aria-labelledby="retroVmTitle" data-vm-state="idle" data-vm-supported="unknown" data-vm-running="false" data-vm-booted="false">
+          <div class="utility-shell-header">
+            <div>
+              <span class="utility-kicker">Experimental VM</span>
+              <h3 class="utility-title" id="retroVmTitle">Retro VM</h3>
+            </div>
+            <div class="utility-status-cluster">
+              <span class="utility-status-chip utility-status-chip--idle" id="retroVmStatusChip">Idle</span>
+              <p class="utility-status-copy" id="retroVmStatusText" aria-live="polite">
+                Launch a fresh local session when you are ready. Nothing persists after the tab closes.
+              </p>
+            </div>
+          </div>
+
+          <div class="utility-layout utility-layout--vm">
+            <div class="utility-rail">
+              <div class="utility-toolbar">
+                <article class="utility-controls-card vm-brief-card">
+                  <div class="vm-copy-stack">
+                    <span class="control-label">V1 brief</span>
+                    <p class="vm-lead">
+                      Desktop-first, fully client-side, and intentionally isolated. The guest boots on demand and starts fresh every time.
+                    </p>
+                  </div>
+
+                  <dl class="vm-meta-grid">
+                    <div>
+                      <dt class="control-label">Guest</dt>
+                      <dd id="retroVmAssetLabel">Tiny Core Linux 11 · 19 MB ISO</dd>
+                    </div>
+                    <div>
+                      <dt class="control-label">Session</dt>
+                      <dd id="retroVmSessionLabel">Ephemeral per tab · clean boot every launch</dd>
+                    </div>
+                    <div>
+                      <dt class="control-label">Bridge</dt>
+                      <dd id="retroVmBridgeLabel">Clipboard paste only · guest networking disabled</dd>
+                    </div>
+                  </dl>
+                </article>
+
+                <article class="utility-controls-card">
+                  <div class="control-group">
+                    <span class="control-label">Actions</span>
+                    <div class="control-actions">
+                      <button type="button" class="btn-primary-utility" id="retroVmLaunchBtn">Launch clean session</button>
+                      <button type="button" class="btn-secondary-utility" id="retroVmResetBtn" disabled>Wipe session</button>
+                      <button type="button" class="btn-secondary-utility" id="retroVmFullscreenBtn" disabled>Fullscreen</button>
+                      <button type="button" class="btn-secondary-utility" id="retroVmPasteBtn" disabled>Paste clipboard</button>
+                    </div>
+                  </div>
+
+                  <p class="vm-support-note" id="retroVmSupportNote">
+                    Desktop browser recommended. Click into the VM screen once it starts to capture input.
+                  </p>
+                </article>
+
+                <article class="utility-controls-card">
+                  <span class="control-label">Scope guardrails</span>
+                  <ul class="vm-note-list">
+                    <li>No server-side compute.</li>
+                    <li>No saved writable state after reset or tab close.</li>
+                    <li>No guest internet or in-guest browser in v1.</li>
+                    <li>Designed for keyboard + mouse desktops first.</li>
+                  </ul>
+                </article>
+              </div>
+            </div>
+
+            <div class="utility-view">
+              <div class="utility-progress" aria-live="polite">
+                <div class="utility-progress-copy">
+                  <p class="utility-progress-text" id="retroVmProgressText">Runtime is idle.</p>
+                  <p class="utility-progress-meta" id="retroVmProgressMeta">Tiny Core Linux 11 · keyboard + mouse desktop utility</p>
+                </div>
+                <div class="utility-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                  <span class="utility-progress-fill" id="retroVmProgressFill" style="width: 0%;"></span>
+                </div>
+              </div>
+
+              <article class="canvas-panel canvas-panel--vm">
+                <div class="canvas-panel-header">
+                  <span class="canvas-eyebrow">Machine</span>
+                  <h4>Windows-Classic Inspired Linux Box</h4>
+                  <p>Retro frame on the outside, browser-local x86 guest on the inside.</p>
+                </div>
+
+                <div class="vm-screen-shell" id="retroVmScreenShell">
+                  <div class="vm-screen-chrome">
+                    <span class="vm-screen-led"></span>
+                    <span class="vm-screen-title">Retro VM Console</span>
+                    <span class="vm-screen-badge">Local only</span>
+                  </div>
+                  <div class="vm-screen-bezel">
+                    <div class="vm-screen" id="retroVmScreen"></div>
+                    <div class="canvas-placeholder vm-placeholder" id="retroVmPlaceholder">
+                      <div class="vm-placeholder-stack">
+                        <strong>Cold boot is opt-in.</strong>
+                        <span>The emulator and guest image stay deferred until you click launch.</span>
+                        <span>Session disk is wiped when you reset or close the tab.</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </div>
+        </section>
       </div>
     </section>
   </main>
