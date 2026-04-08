@@ -1,9 +1,16 @@
-import { RETRO_VM_CONFIG } from './retroVmConfig';
+import {
+  RETRO_VM_CONFIG,
+  buildRetroVmV86Options,
+  isRetroVmNetworkReady,
+  resolveRetroVmConfigFromDataset
+} from './retroVmConfig';
 import { detectRetroVmSupport, resolveRetroVmStatusView, transitionRetroVmState } from './retroVmSupport';
-import type { RetroVmProgress, RetroVmState } from './retroVmTypes';
+import type { RetroVmConfig, RetroVmDatasetConfig, RetroVmProgress, RetroVmState } from './retroVmTypes';
 import type { V86, V86DownloadProgress } from 'v86';
 import v86WasmUrl from 'v86/build/v86.wasm?url';
 import 'v86/build/v86-fallback.wasm?url';
+
+const FALLBACK_ISO_SIZE_BYTES = 128 * 1024 * 1024;
 
 declare global {
   interface Window {
@@ -26,6 +33,7 @@ interface EmulatorLike {
 
 class FakeRetroVm implements EmulatorLike {
   private readonly listeners = new Map<string, Set<(value?: unknown) => void>>();
+  private static readonly fakeImageSizeBytes = RETRO_VM_CONFIG.cdromSizeBytes ?? FALLBACK_ISO_SIZE_BYTES;
 
   constructor() {
     window.setTimeout(() => {
@@ -34,8 +42,8 @@ class FakeRetroVm implements EmulatorLike {
         file_count: 1,
         file_name: 'fake.iso',
         lengthComputable: true,
-        total: RETRO_VM_CONFIG.cdromSizeBytes,
-        loaded: RETRO_VM_CONFIG.cdromSizeBytes
+        total: FakeRetroVm.fakeImageSizeBytes,
+        loaded: FakeRetroVm.fakeImageSizeBytes
       } satisfies V86DownloadProgress);
       this.emit('screen-set-size', [1024, 768, 32]);
       this.emit('emulator-ready');
@@ -79,16 +87,20 @@ class RetroVmMouseBridge {
   private readonly root: HTMLElement;
   private readonly getGuestViewport: () => { width: number; height: number; scale: number; offsetX: number; offsetY: number };
   private readonly getBus: () => RawBus | null;
+  private readonly canCapture: () => boolean;
+  private readonly onCaptureStateChange: (captured: boolean) => void;
   private buttons = [false, false, false];
+  private pointerLocked = false;
   private readonly onMouseMove = (event: MouseEvent) => {
-    this.sendPosition(event);
+    this.sendAbsolutePosition(event);
   };
   private readonly onMouseDown = (event: MouseEvent) => {
-    this.sendPosition(event);
+    this.sendAbsolutePosition(event);
+    void this.requestPointerLock();
     this.updateButtons(event, true);
   };
   private readonly onMouseUp = (event: MouseEvent) => {
-    this.sendPosition(event);
+    this.sendAbsolutePosition(event);
     this.updateButtons(event, false);
   };
   private readonly onWheel = (event: WheelEvent) => {
@@ -106,15 +118,26 @@ class RetroVmMouseBridge {
   private readonly onContextMenu = (event: MouseEvent) => {
     event.preventDefault();
   };
+  private readonly onLockedMouseMove = (event: MouseEvent) => {
+    this.sendLockedDelta(event);
+  };
+  private readonly onPointerLockChange = () => {
+    this.pointerLocked = document.pointerLockElement === this.root;
+    this.onCaptureStateChange(this.pointerLocked);
+  };
 
   constructor(
     root: HTMLElement,
     getGuestViewport: () => { width: number; height: number; scale: number; offsetX: number; offsetY: number },
-    getBus: () => RawBus | null
+    getBus: () => RawBus | null,
+    canCapture: () => boolean,
+    onCaptureStateChange: (captured: boolean) => void
   ) {
     this.root = root;
     this.getGuestViewport = getGuestViewport;
     this.getBus = getBus;
+    this.canCapture = canCapture;
+    this.onCaptureStateChange = onCaptureStateChange;
   }
 
   attach() {
@@ -123,6 +146,8 @@ class RetroVmMouseBridge {
     window.addEventListener('mouseup', this.onMouseUp, { passive: false });
     this.root.addEventListener('wheel', this.onWheel, { passive: false });
     this.root.addEventListener('contextmenu', this.onContextMenu);
+    document.addEventListener('mousemove', this.onLockedMouseMove, { passive: false });
+    document.addEventListener('pointerlockchange', this.onPointerLockChange);
   }
 
   detach() {
@@ -131,6 +156,8 @@ class RetroVmMouseBridge {
     window.removeEventListener('mouseup', this.onMouseUp);
     this.root.removeEventListener('wheel', this.onWheel);
     this.root.removeEventListener('contextmenu', this.onContextMenu);
+    document.removeEventListener('mousemove', this.onLockedMouseMove);
+    document.removeEventListener('pointerlockchange', this.onPointerLockChange);
   }
 
   private updateButtons(event: MouseEvent, pressed: boolean) {
@@ -145,7 +172,11 @@ class RetroVmMouseBridge {
     event.preventDefault();
   }
 
-  private sendPosition(event: MouseEvent) {
+  private sendAbsolutePosition(event: MouseEvent) {
+    if (this.pointerLocked) {
+      return;
+    }
+
     const bus = this.getBus();
     const viewport = this.getGuestViewport();
     if (!bus || viewport.scale <= 0) {
@@ -158,16 +189,72 @@ class RetroVmMouseBridge {
     const rawY = event.clientY - rect.top - viewport.offsetY;
     const clampedX = Math.max(0, Math.min(viewport.width - 1, rawX / safeScale));
     const clampedY = Math.max(0, Math.min(viewport.height - 1, rawY / safeScale));
-    const deltaX = typeof event.movementX === 'number' ? event.movementX / safeScale : 0;
-    const deltaY = typeof event.movementY === 'number' ? event.movementY / safeScale : 0;
 
     bus.send('mouse-absolute', [clampedX, clampedY, viewport.width, viewport.height]);
+  }
+
+  private sendLockedDelta(event: MouseEvent) {
+    if (!this.pointerLocked) {
+      return;
+    }
+
+    const bus = this.getBus();
+    const viewport = this.getGuestViewport();
+    if (!bus || viewport.scale <= 0) {
+      return;
+    }
+
+    const safeScale = viewport.scale || 1;
+    const deltaX = (typeof event.movementX === 'number' ? event.movementX : 0) / safeScale;
+    const deltaY = (typeof event.movementY === 'number' ? event.movementY : 0) / safeScale;
+
+    if (deltaX === 0 && deltaY === 0) {
+      return;
+    }
+
     bus.send('mouse-delta', [deltaX, -deltaY]);
+  }
+
+  private async requestPointerLock() {
+    if (this.pointerLocked || !this.canCapture()) {
+      return;
+    }
+
+    if (window.__OD_RETRO_VM_TEST_MODE__) {
+      this.pointerLocked = true;
+      this.onCaptureStateChange(true);
+      return;
+    }
+
+    try {
+      // Pointer lock keeps relative mouse input flowing even when the host cursor
+      // would have left the VM viewport.
+      await this.root.requestPointerLock();
+    } catch {
+      // Ignore browsers that deny pointer lock; the unlocked fallback still works.
+    }
+  }
+
+  async releasePointerLock() {
+    if (window.__OD_RETRO_VM_TEST_MODE__) {
+      this.pointerLocked = false;
+      this.onCaptureStateChange(false);
+      return;
+    }
+
+    if (!this.pointerLocked || document.pointerLockElement !== this.root) {
+      this.pointerLocked = false;
+      this.onCaptureStateChange(false);
+      return;
+    }
+
+    document.exitPointerLock();
   }
 }
 
 export class RetroVmController {
   private readonly root: HTMLElement;
+  private readonly config: RetroVmConfig;
   private readonly statusChip: HTMLElement;
   private readonly statusText: HTMLElement;
   private readonly progressText: HTMLElement;
@@ -184,6 +271,8 @@ export class RetroVmController {
   private readonly assetLabel: HTMLElement;
   private readonly sessionLabel: HTMLElement;
   private readonly bridgeLabel: HTMLElement;
+  private readonly captureBadge: HTMLElement;
+  private readonly screenBadge: HTMLElement;
   private readonly mouseBridge: RetroVmMouseBridge;
   private resizeObserver: ResizeObserver | null = null;
 
@@ -194,12 +283,23 @@ export class RetroVmController {
   private bootHintTimer = 0;
   private guestSize = { width: 640, height: 480 };
   private graphicalModeActive = false;
+  private captureState: 'uncaptured' | 'captured' = 'uncaptured';
   private readonly beforeUnloadHandler = () => {
     void this.destroySession();
+  };
+  private readonly keyDownHandler = (event: KeyboardEvent) => {
+    if (this.state === 'fullscreen') {
+      return;
+    }
+
+    if (event.key === 'Escape' && this.captureState === 'captured') {
+      void this.mouseBridge.releasePointerLock();
+    }
   };
   private readonly fullscreenChangeHandler = () => {
     if (!document.fullscreenElement && this.state === 'fullscreen') {
       this.setState(transitionRetroVmState(this.state, 'exit-fullscreen'));
+      void this.mouseBridge.releasePointerLock();
     }
     this.syncGuestFit();
   };
@@ -238,13 +338,15 @@ export class RetroVmController {
     void this.autoAdvanceBootMenu();
     this.bootHintTimer = window.setTimeout(() => {
       if (this.state === 'running') {
-        this.statusText.textContent = 'The guest is running locally now. Tiny Core will finish painting its desktop after the initial boot chatter.';
+        this.statusText.textContent = `The guest is running locally now. ${this.config.guestName} will finish loading its desktop after the initial boot chatter.`;
       }
-    }, RETRO_VM_CONFIG.bootHintDelayMs);
+    }, this.config.bootHintDelayMs);
   };
 
   constructor(root: HTMLElement) {
     this.root = root;
+    this.config = resolveRetroVmConfigFromDataset(root.dataset as unknown as RetroVmDatasetConfig);
+    this.progress = { loadedBytes: 0, totalBytes: this.config.cdromSizeBytes };
     this.statusChip = this.requireElement('retroVmStatusChip');
     this.statusText = this.requireElement('retroVmStatusText');
     this.progressText = this.requireElement('retroVmProgressText');
@@ -261,10 +363,14 @@ export class RetroVmController {
     this.assetLabel = this.requireElement('retroVmAssetLabel');
     this.sessionLabel = this.requireElement('retroVmSessionLabel');
     this.bridgeLabel = this.requireElement('retroVmBridgeLabel');
+    this.captureBadge = this.requireElement('retroVmCaptureBadge');
+    this.screenBadge = this.requireElement('retroVmScreenBadge');
     this.mouseBridge = new RetroVmMouseBridge(
       this.screenContainer,
       () => this.getGuestViewport(),
-      () => this.getBus()
+      () => this.getBus(),
+      () => this.graphicalModeActive,
+      (captured) => this.setCaptureState(captured ? 'captured' : 'uncaptured')
     );
   }
 
@@ -283,12 +389,11 @@ export class RetroVmController {
     });
 
     window.addEventListener('pagehide', this.beforeUnloadHandler);
+    document.addEventListener('keydown', this.keyDownHandler);
     document.addEventListener('fullscreenchange', this.fullscreenChangeHandler);
     window.addEventListener('resize', this.fullscreenChangeHandler);
 
-    this.assetLabel.textContent = `${RETRO_VM_CONFIG.distro} · ${Math.round(RETRO_VM_CONFIG.cdromSizeBytes / (1024 * 1024))} MB ISO`;
-    this.sessionLabel.textContent = 'Ephemeral per tab · clean boot every launch';
-    this.bridgeLabel.textContent = 'Clipboard paste only · custom trackpad-safe pointer bridge';
+    this.applyRuntimeLabels();
     this.screenContainer.tabIndex = 0;
     this.mouseBridge.attach();
     if (typeof ResizeObserver !== 'undefined') {
@@ -306,7 +411,8 @@ export class RetroVmController {
     }
 
     this.root.dataset.vmSupported = 'true';
-    this.supportNote.textContent = 'Desktop browser recommended. Click into the VM screen once it starts to capture input.';
+    this.applyRuntimeLabels();
+    this.supportNote.textContent = this.getDefaultSupportNote();
     this.syncUi();
   }
 
@@ -325,11 +431,13 @@ export class RetroVmController {
 
     this.root.dataset.vmBooted = 'false';
     this.root.dataset.vmGraphical = 'false';
-    this.progress = { loadedBytes: 0, totalBytes: RETRO_VM_CONFIG.cdromSizeBytes };
+    this.setCaptureState('uncaptured');
+    this.progress = { loadedBytes: 0, totalBytes: this.config.cdromSizeBytes };
     this.setState(transitionRetroVmState(this.state, 'launch'));
 
     try {
       this.emulator = await this.createEmulator();
+      this.installTestCanvasIfNeeded();
       this.attachListeners(this.emulator);
       this.emulator.screen_set_scale(1);
     } catch (error) {
@@ -345,18 +453,25 @@ export class RetroVmController {
     }
 
     const { V86 } = await import('v86');
-    return new V86({
-      screen_container: this.screenContainer,
-      wasm_path: v86WasmUrl,
-      bios: { url: RETRO_VM_CONFIG.biosUrl },
-      vga_bios: { url: RETRO_VM_CONFIG.vgaBiosUrl },
-      cdrom: { url: RETRO_VM_CONFIG.cdromUrl, size: RETRO_VM_CONFIG.cdromSizeBytes },
-      autostart: true,
-      memory_size: RETRO_VM_CONFIG.memorySize,
-      vga_memory_size: RETRO_VM_CONFIG.vgaMemorySize,
-      boot_order: RETRO_VM_CONFIG.bootOrder,
-      disable_mouse: true
-    }) as unknown as V86;
+    return new V86(buildRetroVmV86Options(this.config, this.screenContainer, v86WasmUrl)) as unknown as V86;
+  }
+
+  private installTestCanvasIfNeeded() {
+    if (!window.__OD_RETRO_VM_TEST_MODE__) {
+      return;
+    }
+
+    if (this.screenContainer.querySelector('canvas')) {
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 768;
+    canvas.style.display = 'block';
+    this.screenContainer.appendChild(canvas);
+    this.syncGraphicalMode();
+    this.syncGuestFit();
   }
 
   private attachListeners(emulator: EmulatorLike) {
@@ -381,7 +496,8 @@ export class RetroVmController {
       this.setState(transitionRetroVmState(this.state, 'enter-fullscreen'));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Fullscreen is unavailable in this browser.';
-      this.setState('error', message);
+      this.statusText.textContent = message;
+      this.supportNote.textContent = message;
     }
   }
 
@@ -411,18 +527,23 @@ export class RetroVmController {
     }
 
     this.setState(transitionRetroVmState(this.state, 'reset'));
+    await this.exitFullscreenIfNeeded();
+    await this.mouseBridge.releasePointerLock();
     await this.destroySession();
     this.placeholder.classList.remove('is-hidden');
-    this.progress = { loadedBytes: 0, totalBytes: RETRO_VM_CONFIG.cdromSizeBytes };
+    this.progress = { loadedBytes: 0, totalBytes: this.config.cdromSizeBytes };
     this.root.dataset.vmBooted = 'false';
     this.root.dataset.vmGraphical = 'false';
     this.graphicalModeActive = false;
+    this.setCaptureState('uncaptured');
     this.screenContainer.innerHTML = '';
     this.setState(transitionRetroVmState(this.state, 'reset-complete'));
   }
 
   private async destroySession() {
     window.clearTimeout(this.bootHintTimer);
+    await this.mouseBridge.releasePointerLock();
+    this.setCaptureState('uncaptured');
 
     if (!this.emulator) {
       return;
@@ -435,12 +556,12 @@ export class RetroVmController {
   }
 
   private async autoAdvanceBootMenu() {
-    if (!this.emulator || window.__OD_RETRO_VM_TEST_MODE__) {
+    if (!this.emulator || window.__OD_RETRO_VM_TEST_MODE__ || !this.config.bootMenuPrompt) {
       return;
     }
 
     try {
-      const menuVisible = await this.emulator.wait_until_vga_screen_contains(/Press ENTER to boot/i, {
+      const menuVisible = await this.emulator.wait_until_vga_screen_contains(this.config.bootMenuPrompt, {
         timeout_msec: 30_000
       });
       if (menuVisible) {
@@ -475,6 +596,9 @@ export class RetroVmController {
     const canvasVisible = canvas instanceof HTMLCanvasElement && getComputedStyle(canvas).display !== 'none';
     this.graphicalModeActive = canvasVisible;
     this.root.dataset.vmGraphical = canvasVisible ? 'true' : 'false';
+    if (!canvasVisible) {
+      this.setCaptureState('uncaptured');
+    }
   }
 
   private getGuestViewport() {
@@ -523,6 +647,75 @@ export class RetroVmController {
     return raw?.bus ?? null;
   }
 
+  private getDefaultSupportNote() {
+    return isRetroVmNetworkReady(this.config) ? this.config.copy.supportNoteOnline : this.config.copy.supportNoteOffline;
+  }
+
+  private getBridgeLabel() {
+    return isRetroVmNetworkReady(this.config) ? this.config.copy.bridgeLabelOnline : this.config.copy.bridgeLabelOffline;
+  }
+
+  private getScreenBadgeLabel() {
+    return isRetroVmNetworkReady(this.config) ? this.config.copy.screenBadgeOnline : this.config.copy.screenBadgeOffline;
+  }
+
+  private applyRuntimeLabels() {
+    this.assetLabel.textContent = this.config.copy.assetLabel;
+    this.sessionLabel.textContent = this.config.copy.sessionLabel;
+    this.bridgeLabel.textContent = this.getBridgeLabel();
+    this.progressMeta.textContent = this.config.copy.progressMeta;
+    this.screenBadge.textContent = this.getScreenBadgeLabel();
+    this.root.dataset.vmNetworkReady = isRetroVmNetworkReady(this.config) ? 'true' : 'false';
+  }
+
+  private applyInteractionStatusCopy() {
+    if (this.state !== 'running' && this.state !== 'fullscreen') {
+      return;
+    }
+
+    if (this.captureState === 'captured') {
+      if (this.state === 'fullscreen') {
+        this.statusText.textContent = 'Mouse is captured. Press Escape to exit fullscreen and release it.';
+        this.supportNote.textContent = 'Mouse is captured. Press Escape to exit fullscreen and return to the page.';
+      } else {
+        this.statusText.textContent = 'Mouse is captured now. Press Escape to release it and return to the page cursor.';
+        this.supportNote.textContent = 'Mouse is captured. Press Escape to release it and return to the page cursor.';
+      }
+      return;
+    }
+
+    if (this.state === 'fullscreen') {
+      this.supportNote.textContent = this.getDefaultSupportNote();
+      return;
+    }
+
+    this.statusText.textContent = `${this.config.guestName} is booting locally in your browser. Click into the desktop to capture mouse input.`;
+    this.supportNote.textContent = this.getDefaultSupportNote();
+  }
+
+  private async exitFullscreenIfNeeded() {
+    if (document.fullscreenElement !== this.screenShell) {
+      return;
+    }
+
+    try {
+      await document.exitFullscreen();
+    } catch {
+      // Ignore browsers that refuse to exit fullscreen during teardown.
+    }
+  }
+
+  private setCaptureState(next: 'uncaptured' | 'captured') {
+    this.captureState = next;
+    this.root.dataset.vmCaptureState = next;
+    this.captureBadge.textContent = next === 'captured'
+      ? this.state === 'fullscreen'
+        ? 'Mouse captured · Press Escape to exit'
+        : 'Mouse captured · Press Escape to release'
+      : 'Click desktop to capture mouse';
+    this.applyInteractionStatusCopy();
+  }
+
   private setState(next: RetroVmState, reason?: string) {
     this.state = next;
     this.root.dataset.vmState = next;
@@ -533,12 +726,15 @@ export class RetroVmController {
   }
 
   private syncUi(reason?: string) {
-    const view = resolveRetroVmStatusView(this.state, this.progress, reason ?? this.support.reason);
+    const view = resolveRetroVmStatusView(this.state, this.progress, this.config.guestName, reason ?? this.support.reason);
     this.statusChip.textContent = view.chipLabel;
     this.statusChip.className = `utility-status-chip ${view.chipClass}`;
     this.statusText.textContent = view.statusText;
     this.progressText.textContent = view.progressText;
-    this.progressMeta.textContent = `${RETRO_VM_CONFIG.distro} · keyboard + mouse desktop utility`;
+    this.applyRuntimeLabels();
+    if (this.state !== 'error' && this.state !== 'unsupported') {
+      this.supportNote.textContent = this.getDefaultSupportNote();
+    }
     const percent = this.progress.totalBytes && this.progress.totalBytes > 0
       ? Math.max(0, Math.min(100, (this.progress.loadedBytes / this.progress.totalBytes) * 100))
       : this.emulator
@@ -550,5 +746,6 @@ export class RetroVmController {
     this.fullscreenButton.disabled = !this.emulator || !document.fullscreenEnabled;
     this.pasteButton.disabled = !this.emulator;
     this.root.dataset.vmRunning = this.emulator ? 'true' : 'false';
+    this.applyInteractionStatusCopy();
   }
 }

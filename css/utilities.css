@@ -571,9 +571,12 @@
 }
 
 .vm-screen-shell:fullscreen {
-  grid-template-rows: auto minmax(0, 1fr);
-  padding: 1rem;
-  background: #0f1216;
+  grid-template-rows: minmax(0, 1fr);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: #000;
   inline-size: 100vw;
   block-size: 100vh;
   max-inline-size: 100vw;
@@ -601,6 +604,7 @@
 }
 
 .vm-screen-title,
+.vm-capture-badge,
 .vm-screen-badge {
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
@@ -608,9 +612,24 @@
   text-transform: uppercase;
 }
 
-.vm-screen-badge {
+.vm-capture-badge {
   margin-left: auto;
+  padding: 0.28rem 0.55rem;
+  border-radius: var(--radius-full);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(11, 21, 38, 0.34);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.vm-screen-badge {
+  margin-left: 0.45rem;
   color: rgba(255, 255, 255, 0.84);
+}
+
+[data-vm-capture-state='captured'] .vm-capture-badge {
+  border-color: rgba(138, 255, 156, 0.28);
+  background: rgba(45, 114, 63, 0.22);
+  color: #d9ffe1;
 }
 
 .vm-screen-bezel {
@@ -621,9 +640,15 @@
     linear-gradient(180deg, #4a4b4f 0%, #2f3237 100%);
 }
 
+.vm-screen-shell:fullscreen .vm-screen-chrome {
+  display: none;
+}
+
 .vm-screen-shell:fullscreen .vm-screen-bezel {
   min-height: 0;
   block-size: 100%;
+  padding: 0;
+  background: #000;
 }
 
 .vm-screen {
@@ -680,6 +705,9 @@
   min-height: 0;
   block-size: 100%;
   max-block-size: 100%;
+  border: 0;
+  border-radius: 0;
+  background: #000;
 }
 
 .vm-placeholder {

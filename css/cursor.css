@@ -151,3 +151,15 @@ textarea,
 [data-cursor='nesw-resize'] {
   cursor: var(--cursor-nesw), nesw-resize !important;
 }
+
+/* VM surfaces should show only the guest cursor while pointer capture is active.
+   In the uncaptured state we keep normal cursors so users understand they must
+   click to capture the mouse first. */
+#retroVmApp[data-vm-capture-state='captured'] #retroVmScreen,
+#retroVmApp[data-vm-capture-state='captured'] #retroVmScreen *,
+#retroVmApp[data-vm-capture-state='captured'] #retroVmScreen::before,
+#retroVmApp[data-vm-capture-state='captured'] #retroVmScreen::after,
+#retroVmApp[data-vm-capture-state='captured'] #retroVmScreenShell:fullscreen #retroVmScreen,
+#retroVmApp[data-vm-capture-state='captured'] #retroVmScreenShell:fullscreen #retroVmScreen * {
+  cursor: none !important;
+}

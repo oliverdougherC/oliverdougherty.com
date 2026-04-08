@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768" viewBox="0 0 1024 768">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#0a2c5f"/>
+      <stop offset="55%" stop-color="#154e87"/>
+      <stop offset="100%" stop-color="#08203f"/>
+    </linearGradient>
+    <linearGradient id="haze" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#8ed7d3" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.04"/>
+    </linearGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#9fe8ea" stroke-opacity="0.1" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="1024" height="768" fill="url(#bg)"/>
+  <rect width="1024" height="768" fill="url(#haze)"/>
+  <rect width="1024" height="768" fill="url(#grid)"/>
+  <g opacity="0.24">
+    <circle cx="210" cy="144" r="110" fill="#71d3db"/>
+    <circle cx="844" cy="108" r="150" fill="#2b8bc0"/>
+    <circle cx="864" cy="610" r="200" fill="#0a1837"/>
+  </g>
+  <g transform="translate(124 176)">
+    <rect x="-24" y="-30" width="800" height="330" rx="18" fill="#08172e" fill-opacity="0.52" stroke="#c8f4ff" stroke-opacity="0.25"/>
+    <text x="0" y="84" fill="#f5f5f0" font-family="Georgia, serif" font-size="124" font-style="italic">OD</text>
+    <text x="188" y="82" fill="#d2fff4" font-family="Trebuchet MS, Verdana, sans-serif" font-size="44" letter-spacing="10">RETRO VM</text>
+    <text x="192" y="136" fill="#d7e9f7" font-family="Trebuchet MS, Verdana, sans-serif" font-size="22" letter-spacing="4">
+      FAST. LOCAL. REMASTERED.
+    </text>
+    <text x="4" y="214" fill="#f0f6fb" font-family="Trebuchet MS, Verdana, sans-serif" font-size="26">
+      Tiny Core 11 custom shell
+    </text>
+    <text x="4" y="256" fill="#dbeaff" font-family="Trebuchet MS, Verdana, sans-serif" font-size="22">
+      flwm_topside + wbar + custom launchers
+    </text>
+  </g>
+  <rect x="74" y="654" width="876" height="56" rx="10" fill="#071321" fill-opacity="0.62" stroke="#c8f4ff" stroke-opacity="0.18"/>
+  <text x="106" y="690" fill="#d9f7ff" font-family="Trebuchet MS, Verdana, sans-serif" font-size="24" letter-spacing="3">
+    CLICK TO CAPTURE POINTER  •  ESC TO RELEASE  •  OFFLINE FIRST
+  </text>
+</svg>

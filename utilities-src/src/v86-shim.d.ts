@@ -5,6 +5,20 @@ declare module 'v86' {
     size?: number;
   }
 
+  export interface V86NetDeviceConfig {
+    type?: 'ne2k' | 'virtio';
+    relay_url?: string;
+    id?: number;
+    router_mac?: string;
+    router_ip?: string;
+    vm_ip?: string;
+    masquerade?: boolean;
+    dns_method?: 'static' | 'doh';
+    doh_server?: string;
+    cors_proxy?: string;
+    mtu?: number;
+  }
+
   export interface V86Options {
     screen_container?: HTMLElement;
     wasm_path?: string;
@@ -18,6 +32,8 @@ declare module 'v86' {
     disable_mouse?: boolean;
     disable_keyboard?: boolean;
     disable_audio?: boolean;
+    network_relay_url?: string;
+    net_device?: V86NetDeviceConfig;
   }
 
   export interface V86DownloadProgress {

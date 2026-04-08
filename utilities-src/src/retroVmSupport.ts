@@ -85,7 +85,12 @@ export function formatRetroVmProgress(progress: RetroVmProgress) {
   return 'Waiting to start.';
 }
 
-export function resolveRetroVmStatusView(state: RetroVmState, progress: RetroVmProgress, supportReason = 'Ready to launch.'): RetroVmStatusView {
+export function resolveRetroVmStatusView(
+  state: RetroVmState,
+  progress: RetroVmProgress,
+  guestName = 'Guest',
+  supportReason = 'Ready to launch.'
+): RetroVmStatusView {
   const progressLabel = formatRetroVmProgress(progress);
 
   switch (state) {
@@ -107,14 +112,14 @@ export function resolveRetroVmStatusView(state: RetroVmState, progress: RetroVmP
       return {
         chipLabel: 'Running',
         chipClass: 'utility-status-chip--ready',
-        statusText: 'Tiny Core is booting locally in your browser. Click into the screen to capture keyboard and mouse input.',
+        statusText: `${guestName} is booting locally in your browser. Click into the screen to capture keyboard and mouse input.`,
         progressText: progress.loadedBytes > 0 ? progressLabel : 'Guest boot in progress.'
       };
     case 'fullscreen':
       return {
         chipLabel: 'Focus',
         chipClass: 'utility-status-chip--animating',
-        statusText: 'Focus mode is active. Exit fullscreen to return to the regular page layout.',
+        statusText: 'Focus mode is active. Press Escape to exit fullscreen and return to the regular page layout.',
         progressText: progress.loadedBytes > 0 ? progressLabel : 'Running in fullscreen.'
       };
     case 'resetting':

@@ -1,0 +1,20 @@
+OD Retro VM
+===========
+
+This Tiny Core remaster is tuned for:
+
+- fast boot
+- a retro desktop shell
+- stable local input
+- offline-first sessions
+
+Launchers:
+
+- Guide: this window
+- Browser: reserved for a future lightweight browser pass
+
+Tips:
+
+- Click the VM to capture the pointer
+- Press Escape to release it
+- Fullscreen stays edge-to-edge

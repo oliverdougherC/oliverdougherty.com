@@ -1,10 +1,17 @@
 import { DEMOS, resolvePlaybackButtonLabel } from '@utilities/uiState';
 
 describe('utilities UI state', () => {
-  it('keeps the source-target demo labels aligned with the pattern assets', () => {
+  it('maps the source-target demo to Pattern and Lucki', () => {
     expect(DEMOS['source-target']).toMatchObject({
-      source: { label: 'Pattern' },
-      target: { label: 'Pattern' }
+      source: { label: 'Pattern', url: '../../assets/utilities/pattern.png' },
+      target: { label: 'Lucki', url: '../../assets/utilities/lucki.jpeg' }
+    });
+  });
+
+  it('maps the face-pattern demo key to Pattern and Keef', () => {
+    expect(DEMOS['face-pattern']).toMatchObject({
+      source: { label: 'Pattern', url: '../../assets/utilities/pattern.png' },
+      target: { label: 'Keef', url: '../../assets/utilities/keef.jpeg' }
     });
   });
 

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Retro Browser
+Exec=/usr/local/bin/retro-vm-browser
+Icon=/usr/local/share/pixmaps/retro-browser.png
+Categories=Network;
+Terminal=false

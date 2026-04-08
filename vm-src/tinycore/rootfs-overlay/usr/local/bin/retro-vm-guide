@@ -1,0 +1,2 @@
+#!/bin/sh
+exec aterm -title "OD Retro VM Guide" -geometry 96x28+36+72 -e /bin/sh -lc 'clear; cat /usr/local/share/retro-vm/guide.txt; printf "\n"; exec sh'
