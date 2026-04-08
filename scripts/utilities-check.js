@@ -197,6 +197,36 @@ async function readLayoutMetrics(page) {
   });
 }
 
+function isRetroVmAssetRequest(url) {
+  return (
+    url.includes('copy.sh/v86/bios/') ||
+    url.includes('i.copy.sh/TinyCore-11.0.iso')
+  );
+}
+
+async function readRetroVmState(page) {
+  return page.evaluate(() => {
+    const root = document.getElementById('retroVmApp');
+    const placeholder = document.getElementById('retroVmPlaceholder');
+    const progressFill = document.getElementById('retroVmProgressFill');
+
+    return {
+      state: root?.dataset.vmState ?? '',
+      running: root?.dataset.vmRunning ?? '',
+      supported: root?.dataset.vmSupported ?? '',
+      booted: root?.dataset.vmBooted ?? '',
+      status: document.getElementById('retroVmStatusText')?.textContent?.trim() ?? '',
+      chip: document.getElementById('retroVmStatusChip')?.textContent?.trim() ?? '',
+      progress: document.getElementById('retroVmProgressText')?.textContent?.trim() ?? '',
+      progressWidth: progressFill instanceof HTMLElement ? progressFill.style.width : '',
+      launchDisabled: document.getElementById('retroVmLaunchBtn')?.hasAttribute('disabled') ?? false,
+      resetDisabled: document.getElementById('retroVmResetBtn')?.hasAttribute('disabled') ?? false,
+      fullscreenDisabled: document.getElementById('retroVmFullscreenBtn')?.hasAttribute('disabled') ?? false,
+      placeholderHidden: placeholder?.classList.contains('is-hidden') ?? false
+    };
+  });
+}
+
 async function main() {
   const server = await startLocalStaticServer({
     url: BASE_URL,
@@ -211,6 +241,16 @@ async function main() {
 
     const page = await browser.newPage({
       viewport: { width: 1440, height: 1100 }
+    });
+    await page.addInitScript(() => {
+      window.__OD_RETRO_VM_TEST_MODE__ = true;
+    });
+
+    const retroVmRequests = [];
+    page.on('request', (request) => {
+      if (isRetroVmAssetRequest(request.url())) {
+        retroVmRequests.push(request.url());
+      }
     });
 
     const pageUrl = `${baseUrl}/pages/dashboard/index.html`;
@@ -264,6 +304,13 @@ async function main() {
         desktopLayout.canvas.right <= desktopLayout.panel.right + 1,
       'Reconstruction stage or canvas exceeds the right edge of its panel.'
     );
+
+    const initialVmState = await readRetroVmState(page);
+    assert(initialVmState.state === 'idle', 'Retro VM should be idle on first paint.');
+    assert(initialVmState.running === 'false', 'Retro VM should not report a running session before launch.');
+    assert(initialVmState.supported === 'true', 'Retro VM should be available on desktop.');
+    assert(initialVmState.launchDisabled === false, 'Retro VM launch should be available on desktop.');
+    assert(retroVmRequests.length === 0, 'Retro VM should not fetch guest assets before launch.');
 
     const finalResultPixels = await readCanvasPixels(page, 'transformResultCanvas');
     const sourceStagePixels = await readCanvasPixels(page, 'transformSourceCanvas');
@@ -403,6 +450,31 @@ async function main() {
     assert(errorState.chip === 'Error', 'Invalid upload should set the error state.');
     assert(errorState.text && /unable|failed|could not/i.test(errorState.text), 'Invalid upload should surface a readable error.');
 
+    await page.click('#retroVmLaunchBtn');
+    await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmState === 'running');
+
+    const launchedVmState = await readRetroVmState(page);
+    assert(launchedVmState.chip === 'Running', 'Retro VM should enter the running state after launch.');
+    assert(/booting locally|running locally/i.test(launchedVmState.status), 'Retro VM should surface a boot/running status after launch.');
+    assert(launchedVmState.progressWidth !== '0%', 'Retro VM progress should advance after launch.');
+    assert(launchedVmState.placeholderHidden === true, 'Retro VM placeholder should hide after launch.');
+    assert(launchedVmState.launchDisabled === true, 'Retro VM launch should disable while a session is active.');
+    assert(launchedVmState.resetDisabled === false, 'Retro VM reset should enable while a session is active.');
+    assert(launchedVmState.fullscreenDisabled === false, 'Retro VM fullscreen should enable after launch.');
+
+    await page.click('#retroVmFullscreenBtn');
+    await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmState === 'fullscreen');
+    await page.evaluate(() => document.exitFullscreen());
+    await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmState === 'running');
+
+    await page.click('#retroVmResetBtn');
+    await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmState === 'idle');
+    const resetVmState = await readRetroVmState(page);
+    assert(resetVmState.running === 'false', 'Retro VM should clear its running flag after reset.');
+    assert(resetVmState.booted === 'false', 'Retro VM should clear its booted flag after reset.');
+    assert(resetVmState.placeholderHidden === false, 'Retro VM placeholder should return after reset.');
+    assert(/nothing persists|fresh local session/i.test(resetVmState.status), 'Retro VM should explain wipe semantics after reset.');
+
     const noWorkerPage = await browser.newPage({
       viewport: { width: 1440, height: 1100 }
     });
@@ -437,6 +509,9 @@ async function main() {
     const mobilePage = await browser.newPage({
       viewport: { width: 390, height: 844 }
     });
+    await mobilePage.addInitScript(() => {
+      window.__OD_RETRO_VM_TEST_MODE__ = true;
+    });
     await mobilePage.emulateMedia({ reducedMotion: 'reduce' });
     await loadUtilitiesPage(mobilePage, pageUrl, 'Reduced motion', 30000, 'reduced-motion startup');
 
@@ -444,12 +519,16 @@ async function main() {
       width: window.innerWidth,
       shellWidth: document.querySelector('.utility-shell')?.getBoundingClientRect().width ?? 0,
       resultStatus: document.getElementById('transformStatusText')?.textContent?.trim(),
+      vmState: document.getElementById('retroVmApp')?.dataset.vmState ?? '',
+      vmStatus: document.getElementById('retroVmStatusText')?.textContent?.trim() ?? '',
       navBottom: document.getElementById('nav')?.getBoundingClientRect().bottom ?? 0,
       heroTitleTop: document.querySelector('.utilities-hero .hero-title')?.getBoundingClientRect().top ?? 0
     }));
 
     assert(mobileState.shellWidth <= mobileState.width, 'Utilities shell overflows the mobile viewport.');
     assert(mobileState.resultStatus && /Reduced motion/i.test(mobileState.resultStatus), 'Reduced-motion path did not complete.');
+    assert(mobileState.vmState === 'unsupported', 'Retro VM should fall back on mobile-sized viewports.');
+    assert(/desktop-first|desktop browser/i.test(mobileState.vmStatus), 'Retro VM mobile fallback copy is missing.');
     assert(mobileState.heroTitleTop >= mobileState.navBottom + 8, 'Mobile utilities hero title sits too close to the navigation.');
 
     await noWorkerPage.close();

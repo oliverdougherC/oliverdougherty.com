@@ -98,6 +98,9 @@ function validatePages() {
   assert(dashboardHtml.includes('id="transformGenerateBtn"'), 'Utilities generate button missing');
   assert(dashboardHtml.includes('id="transformSourceCanvas"'), 'Utilities source canvas missing');
   assert(dashboardHtml.includes('id="transformResultCanvas"'), 'Utilities result canvas missing');
+  assert(dashboardHtml.includes('id="retroVmApp"'), 'Retro VM shell missing.');
+  assert(dashboardHtml.includes('id="retroVmLaunchBtn"'), 'Retro VM launch button missing.');
+  assert(dashboardHtml.includes('id="retroVmScreen"'), 'Retro VM screen container missing.');
   assert(dashboardHtml.includes('assets/utilities-app.js'), 'Utilities bundle include missing');
   assert(!dashboardHtml.includes('servicesRefreshBtn'), 'Legacy services refresh UI should not ship');
   assert(!dashboardHtml.includes('data-health-url='), 'Legacy service health attributes should not ship');

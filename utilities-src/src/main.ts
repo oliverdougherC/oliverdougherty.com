@@ -7,6 +7,7 @@ import {
   type TransformAnimationState
 } from './transformAnimation';
 import { resolveOutputDimensions, transformPreparedImages } from './transformCore';
+import { RetroVmController } from './retroVmController';
 import type { PreparedImageTransfer, TransformMetadata, TransformPresetId } from './types';
 import { DEMOS, resolvePlaybackButtonLabel, type ImageSelection, type SelectionKind, type StateKind } from './uiState';
 import type { WorkerRequest, WorkerResponse } from './workerTypes';
@@ -1015,17 +1016,27 @@ class UtilitiesApp {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const root = document.getElementById('utilitiesApp');
-  if (!root) {
-    return;
+  const transformRoot = document.getElementById('utilitiesApp');
+  if (transformRoot) {
+    try {
+      new UtilitiesApp(transformRoot).init();
+    } catch (error) {
+      const statusText = document.getElementById('transformStatusText');
+      if (statusText) {
+        statusText.textContent = error instanceof Error ? error.message : 'Utilities failed to initialize.';
+      }
+    }
   }
 
-  try {
-    new UtilitiesApp(root).init();
-  } catch (error) {
-    const statusText = document.getElementById('transformStatusText');
-    if (statusText) {
-      statusText.textContent = error instanceof Error ? error.message : 'Utilities failed to initialize.';
+  const vmRoot = document.getElementById('retroVmApp');
+  if (vmRoot) {
+    try {
+      new RetroVmController(vmRoot).init();
+    } catch (error) {
+      const statusText = document.getElementById('retroVmStatusText');
+      if (statusText) {
+        statusText.textContent = error instanceof Error ? error.message : 'Retro VM failed to initialize.';
+      }
     }
   }
 });
