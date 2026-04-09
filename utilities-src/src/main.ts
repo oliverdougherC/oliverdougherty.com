@@ -1,6 +1,14 @@
 import { getPreset } from './presets';
+import { PRECOMPUTED_BUILT_IN_TRANSFORM_ASSETS } from './builtInTransformAssets';
 import { buildTransformRenderPlan } from './transformRenderPlan';
-import { buildBuiltInTransformCacheKey, cloneWorkerSuccessMessage } from './transformCache';
+import {
+  buildBuiltInTransformCacheKey,
+  cloneCachedBuiltInTransform,
+  createCachedBuiltInTransform,
+  hydratePrecomputedBuiltInTransform,
+  type SerializedPrecomputedBuiltInTransform,
+  type CachedBuiltInTransform
+} from './transformCache';
 import { DeathCalculatorController } from './deathCalculatorController';
 import {
   createTransformAnimationState,
@@ -74,7 +82,8 @@ class UtilitiesApp {
   private readonly resultContext: CanvasRenderingContext2D;
   private readonly overlayContext: CanvasRenderingContext2D;
   private readonly demoButtons: HTMLButtonElement[];
-  private readonly builtInTransformCache = new Map<string, WorkerSuccessMessage>();
+  private readonly builtInTransformCache = new Map<string, CachedBuiltInTransform>();
+  private readonly builtInTransformAssetPromises = new Map<string, Promise<SerializedPrecomputedBuiltInTransform>>();
 
   private sourceSelection: ImageSelection | null = null;
   private targetSelection: ImageSelection | null = null;
@@ -167,7 +176,6 @@ class UtilitiesApp {
           return;
         }
         this.applyDemo(demoKey);
-        void this.generateTransform();
       });
     });
 
@@ -176,7 +184,6 @@ class UtilitiesApp {
     this.syncSelectionLabels();
     this.syncButtons();
     this.applyDemo('pattern-face');
-    void this.generateTransform();
   }
 
   private get selectedPreset(): TransformPresetId {
@@ -255,12 +262,14 @@ class UtilitiesApp {
 
   private applyDemo(demoKey: string) {
     const demo = DEMOS[demoKey];
+    this.discardActiveRequest();
     this.sourceSelection = demo.source;
     this.targetSelection = demo.target;
-    this.syncSelectionLabels();
     this.demoButtons.forEach((button) => {
       button.classList.toggle('active', button.dataset.demoKey === demoKey);
     });
+    this.syncSelectionLabels();
+    this.invalidateComputedState('Built-in pair selected. Press generate to load the transform.');
   }
 
   private clearActiveDemo() {
@@ -396,6 +405,15 @@ class UtilitiesApp {
     return buildBuiltInTransformCacheKey(this.sourceSelection, this.targetSelection, presetId);
   }
 
+  private getPrecomputedBuiltInTransformAssetUrl(presetId: TransformPresetId) {
+    const cacheKey = this.getBuiltInTransformCacheKey(presetId);
+    if (!cacheKey) {
+      return null;
+    }
+
+    return PRECOMPUTED_BUILT_IN_TRANSFORM_ASSETS[cacheKey] ?? null;
+  }
+
   private getCachedBuiltInTransform(requestId: number, presetId: TransformPresetId) {
     const cacheKey = this.getBuiltInTransformCacheKey(presetId);
     if (!cacheKey) {
@@ -403,16 +421,126 @@ class UtilitiesApp {
     }
 
     const cached = this.builtInTransformCache.get(cacheKey);
-    return cached ? cloneWorkerSuccessMessage(cached, requestId) : null;
+    return cached ? cloneCachedBuiltInTransform(cached, requestId) : null;
   }
 
-  private storeBuiltInTransform(message: WorkerSuccessMessage) {
+  private storeBuiltInTransform(message: WorkerSuccessMessage, renderPlan: ReturnType<typeof buildTransformRenderPlan>) {
     const cacheKey = this.getBuiltInTransformCacheKey(message.metadata.presetId);
     if (!cacheKey) {
       return;
     }
 
-    this.builtInTransformCache.set(cacheKey, cloneWorkerSuccessMessage(message));
+    this.builtInTransformCache.set(cacheKey, createCachedBuiltInTransform(message, renderPlan));
+  }
+
+  private async loadPrecomputedBuiltInTransformAsset(
+    presetId: TransformPresetId
+  ): Promise<SerializedPrecomputedBuiltInTransform | null> {
+    const cacheKey = this.getBuiltInTransformCacheKey(presetId);
+    const assetUrl = this.getPrecomputedBuiltInTransformAssetUrl(presetId);
+    if (!cacheKey || !assetUrl) {
+      return null;
+    }
+
+    let assetPromise = this.builtInTransformAssetPromises.get(cacheKey);
+    if (!assetPromise) {
+      assetPromise = fetch(assetUrl).then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Unable to load precomputed built-in transform asset: ${response.status}`);
+        }
+
+        return (await response.json()) as SerializedPrecomputedBuiltInTransform;
+      });
+      this.builtInTransformAssetPromises.set(cacheKey, assetPromise);
+    }
+
+    try {
+      return await assetPromise;
+    } catch (error) {
+      this.builtInTransformAssetPromises.delete(cacheKey);
+      throw error;
+    }
+  }
+
+  private async restorePrecomputedBuiltInTransform(
+    requestId: number,
+    presetId: TransformPresetId
+  ) {
+    const serialized = await this.loadPrecomputedBuiltInTransformAsset(presetId);
+    if (!serialized) {
+      return null;
+    }
+
+    let sourceBitmap: ImageBitmap | null = null;
+    let targetBitmap: ImageBitmap | null = null;
+
+    try {
+      const settled = await Promise.allSettled([
+        this.selectionToBitmap(this.sourceSelection as ImageSelection),
+        this.selectionToBitmap(this.targetSelection as ImageSelection)
+      ]);
+      const sourceResult = settled[0];
+      const targetResult = settled[1];
+
+      if (sourceResult.status !== 'fulfilled' || targetResult.status !== 'fulfilled') {
+        if (sourceResult.status === 'fulfilled') {
+          sourceResult.value.close();
+        }
+        if (targetResult.status === 'fulfilled') {
+          targetResult.value.close();
+        }
+        throw sourceResult.status === 'rejected'
+          ? sourceResult.reason
+          : targetResult.status === 'rejected'
+            ? targetResult.reason
+            : new Error('Unable to load demo assets.');
+      }
+
+      sourceBitmap = sourceResult.value;
+      targetBitmap = targetResult.value;
+
+      const hydrated = hydratePrecomputedBuiltInTransform(serialized);
+      const preset = getPreset(presetId);
+      const prepared = this.prepareBitmapsOnMainThread(sourceBitmap, targetBitmap, preset.maxDimension);
+      sourceBitmap.close();
+      targetBitmap.close();
+      sourceBitmap = null;
+      targetBitmap = null;
+
+      if (
+        prepared.source.width !== hydrated.metadata.outputWidth ||
+        prepared.source.height !== hydrated.metadata.outputHeight
+      ) {
+        throw new Error('Precomputed built-in transform dimensions do not match the prepared demo assets.');
+      }
+
+      return {
+        message: {
+          type: 'success' as const,
+          requestId,
+          source: prepared.source,
+          target: prepared.target,
+          assignment: hydrated.assignment,
+          metadata: {
+            ...hydrated.metadata,
+            sourceOriginalWidth: prepared.source.originalWidth,
+            sourceOriginalHeight: prepared.source.originalHeight,
+            targetOriginalWidth: prepared.target.originalWidth,
+            targetOriginalHeight: prepared.target.originalHeight,
+            sourceScaled: prepared.source.scaled,
+            targetScaled: prepared.target.scaled
+          }
+        },
+        renderPlan: {
+          finalPixels: new Uint8ClampedArray(hydrated.finalPixels),
+          tintStrengthByTarget: new Float32Array(hydrated.tintStrengthByTarget),
+          cheatedTargetPixels: new Uint8Array(hydrated.cheatedTargetPixels)
+        }
+      };
+    } finally {
+      sourceBitmap?.close();
+      targetBitmap?.close();
+    }
   }
 
   private async generateTransform(options?: { forceMainThread?: boolean; retryMessage?: string }) {
@@ -442,8 +570,41 @@ class UtilitiesApp {
     if (cachedTransform) {
       this.setState('processing', 'Loading cached built-in transform…');
       this.setProgress(0.98, 'Restoring built-in pair from cache…', `${preset.label} preset · cached demo pair`);
-      this.handleWorkerMessage(cachedTransform);
+      this.applyTransformSuccess(
+        cachedTransform.message,
+        {
+          finalPixels: new Uint8ClampedArray(cachedTransform.finalPixels),
+          tintStrengthByTarget: new Float32Array(cachedTransform.tintStrengthByTarget),
+          cheatedTargetPixels: new Uint8Array(cachedTransform.cheatedTargetPixels)
+        },
+        false
+      );
       return;
+    }
+
+    if (!options?.forceMainThread) {
+      const precomputedBuiltInTransformUrl = this.getPrecomputedBuiltInTransformAssetUrl(preset.id);
+      if (precomputedBuiltInTransformUrl) {
+        this.setState('processing', 'Loading precomputed built-in transform…');
+        this.setProgress(0.08, 'Loading precomputed demo asset…', `${preset.label} preset · shipped demo cache`);
+
+        try {
+          const precomputedBuiltInTransform = await this.restorePrecomputedBuiltInTransform(requestId, preset.id);
+          if (precomputedBuiltInTransform && requestId === this.activeRequestId) {
+            this.setProgress(0.98, 'Restoring precomputed built-in transform…', `${preset.label} preset · shipped demo cache`);
+            this.applyTransformSuccess(precomputedBuiltInTransform.message, precomputedBuiltInTransform.renderPlan);
+            return;
+          }
+        } catch (error) {
+          this.setProgress(
+            0.12,
+            error instanceof Error
+              ? `${error.message} Falling back to live generation…`
+              : 'Precomputed demo unavailable. Falling back to live generation…',
+            `${preset.label} preset · live fallback`
+          );
+        }
+      }
     }
 
     this.setState('processing', 'Preparing images and analyzing pixels…');
@@ -700,13 +861,20 @@ class UtilitiesApp {
       return;
     }
 
+    this.applyTransformSuccess(message);
+  }
+
+  private applyTransformSuccess(
+    message: WorkerSuccessMessage,
+    precomputedRenderPlan?: ReturnType<typeof buildTransformRenderPlan>,
+    shouldStoreBuiltInTransform: boolean = true
+  ) {
     const transform: ActiveTransform = {
       metadata: message.metadata,
       source: this.inflateTransfer(message.source),
       target: this.inflateTransfer(message.target),
       assignment: new Uint32Array(asArrayBuffer(message.assignment))
     };
-    this.storeBuiltInTransform(message);
 
     this.activeTransform = transform;
     this.syncDiagnostics(transform.metadata, message.requestId);
@@ -733,20 +901,25 @@ class UtilitiesApp {
     this.outputSize.textContent = `${transform.metadata.outputWidth} × ${transform.metadata.outputHeight}`;
     this.pixelCount.textContent = transform.metadata.pixelCount.toLocaleString();
     this.duration.textContent = `${transform.metadata.processingMs.toFixed(0)} ms`;
-    const renderPlan = buildTransformRenderPlan(
-      {
-        width: transform.source.width,
-        height: transform.source.height,
-        pixels: transform.source.pixels
-      },
-      {
-        width: transform.target.width,
-        height: transform.target.height,
-        pixels: transform.target.pixels
-      },
-      transform.assignment,
-      transform.metadata.quantizationBits
-    );
+    const renderPlan =
+      precomputedRenderPlan ??
+      buildTransformRenderPlan(
+        {
+          width: transform.source.width,
+          height: transform.source.height,
+          pixels: transform.source.pixels
+        },
+        {
+          width: transform.target.width,
+          height: transform.target.height,
+          pixels: transform.target.pixels
+        },
+        transform.assignment,
+        transform.metadata.quantizationBits
+      );
+    if (shouldStoreBuiltInTransform) {
+      this.storeBuiltInTransform(message, renderPlan);
+    }
     const finalResultPixels = renderPlan.finalPixels;
     this.finalResultImageData = new ImageData(
       finalResultPixels.slice(),

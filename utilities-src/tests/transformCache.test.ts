@@ -1,4 +1,11 @@
-import { buildBuiltInTransformCacheKey, cloneWorkerSuccessMessage } from '@utilities/transformCache';
+import {
+  buildBuiltInTransformCacheKey,
+  cloneCachedBuiltInTransform,
+  createCachedBuiltInTransform,
+  hydratePrecomputedBuiltInTransform,
+  serializePrecomputedBuiltInTransform
+} from '@utilities/transformCache';
+import type { TransformRenderPlan } from '@utilities/transformRenderPlan';
 import type { ImageSelection } from '@utilities/uiState';
 import type { WorkerSuccessMessage } from '@utilities/workerTypes';
 
@@ -62,6 +69,14 @@ function createCachedMessage(): WorkerSuccessMessage {
   };
 }
 
+function createRenderPlan(): TransformRenderPlan {
+  return {
+    finalPixels: new Uint8ClampedArray([7, 8, 9, 255]),
+    tintStrengthByTarget: new Float32Array([0.75]),
+    cheatedTargetPixels: new Uint8Array([1])
+  };
+}
+
 describe('transform cache', () => {
   it('builds cache keys only for built-in demo selections', () => {
     const source = createDemoSelection('Pattern', '../../assets/utilities/pattern.png');
@@ -79,17 +94,33 @@ describe('transform cache', () => {
     ).toBeNull();
   });
 
-  it('clones cached worker payloads before replaying them', () => {
-    const original = createCachedMessage();
-    const cloned = cloneWorkerSuccessMessage(original, 42);
+  it('clones cached built-in animation payloads before replaying them', () => {
+    const original = createCachedBuiltInTransform(createCachedMessage(), createRenderPlan());
+    const cloned = cloneCachedBuiltInTransform(original, 42);
 
     expect(cloned).not.toBe(original);
-    expect(cloned.requestId).toBe(42);
-    expect(cloned.source.pixels).not.toBe(original.source.pixels);
-    expect(cloned.target.pixels).not.toBe(original.target.pixels);
-    expect(cloned.assignment).not.toBe(original.assignment);
+    expect(cloned.message.requestId).toBe(42);
+    expect(cloned.message.source.pixels).not.toBe(original.message.source.pixels);
+    expect(cloned.message.target.pixels).not.toBe(original.message.target.pixels);
+    expect(cloned.message.assignment).not.toBe(original.message.assignment);
+    expect(cloned.finalPixels).not.toBe(original.finalPixels);
+    expect(cloned.tintStrengthByTarget).not.toBe(original.tintStrengthByTarget);
+    expect(cloned.cheatedTargetPixels).not.toBe(original.cheatedTargetPixels);
 
-    new Uint8ClampedArray(cloned.source.pixels)[0] = 99;
-    expect(new Uint8ClampedArray(original.source.pixels)[0]).toBe(1);
+    new Uint8ClampedArray(cloned.message.source.pixels)[0] = 99;
+    new Uint8ClampedArray(cloned.finalPixels)[0] = 88;
+    expect(new Uint8ClampedArray(original.message.source.pixels)[0]).toBe(1);
+    expect(new Uint8ClampedArray(original.finalPixels)[0]).toBe(7);
+  });
+
+  it('serializes and hydrates precomputed built-in transforms', () => {
+    const serialized = serializePrecomputedBuiltInTransform(createCachedMessage(), createRenderPlan());
+    const hydrated = hydratePrecomputedBuiltInTransform(serialized);
+
+    expect(new Uint32Array(hydrated.assignment)[0]).toBe(0);
+    expect(new Uint8ClampedArray(hydrated.finalPixels)[0]).toBe(7);
+    expect(new Float32Array(hydrated.tintStrengthByTarget)[0]).toBeCloseTo(0.75);
+    expect(new Uint8Array(hydrated.cheatedTargetPixels)[0]).toBe(1);
+    expect(hydrated.metadata.presetId).toBe('balanced');
   });
 });

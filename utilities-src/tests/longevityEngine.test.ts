@@ -1,5 +1,5 @@
 import { longevityDataset } from '@utilities/longevityDataset';
-import { formatCountdown, predictLongevity } from '@utilities/longevityEngine';
+import { formatCountdown, formatCountdownDisplay, predictLongevity } from '@utilities/longevityEngine';
 import type { LongevitySurveyAnswers } from '@utilities/longevityTypes';
 
 function createBaselineAnswers(overrides: Partial<LongevitySurveyAnswers> = {}): LongevitySurveyAnswers {
@@ -147,5 +147,14 @@ describe('longevity engine', () => {
     expect(countdown.hours).toBe(0);
     expect(countdown.minutes).toBe(1);
     expect(countdown.seconds).toBe(5);
+  });
+
+  it('renders countdown display strings with padded segments', () => {
+    expect(
+      formatCountdownDisplay(
+        Date.parse('2028-03-01T00:00:05Z'),
+        Date.parse('2027-02-28T23:59:00Z')
+      )
+    ).toBe('01:001:00:01:05');
   });
 });
