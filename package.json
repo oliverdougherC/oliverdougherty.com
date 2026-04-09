@@ -7,6 +7,7 @@
     "optimize-images": "node scripts/optimize-images.js",
     "build:deploy": "node scripts/build-deploy.js",
     "utilities:build": "vite build --config config/vite.utilities.mts",
+    "utilities:data:update": "node scripts/update-longevity-data.js",
     "utilities:typecheck": "tsc -p config/tsconfig.utilities.json --noEmit",
     "utilities:test": "vitest run --config config/vitest.utilities.mts",
     "utilities:check": "npm run utilities:typecheck && npm run utilities:test",

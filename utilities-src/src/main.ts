@@ -1,5 +1,7 @@
 import { getPreset } from './presets';
 import { buildTransformRenderPlan } from './transformRenderPlan';
+import { buildBuiltInTransformCacheKey, cloneWorkerSuccessMessage } from './transformCache';
+import { DeathCalculatorController } from './deathCalculatorController';
 import {
   createTransformAnimationState,
   renderTransformAnimationPixels,
@@ -10,7 +12,7 @@ import { resolveOutputDimensions, transformPreparedImages } from './transformCor
 import { RetroVmController } from './retroVmController';
 import type { PreparedImageTransfer, TransformMetadata, TransformPresetId } from './types';
 import { DEMOS, resolvePlaybackButtonLabel, type ImageSelection, type SelectionKind, type StateKind } from './uiState';
-import type { WorkerRequest, WorkerResponse } from './workerTypes';
+import type { WorkerRequest, WorkerResponse, WorkerSuccessMessage } from './workerTypes';
 
 interface HydratedTransfer {
   width: number;
@@ -72,6 +74,7 @@ class UtilitiesApp {
   private readonly resultContext: CanvasRenderingContext2D;
   private readonly overlayContext: CanvasRenderingContext2D;
   private readonly demoButtons: HTMLButtonElement[];
+  private readonly builtInTransformCache = new Map<string, WorkerSuccessMessage>();
 
   private sourceSelection: ImageSelection | null = null;
   private targetSelection: ImageSelection | null = null;
@@ -389,6 +392,29 @@ class UtilitiesApp {
     this.root.dataset.averageGroupsPerTarget = metadata.averageGroupsPerTarget.toFixed(4);
   }
 
+  private getBuiltInTransformCacheKey(presetId: TransformPresetId) {
+    return buildBuiltInTransformCacheKey(this.sourceSelection, this.targetSelection, presetId);
+  }
+
+  private getCachedBuiltInTransform(requestId: number, presetId: TransformPresetId) {
+    const cacheKey = this.getBuiltInTransformCacheKey(presetId);
+    if (!cacheKey) {
+      return null;
+    }
+
+    const cached = this.builtInTransformCache.get(cacheKey);
+    return cached ? cloneWorkerSuccessMessage(cached, requestId) : null;
+  }
+
+  private storeBuiltInTransform(message: WorkerSuccessMessage) {
+    const cacheKey = this.getBuiltInTransformCacheKey(message.metadata.presetId);
+    if (!cacheKey) {
+      return;
+    }
+
+    this.builtInTransformCache.set(cacheKey, cloneWorkerSuccessMessage(message));
+  }
+
   private async generateTransform(options?: { forceMainThread?: boolean; retryMessage?: string }) {
     if (!this.sourceSelection || !this.targetSelection) {
       this.setState('error', 'Choose both a source image and a target image.');
@@ -412,6 +438,14 @@ class UtilitiesApp {
 
     const requestId = ++this.activeRequestId;
     const preset = getPreset(this.selectedPreset);
+    const cachedTransform = this.getCachedBuiltInTransform(requestId, preset.id);
+    if (cachedTransform) {
+      this.setState('processing', 'Loading cached built-in transform…');
+      this.setProgress(0.98, 'Restoring built-in pair from cache…', `${preset.label} preset · cached demo pair`);
+      this.handleWorkerMessage(cachedTransform);
+      return;
+    }
+
     this.setState('processing', 'Preparing images and analyzing pixels…');
     this.setProgress(
       0.02,
@@ -672,6 +706,7 @@ class UtilitiesApp {
       target: this.inflateTransfer(message.target),
       assignment: new Uint32Array(asArrayBuffer(message.assignment))
     };
+    this.storeBuiltInTransform(message);
 
     this.activeTransform = transform;
     this.syncDiagnostics(transform.metadata, message.requestId);
@@ -1024,6 +1059,18 @@ document.addEventListener('DOMContentLoaded', () => {
       const statusText = document.getElementById('transformStatusText');
       if (statusText) {
         statusText.textContent = error instanceof Error ? error.message : 'Utilities failed to initialize.';
+      }
+    }
+  }
+
+  const deathCalculatorRoot = document.getElementById('deathCalculatorApp');
+  if (deathCalculatorRoot) {
+    try {
+      new DeathCalculatorController(deathCalculatorRoot).init();
+    } catch (error) {
+      const statusText = document.getElementById('deathStatusText');
+      if (statusText) {
+        statusText.textContent = error instanceof Error ? error.message : 'Death Calculator failed to initialize.';
       }
     }
   }
