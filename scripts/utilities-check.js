@@ -491,6 +491,87 @@ async function main() {
     assert(errorState.chip === 'Error', 'Invalid upload should set the error state.');
     assert(errorState.text && /unable|failed|could not/i.test(errorState.text), 'Invalid upload should surface a readable error.');
 
+    await page.fill('#deathBirthDate', '1989-05-14');
+    await page.selectOption('#deathSex', 'male');
+    await page.fill('#deathWeightPounds', '192');
+    await page.fill('#deathHeightFeet', '5');
+    await page.fill('#deathHeightInchesPart', '11');
+    await page.click('#deathNextBtn');
+
+    await page.fill('#deathModerateMinutes', '180');
+    await page.fill('#deathVigorousMinutes', '40');
+    await page.fill('#deathStrengthDays', '3');
+    await page.fill('#deathSedentaryHours', '7');
+    await page.selectOption('#deathSmokingStatus', 'former');
+    await page.waitForSelector('#deathYearsSinceQuitField:not([hidden])');
+    await page.fill('#deathYearsSinceQuit', '12');
+    await page.fill('#deathDrinksPerWeek', '4');
+    await page.selectOption('#deathBingeFrequency', 'never');
+    await page.fill('#deathSleepHours', '7.5');
+    await page.selectOption('#deathUpfShare', 'moderate');
+    await page.fill('#deathProduceServings', '5');
+    await page.click('#deathNextBtn');
+
+    await page.check('#deathHasHypertension');
+    await page.selectOption('#deathDiabetesStatus', 'prediabetes');
+    await page.click('#deathNextBtn');
+
+    await page.selectOption('#deathParentLongevityBand', 'one-85-plus');
+    await page.click('#deathCalculateBtn');
+    await page.waitForFunction(() => document.getElementById('deathStatusChip')?.textContent?.trim() === 'Complete');
+
+    const deathResultState = await page.evaluate(() => ({
+      status: document.getElementById('deathStatusText')?.textContent?.trim() ?? '',
+      medianDate: document.getElementById('deathMedianDate')?.textContent?.trim() ?? '',
+      rangeText: document.getElementById('deathRangeText')?.textContent?.trim() ?? '',
+      survival5: document.getElementById('deathSurvival5')?.textContent?.trim() ?? '',
+      hazardMultiplier: document.getElementById('deathHazardMultiplier')?.textContent?.trim() ?? '',
+      baselineYears: document.getElementById('deathBaselineYears')?.textContent?.trim() ?? '',
+      countdownSeconds: document.getElementById('deathCountdownSeconds')?.textContent?.trim() ?? '',
+      sourceCount: document.querySelectorAll('#deathSourceList li').length,
+      disclaimer: document.getElementById('deathDisclaimer')?.textContent?.trim() ?? '',
+      negativeDrivers: Array.from(document.querySelectorAll('#deathNegativeDrivers li')).map((node) => node.textContent?.trim() ?? ''),
+      positiveDrivers: Array.from(document.querySelectorAll('#deathPositiveDrivers li')).map((node) => node.textContent?.trim() ?? '')
+    }));
+
+    assert(/Longevity estimate ready/i.test(deathResultState.status), 'Death Calculator should surface a completion status.');
+    assert(deathResultState.medianDate && !/complete the survey/i.test(deathResultState.medianDate), 'Death Calculator should render a concrete median date.');
+    assert(/P10/.test(deathResultState.rangeText) && /P90/.test(deathResultState.rangeText), 'Death Calculator should render percentile range text.');
+    assert(/%/.test(deathResultState.survival5), 'Death Calculator should render survival probabilities.');
+    assert(/×/.test(deathResultState.hazardMultiplier), 'Death Calculator should render the total hazard multiplier.');
+    assert(/yrs/.test(deathResultState.baselineYears), 'Death Calculator should render the baseline life-table comparison.');
+    assert(/^\d{2}$|^\d$/.test(deathResultState.countdownSeconds), 'Death Calculator should render a live countdown.');
+    assert(deathResultState.sourceCount >= 10, 'Death Calculator should expose the curated source list.');
+    assert(/not a medical diagnosis/i.test(deathResultState.disclaimer), 'Death Calculator should expose a clear disclaimer.');
+    assert(
+      deathResultState.negativeDrivers.some((item) => /\+/.test(item)),
+      'Death Calculator should list at least one shortening driver.'
+    );
+    assert(
+      deathResultState.positiveDrivers.length > 0,
+      'Death Calculator should list protective drivers or a clear fallback message.'
+    );
+
+    const countdownBefore = deathResultState.countdownSeconds;
+    await page.waitForTimeout(1200);
+    const countdownAfter = await page.evaluate(() => document.getElementById('deathCountdownSeconds')?.textContent?.trim() ?? '');
+    assert(countdownAfter !== countdownBefore, 'Death Calculator countdown should tick in real time.');
+
+    await page.click('#deathResetBtn');
+    const deathResetState = await page.evaluate(() => ({
+      statusChip: document.getElementById('deathStatusChip')?.textContent?.trim() ?? '',
+      statusText: document.getElementById('deathStatusText')?.textContent?.trim() ?? '',
+      birthDate: document.getElementById('deathBirthDate')?.value ?? '',
+      hazardMultiplier: document.getElementById('deathHazardMultiplier')?.textContent?.trim() ?? '',
+      medianDate: document.getElementById('deathMedianDate')?.textContent?.trim() ?? ''
+    }));
+
+    assert(deathResetState.statusChip === 'Idle', 'Death Calculator reset should restore the idle status.');
+    assert(/complete the four-part survey/i.test(deathResetState.statusText), 'Death Calculator reset should restore the default status copy.');
+    assert(deathResetState.birthDate === '', 'Death Calculator reset should clear submitted answers.');
+    assert(deathResetState.hazardMultiplier === '—', 'Death Calculator reset should clear the result stats.');
+    assert(/complete the survey/i.test(deathResetState.medianDate), 'Death Calculator reset should restore the placeholder result copy.');
+
     await page.click('#retroVmLaunchBtn');
     await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmState === 'running');
 
