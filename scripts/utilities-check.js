@@ -284,32 +284,84 @@ async function main() {
     });
 
     const retroVmRequests = [];
+    const precomputedTransformRequests = [];
     page.on('request', (request) => {
       if (isRetroVmAssetRequest(request.url())) {
         retroVmRequests.push(request.url());
       }
+      if (
+        request.url().includes('pattern-face-balanced.json') ||
+        request.url().includes('source-target-balanced.json') ||
+        request.url().includes('face-pattern-balanced.json')
+      ) {
+        precomputedTransformRequests.push(request.url());
+      }
     });
 
     const pageUrl = `${baseUrl}/pages/dashboard/index.html`;
-    await loadUtilitiesPage(page, pageUrl, 'Transform ready|Animation complete|Reduced motion', 30000, 'default demo');
+    await loadUtilitiesPage(page, pageUrl, 'Built-in pair selected|Ready for input', 15000, 'initial transform state');
+
+    const initialTransformState = await page.evaluate(() => ({
+      status: document.getElementById('transformStatusText')?.textContent?.trim(),
+      outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
+      pixels: document.getElementById('transformPixelCount')?.textContent?.trim(),
+      playLabel: document.getElementById('transformPlayBtn')?.textContent?.trim(),
+      replayButtonExists: Boolean(document.getElementById('transformReplayBtn')),
+      uploadIconCount: document.querySelectorAll('.utility-dropzone-icon').length,
+      activeDemo: document.querySelector('.demo-chip.active')?.textContent?.trim() ?? '',
+      generateDisabled: document.getElementById('transformGenerateBtn')?.hasAttribute('disabled') ?? true
+    }));
+
+    assert(
+      initialTransformState.status && /built-in pair selected|ready for input/i.test(initialTransformState.status),
+      'Image Transform should start idle with a selected built-in pair.'
+    );
+    assert(initialTransformState.outputSize === '—', 'Initial transform metrics should stay blank until generate is clicked.');
+    assert(initialTransformState.pixels === '—', 'Initial transform pixel count should stay blank until generate is clicked.');
+    assert(initialTransformState.playLabel === 'Play', 'Primary playback control should remain Play before generation.');
+    assert(initialTransformState.replayButtonExists === false, 'Dedicated replay button should not be rendered.');
+    assert(initialTransformState.uploadIconCount === 2, 'Both upload dropzones should expose a visible upload icon.');
+    assert(initialTransformState.activeDemo === 'Pattern → Face', 'Pattern → Face should be selected by default.');
+    assert(initialTransformState.generateDisabled === false, 'Generate should be available when the built-in pair is preselected.');
+    assert(precomputedTransformRequests.length === 0, 'Initial load should not fetch precomputed demo transforms.');
+
+    await page.click('[data-demo-key="source-target"]');
+    await page.waitForTimeout(300);
+
+    const afterDemoSelection = await page.evaluate(() => ({
+      status: document.getElementById('transformStatusText')?.textContent?.trim(),
+      outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
+      activeDemo: document.querySelector('.demo-chip.active')?.textContent?.trim() ?? ''
+    }));
+
+    assert(
+      afterDemoSelection.status && /built-in pair selected/i.test(afterDemoSelection.status),
+      'Selecting a built-in demo chip should update the ready state without auto-generating.'
+    );
+    assert(afterDemoSelection.outputSize === '—', 'Selecting a built-in demo chip should not auto-fill transform metrics.');
+    assert(afterDemoSelection.activeDemo === 'Pattern → Lucki', 'Demo chip selection should update the active built-in pair.');
+    assert(precomputedTransformRequests.length === 0, 'Selecting a built-in demo chip should not fetch precomputed data.');
+
+    await page.click('[data-demo-key="pattern-face"]');
+    await page.click('#transformGenerateBtn');
+    await waitForStatusMatch(page, 'Loading precomputed|Preparing|Analyzing|Assigning|Animating', 7000);
+    await waitForStatusMatch(page, 'Transform ready|Animation complete|Reduced motion', 30000);
     await waitForProgressFill(page, 90, 20000);
 
     const afterDemo = await page.evaluate(() => ({
       status: document.getElementById('transformStatusText')?.textContent?.trim(),
       outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
       pixels: document.getElementById('transformPixelCount')?.textContent?.trim(),
-      playLabel: document.getElementById('transformPlayBtn')?.textContent?.trim(),
-      replayButtonExists: Boolean(document.getElementById('transformReplayBtn')),
-      uploadIconCount: document.querySelectorAll('.utility-dropzone-icon').length
+      playLabel: document.getElementById('transformPlayBtn')?.textContent?.trim()
     }));
 
-    assert(afterDemo.status && /Transform ready|Animation complete|Reduced motion/i.test(afterDemo.status), 'Default demo did not initialize.');
-    assert(afterDemo.outputSize && afterDemo.outputSize !== '—', 'Default demo output size missing.');
-    assert(afterDemo.pixels && afterDemo.pixels !== '—', 'Default demo pixel count missing.');
-    assert(afterDemo.playLabel === 'Replay', 'Primary playback control should switch to Replay after the default animation runs.');
-    assert(afterDemo.replayButtonExists === false, 'Dedicated replay button should not be rendered.');
-    assert(afterDemo.uploadIconCount === 2, 'Both upload dropzones should expose a visible upload icon.');
+    assert(afterDemo.status && /Transform ready|Animation complete|Reduced motion/i.test(afterDemo.status), 'Built-in demo did not initialize after generate.');
+    assert(afterDemo.outputSize && afterDemo.outputSize !== '—', 'Built-in demo output size missing after generate.');
+    assert(afterDemo.pixels && afterDemo.pixels !== '—', 'Built-in demo pixel count missing after generate.');
+    assert(afterDemo.playLabel === 'Replay', 'Primary playback control should switch to Replay after the built-in animation runs.');
+    assert(precomputedTransformRequests.length > 0, 'Built-in demo generation should fetch a shipped precomputed transform asset.');
 
+    await page.evaluate(() => window.scrollTo(0, 0));
     const desktopLayout = await readLayoutMetrics(page);
     assert(desktopLayout.scrollWidth === desktopLayout.clientWidth, 'Utilities page should not overflow horizontally.');
     assert(
@@ -491,86 +543,153 @@ async function main() {
     assert(errorState.chip === 'Error', 'Invalid upload should set the error state.');
     assert(errorState.text && /unable|failed|could not/i.test(errorState.text), 'Invalid upload should surface a readable error.');
 
+    const deathIntroState = await page.evaluate(() => ({
+      introHidden: document.getElementById('deathIntroScreen')?.hasAttribute('hidden') ?? true,
+      surveyHidden: document.getElementById('deathSurveyScreen')?.hasAttribute('hidden') ?? false,
+      resultHidden: document.getElementById('deathResultScreen')?.hasAttribute('hidden') ?? false,
+      title: document.getElementById('deathCalculatorTitle')?.textContent?.trim() ?? '',
+      beginLabel: document.getElementById('deathBeginBtn')?.textContent?.trim() ?? ''
+    }));
+
+    assert(deathIntroState.introHidden === false, 'Death Calculator should start on the intro card.');
+    assert(deathIntroState.surveyHidden === true, 'Death Calculator survey should stay hidden until Begin is clicked.');
+    assert(deathIntroState.resultHidden === true, 'Death Calculator result should stay hidden on first paint.');
+    assert(deathIntroState.title === 'Death Calculator', 'Death Calculator intro title is missing.');
+    assert(deathIntroState.beginLabel === 'Begin?', 'Death Calculator intro CTA should read Begin?.');
+
+    await page.click('#deathBeginBtn');
+
+    const deathSurveyStart = await page.evaluate(() => ({
+      surveyHidden: document.getElementById('deathSurveyScreen')?.hasAttribute('hidden') ?? true,
+      activeCard: document.querySelector('[data-question-card]:not([hidden])')?.getAttribute('data-question-card') ?? '',
+      visibleCardCount: document.querySelectorAll('[data-question-card]:not([hidden])').length,
+      progressText: document.getElementById('deathProgressText')?.textContent?.trim() ?? ''
+    }));
+
+    assert(deathSurveyStart.surveyHidden === false, 'Death Calculator should reveal the survey after Begin is clicked.');
+    assert(deathSurveyStart.activeCard === 'birthDate', 'Death Calculator should begin on the birth-date card.');
+    assert(deathSurveyStart.visibleCardCount === 1, 'Death Calculator should show exactly one question card at a time.');
+    assert(/Question 1 of/i.test(deathSurveyStart.progressText), 'Death Calculator progress copy should start on question 1.');
+
     await page.fill('#deathBirthDate', '1989-05-14');
+    await page.click('#deathNextBtn');
+
     await page.selectOption('#deathSex', 'male');
+    await page.click('#deathNextBtn');
+
     await page.fill('#deathWeightPounds', '192');
+    await page.click('#deathNextBtn');
+
     await page.fill('#deathHeightFeet', '5');
     await page.fill('#deathHeightInchesPart', '11');
     await page.click('#deathNextBtn');
 
     await page.fill('#deathModerateMinutes', '180');
+    await page.click('#deathNextBtn');
+
     await page.fill('#deathVigorousMinutes', '40');
+    await page.click('#deathNextBtn');
+
     await page.fill('#deathStrengthDays', '3');
+    await page.click('#deathNextBtn');
+
     await page.fill('#deathSedentaryHours', '7');
+    await page.click('#deathNextBtn');
+
     await page.selectOption('#deathSmokingStatus', 'former');
+    await page.click('#deathNextBtn');
     await page.waitForSelector('#deathYearsSinceQuitField:not([hidden])');
+
+    const formerSmokerState = await page.evaluate(() => ({
+      activeCard: document.querySelector('[data-question-card]:not([hidden])')?.getAttribute('data-question-card') ?? '',
+      visibleCardCount: document.querySelectorAll('[data-question-card]:not([hidden])').length
+    }));
+
+    assert(formerSmokerState.activeCard === 'yearsSinceQuit', 'Former-smoker follow-up should become the active next card.');
+    assert(formerSmokerState.visibleCardCount === 1, 'Former-smoker follow-up should still keep the flow to one visible card.');
+
     await page.fill('#deathYearsSinceQuit', '12');
+    await page.click('#deathNextBtn');
+
     await page.fill('#deathDrinksPerWeek', '4');
+    await page.click('#deathNextBtn');
+
     await page.selectOption('#deathBingeFrequency', 'never');
+    await page.click('#deathNextBtn');
+
     await page.fill('#deathSleepHours', '7.5');
+    await page.click('#deathNextBtn');
+
     await page.selectOption('#deathUpfShare', 'moderate');
+    await page.click('#deathNextBtn');
+
     await page.fill('#deathProduceServings', '5');
     await page.click('#deathNextBtn');
 
     await page.check('#deathHasHypertension');
+    await page.click('#deathNextBtn');
+
     await page.selectOption('#deathDiabetesStatus', 'prediabetes');
+    await page.click('#deathNextBtn');
+
+    await page.check('#deathHasCardioDisease');
+    await page.click('#deathNextBtn');
+
+    await page.check('#deathHasCancerHistory');
+    await page.click('#deathNextBtn');
+
+    await page.check('#deathHasCopdOrAsthma');
+    await page.click('#deathNextBtn');
+
+    await page.check('#deathHasKidneyDisease');
+    await page.click('#deathNextBtn');
+
+    await page.check('#deathHasSleepApnea');
+    await page.click('#deathNextBtn');
+
+    await page.check('#deathEarlyFamilyCardio');
     await page.click('#deathNextBtn');
 
     await page.selectOption('#deathParentLongevityBand', 'one-85-plus');
     await page.click('#deathCalculateBtn');
-    await page.waitForFunction(() => document.getElementById('deathStatusChip')?.textContent?.trim() === 'Complete');
+    await page.waitForFunction(() => document.getElementById('deathResultScreen')?.hasAttribute('hidden') === false);
 
     const deathResultState = await page.evaluate(() => ({
-      status: document.getElementById('deathStatusText')?.textContent?.trim() ?? '',
+      resultHidden: document.getElementById('deathResultScreen')?.hasAttribute('hidden') ?? true,
       medianDate: document.getElementById('deathMedianDate')?.textContent?.trim() ?? '',
-      rangeText: document.getElementById('deathRangeText')?.textContent?.trim() ?? '',
-      survival5: document.getElementById('deathSurvival5')?.textContent?.trim() ?? '',
-      hazardMultiplier: document.getElementById('deathHazardMultiplier')?.textContent?.trim() ?? '',
-      baselineYears: document.getElementById('deathBaselineYears')?.textContent?.trim() ?? '',
-      countdownSeconds: document.getElementById('deathCountdownSeconds')?.textContent?.trim() ?? '',
-      sourceCount: document.querySelectorAll('#deathSourceList li').length,
+      countdownDisplay: document.getElementById('deathCountdownDisplay')?.textContent?.trim() ?? '',
       disclaimer: document.getElementById('deathDisclaimer')?.textContent?.trim() ?? '',
-      negativeDrivers: Array.from(document.querySelectorAll('#deathNegativeDrivers li')).map((node) => node.textContent?.trim() ?? ''),
-      positiveDrivers: Array.from(document.querySelectorAll('#deathPositiveDrivers li')).map((node) => node.textContent?.trim() ?? '')
+      resultMeta: document.getElementById('deathResultMeta')?.textContent?.trim() ?? '',
+      missingLegacyStats: document.getElementById('deathHazardMultiplier') === null
     }));
 
-    assert(/Longevity estimate ready/i.test(deathResultState.status), 'Death Calculator should surface a completion status.');
+    assert(deathResultState.resultHidden === false, 'Death Calculator should reveal the result card after submission.');
     assert(deathResultState.medianDate && !/complete the survey/i.test(deathResultState.medianDate), 'Death Calculator should render a concrete median date.');
-    assert(/P10/.test(deathResultState.rangeText) && /P90/.test(deathResultState.rangeText), 'Death Calculator should render percentile range text.');
-    assert(/%/.test(deathResultState.survival5), 'Death Calculator should render survival probabilities.');
-    assert(/×/.test(deathResultState.hazardMultiplier), 'Death Calculator should render the total hazard multiplier.');
-    assert(/yrs/.test(deathResultState.baselineYears), 'Death Calculator should render the baseline life-table comparison.');
-    assert(/^\d{2}$|^\d$/.test(deathResultState.countdownSeconds), 'Death Calculator should render a live countdown.');
-    assert(deathResultState.sourceCount >= 10, 'Death Calculator should expose the curated source list.');
+    assert(
+      /^\d{2,}:\d{3}:\d{2}:\d{2}:\d{2}$/.test(deathResultState.countdownDisplay),
+      'Death Calculator should render a unified labeled countdown in the expected format.'
+    );
     assert(/not a medical diagnosis/i.test(deathResultState.disclaimer), 'Death Calculator should expose a clear disclaimer.');
-    assert(
-      deathResultState.negativeDrivers.some((item) => /\+/.test(item)),
-      'Death Calculator should list at least one shortening driver.'
-    );
-    assert(
-      deathResultState.positiveDrivers.length > 0,
-      'Death Calculator should list protective drivers or a clear fallback message.'
-    );
+    assert(/50th percentile|survival curve/i.test(deathResultState.resultMeta), 'Death Calculator should explain the estimate briefly.');
+    assert(deathResultState.missingLegacyStats === true, 'Death Calculator should remove the old analytics dashboard from the primary result.');
 
-    const countdownBefore = deathResultState.countdownSeconds;
+    const countdownBefore = deathResultState.countdownDisplay;
     await page.waitForTimeout(1200);
-    const countdownAfter = await page.evaluate(() => document.getElementById('deathCountdownSeconds')?.textContent?.trim() ?? '');
+    const countdownAfter = await page.evaluate(() => document.getElementById('deathCountdownDisplay')?.textContent?.trim() ?? '');
     assert(countdownAfter !== countdownBefore, 'Death Calculator countdown should tick in real time.');
 
     await page.click('#deathResetBtn');
     const deathResetState = await page.evaluate(() => ({
-      statusChip: document.getElementById('deathStatusChip')?.textContent?.trim() ?? '',
+      introHidden: document.getElementById('deathIntroScreen')?.hasAttribute('hidden') ?? true,
       statusText: document.getElementById('deathStatusText')?.textContent?.trim() ?? '',
       birthDate: document.getElementById('deathBirthDate')?.value ?? '',
-      hazardMultiplier: document.getElementById('deathHazardMultiplier')?.textContent?.trim() ?? '',
       medianDate: document.getElementById('deathMedianDate')?.textContent?.trim() ?? ''
     }));
 
-    assert(deathResetState.statusChip === 'Idle', 'Death Calculator reset should restore the idle status.');
-    assert(/complete the four-part survey/i.test(deathResetState.statusText), 'Death Calculator reset should restore the default status copy.');
+    assert(deathResetState.introHidden === false, 'Death Calculator reset should return the user to the intro card.');
+    assert(/local-only estimate|public-health evidence/i.test(deathResetState.statusText), 'Death Calculator reset should restore the intro copy.');
     assert(deathResetState.birthDate === '', 'Death Calculator reset should clear submitted answers.');
-    assert(deathResetState.hazardMultiplier === '—', 'Death Calculator reset should clear the result stats.');
-    assert(/complete the survey/i.test(deathResetState.medianDate), 'Death Calculator reset should restore the placeholder result copy.');
+    assert(/estimated date will appear here/i.test(deathResetState.medianDate), 'Death Calculator reset should restore the result placeholder copy.');
 
     await page.click('#retroVmLaunchBtn');
     await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmState === 'running');
@@ -648,9 +767,19 @@ async function main() {
     await loadUtilitiesPage(
       noWorkerPage,
       pageUrl,
+      'Built-in pair selected|Ready for input',
+      15000,
+      'main-thread fallback initial state'
+    );
+    await noWorkerPage.setInputFiles('#transformSourceInput', sourcePath);
+    await noWorkerPage.setInputFiles('#transformTargetInput', targetPath);
+    await noWorkerPage.click('#transformGenerateBtn');
+    await waitForStatusMatch(noWorkerPage, 'Preparing|Analyzing|Assigning|Animating', 7000, 'main-thread fallback start');
+    await waitForStatusMatch(
+      noWorkerPage,
       'Transform ready|Animation complete|Reduced motion',
       30000,
-      'main-thread fallback'
+      'main-thread fallback complete'
     );
 
     const noWorkerState = await noWorkerPage.evaluate(() => ({
@@ -673,7 +802,10 @@ async function main() {
       window.__OD_RETRO_VM_TEST_MODE__ = true;
     });
     await mobilePage.emulateMedia({ reducedMotion: 'reduce' });
-    await loadUtilitiesPage(mobilePage, pageUrl, 'Reduced motion', 30000, 'reduced-motion startup');
+    await loadUtilitiesPage(mobilePage, pageUrl, 'Built-in pair selected|Ready for input', 15000, 'reduced-motion startup');
+    await mobilePage.click('#transformGenerateBtn');
+    await waitForStatusMatch(mobilePage, 'Reduced motion', 30000, 'reduced-motion result');
+    await mobilePage.evaluate(() => window.scrollTo(0, 0));
 
     const mobileState = await mobilePage.evaluate(() => ({
       width: window.innerWidth,

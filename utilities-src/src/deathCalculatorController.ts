@@ -1,13 +1,193 @@
 import { longevityDataset } from './longevityDataset';
 import {
-  formatCountdown,
+  formatCountdownDisplay,
   formatPredictionDate,
-  formatProbability,
   predictLongevity
 } from './longevityEngine';
 import type { LongevitySurveyAnswers, PredictionResult, SmokingStatus } from './longevityTypes';
 
-const STEP_TITLES = ['Basics', 'Lifestyle', 'Medical history', 'Family history'];
+type DeathCalculatorScreen = 'intro' | 'question' | 'processing' | 'result' | 'error';
+
+interface QuestionDefinition {
+  id: string;
+  controls: string[];
+  eyebrow: string;
+  title: string;
+  description: string;
+  isVisible?: (controller: DeathCalculatorController) => boolean;
+}
+
+const QUESTION_DEFINITIONS: QuestionDefinition[] = [
+  {
+    id: 'birthDate',
+    controls: ['deathBirthDate'],
+    eyebrow: 'Question 01',
+    title: 'When were you born?',
+    description: 'This anchors the actuarial baseline for the model.'
+  },
+  {
+    id: 'sex',
+    controls: ['deathSex'],
+    eyebrow: 'Question 02',
+    title: 'Which actuarial baseline should the model use?',
+    description: 'The calculator uses male or female U.S. life tables.'
+  },
+  {
+    id: 'weight',
+    controls: ['deathWeightPounds'],
+    eyebrow: 'Question 03',
+    title: 'What is your weight?',
+    description: 'Weight combines with height to calculate body-mass-index effects.'
+  },
+  {
+    id: 'height',
+    controls: ['deathHeightFeet', 'deathHeightInchesPart'],
+    eyebrow: 'Question 04',
+    title: 'How tall are you?',
+    description: 'Feet and extra inches are collected together on one card.'
+  },
+  {
+    id: 'moderateMinutes',
+    controls: ['deathModerateMinutes'],
+    eyebrow: 'Question 05',
+    title: 'How many moderate-activity minutes do you get each week?',
+    description: 'Examples: brisk walking, easy cycling, hiking.'
+  },
+  {
+    id: 'vigorousMinutes',
+    controls: ['deathVigorousMinutes'],
+    eyebrow: 'Question 06',
+    title: 'How many vigorous-activity minutes do you get each week?',
+    description: 'Examples: running, hard cycling, interval training.'
+  },
+  {
+    id: 'strengthDays',
+    controls: ['deathStrengthDays'],
+    eyebrow: 'Question 07',
+    title: 'How many days per week do you do strength training?',
+    description: 'Lifting, resistance work, or other structured strength sessions.'
+  },
+  {
+    id: 'sedentaryHours',
+    controls: ['deathSedentaryHours'],
+    eyebrow: 'Question 08',
+    title: 'How many sedentary hours do you average per day?',
+    description: 'Count desk time, couch time, and other long sitting blocks.'
+  },
+  {
+    id: 'smokingStatus',
+    controls: ['deathSmokingStatus'],
+    eyebrow: 'Question 09',
+    title: 'What is your smoking status?',
+    description: 'Smoking is one of the strongest lifestyle signals in the model.'
+  },
+  {
+    id: 'yearsSinceQuit',
+    controls: ['deathYearsSinceQuit'],
+    eyebrow: 'Question 10',
+    title: 'How many years has it been since you quit?',
+    description: 'This follow-up only appears for former smokers.',
+    isVisible: (controller) => controller.isFormerSmoker()
+  },
+  {
+    id: 'drinksPerWeek',
+    controls: ['deathDrinksPerWeek'],
+    eyebrow: 'Question 11',
+    title: 'How many alcoholic drinks do you average per week?',
+    description: 'Alcohol is modeled conservatively as a risk signal, not a protective one.'
+  },
+  {
+    id: 'bingeFrequency',
+    controls: ['deathBingeFrequency'],
+    eyebrow: 'Question 12',
+    title: 'How often do you binge drink?',
+    description: 'This captures concentrated alcohol risk separately from weekly totals.'
+  },
+  {
+    id: 'sleepHours',
+    controls: ['deathSleepHours'],
+    eyebrow: 'Question 13',
+    title: 'How many hours do you usually sleep per night?',
+    description: 'Very short and very long sleep patterns both affect the estimate.'
+  },
+  {
+    id: 'upfShare',
+    controls: ['deathUpfShare'],
+    eyebrow: 'Question 14',
+    title: 'How much of your diet is ultra-processed food?',
+    description: 'Use the option that best matches your overall intake pattern.'
+  },
+  {
+    id: 'produceServings',
+    controls: ['deathProduceServings'],
+    eyebrow: 'Question 15',
+    title: 'How many fruit and vegetable servings do you average per day?',
+    description: 'This is modeled as a broad diet-quality signal.'
+  },
+  {
+    id: 'hasHypertension',
+    controls: ['deathHasHypertension'],
+    eyebrow: 'Question 16',
+    title: 'Have you been diagnosed with hypertension?',
+    description: 'Diagnosed conditions are weighted more heavily than softer lifestyle inputs.'
+  },
+  {
+    id: 'diabetesStatus',
+    controls: ['deathDiabetesStatus'],
+    eyebrow: 'Question 17',
+    title: 'What is your diabetes status?',
+    description: 'Prediabetes and diabetes are modeled separately.'
+  },
+  {
+    id: 'hasCardiovascularDisease',
+    controls: ['deathHasCardioDisease'],
+    eyebrow: 'Question 18',
+    title: 'Do you have a history of heart disease or stroke?',
+    description: 'Major cardiovascular disease strongly influences the estimate.'
+  },
+  {
+    id: 'hasCancerHistory',
+    controls: ['deathHasCancerHistory'],
+    eyebrow: 'Question 19',
+    title: 'Do you have a cancer history?',
+    description: 'This asks about diagnosed cancer history, not family history.'
+  },
+  {
+    id: 'hasCopdOrAsthma',
+    controls: ['deathHasCopdOrAsthma'],
+    eyebrow: 'Question 20',
+    title: 'Do you have COPD or chronic asthma?',
+    description: 'Respiratory conditions are modeled as a separate risk cluster.'
+  },
+  {
+    id: 'hasChronicKidneyDisease',
+    controls: ['deathHasKidneyDisease'],
+    eyebrow: 'Question 21',
+    title: 'Do you have chronic kidney disease?',
+    description: 'Kidney disease is treated as a major diagnosed condition.'
+  },
+  {
+    id: 'hasSleepApnea',
+    controls: ['deathHasSleepApnea'],
+    eyebrow: 'Question 22',
+    title: 'Do you have sleep apnea?',
+    description: 'Sleep apnea is modeled independently from sleep duration.'
+  },
+  {
+    id: 'hasEarlyFamilyCardioHistory',
+    controls: ['deathEarlyFamilyCardio'],
+    eyebrow: 'Question 23',
+    title: 'Did a parent or sibling have early heart disease or stroke?',
+    description: 'Family history is modeled lightly and never allowed to dominate the estimate.'
+  },
+  {
+    id: 'parentLongevityBand',
+    controls: ['deathParentLongevityBand'],
+    eyebrow: 'Question 24',
+    title: 'How would you describe your parents’ longevity pattern?',
+    description: 'Use the option that most closely matches the available history.'
+  }
+];
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -18,102 +198,82 @@ function parseNumber(value: string, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function formatHazardShift(logHazard: number) {
-  const shift = (Math.exp(Math.abs(logHazard)) - 1) * 100;
-  return `${logHazard >= 0 ? '+' : '-'}${shift.toFixed(0)}% hazard`;
-}
-
 export class DeathCalculatorController {
   private readonly root: HTMLElement;
   private readonly form: HTMLFormElement;
-  private readonly stepPanels: HTMLElement[];
-  private readonly statusChip: HTMLElement;
+  private readonly introScreen: HTMLElement;
+  private readonly surveyScreen: HTMLElement;
+  private readonly resultScreen: HTMLElement;
+  private readonly beginButton: HTMLButtonElement;
+  private readonly backButton: HTMLButtonElement;
+  private readonly nextButton: HTMLButtonElement;
+  private readonly calculateButton: HTMLButtonElement;
+  private readonly resetButton: HTMLButtonElement;
   private readonly statusText: HTMLElement;
   private readonly progressText: HTMLElement;
   private readonly progressMeta: HTMLElement;
-  private readonly progressBar: HTMLElement;
   private readonly progressFill: HTMLElement;
-  private readonly stepMeta: HTMLElement;
-  private readonly stepProgressFill: HTMLElement;
-  private readonly nextButton: HTMLButtonElement;
-  private readonly backButton: HTMLButtonElement;
-  private readonly calculateButton: HTMLButtonElement;
-  private readonly resetButton: HTMLButtonElement;
+  private readonly questionEyebrow: HTMLElement;
+  private readonly questionTitle: HTMLElement;
+  private readonly questionDescription: HTMLElement;
   private readonly smokingStatus: HTMLSelectElement;
   private readonly yearsSinceQuitField: HTMLElement;
   private readonly yearsSinceQuitInput: HTMLInputElement;
   private readonly medianDate: HTMLElement;
-  private readonly rangeText: HTMLElement;
+  private readonly countdownDisplay: HTMLElement;
   private readonly resultMeta: HTMLElement;
-  private readonly survival5: HTMLElement;
-  private readonly survival10: HTMLElement;
-  private readonly survival20: HTMLElement;
-  private readonly hazardMultiplier: HTMLElement;
-  private readonly baselineYears: HTMLElement;
-  private readonly countdownYears: HTMLElement;
-  private readonly countdownDays: HTMLElement;
-  private readonly countdownHours: HTMLElement;
-  private readonly countdownMinutes: HTMLElement;
-  private readonly countdownSeconds: HTMLElement;
-  private readonly positiveDrivers: HTMLElement;
-  private readonly negativeDrivers: HTMLElement;
   private readonly disclaimer: HTMLElement;
-  private readonly sourceList: HTMLElement;
+  private readonly questionCards: Map<string, HTMLElement>;
 
-  private currentStep = 0;
+  private activeQuestionId = QUESTION_DEFINITIONS[0]?.id ?? '';
+  private activeScreen: DeathCalculatorScreen = 'intro';
   private countdownTimer = 0;
   private prediction: PredictionResult | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
     this.form = this.requireElement('deathSurveyForm');
-    this.stepPanels = Array.from(this.root.querySelectorAll<HTMLElement>('[data-step-panel]'));
-    this.statusChip = this.requireElement('deathStatusChip');
+    this.introScreen = this.requireElement('deathIntroScreen');
+    this.surveyScreen = this.requireElement('deathSurveyScreen');
+    this.resultScreen = this.requireElement('deathResultScreen');
+    this.beginButton = this.requireElement('deathBeginBtn');
+    this.backButton = this.requireElement('deathBackBtn');
+    this.nextButton = this.requireElement('deathNextBtn');
+    this.calculateButton = this.requireElement('deathCalculateBtn');
+    this.resetButton = this.requireElement('deathResetBtn');
     this.statusText = this.requireElement('deathStatusText');
     this.progressText = this.requireElement('deathProgressText');
     this.progressMeta = this.requireElement('deathProgressMeta');
-    this.progressBar = this.requireElement('deathProgressBar');
     this.progressFill = this.requireElement('deathProgressFill');
-    this.stepMeta = this.requireElement('deathStepMeta');
-    this.stepProgressFill = this.requireElement('deathStepProgressFill');
-    this.nextButton = this.requireElement('deathNextBtn');
-    this.backButton = this.requireElement('deathBackBtn');
-    this.calculateButton = this.requireElement('deathCalculateBtn');
-    this.resetButton = this.requireElement('deathResetBtn');
+    this.questionEyebrow = this.requireElement('deathQuestionEyebrow');
+    this.questionTitle = this.requireElement('deathQuestionTitle');
+    this.questionDescription = this.requireElement('deathQuestionDescription');
     this.smokingStatus = this.requireElement('deathSmokingStatus');
     this.yearsSinceQuitField = this.requireElement('deathYearsSinceQuitField');
     this.yearsSinceQuitInput = this.requireElement('deathYearsSinceQuit');
     this.medianDate = this.requireElement('deathMedianDate');
-    this.rangeText = this.requireElement('deathRangeText');
+    this.countdownDisplay = this.requireElement('deathCountdownDisplay');
     this.resultMeta = this.requireElement('deathResultMeta');
-    this.survival5 = this.requireElement('deathSurvival5');
-    this.survival10 = this.requireElement('deathSurvival10');
-    this.survival20 = this.requireElement('deathSurvival20');
-    this.hazardMultiplier = this.requireElement('deathHazardMultiplier');
-    this.baselineYears = this.requireElement('deathBaselineYears');
-    this.countdownYears = this.requireElement('deathCountdownYears');
-    this.countdownDays = this.requireElement('deathCountdownDays');
-    this.countdownHours = this.requireElement('deathCountdownHours');
-    this.countdownMinutes = this.requireElement('deathCountdownMinutes');
-    this.countdownSeconds = this.requireElement('deathCountdownSeconds');
-    this.positiveDrivers = this.requireElement('deathPositiveDrivers');
-    this.negativeDrivers = this.requireElement('deathNegativeDrivers');
     this.disclaimer = this.requireElement('deathDisclaimer');
-    this.sourceList = this.requireElement('deathSourceList');
+    this.questionCards = new Map(
+      Array.from(this.root.querySelectorAll<HTMLElement>('[data-question-card]')).map((card) => [
+        card.dataset.questionCard ?? '',
+        card
+      ])
+    );
   }
 
   init() {
-    this.nextButton.addEventListener('click', () => {
-      if (!this.validateActiveStep()) {
-        return;
-      }
-      this.currentStep = clamp(this.currentStep + 1, 0, this.stepPanels.length - 1);
-      this.syncStepUi();
+    this.beginButton.addEventListener('click', () => {
+      this.begin();
     });
 
     this.backButton.addEventListener('click', () => {
-      this.currentStep = clamp(this.currentStep - 1, 0, this.stepPanels.length - 1);
-      this.syncStepUi();
+      this.goToPreviousQuestion();
+    });
+
+    this.nextButton.addEventListener('click', () => {
+      this.goToNextQuestion();
     });
 
     this.resetButton.addEventListener('click', () => {
@@ -122,32 +282,16 @@ export class DeathCalculatorController {
 
     this.smokingStatus.addEventListener('change', () => {
       this.syncFormerSmokerField();
+      this.syncQuestionUi();
     });
 
     this.form.addEventListener('submit', (event) => {
       event.preventDefault();
-      if (!this.validateActiveStep()) {
-        return;
-      }
-
-      try {
-        this.setStatus('processing', 'Running the longevity model against the curated evidence snapshot…');
-        this.setProgress(1, 'Calculating personalized survival curve…');
-        const answers = this.collectAnswers();
-        const prediction = predictLongevity(answers, longevityDataset);
-        this.renderPrediction(prediction);
-      } catch (error) {
-        this.stopCountdown();
-        this.prediction = null;
-        this.setStatus('error', error instanceof Error ? error.message : 'Unable to calculate prediction.');
-        this.setProgress(this.progressBarValue(), 'Review the answers and try again.');
-        this.resultMeta.textContent = 'No prediction generated.';
-      }
+      void this.calculatePrediction();
     });
 
-    this.renderSourceList();
     this.syncFormerSmokerField();
-    this.syncStepUi();
+    this.reset();
   }
 
   private requireElement<T extends HTMLElement>(id: string) {
@@ -158,34 +302,44 @@ export class DeathCalculatorController {
     return element;
   }
 
-  private progressBarValue() {
-    return (this.currentStep + 1) / this.stepPanels.length;
+  private getVisibleQuestions() {
+    return QUESTION_DEFINITIONS.filter((question) => question.isVisible?.(this) ?? true);
   }
 
-  private syncStepUi() {
-    this.stepPanels.forEach((panel, index) => {
-      const isActive = index === this.currentStep;
-      panel.hidden = !isActive;
-      panel.classList.toggle('is-active', isActive);
-    });
+  private getActiveQuestionIndex(visibleQuestions: QuestionDefinition[]) {
+    const activeIndex = visibleQuestions.findIndex((question) => question.id === this.activeQuestionId);
+    return activeIndex >= 0 ? activeIndex : 0;
+  }
 
-    const progress = this.progressBarValue();
-    this.stepMeta.textContent = `Step ${this.currentStep + 1} of ${this.stepPanels.length} · ${STEP_TITLES[this.currentStep]}`;
-    this.stepProgressFill.style.width = `${Math.round(progress * 100)}%`;
-    this.progressBar.setAttribute('aria-valuenow', String(Math.round(progress * 100)));
+  private setScreen(screen: DeathCalculatorScreen) {
+    this.activeScreen = screen;
+    this.root.dataset.state = screen;
+    this.introScreen.hidden = screen !== 'intro';
+    this.surveyScreen.hidden = screen !== 'question' && screen !== 'processing' && screen !== 'error';
+    this.resultScreen.hidden = screen !== 'result';
+  }
+
+  private setStatus(text: string) {
+    this.statusText.textContent = text;
+  }
+
+  private setProgress(activeIndex: number, totalQuestions: number) {
+    const progress = totalQuestions <= 0 ? 0 : clamp((activeIndex + 1) / totalQuestions, 0, 1);
+    this.progressText.textContent = `Question ${activeIndex + 1} of ${totalQuestions}`;
+    this.progressMeta.textContent = `U.S.-only • evidence snapshot ${longevityDataset.dataVersion}`;
     this.progressFill.style.width = `${Math.round(progress * 100)}%`;
-    this.backButton.disabled = this.currentStep === 0;
-    this.nextButton.hidden = this.currentStep === this.stepPanels.length - 1;
-    this.calculateButton.hidden = this.currentStep !== this.stepPanels.length - 1;
+  }
 
-    if (!this.prediction) {
-      this.setProgress(progress, `Survey step ${this.currentStep + 1} of ${this.stepPanels.length}.`);
-      this.progressMeta.textContent = `U.S.-only · evidence snapshot ${longevityDataset.dataVersion}`;
-    }
+  private begin() {
+    this.prediction = null;
+    this.activeQuestionId = this.getVisibleQuestions()[0]?.id ?? QUESTION_DEFINITIONS[0]?.id ?? '';
+    this.setStatus('Answer each card and move straight through the flow.');
+    this.setScreen('question');
+    this.syncQuestionUi();
   }
 
   private syncFormerSmokerField() {
-    const isFormerSmoker = this.smokingStatus.value === 'former';
+    const isFormerSmoker = this.isFormerSmoker();
     this.yearsSinceQuitField.hidden = !isFormerSmoker;
     this.yearsSinceQuitInput.required = isFormerSmoker;
     if (!isFormerSmoker) {
@@ -193,11 +347,40 @@ export class DeathCalculatorController {
     }
   }
 
-  private validateActiveStep() {
-    const activePanel = this.stepPanels[this.currentStep];
-    const controls = Array.from(activePanel.querySelectorAll<HTMLInputElement | HTMLSelectElement>('input, select'));
+  isFormerSmoker() {
+    return this.smokingStatus.value === 'former';
+  }
 
-    for (const control of controls) {
+  private syncQuestionUi() {
+    const visibleQuestions = this.getVisibleQuestions();
+    const activeIndex = this.getActiveQuestionIndex(visibleQuestions);
+    const activeQuestion = visibleQuestions[activeIndex];
+
+    if (!activeQuestion) {
+      return;
+    }
+
+    this.activeQuestionId = activeQuestion.id;
+    this.questionCards.forEach((card, id) => {
+      const shouldShow = id === activeQuestion.id;
+      card.hidden = !shouldShow;
+      card.classList.toggle('is-active', shouldShow);
+    });
+
+    this.questionEyebrow.textContent = activeQuestion.eyebrow;
+    this.questionTitle.textContent = activeQuestion.title;
+    this.questionDescription.textContent = activeQuestion.description;
+    this.setProgress(activeIndex, visibleQuestions.length);
+    this.backButton.disabled = activeIndex === 0 || this.activeScreen === 'processing';
+    this.nextButton.hidden = activeIndex === visibleQuestions.length - 1;
+    this.nextButton.disabled = this.activeScreen === 'processing';
+    this.calculateButton.hidden = activeIndex !== visibleQuestions.length - 1;
+    this.calculateButton.disabled = this.activeScreen === 'processing';
+  }
+
+  private validateQuestion(question: QuestionDefinition) {
+    for (const controlId of question.controls) {
+      const control = this.requireElement<HTMLInputElement | HTMLSelectElement>(controlId);
       if (control.closest('[hidden]')) {
         continue;
       }
@@ -207,6 +390,61 @@ export class DeathCalculatorController {
     }
 
     return true;
+  }
+
+  private goToPreviousQuestion() {
+    const visibleQuestions = this.getVisibleQuestions();
+    const activeIndex = this.getActiveQuestionIndex(visibleQuestions);
+    if (activeIndex <= 0) {
+      return;
+    }
+
+    this.activeQuestionId = visibleQuestions[activeIndex - 1].id;
+    this.setStatus('Move backward if you need to change an answer.');
+    this.setScreen('question');
+    this.syncQuestionUi();
+  }
+
+  private goToNextQuestion() {
+    const visibleQuestions = this.getVisibleQuestions();
+    const activeIndex = this.getActiveQuestionIndex(visibleQuestions);
+    const activeQuestion = visibleQuestions[activeIndex];
+    if (!activeQuestion || !this.validateQuestion(activeQuestion)) {
+      return;
+    }
+
+    const nextQuestion = visibleQuestions[activeIndex + 1];
+    if (!nextQuestion) {
+      return;
+    }
+
+    this.activeQuestionId = nextQuestion.id;
+    this.setStatus('Locked in. Keep going.');
+    this.setScreen('question');
+    this.syncQuestionUi();
+  }
+
+  private async calculatePrediction() {
+    const visibleQuestions = this.getVisibleQuestions();
+    const activeIndex = this.getActiveQuestionIndex(visibleQuestions);
+    const activeQuestion = visibleQuestions[activeIndex];
+    if (!activeQuestion || !this.validateQuestion(activeQuestion)) {
+      return;
+    }
+
+    try {
+      this.setScreen('processing');
+      this.syncQuestionUi();
+      this.setStatus('Running the longevity model against the evidence snapshot…');
+      const prediction = predictLongevity(this.collectAnswers(), longevityDataset);
+      this.renderPrediction(prediction);
+    } catch (error) {
+      this.prediction = null;
+      this.stopCountdown();
+      this.setScreen('error');
+      this.setStatus(error instanceof Error ? error.message : 'Unable to calculate prediction.');
+      this.syncQuestionUi();
+    }
   }
 
   private collectAnswers(): LongevitySurveyAnswers {
@@ -225,7 +463,8 @@ export class DeathCalculatorController {
       strengthDaysPerWeek: parseNumber(String(formData.get('strengthDaysPerWeek') ?? '0'), 0),
       sedentaryHoursPerDay: parseNumber(String(formData.get('sedentaryHoursPerDay') ?? '0'), 0),
       smokingStatus,
-      yearsSinceQuit: smokingStatus === 'former' ? parseNumber(String(formData.get('yearsSinceQuit') ?? '0'), 0) : null,
+      yearsSinceQuit:
+        smokingStatus === 'former' ? parseNumber(String(formData.get('yearsSinceQuit') ?? '0'), 0) : null,
       drinksPerWeek: parseNumber(String(formData.get('drinksPerWeek') ?? '0'), 0),
       bingeFrequency: String(formData.get('bingeFrequency') ?? 'never') as LongevitySurveyAnswers['bingeFrequency'],
       sleepHoursPerNight: parseNumber(String(formData.get('sleepHoursPerNight') ?? '0'), 0),
@@ -243,101 +482,23 @@ export class DeathCalculatorController {
     };
   }
 
-  private setStatus(state: 'idle' | 'processing' | 'ready' | 'complete' | 'error', text: string) {
-    this.statusChip.textContent =
-      state === 'complete' ? 'Complete' : state === 'ready' ? 'Ready' : state[0].toUpperCase() + state.slice(1);
-    this.statusChip.className = `utility-status-chip utility-status-chip--${state}`;
-    this.statusText.textContent = text;
-  }
-
-  private setProgress(progress: number, text: string) {
-    const bounded = clamp(progress, 0, 1);
-    this.progressText.textContent = text;
-    this.progressFill.style.width = `${Math.round(bounded * 100)}%`;
-    this.progressBar.setAttribute('aria-valuenow', String(Math.round(bounded * 100)));
-  }
-
   private renderPrediction(prediction: PredictionResult) {
     this.prediction = prediction;
-    this.resultMeta.textContent = 'Median date is the 50th percentile of the personalized survival curve, not a claim of certainty.';
     this.medianDate.textContent = formatPredictionDate(prediction.medianTimestamp);
-    this.rangeText.textContent = [
-      `P10 ${formatPredictionDate(prediction.percentileTimestamps.p10)}`,
-      `P25 ${formatPredictionDate(prediction.percentileTimestamps.p25)}`,
-      `P50 ${formatPredictionDate(prediction.percentileTimestamps.p50)}`,
-      `P75 ${formatPredictionDate(prediction.percentileTimestamps.p75)}`,
-      `P90 ${formatPredictionDate(prediction.percentileTimestamps.p90)}`
-    ].join(' • ');
-    this.survival5.textContent = formatProbability(prediction.survivalProbabilities.years5);
-    this.survival10.textContent = formatProbability(prediction.survivalProbabilities.years10);
-    this.survival20.textContent = formatProbability(prediction.survivalProbabilities.years20);
-    this.hazardMultiplier.textContent = `${prediction.totalHazardMultiplier.toFixed(2)}×`;
-    this.baselineYears.textContent = `${prediction.baselineRemainingLifeExpectancy.toFixed(1)} yrs @ ${longevityDataset.baselineYear} table`;
-    this.disclaimer.textContent = `${prediction.modelDisclaimer} Data version: ${prediction.dataVersion}.`;
-
-    const negative = prediction.driverBreakdown.filter((driver) => driver.adjustedLogHazard > 0).slice(0, 4);
-    const positive = prediction.driverBreakdown.filter((driver) => driver.adjustedLogHazard < 0).slice(0, 4);
-
-    this.renderDriverList(
-      this.negativeDrivers,
-      negative.length > 0
-        ? negative.map((driver) => `${driver.label} (${formatHazardShift(driver.adjustedLogHazard)})`)
-        : ['No major shortening drivers surfaced beyond the actuarial baseline.']
-    );
-    this.renderDriverList(
-      this.positiveDrivers,
-      positive.length > 0
-        ? positive.map((driver) => `${driver.label} (${formatHazardShift(driver.adjustedLogHazard)})`)
-        : ['No protective drivers were strong enough to meaningfully beat the baseline.']
-    );
-
-    this.setStatus('complete', 'Longevity estimate ready. Review the range, countdown, and driver list together.');
-    this.setProgress(1, 'Prediction complete.');
-    this.progressMeta.textContent = `Median remaining life ${prediction.estimatedYearsRemaining.toFixed(1)} years • baseline year ${prediction.baselineYear}`;
+    this.resultMeta.textContent =
+      'The model uses the 50th percentile of the personalized survival curve as the estimate shown here.';
+    this.disclaimer.textContent =
+      `${prediction.modelDisclaimer} Data version: ${prediction.dataVersion}.`;
+    this.setStatus('Estimate ready.');
+    this.setScreen('result');
     this.startCountdown(prediction.medianTimestamp);
-  }
-
-  private renderDriverList(target: HTMLElement, items: string[]) {
-    target.innerHTML = '';
-    items.forEach((item) => {
-      const li = document.createElement('li');
-      li.textContent = item;
-      target.appendChild(li);
-    });
-  }
-
-  private renderSourceList() {
-    this.sourceList.innerHTML = '';
-
-    longevityDataset.sources.forEach((source) => {
-      const li = document.createElement('li');
-      const link = document.createElement('a');
-      link.href = source.url;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      link.textContent = source.title;
-
-      const meta = document.createElement('span');
-      meta.textContent = ` · ${source.evidenceGrade} · published ${source.publishedDate ?? 'n/a'}`;
-
-      const notes = document.createElement('p');
-      notes.textContent = source.notes;
-
-      li.append(link, meta, notes);
-      this.sourceList.appendChild(li);
-    });
   }
 
   private startCountdown(targetTimestamp: number) {
     this.stopCountdown();
 
     const render = () => {
-      const countdown = formatCountdown(targetTimestamp);
-      this.countdownYears.textContent = String(countdown.years);
-      this.countdownDays.textContent = String(countdown.days);
-      this.countdownHours.textContent = String(countdown.hours).padStart(2, '0');
-      this.countdownMinutes.textContent = String(countdown.minutes).padStart(2, '0');
-      this.countdownSeconds.textContent = String(countdown.seconds).padStart(2, '0');
+      this.countdownDisplay.textContent = formatCountdownDisplay(targetTimestamp);
     };
 
     render();
@@ -353,30 +514,17 @@ export class DeathCalculatorController {
 
   private reset() {
     this.form.reset();
-    this.currentStep = 0;
     this.prediction = null;
     this.stopCountdown();
-    this.syncFormerSmokerField();
-    this.syncStepUi();
-    this.setStatus('idle', 'Complete the four-part survey to generate a modeled longevity estimate.');
-    this.setProgress(this.progressBarValue(), 'Waiting for survey input.');
-    this.progressMeta.textContent = `U.S.-only · evidence snapshot ${longevityDataset.dataVersion}`;
-    this.medianDate.textContent = 'Complete the survey to estimate.';
-    this.rangeText.textContent = 'P10 to P90 range and survival probabilities will appear here.';
-    this.resultMeta.textContent = 'The median date and range will appear here after the survey is complete.';
-    this.survival5.textContent = '—';
-    this.survival10.textContent = '—';
-    this.survival20.textContent = '—';
-    this.hazardMultiplier.textContent = '—';
-    this.baselineYears.textContent = '—';
-    this.countdownYears.textContent = '—';
-    this.countdownDays.textContent = '—';
-    this.countdownHours.textContent = '—';
-    this.countdownMinutes.textContent = '—';
-    this.countdownSeconds.textContent = '—';
+    this.activeQuestionId = this.getVisibleQuestions()[0]?.id ?? QUESTION_DEFINITIONS[0]?.id ?? '';
+    this.medianDate.textContent = 'Estimated date will appear here';
+    this.countdownDisplay.textContent = '00:000:00:00:00';
+    this.resultMeta.textContent = 'Answer every card to reveal the estimate.';
     this.disclaimer.textContent =
       'This is a modeled estimate based on U.S. actuarial life tables and curated public-health evidence. It is not a medical diagnosis.';
-    this.renderDriverList(this.negativeDrivers, ['Nothing calculated yet.']);
-    this.renderDriverList(this.positiveDrivers, ['Nothing calculated yet.']);
+    this.syncFormerSmokerField();
+    this.setStatus('A local-only estimate built from U.S. life tables and public-health evidence.');
+    this.setScreen('intro');
+    this.syncQuestionUi();
   }
 }

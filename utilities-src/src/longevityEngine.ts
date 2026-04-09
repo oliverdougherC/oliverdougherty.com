@@ -469,6 +469,18 @@ export function formatCountdown(targetTimestamp: number, nowTimestamp: number = 
   };
 }
 
+export function formatCountdownDisplay(targetTimestamp: number, nowTimestamp: number = Date.now()) {
+  const countdown = formatCountdown(targetTimestamp, nowTimestamp);
+
+  return [
+    String(countdown.years).padStart(2, '0'),
+    String(countdown.days).padStart(3, '0'),
+    String(countdown.hours).padStart(2, '0'),
+    String(countdown.minutes).padStart(2, '0'),
+    String(countdown.seconds).padStart(2, '0')
+  ].join(':');
+}
+
 export function formatPredictionDate(timestamp: number) {
   return new Intl.DateTimeFormat('en-US', {
     weekday: 'long',

@@ -112,8 +112,19 @@ function validatePages() {
   assert(homeHtml.includes('id="boredVoid"'), 'Homepage bored-void section missing');
   assert(homeHtml.includes('id="boredPortalButton"'), 'Homepage bored portal button missing');
   assert(homeHtml.includes('href="pages/game/index.html"'), 'Homepage game route link missing');
-  assert(homeHtml.includes('Technical Archive'), 'Homepage archive portal title missing');
+  assert(!homeHtml.includes('href="pages/archive/index.html"'), 'Homepage should not expose the archive route');
+  assert(!homeHtml.includes('Technical Archive'), 'Homepage should not surface the archive portal');
   assert(!homeHtml.includes('Neurophasia'), 'Homepage still references the old archive name');
+
+  const surfacedPages = [
+    'pages/resume/index.html',
+    'pages/gallery/index.html',
+    'pages/dashboard/index.html'
+  ];
+  for (const page of surfacedPages) {
+    const html = fs.readFileSync(path.join(ROOT, page), 'utf8');
+    assert(!html.includes('../archive/index.html'), `${page} should not expose the archive route`);
+  }
 
   const archiveHtmlFiles = collectHtmlFiles(path.join(ROOT, 'pages', 'archive'));
   for (const archiveFilePath of archiveHtmlFiles) {
