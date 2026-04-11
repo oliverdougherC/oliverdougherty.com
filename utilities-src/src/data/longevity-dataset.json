@@ -116,6 +116,24 @@
       "retrievedAt": "2026-04-09T03:25:31.798Z",
       "evidenceGrade": "systematic-review",
       "notes": "Used to define monotonic ultra-processed-food intake penalties through broad consumption bands."
+    },
+    {
+      "id": "ssa-trustees-2025-cohort-life-expectancy",
+      "title": "Cohort Life Expectancy - 2025 OASDI Trustees Report",
+      "url": "https://www.ssa.gov/oact/TR/2025/lr5a5.html",
+      "publishedDate": "2025",
+      "retrievedAt": "2026-04-09T03:25:31.798Z",
+      "evidenceGrade": "official-actuarial-projection",
+      "notes": "Defines SSA cohort life expectancy as projected death rates across the years a person reaches each future age."
+    },
+    {
+      "id": "ssa-trustees-2025-report",
+      "title": "The 2025 Annual Report of the Board of Trustees of the Federal OASDI Trust Funds",
+      "url": "https://www.ssa.gov/oact/TR/2025/tr2025.pdf",
+      "publishedDate": "2025",
+      "retrievedAt": "2026-04-09T03:25:31.798Z",
+      "evidenceGrade": "official-actuarial-projection",
+      "notes": "Supports the intermediate mortality-improvement projection used to adjust baseline future-year hazards."
     }
   ],
   "baselines": {
@@ -2734,5 +2752,17 @@
         }
       ]
     }
+  },
+  "mortalityProjection": {
+    "id": "ssa-trustees-2025-intermediate",
+    "label": "SSA Trustees 2025 intermediate mortality improvement",
+    "startYear": 2024,
+    "terminalYear": 2099,
+    "annualImprovementUnder65": 0.0074,
+    "annualImprovement65Plus": 0.0068,
+    "sourceIds": [
+      "ssa-trustees-2025-cohort-life-expectancy",
+      "ssa-trustees-2025-report"
+    ]
   }
 }

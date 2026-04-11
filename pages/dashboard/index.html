@@ -228,9 +228,9 @@
 
         <div class="utility-section-break" data-animate="fade-up">
           <span class="section-tag">Prediction Utility</span>
-          <h2 class="section-title text-display">Death Calculator</h2>
+          <h2 class="section-title text-display">Longevity Estimate</h2>
           <p class="section-desc">
-            A local-only longevity estimate built from U.S. life tables, public-health evidence, and your self-reported habits and medical history.
+            A local-only actuarial estimate built from U.S. life tables, public-health evidence, and projected mortality improvement.
           </p>
         </div>
 
@@ -238,12 +238,12 @@
           <div class="death-experience">
             <div class="death-screen death-screen--intro" id="deathIntroScreen">
               <article class="death-card death-card--intro">
-                <span class="utility-kicker">Evidence-Backed Estimate</span>
-                <h3 class="utility-title death-intro-title" id="deathCalculatorTitle">Death Calculator</h3>
+                <span class="utility-kicker">Actuarial Model</span>
+                <h3 class="utility-title death-intro-title" id="deathCalculatorTitle">Longevity Estimate</h3>
                 <p class="death-intro-copy" id="deathStatusText" aria-live="polite">
-                  A local-only estimate built from U.S. life tables and public-health evidence.
+                  A local-only actuarial estimate built from U.S. life tables and public-health evidence.
                 </p>
-                <button type="button" class="btn-primary-utility death-begin-button" id="deathBeginBtn">Begin?</button>
+                <button type="button" class="btn-primary-utility death-begin-button" id="deathBeginBtn">Begin</button>
               </article>
             </div>
 
@@ -260,7 +260,7 @@
 
                   <div class="death-progress-stack" aria-live="polite">
                     <p class="utility-progress-text" id="deathProgressText">Question 1 of 24</p>
-                    <p class="utility-progress-meta" id="deathProgressMeta">U.S.-only • evidence snapshot</p>
+                    <p class="utility-progress-meta" id="deathProgressMeta">CDC baseline + SSA projection</p>
                     <div class="death-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
                       <span class="death-progress-fill" id="deathProgressFill"></span>
                     </div>
@@ -307,17 +307,31 @@
                   </section>
 
                   <section class="death-question-card" data-question-card="moderateMinutes" hidden>
-                    <label class="control-field" for="deathModerateMinutes">
-                      <span class="control-label">Moderate activity per week (min)</span>
-                      <input id="deathModerateMinutes" name="moderateMinutesPerWeek" class="control-input" type="number" min="0" max="2000" step="5" value="120" required>
-                    </label>
+                    <div class="death-card-grid death-card-grid--split">
+                      <label class="control-field" for="deathModerateDays">
+                        <span class="control-label">Days per week</span>
+                        <input id="deathModerateDays" name="moderateDaysPerWeek" class="control-input" type="number" min="0" max="7" step="1" value="4" required>
+                      </label>
+
+                      <label class="control-field" for="deathModerateMinutesSession">
+                        <span class="control-label">Minutes per session</span>
+                        <input id="deathModerateMinutesSession" name="moderateMinutesSession" class="control-input" type="number" min="0" max="300" step="5" value="30" required>
+                      </label>
+                    </div>
                   </section>
 
                   <section class="death-question-card" data-question-card="vigorousMinutes" hidden>
-                    <label class="control-field" for="deathVigorousMinutes">
-                      <span class="control-label">Vigorous activity per week (min)</span>
-                      <input id="deathVigorousMinutes" name="vigorousMinutesPerWeek" class="control-input" type="number" min="0" max="1200" step="5" value="30" required>
-                    </label>
+                    <div class="death-card-grid death-card-grid--split">
+                      <label class="control-field" for="deathVigorousDays">
+                        <span class="control-label">Days per week</span>
+                        <input id="deathVigorousDays" name="vigorousDaysPerWeek" class="control-input" type="number" min="0" max="7" step="1" value="1" required>
+                      </label>
+
+                      <label class="control-field" for="deathVigorousMinutesSession">
+                        <span class="control-label">Minutes per session</span>
+                        <input id="deathVigorousMinutesSession" name="vigorousMinutesSession" class="control-input" type="number" min="0" max="300" step="5" value="30" required>
+                      </label>
+                    </div>
                   </section>
 
                   <section class="death-question-card" data-question-card="strengthDays" hidden>
@@ -484,21 +498,21 @@
 
             <div class="death-screen death-screen--result" id="deathResultScreen" hidden>
               <article class="death-card death-card--result">
-                <span class="utility-kicker">Estimated Outcome</span>
+                <span class="utility-kicker">Projected Result</span>
                 <div class="death-result-block">
-                  <span class="death-result-label">Estimated death date</span>
-                  <h4 class="death-result-date" id="deathMedianDate">Estimated date will appear here</h4>
+                  <span class="death-result-label">Median projected date</span>
+                  <h4 class="death-result-date" id="deathMedianDate">Projected date will appear here</h4>
                 </div>
 
                 <div class="death-result-block">
-                  <span class="death-result-label">Death timer</span>
+                  <span class="death-result-label">Projected interval</span>
                   <div class="death-countdown-display" id="deathCountdownDisplay">00:000:00:00:00</div>
                   <p class="death-countdown-legend">Years : Days : Hours : Minutes : Seconds</p>
                 </div>
 
-                <p class="death-result-meta" id="deathResultMeta">Answer every card to reveal the estimate.</p>
+                <p class="death-result-meta" id="deathResultMeta">Complete the survey to reveal the median projected date.</p>
                 <p class="death-result-disclaimer" id="deathDisclaimer">
-                  This is a modeled estimate based on U.S. actuarial life tables and curated public-health evidence. It is not a medical diagnosis.
+                  This actuarial estimate uses U.S. life tables, mortality-improvement projections, and curated public-health evidence. It is not a medical diagnosis.
                 </p>
 
                 <button type="button" class="btn-secondary-utility death-reset-button" id="deathResetBtn">Start over</button>

@@ -21,70 +21,70 @@ const QUESTION_DEFINITIONS: QuestionDefinition[] = [
   {
     id: 'birthDate',
     controls: ['deathBirthDate'],
-    eyebrow: 'Question 01',
+    eyebrow: 'Demographics 01',
     title: 'When were you born?',
-    description: 'This anchors the actuarial baseline for the model.'
+    description: 'The model starts with age-specific U.S. life-table risk.'
   },
   {
     id: 'sex',
     controls: ['deathSex'],
-    eyebrow: 'Question 02',
+    eyebrow: 'Demographics 02',
     title: 'Which actuarial baseline should the model use?',
-    description: 'The calculator uses male or female U.S. life tables.'
+    description: 'The calculator applies the selected U.S. actuarial life table.'
   },
   {
     id: 'weight',
     controls: ['deathWeightPounds'],
-    eyebrow: 'Question 03',
+    eyebrow: 'Body Composition 03',
     title: 'What is your weight?',
-    description: 'Weight combines with height to calculate body-mass-index effects.'
+    description: 'Weight combines with height to estimate broad metabolic risk.'
   },
   {
     id: 'height',
     controls: ['deathHeightFeet', 'deathHeightInchesPart'],
-    eyebrow: 'Question 04',
+    eyebrow: 'Body Composition 04',
     title: 'How tall are you?',
-    description: 'Feet and extra inches are collected together on one card.'
+    description: 'Height is used only to calculate body-mass-index bands.'
   },
   {
     id: 'moderateMinutes',
-    controls: ['deathModerateMinutes'],
-    eyebrow: 'Question 05',
-    title: 'How many moderate-activity minutes do you get each week?',
-    description: 'Examples: brisk walking, easy cycling, hiking.'
+    controls: ['deathModerateDays', 'deathModerateMinutesSession'],
+    eyebrow: 'Activity 05',
+    title: 'How much moderate activity do you get?',
+    description: 'Estimate a normal week of brisk walking, easy cycling, hiking, or similar activity.'
   },
   {
     id: 'vigorousMinutes',
-    controls: ['deathVigorousMinutes'],
-    eyebrow: 'Question 06',
-    title: 'How many vigorous-activity minutes do you get each week?',
-    description: 'Examples: running, hard cycling, interval training.'
+    controls: ['deathVigorousDays', 'deathVigorousMinutesSession'],
+    eyebrow: 'Activity 06',
+    title: 'How much vigorous activity do you get?',
+    description: 'Estimate a normal week of running, hard cycling, interval training, or similar activity.'
   },
   {
     id: 'strengthDays',
     controls: ['deathStrengthDays'],
-    eyebrow: 'Question 07',
+    eyebrow: 'Activity 07',
     title: 'How many days per week do you do strength training?',
     description: 'Lifting, resistance work, or other structured strength sessions.'
   },
   {
     id: 'sedentaryHours',
     controls: ['deathSedentaryHours'],
-    eyebrow: 'Question 08',
+    eyebrow: 'Activity 08',
     title: 'How many sedentary hours do you average per day?',
     description: 'Count desk time, couch time, and other long sitting blocks.'
   },
   {
     id: 'smokingStatus',
     controls: ['deathSmokingStatus'],
-    eyebrow: 'Question 09',
+    eyebrow: 'Substances 09',
     title: 'What is your smoking status?',
     description: 'Smoking is one of the strongest lifestyle signals in the model.'
   },
   {
     id: 'yearsSinceQuit',
     controls: ['deathYearsSinceQuit'],
-    eyebrow: 'Question 10',
+    eyebrow: 'Substances 10',
     title: 'How many years has it been since you quit?',
     description: 'This follow-up only appears for former smokers.',
     isVisible: (controller) => controller.isFormerSmoker()
@@ -92,98 +92,98 @@ const QUESTION_DEFINITIONS: QuestionDefinition[] = [
   {
     id: 'drinksPerWeek',
     controls: ['deathDrinksPerWeek'],
-    eyebrow: 'Question 11',
+    eyebrow: 'Substances 11',
     title: 'How many alcoholic drinks do you average per week?',
     description: 'Alcohol is modeled conservatively as a risk signal, not a protective one.'
   },
   {
     id: 'bingeFrequency',
     controls: ['deathBingeFrequency'],
-    eyebrow: 'Question 12',
+    eyebrow: 'Substances 12',
     title: 'How often do you binge drink?',
     description: 'This captures concentrated alcohol risk separately from weekly totals.'
   },
   {
     id: 'sleepHours',
     controls: ['deathSleepHours'],
-    eyebrow: 'Question 13',
+    eyebrow: 'Sleep And Diet 13',
     title: 'How many hours do you usually sleep per night?',
     description: 'Very short and very long sleep patterns both affect the estimate.'
   },
   {
     id: 'upfShare',
     controls: ['deathUpfShare'],
-    eyebrow: 'Question 14',
+    eyebrow: 'Sleep And Diet 14',
     title: 'How much of your diet is ultra-processed food?',
     description: 'Use the option that best matches your overall intake pattern.'
   },
   {
     id: 'produceServings',
     controls: ['deathProduceServings'],
-    eyebrow: 'Question 15',
+    eyebrow: 'Sleep And Diet 15',
     title: 'How many fruit and vegetable servings do you average per day?',
     description: 'This is modeled as a broad diet-quality signal.'
   },
   {
     id: 'hasHypertension',
     controls: ['deathHasHypertension'],
-    eyebrow: 'Question 16',
+    eyebrow: 'Diagnosed Conditions 16',
     title: 'Have you been diagnosed with hypertension?',
     description: 'Diagnosed conditions are weighted more heavily than softer lifestyle inputs.'
   },
   {
     id: 'diabetesStatus',
     controls: ['deathDiabetesStatus'],
-    eyebrow: 'Question 17',
+    eyebrow: 'Diagnosed Conditions 17',
     title: 'What is your diabetes status?',
     description: 'Prediabetes and diabetes are modeled separately.'
   },
   {
     id: 'hasCardiovascularDisease',
     controls: ['deathHasCardioDisease'],
-    eyebrow: 'Question 18',
+    eyebrow: 'Diagnosed Conditions 18',
     title: 'Do you have a history of heart disease or stroke?',
     description: 'Major cardiovascular disease strongly influences the estimate.'
   },
   {
     id: 'hasCancerHistory',
     controls: ['deathHasCancerHistory'],
-    eyebrow: 'Question 19',
+    eyebrow: 'Diagnosed Conditions 19',
     title: 'Do you have a cancer history?',
     description: 'This asks about diagnosed cancer history, not family history.'
   },
   {
     id: 'hasCopdOrAsthma',
     controls: ['deathHasCopdOrAsthma'],
-    eyebrow: 'Question 20',
+    eyebrow: 'Diagnosed Conditions 20',
     title: 'Do you have COPD or chronic asthma?',
     description: 'Respiratory conditions are modeled as a separate risk cluster.'
   },
   {
     id: 'hasChronicKidneyDisease',
     controls: ['deathHasKidneyDisease'],
-    eyebrow: 'Question 21',
+    eyebrow: 'Diagnosed Conditions 21',
     title: 'Do you have chronic kidney disease?',
     description: 'Kidney disease is treated as a major diagnosed condition.'
   },
   {
     id: 'hasSleepApnea',
     controls: ['deathHasSleepApnea'],
-    eyebrow: 'Question 22',
+    eyebrow: 'Diagnosed Conditions 22',
     title: 'Do you have sleep apnea?',
     description: 'Sleep apnea is modeled independently from sleep duration.'
   },
   {
     id: 'hasEarlyFamilyCardioHistory',
     controls: ['deathEarlyFamilyCardio'],
-    eyebrow: 'Question 23',
+    eyebrow: 'Family History 23',
     title: 'Did a parent or sibling have early heart disease or stroke?',
     description: 'Family history is modeled lightly and never allowed to dominate the estimate.'
   },
   {
     id: 'parentLongevityBand',
     controls: ['deathParentLongevityBand'],
-    eyebrow: 'Question 24',
+    eyebrow: 'Family History 24',
     title: 'How would you describe your parents’ longevity pattern?',
     description: 'Use the option that most closely matches the available history.'
   }
@@ -285,6 +285,17 @@ export class DeathCalculatorController {
       this.syncQuestionUi();
     });
 
+    this.form.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        const visibleQuestions = this.getVisibleQuestions();
+        const activeIndex = this.getActiveQuestionIndex(visibleQuestions);
+        if (activeIndex < visibleQuestions.length - 1) {
+          event.preventDefault();
+          this.goToNextQuestion();
+        }
+      }
+    });
+
     this.form.addEventListener('submit', (event) => {
       event.preventDefault();
       void this.calculatePrediction();
@@ -326,16 +337,18 @@ export class DeathCalculatorController {
   private setProgress(activeIndex: number, totalQuestions: number) {
     const progress = totalQuestions <= 0 ? 0 : clamp((activeIndex + 1) / totalQuestions, 0, 1);
     this.progressText.textContent = `Question ${activeIndex + 1} of ${totalQuestions}`;
-    this.progressMeta.textContent = `U.S.-only • evidence snapshot ${longevityDataset.dataVersion}`;
+    this.progressMeta.textContent = `CDC ${longevityDataset.baselineYear} baseline + SSA 2025 projection`;
     this.progressFill.style.width = `${Math.round(progress * 100)}%`;
+    this.progressFill.parentElement?.setAttribute('aria-valuenow', String(Math.round(progress * 100)));
   }
 
   private begin() {
     this.prediction = null;
     this.activeQuestionId = this.getVisibleQuestions()[0]?.id ?? QUESTION_DEFINITIONS[0]?.id ?? '';
-    this.setStatus('Answer each card and move straight through the flow.');
+    this.setStatus('Complete each section to run the actuarial model.');
     this.setScreen('question');
     this.syncQuestionUi();
+    this.focusCalculator();
   }
 
   private syncFormerSmokerField() {
@@ -400,9 +413,10 @@ export class DeathCalculatorController {
     }
 
     this.activeQuestionId = visibleQuestions[activeIndex - 1].id;
-    this.setStatus('Move backward if you need to change an answer.');
+    this.setStatus('Previous section restored for review.');
     this.setScreen('question');
     this.syncQuestionUi();
+    this.focusCalculator();
   }
 
   private goToNextQuestion() {
@@ -419,9 +433,10 @@ export class DeathCalculatorController {
     }
 
     this.activeQuestionId = nextQuestion.id;
-    this.setStatus('Locked in. Keep going.');
+    this.setStatus('Section recorded.');
     this.setScreen('question');
     this.syncQuestionUi();
+    this.focusCalculator();
   }
 
   private async calculatePrediction() {
@@ -435,7 +450,7 @@ export class DeathCalculatorController {
     try {
       this.setScreen('processing');
       this.syncQuestionUi();
-      this.setStatus('Running the longevity model against the evidence snapshot…');
+      this.setStatus('Running the actuarial model against the evidence snapshot.');
       const prediction = predictLongevity(this.collectAnswers(), longevityDataset);
       this.renderPrediction(prediction);
     } catch (error) {
@@ -458,8 +473,8 @@ export class DeathCalculatorController {
       sex: String(formData.get('sex') ?? 'male') as LongevitySurveyAnswers['sex'],
       heightInches: heightFeet * 12 + heightInchesPart,
       weightPounds: parseNumber(String(formData.get('weightPounds') ?? '0'), 0),
-      moderateMinutesPerWeek: parseNumber(String(formData.get('moderateMinutesPerWeek') ?? '0'), 0),
-      vigorousMinutesPerWeek: parseNumber(String(formData.get('vigorousMinutesPerWeek') ?? '0'), 0),
+      moderateMinutesPerWeek: parseNumber(String(formData.get('moderateDaysPerWeek') ?? '0'), 0) * parseNumber(String(formData.get('moderateMinutesSession') ?? '0'), 0),
+      vigorousMinutesPerWeek: parseNumber(String(formData.get('vigorousDaysPerWeek') ?? '0'), 0) * parseNumber(String(formData.get('vigorousMinutesSession') ?? '0'), 0),
       strengthDaysPerWeek: parseNumber(String(formData.get('strengthDaysPerWeek') ?? '0'), 0),
       sedentaryHoursPerDay: parseNumber(String(formData.get('sedentaryHoursPerDay') ?? '0'), 0),
       smokingStatus,
@@ -486,12 +501,13 @@ export class DeathCalculatorController {
     this.prediction = prediction;
     this.medianDate.textContent = formatPredictionDate(prediction.medianTimestamp);
     this.resultMeta.textContent =
-      'The model uses the 50th percentile of the personalized survival curve as the estimate shown here.';
+      `Median projected date from the personalized survival curve. Future-year baseline hazards use ${prediction.projectionLabel}.`;
     this.disclaimer.textContent =
-      `${prediction.modelDisclaimer} Data version: ${prediction.dataVersion}.`;
-    this.setStatus('Estimate ready.');
+      `${prediction.modelDisclaimer} Evidence snapshot: ${prediction.dataVersion}. Projection: ${prediction.projectionId}.`;
+    this.setStatus('Actuarial estimate ready.');
     this.setScreen('result');
     this.startCountdown(prediction.medianTimestamp);
+    this.focusCalculator();
   }
 
   private startCountdown(targetTimestamp: number) {
@@ -517,14 +533,20 @@ export class DeathCalculatorController {
     this.prediction = null;
     this.stopCountdown();
     this.activeQuestionId = this.getVisibleQuestions()[0]?.id ?? QUESTION_DEFINITIONS[0]?.id ?? '';
-    this.medianDate.textContent = 'Estimated date will appear here';
+    this.medianDate.textContent = 'Projected date will appear here';
     this.countdownDisplay.textContent = '00:000:00:00:00';
-    this.resultMeta.textContent = 'Answer every card to reveal the estimate.';
+    this.resultMeta.textContent = 'Complete the survey to reveal the median projected date.';
     this.disclaimer.textContent =
-      'This is a modeled estimate based on U.S. actuarial life tables and curated public-health evidence. It is not a medical diagnosis.';
+      'This actuarial estimate uses U.S. life tables, mortality-improvement projections, and curated public-health evidence. It is not a medical diagnosis.';
     this.syncFormerSmokerField();
-    this.setStatus('A local-only estimate built from U.S. life tables and public-health evidence.');
+    this.setStatus('A local-only actuarial estimate built from U.S. life tables and public-health evidence.');
     this.setScreen('intro');
     this.syncQuestionUi();
+  }
+
+  private focusCalculator() {
+    window.requestAnimationFrame(() => {
+      this.root.scrollIntoView({ behavior: 'auto', block: 'center' });
+    });
   }
 }
