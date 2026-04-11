@@ -12,13 +12,14 @@ export interface GeneratedAudioPreset {
 export interface AudioFourierPreset {
   id: AudioFourierPresetId;
   label: string;
-  sampleCount: number;
-  targetDurationSeconds: number;
-  minDurationSeconds: number;
+  proxySampleRate: number;
+  maxProxySampleCount: number;
   maxDurationSeconds: number;
-  visualFrameCount: number;
-  playbackFrameCount: number;
+  frameSize: number;
+  hopSize: number;
   displaySampleCount: number;
+  sliderSteps: number;
+  energyBandCount: number;
 }
 
 export const GENERATED_AUDIO_PRESETS: Record<GeneratedAudioPresetId, GeneratedAudioPreset> = {
@@ -48,35 +49,38 @@ export const AUDIO_FOURIER_PRESETS: Record<AudioFourierPresetId, AudioFourierPre
   fast: {
     id: 'fast',
     label: 'Fast',
-    sampleCount: 16_384,
-    targetDurationSeconds: 4,
-    minDurationSeconds: 3,
-    maxDurationSeconds: 5,
-    visualFrameCount: 48,
-    playbackFrameCount: 40,
-    displaySampleCount: 768
+    proxySampleRate: 8000,
+    maxProxySampleCount: 2_800_000,
+    maxDurationSeconds: 8 * 60,
+    frameSize: 1024,
+    hopSize: 512,
+    displaySampleCount: 768,
+    sliderSteps: 100,
+    energyBandCount: 12
   },
   balanced: {
     id: 'balanced',
     label: 'Balanced',
-    sampleCount: 32_768,
-    targetDurationSeconds: 6,
-    minDurationSeconds: 4,
-    maxDurationSeconds: 8,
-    visualFrameCount: 72,
-    playbackFrameCount: 56,
-    displaySampleCount: 1024
+    proxySampleRate: 22_050,
+    maxProxySampleCount: 7_000_000,
+    maxDurationSeconds: 8 * 60,
+    frameSize: 2048,
+    hopSize: 1024,
+    displaySampleCount: 1024,
+    sliderSteps: 100,
+    energyBandCount: 12
   },
   detailed: {
     id: 'detailed',
     label: 'Detailed',
-    sampleCount: 65_536,
-    targetDurationSeconds: 8,
-    minDurationSeconds: 5,
-    maxDurationSeconds: 8,
-    visualFrameCount: 84,
-    playbackFrameCount: 64,
-    displaySampleCount: 1280
+    proxySampleRate: 32_000,
+    maxProxySampleCount: 8_000_000,
+    maxDurationSeconds: 8 * 60,
+    frameSize: 4096,
+    hopSize: 2048,
+    displaySampleCount: 1280,
+    sliderSteps: 100,
+    energyBandCount: 12
   }
 };
 
@@ -150,4 +154,3 @@ export function buildGeneratedAudioPreset(id: GeneratedAudioPresetId, durationSe
     channels: [samples]
   };
 }
-

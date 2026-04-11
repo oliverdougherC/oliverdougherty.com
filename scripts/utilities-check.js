@@ -156,7 +156,7 @@ async function createInvalidAudioFile() {
 
 async function createGeneratedWavFile() {
   const sampleRate = 16000;
-  const durationSeconds = 5;
+  const durationSeconds = 5 * 60;
   const sampleCount = sampleRate * durationSeconds;
   const dataSize = sampleCount * 2;
   const buffer = Buffer.alloc(44 + dataSize);
@@ -634,6 +634,7 @@ async function main() {
       selected: document.getElementById('audioFourierSelection')?.textContent?.trim() ?? '',
       sampleRate: document.getElementById('audioFourierSampleRate')?.textContent?.trim() ?? '',
       componentCount: document.getElementById('audioFourierComponentCount')?.textContent?.trim() ?? '',
+      sliderDisabled: document.getElementById('audioFourierComponentSlider')?.hasAttribute('disabled') ?? false,
       generateDisabled: document.getElementById('audioFourierGenerateBtn')?.hasAttribute('disabled') ?? true,
       playDisabled: document.getElementById('audioFourierPlayBtn')?.hasAttribute('disabled') ?? false,
       telemetryPresent: Boolean(document.getElementById('audioFourierApp')?.dataset.audioLastRequestId)
@@ -643,6 +644,7 @@ async function main() {
     assert(initialAudioState.selected === 'Harmonic chord', 'Audio Fourier should default to the Harmonic chord preset.');
     assert(initialAudioState.sampleRate === '—', 'Audio Fourier sample-rate metric should stay blank before generation.');
     assert(initialAudioState.componentCount === '—', 'Audio Fourier component count should stay blank before generation.');
+    assert(initialAudioState.sliderDisabled === true, 'Audio Fourier component slider should stay disabled before generation.');
     assert(initialAudioState.generateDisabled === false, 'Audio Fourier generate should be available for the default preset.');
     assert(initialAudioState.playDisabled === true, 'Audio Fourier playback should be disabled before generation.');
     assert(initialAudioState.telemetryPresent === false, 'Audio Fourier should not analyze audio on first paint.');
@@ -650,60 +652,94 @@ async function main() {
     await page.selectOption('#audioFourierQuality', 'fast');
     await page.click('[data-audio-preset="bell-sweep"]');
     await page.click('#audioFourierGenerateBtn');
-    await waitForAudioStatusMatch(page, 'Fourier reconstruction ready|Playing|complete|Press play', 30000, 'generated preset ready');
+    await waitForAudioStatusMatch(page, 'Fourier proxy ready|auditory midpoint|Playing selected|Press Play', 30000, 'generated preset ready');
 
     const generatedReadyState = await page.evaluate(() => ({
       status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
       sampleRate: document.getElementById('audioFourierSampleRate')?.textContent?.trim() ?? '',
       componentCount: document.getElementById('audioFourierComponentCount')?.textContent?.trim() ?? '',
-      segment: document.getElementById('audioFourierSegment')?.textContent?.trim() ?? '',
+      sourceDuration: document.getElementById('audioFourierSourceDuration')?.textContent?.trim() ?? '',
+      sliderDisabled: document.getElementById('audioFourierComponentSlider')?.hasAttribute('disabled') ?? true,
+      sliderMin: document.getElementById('audioFourierComponentSlider')?.getAttribute('min') ?? '',
+      sliderMax: document.getElementById('audioFourierComponentSlider')?.getAttribute('max') ?? '',
+      sliderValue: document.getElementById('audioFourierComponentSlider')?.value ?? '',
+      componentReadout: document.getElementById('audioFourierComponentReadout')?.textContent?.trim() ?? '',
       telemetry: {
         requestId: document.getElementById('audioFourierApp')?.dataset.audioLastRequestId ?? '',
         totalMs: Number(document.getElementById('audioFourierApp')?.dataset.audioTotalMs ?? '0'),
-        fftMs: Number(document.getElementById('audioFourierApp')?.dataset.audioFftMs ?? '0'),
-        reconstructionMs: Number(document.getElementById('audioFourierApp')?.dataset.audioReconstructionMs ?? '0'),
-        components: Number(document.getElementById('audioFourierApp')?.dataset.audioComponentCount ?? '0')
+        proxyMs: Number(document.getElementById('audioFourierApp')?.dataset.audioProxyMs ?? '0'),
+        analysisMs: Number(document.getElementById('audioFourierApp')?.dataset.audioAnalysisMs ?? '0'),
+        bandMs: Number(document.getElementById('audioFourierApp')?.dataset.audioBandMs ?? '0'),
+        components: Number(document.getElementById('audioFourierApp')?.dataset.audioComponentCount ?? '0'),
+        proxyDuration: Number(document.getElementById('audioFourierApp')?.dataset.audioProxyDuration ?? '0'),
+        bandCount: Number(document.getElementById('audioFourierApp')?.dataset.audioBandCount ?? '0')
       },
       playDisabled: document.getElementById('audioFourierPlayBtn')?.hasAttribute('disabled') ?? true
     }));
 
-    assert(/ready|playing|complete|press play/i.test(generatedReadyState.status), 'Generated Audio Fourier preset did not finish analysis.');
-    assert(/\d+ Hz/.test(generatedReadyState.sampleRate), 'Audio Fourier sample-rate metric missing after preset generation.');
+    assert(/ready|playing|press play/i.test(generatedReadyState.status), 'Generated Audio Fourier preset did not finish analysis.');
+    assert(/\d+ Hz proxy/.test(generatedReadyState.sampleRate), 'Audio Fourier proxy sample-rate metric missing after preset generation.');
     assert(generatedReadyState.componentCount !== '—', 'Audio Fourier component count missing after preset generation.');
-    assert(/→/.test(generatedReadyState.segment), 'Audio Fourier segment range missing after preset generation.');
+    assert(/source/.test(generatedReadyState.sourceDuration), 'Audio Fourier source duration missing after preset generation.');
+    assert(generatedReadyState.sliderDisabled === false, 'Audio Fourier component slider should be enabled after generation.');
+    assert(generatedReadyState.sliderMin === '0', 'Audio Fourier slider minimum should represent sparse signal energy.');
+    assert(generatedReadyState.sliderMax === '100', 'Audio Fourier slider max should represent 100% signal energy.');
+    assert(generatedReadyState.sliderValue === '50', 'Audio Fourier slider should start at the physical midpoint.');
+    assert(/80% signal energy/.test(generatedReadyState.componentReadout), 'Audio Fourier midpoint should land near the auditory midpoint.');
     assert(generatedReadyState.telemetry.requestId, 'Audio Fourier telemetry should include the completed request id.');
     assert(generatedReadyState.telemetry.totalMs > 0, 'Audio Fourier telemetry should include total processing time.');
-    assert(generatedReadyState.telemetry.fftMs > 0, 'Audio Fourier telemetry should include FFT processing time.');
-    assert(generatedReadyState.telemetry.reconstructionMs > 0, 'Audio Fourier telemetry should include reconstruction time.');
+    assert(generatedReadyState.telemetry.proxyMs > 0, 'Audio Fourier telemetry should include proxy processing time.');
+    assert(generatedReadyState.telemetry.analysisMs > 0, 'Audio Fourier telemetry should include windowed analysis time.');
+    assert(generatedReadyState.telemetry.bandMs > 0, 'Audio Fourier telemetry should include band rendering time.');
     assert(generatedReadyState.telemetry.components > 1000, 'Audio Fourier should expose a substantial component count.');
-
-    if (generatedReadyState.playDisabled === false) {
-      await page.click('#audioFourierPlayBtn');
-    }
-    await waitForAudioProgressFill(page, 25, 15000, 'generated preset playback');
+    assert(generatedReadyState.telemetry.proxyDuration > 0, 'Audio Fourier should expose proxy duration.');
+    assert(generatedReadyState.telemetry.bandCount > 0, 'Audio Fourier should expose live energy band count.');
 
     const generatedWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
+    await page.fill('#audioFourierComponentSlider', '100');
+    await waitForAudioProgressFill(page, 99, 15000, 'generated preset slider max');
+    const fullSignalWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
     const generatedSpectrumPixels = await readCanvasPixels(page, 'audioFourierSpectrumCanvas');
     const generatedComponentPixels = await readCanvasPixels(page, 'audioFourierComponentCanvas');
     assert(countActiveCanvasPixels(generatedWavePixels) > 100, 'Audio Fourier waveform canvas should be visibly nonblank.');
+    assert(totalAbsoluteDifference(generatedWavePixels, fullSignalWavePixels) > 0, 'Dragging the Audio Fourier slider should visibly change the waveform.');
     assert(countActiveCanvasPixels(generatedSpectrumPixels) > 100, 'Audio Fourier spectrum canvas should be visibly nonblank.');
     assert(countActiveCanvasPixels(generatedComponentPixels) > 100, 'Audio Fourier component canvas should be visibly nonblank.');
+    if (generatedReadyState.playDisabled === false) {
+      await page.click('#audioFourierPlayBtn');
+      await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, 'generated preset playback starts');
+      await page.waitForTimeout(350);
+      const playbackWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
+      assert(totalAbsoluteDifference(fullSignalWavePixels, playbackWavePixels) > 0, 'Audio Fourier viewport should advance during playback.');
+      await page.fill('#audioFourierComponentSlider', '20');
+      await page.waitForTimeout(120);
+      const sliderDuringPlaybackState = await page.evaluate(() => ({
+        status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
+        readout: document.getElementById('audioFourierComponentReadout')?.textContent?.trim() ?? ''
+      }));
+      assert(/Playing selected Fourier energy mix/.test(sliderDuringPlaybackState.status), 'Audio Fourier slider should not stop playback.');
+      assert(/60% signal energy/.test(sliderDuringPlaybackState.readout), 'Audio Fourier readout should update with perceptual slider mapping during playback.');
+      await page.click('#audioFourierPauseBtn');
+      await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'generated preset playback pauses');
+    }
 
     const wavPath = await createGeneratedWavFile();
     await page.setInputFiles('#audioFourierInput', wavPath);
     await page.click('#audioFourierGenerateBtn');
-    await waitForAudioStatusMatch(page, 'Fourier reconstruction ready|Playing|complete|Press play', 30000, 'uploaded wav ready');
+    await waitForAudioStatusMatch(page, 'Fourier proxy ready|auditory midpoint|Playing selected|Press Play', 45000, 'uploaded 5-minute wav ready');
 
     const uploadedAudioState = await page.evaluate(() => ({
       status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
       selected: document.getElementById('audioFourierSelection')?.textContent?.trim() ?? '',
-      segment: document.getElementById('audioFourierSegment')?.textContent?.trim() ?? '',
+      sourceDuration: document.getElementById('audioFourierSourceDuration')?.textContent?.trim() ?? '',
+      proxyDuration: Number(document.getElementById('audioFourierApp')?.dataset.audioProxyDuration ?? '0'),
       sourceKind: document.getElementById('audioFourierApp')?.dataset.audioState ?? ''
     }));
 
-    assert(/ready|playing|complete|press play/i.test(uploadedAudioState.status), 'Uploaded WAV did not complete Audio Fourier analysis.');
+    assert(/ready|playing|press play/i.test(uploadedAudioState.status), 'Uploaded WAV did not complete Audio Fourier analysis.');
     assert(/od-fourier-upload/.test(uploadedAudioState.selected), 'Audio Fourier upload selection label did not update.');
-    assert(/→/.test(uploadedAudioState.segment), 'Uploaded WAV should report an auto-selected segment.');
+    assert(/5:00 source/.test(uploadedAudioState.sourceDuration), 'Uploaded WAV should report full 5-minute source duration.');
+    assert(uploadedAudioState.proxyDuration >= 299, 'Uploaded WAV should preserve full-song proxy duration.');
     assert(/ready|animating|complete/.test(uploadedAudioState.sourceKind), 'Uploaded WAV should leave Audio Fourier in a usable state.');
 
     const invalidAudioPath = await createInvalidAudioFile();
