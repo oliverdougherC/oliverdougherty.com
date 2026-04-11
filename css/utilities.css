@@ -567,17 +567,18 @@
   border: 0;
   background: transparent;
   box-shadow: none;
-  --death-bg: #101211;
-  --death-panel: #171a18;
-  --death-panel-strong: #20231f;
-  --death-line: rgba(222, 227, 216, 0.16);
-  --death-line-strong: rgba(222, 227, 216, 0.28);
-  --death-copy: #b8bcb2;
-  --death-muted: #858b81;
-  --death-ivory: #f4f0e3;
-  --death-green: #9ac7ad;
-  --death-green-strong: #6ea886;
-  --death-red: #c68d86;
+  --death-bg: #15110c;
+  --death-panel: #1b1610;
+  --death-panel-strong: #241d14;
+  --death-field: #0f0d09;
+  --death-line: rgba(235, 228, 179, 0.14);
+  --death-line-strong: rgba(235, 228, 179, 0.28);
+  --death-copy: #b4ac96;
+  --death-muted: #77705d;
+  --death-ivory: #f5f0e8;
+  --death-accent: #ebe4b3;
+  --death-accent-strong: #c69c5e;
+  --death-red: #c58a7d;
 }
 
 .utility-shell--death + .utility-section-break {
@@ -607,17 +608,17 @@
 }
 
 .death-screen {
-  width: min(100%, 58rem);
+  width: min(100%, 74rem);
   margin: 0 auto;
 }
 
 .death-card {
   position: relative;
-  padding: 2.25rem;
+  padding: 1.55rem;
   border-radius: 8px;
   border: 1px solid var(--death-line-strong);
   background:
-    linear-gradient(180deg, rgba(244, 240, 227, 0.07), rgba(244, 240, 227, 0.025)),
+    linear-gradient(180deg, rgba(235, 228, 179, 0.08), rgba(198, 156, 94, 0.035)),
     var(--death-bg);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
@@ -634,7 +635,7 @@
 
 .death-card--intro {
   background:
-    linear-gradient(180deg, rgba(154, 199, 173, 0.08), rgba(244, 240, 227, 0.025)),
+    linear-gradient(180deg, rgba(235, 228, 179, 0.1), rgba(198, 156, 94, 0.035)),
     var(--death-bg);
 }
 
@@ -656,7 +657,7 @@
 
 .death-intro-copy {
   max-width: 34rem;
-  font-size: 1.08rem;
+  font-size: 1rem;
 }
 
 .death-begin-button {
@@ -675,7 +676,7 @@
 
 .utility-shell--death .utility-kicker,
 .utility-shell--death .canvas-eyebrow {
-  color: var(--death-green);
+  color: var(--death-accent);
 }
 
 .utility-shell--death .btn-primary-utility,
@@ -686,10 +687,10 @@
 
 .utility-shell--death .btn-primary-utility {
   color: #0c120f;
-  background: linear-gradient(135deg, #eaf3e8 0%, var(--death-green) 100%);
+  background: linear-gradient(135deg, #f6efc7 0%, var(--death-accent) 56%, var(--death-accent-strong) 100%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.42),
-    0 12px 24px -18px rgba(154, 199, 173, 0.8);
+    0 12px 24px -18px rgba(235, 228, 179, 0.8);
 }
 
 .utility-shell--death .btn-secondary-utility {
@@ -700,34 +701,53 @@
 
 .death-card--question-shell {
   overflow: hidden;
+  align-items: stretch;
+  min-height: 24rem;
 }
 
 .death-flow-head {
-  grid-template-columns: minmax(0, 1.25fr) minmax(17rem, 0.75fr);
+  grid-template-columns: minmax(0, 1.25fr) auto;
   align-items: end;
-  padding-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
   margin-bottom: var(--space-2);
   border-bottom: 1px solid var(--death-line);
 }
 
 .death-question-title {
   font-family: var(--font-display);
-  font-size: 3rem;
+  font-size: 2.55rem;
   font-weight: 400;
   line-height: 1;
   letter-spacing: 0;
-  max-width: 20ch;
+  max-width: 24ch;
+  color: var(--death-ivory);
 }
 
 .death-progress-stack {
-  gap: var(--space-2);
+  justify-items: end;
+  gap: 0.45rem;
+}
+
+.death-progress-stack .utility-progress-text {
+  margin: 0;
+  color: var(--death-ivory);
+  font-size: 0.9rem;
+}
+
+.death-progress-stack .utility-progress-meta {
+  max-width: 13rem;
+  margin: 0;
+  color: var(--death-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  text-align: right;
 }
 
 .death-progress-bar {
-  width: 100%;
-  height: 0.5rem;
+  width: min(100%, 14rem);
+  height: 0.38rem;
   border-radius: 8px;
-  background: rgba(244, 240, 227, 0.08);
+  background: rgba(235, 228, 179, 0.09);
   overflow: hidden;
 }
 
@@ -736,18 +756,70 @@
   width: 0%;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, var(--death-green-strong) 0%, var(--death-green) 100%);
-  box-shadow: 0 0 12px rgba(154, 199, 173, 0.32);
+  background: linear-gradient(90deg, var(--death-accent-strong) 0%, var(--death-accent) 100%);
+  box-shadow: 0 0 12px rgba(235, 228, 179, 0.32);
   transition: width var(--duration-fast) linear;
 }
 
 .death-question-card {
   align-content: start;
-  min-height: 12rem;
-  padding: 1.1rem 0 0;
+  min-height: 8.5rem;
+  padding: 0.35rem 0 0;
   border-radius: 0;
   border: 0;
   background: transparent;
+}
+
+@media (min-width: 980px) {
+  .death-card--question-shell {
+    grid-template-columns: minmax(18rem, 0.9fr) minmax(28rem, 1.1fr);
+    grid-template-areas: 'head form';
+    gap: var(--space-4);
+    min-height: 26rem;
+  }
+
+  .death-card--question-shell .death-flow-head {
+    grid-area: head;
+    grid-template-columns: 1fr;
+    align-content: space-between;
+    align-self: stretch;
+    padding-right: var(--space-4);
+    padding-bottom: 0;
+    margin-bottom: 0;
+    border-right: 1px solid var(--death-line);
+    border-bottom: 0;
+  }
+
+  .death-card--question-shell .death-progress-stack {
+    align-self: end;
+    justify-items: start;
+  }
+
+  .death-card--question-shell .utility-progress-meta {
+    text-align: left;
+  }
+
+  .death-card--question-shell .death-progress-bar {
+    width: min(100%, 16rem);
+  }
+
+  .death-card--question-shell .death-survey-form {
+    grid-area: form;
+    grid-template-rows: 1fr auto;
+    align-self: stretch;
+    min-width: 0;
+    min-height: 100%;
+  }
+
+  .death-card--question-shell .death-question-card {
+    align-content: center;
+    min-height: 0;
+    padding-top: 0;
+  }
+
+  .death-card--question-shell .death-form-actions {
+    align-self: end;
+  }
 }
 
 .death-question-card.is-active {
@@ -756,41 +828,160 @@
 
 .death-card-grid--split {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-3);
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.utility-shell--death .control-field,
+.utility-shell--death .control-field {
+  position: relative;
+  gap: 0.55rem;
+  padding: 1rem;
+  border: 1px solid var(--death-line);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(235, 228, 179, 0.045), rgba(235, 228, 179, 0.015)),
+    var(--death-panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.utility-shell--death .control-field[data-unit]::after {
+  content: attr(data-unit);
+  position: absolute;
+  right: 1.85rem;
+  bottom: 1.95rem;
+  color: var(--death-muted);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  pointer-events: none;
+}
+
+.utility-shell--death .control-field[data-unit] .control-input {
+  padding-right: 5rem;
+}
+
 .utility-shell--death .control-input,
 .utility-shell--death .control-select {
-  border-color: var(--death-line);
+  width: 100%;
+  min-height: 3.35rem;
+  border-color: rgba(235, 228, 179, 0.2);
   border-radius: 8px;
-  background: var(--death-panel);
+  color: var(--death-ivory);
+  background:
+    linear-gradient(180deg, rgba(255, 250, 232, 0.035), rgba(255, 250, 232, 0)),
+    var(--death-field);
+  cursor: var(--cursor-normal), default !important;
+}
+
+.utility-shell--death .control-input:hover,
+.utility-shell--death .control-input:focus,
+.utility-shell--death .control-input:focus-visible,
+.utility-shell--death .control-select:hover,
+.utility-shell--death .control-select:focus,
+.utility-shell--death .control-select:focus-visible {
+  cursor: var(--cursor-normal), default !important;
+}
+
+.utility-shell--death .control-input {
+  font-size: 1.08rem;
+}
+
+.utility-shell--death .control-select {
+  appearance: none;
+  padding-right: 2.75rem;
+  font-size: 1rem;
+  background-image:
+    linear-gradient(180deg, rgba(255, 250, 232, 0.035), rgba(255, 250, 232, 0)),
+    url("data:image/svg+xml,%3Csvg width='18' height='18' viewBox='0 0 18 18' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 7L9 11L13 7' stroke='%23ebe4b3' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position:
+    0 0,
+    right 0.95rem center;
+  background-repeat: no-repeat;
+  background-size:
+    auto,
+    1.1rem;
+}
+
+.utility-shell--death .control-input::placeholder {
+  color: rgba(245, 240, 232, 0.6);
+}
+
+.utility-shell--death .control-input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  filter: invert(88%) sepia(15%) saturate(513%) hue-rotate(8deg) brightness(102%);
+  opacity: 0.9;
+}
+
+.utility-shell--death input[type='number'] {
+  font-variant-numeric: tabular-nums;
 }
 
 .utility-shell--death .control-input:focus-visible,
 .utility-shell--death .control-select:focus-visible {
-  border-color: var(--death-green);
-  box-shadow: 0 0 0 3px rgba(154, 199, 173, 0.12);
+  border-color: rgba(235, 228, 179, 0.58);
+  box-shadow:
+    0 0 0 3px rgba(235, 228, 179, 0.1),
+    0 10px 28px -24px rgba(235, 228, 179, 0.9);
+}
+
+.utility-shell--death .control-label {
+  color: var(--death-accent-muted, var(--death-muted));
+  font-size: 0.78rem;
+}
+
+.utility-shell--death .death-question-description {
+  max-width: 26rem;
+  font-size: 0.95rem;
 }
 
 .control-field--checkbox-card {
-  min-height: 6rem;
+  min-height: 5rem;
   align-items: center;
   justify-items: start;
   grid-template-columns: auto 1fr;
   gap: 0.85rem;
-  padding: 1rem 1.05rem;
+  padding: 1rem;
   border-radius: 8px;
-  border: 1px solid var(--utilities-border-soft);
-  background: var(--death-panel);
+  border: 1px solid var(--death-line);
+  background:
+    linear-gradient(180deg, rgba(235, 228, 179, 0.045), rgba(235, 228, 179, 0.015)),
+    var(--death-panel);
   font-size: 1rem;
 }
 
 .control-field--checkbox-card input {
-  width: 1.1rem;
-  height: 1.1rem;
-  accent-color: var(--death-green);
+  display: grid;
+  place-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  appearance: none;
+  border: 1px solid rgba(235, 228, 179, 0.38);
+  border-radius: 6px;
+  background: var(--death-field);
+}
+
+.control-field--checkbox-card input::before {
+  content: '';
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 3px;
+  background: var(--death-accent);
+  transform: scale(0);
+  transition: transform var(--duration-fast) var(--ease-smooth);
+}
+
+.control-field--checkbox-card input:checked {
+  border-color: var(--death-accent);
+}
+
+.control-field--checkbox-card input:checked::before {
+  transform: scale(1);
+}
+
+.control-field--checkbox-card:has(input:checked) {
+  border-color: rgba(235, 228, 179, 0.42);
+  background:
+    linear-gradient(180deg, rgba(235, 228, 179, 0.08), rgba(198, 156, 94, 0.035)),
+    var(--death-panel-strong);
 }
 
 .death-form-actions {
@@ -804,7 +995,7 @@
 .death-card--result {
   gap: var(--space-4);
   background:
-    linear-gradient(180deg, rgba(154, 199, 173, 0.08), rgba(244, 240, 227, 0.025)),
+    linear-gradient(180deg, rgba(235, 228, 179, 0.1), rgba(198, 156, 94, 0.035)),
     var(--death-bg);
 }
 
@@ -1133,6 +1324,10 @@
 
   .death-card {
     padding: 1rem;
+  }
+
+  .death-card--question-shell {
+    min-height: auto;
   }
 
   .death-flow-head {

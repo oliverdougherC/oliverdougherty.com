@@ -230,7 +230,7 @@
           <span class="section-tag">Prediction Utility</span>
           <h2 class="section-title text-display">Longevity Estimate</h2>
           <p class="section-desc">
-            A local-only actuarial estimate built from U.S. life tables, public-health evidence, and projected mortality improvement.
+            A local-only actuarial estimate built from U.S. life tables, public-health evidence, and projected mortality improvement. Your answers are never cached or saved.
           </p>
         </div>
 
@@ -241,7 +241,7 @@
                 <span class="utility-kicker">Actuarial Model</span>
                 <h3 class="utility-title death-intro-title" id="deathCalculatorTitle">Longevity Estimate</h3>
                 <p class="death-intro-copy" id="deathStatusText" aria-live="polite">
-                  A local-only actuarial estimate built from U.S. life tables and public-health evidence.
+                  A local-only actuarial estimate built from U.S. life tables and public-health evidence. Your answers are never cached or saved.
                 </p>
                 <button type="button" class="btn-primary-utility death-begin-button" id="deathBeginBtn">Begin</button>
               </article>
@@ -253,9 +253,7 @@
                   <div class="death-flow-copy">
                     <span class="canvas-eyebrow" id="deathQuestionEyebrow">Question 01</span>
                     <h4 class="death-question-title" id="deathQuestionTitle">When were you born?</h4>
-                    <p class="death-question-description" id="deathQuestionDescription">
-                      This anchors the actuarial baseline for the model.
-                    </p>
+                    <p class="death-question-description" id="deathQuestionDescription" hidden></p>
                   </div>
 
                   <div class="death-progress-stack" aria-live="polite">
@@ -286,7 +284,7 @@
                   </section>
 
                   <section class="death-question-card" data-question-card="weight" hidden>
-                    <label class="control-field" for="deathWeightPounds">
+                    <label class="control-field" for="deathWeightPounds" data-unit="lb">
                       <span class="control-label">Weight (lb)</span>
                       <input id="deathWeightPounds" name="weightPounds" class="control-input" type="number" min="50" max="700" step="1" value="180" required>
                     </label>
@@ -294,12 +292,12 @@
 
                   <section class="death-question-card" data-question-card="height" hidden>
                     <div class="death-card-grid death-card-grid--split">
-                      <label class="control-field" for="deathHeightFeet">
+                      <label class="control-field" for="deathHeightFeet" data-unit="ft">
                         <span class="control-label">Height (ft)</span>
                         <input id="deathHeightFeet" name="heightFeet" class="control-input" type="number" min="3" max="8" step="1" value="5" required>
                       </label>
 
-                      <label class="control-field" for="deathHeightInchesPart">
+                      <label class="control-field" for="deathHeightInchesPart" data-unit="in">
                         <span class="control-label">Extra inches</span>
                         <input id="deathHeightInchesPart" name="heightInchesPart" class="control-input" type="number" min="0" max="11" step="1" value="10" required>
                       </label>
@@ -308,12 +306,12 @@
 
                   <section class="death-question-card" data-question-card="moderateMinutes" hidden>
                     <div class="death-card-grid death-card-grid--split">
-                      <label class="control-field" for="deathModerateDays">
+                      <label class="control-field" for="deathModerateDays" data-unit="days">
                         <span class="control-label">Days per week</span>
                         <input id="deathModerateDays" name="moderateDaysPerWeek" class="control-input" type="number" min="0" max="7" step="1" value="4" required>
                       </label>
 
-                      <label class="control-field" for="deathModerateMinutesSession">
+                      <label class="control-field" for="deathModerateMinutesSession" data-unit="min">
                         <span class="control-label">Minutes per session</span>
                         <input id="deathModerateMinutesSession" name="moderateMinutesSession" class="control-input" type="number" min="0" max="300" step="5" value="30" required>
                       </label>
@@ -322,12 +320,12 @@
 
                   <section class="death-question-card" data-question-card="vigorousMinutes" hidden>
                     <div class="death-card-grid death-card-grid--split">
-                      <label class="control-field" for="deathVigorousDays">
+                      <label class="control-field" for="deathVigorousDays" data-unit="days">
                         <span class="control-label">Days per week</span>
                         <input id="deathVigorousDays" name="vigorousDaysPerWeek" class="control-input" type="number" min="0" max="7" step="1" value="1" required>
                       </label>
 
-                      <label class="control-field" for="deathVigorousMinutesSession">
+                      <label class="control-field" for="deathVigorousMinutesSession" data-unit="min">
                         <span class="control-label">Minutes per session</span>
                         <input id="deathVigorousMinutesSession" name="vigorousMinutesSession" class="control-input" type="number" min="0" max="300" step="5" value="30" required>
                       </label>
@@ -335,14 +333,14 @@
                   </section>
 
                   <section class="death-question-card" data-question-card="strengthDays" hidden>
-                    <label class="control-field" for="deathStrengthDays">
+                    <label class="control-field" for="deathStrengthDays" data-unit="days">
                       <span class="control-label">Strength days per week</span>
                       <input id="deathStrengthDays" name="strengthDaysPerWeek" class="control-input" type="number" min="0" max="7" step="1" value="2" required>
                     </label>
                   </section>
 
                   <section class="death-question-card" data-question-card="sedentaryHours" hidden>
-                    <label class="control-field" for="deathSedentaryHours">
+                    <label class="control-field" for="deathSedentaryHours" data-unit="hrs">
                       <span class="control-label">Sedentary hours per day</span>
                       <input id="deathSedentaryHours" name="sedentaryHoursPerDay" class="control-input" type="number" min="0" max="18" step="0.5" value="8" required>
                     </label>
@@ -363,14 +361,14 @@
                   </section>
 
                   <section class="death-question-card" data-question-card="yearsSinceQuit" id="deathYearsSinceQuitField" hidden>
-                    <label class="control-field" for="deathYearsSinceQuit">
+                    <label class="control-field" for="deathYearsSinceQuit" data-unit="yrs">
                       <span class="control-label">Years since quitting</span>
                       <input id="deathYearsSinceQuit" name="yearsSinceQuit" class="control-input" type="number" min="0" max="80" step="1" value="5">
                     </label>
                   </section>
 
                   <section class="death-question-card" data-question-card="drinksPerWeek" hidden>
-                    <label class="control-field" for="deathDrinksPerWeek">
+                    <label class="control-field" for="deathDrinksPerWeek" data-unit="drinks">
                       <span class="control-label">Alcoholic drinks per week</span>
                       <input id="deathDrinksPerWeek" name="drinksPerWeek" class="control-input" type="number" min="0" max="70" step="1" value="3" required>
                     </label>
@@ -389,7 +387,7 @@
                   </section>
 
                   <section class="death-question-card" data-question-card="sleepHours" hidden>
-                    <label class="control-field" for="deathSleepHours">
+                    <label class="control-field" for="deathSleepHours" data-unit="hrs">
                       <span class="control-label">Sleep hours per night</span>
                       <input id="deathSleepHours" name="sleepHoursPerNight" class="control-input" type="number" min="3" max="14" step="0.5" value="7.5" required>
                     </label>
@@ -409,7 +407,7 @@
                   </section>
 
                   <section class="death-question-card" data-question-card="produceServings" hidden>
-                    <label class="control-field" for="deathProduceServings">
+                    <label class="control-field" for="deathProduceServings" data-unit="servings">
                       <span class="control-label">Fruit + vegetable servings per day</span>
                       <input id="deathProduceServings" name="fruitVegetableServingsPerDay" class="control-input" type="number" min="0" max="20" step="1" value="4" required>
                     </label>
