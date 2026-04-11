@@ -4,6 +4,7 @@ import type {
   LongevityDataset,
   LongevitySurveyAnswers,
   MortalityBaselineEntry,
+  MortalityProjectionConfig,
   PredictionResult,
   RangeHazardBand
 } from './longevityTypes';
@@ -60,6 +61,22 @@ function interpolateAnnualHazard(entries: MortalityBaselineEntry[], ageYears: nu
   const lowerHazard = Math.log(annualHazardFromQx(lowerEntry.qx));
   const upperHazard = Math.log(annualHazardFromQx(upperEntry.qx));
   return Math.exp(lerp(lowerHazard, upperHazard, factor));
+}
+
+export function computeMortalityProjectionFactor(
+  projection: MortalityProjectionConfig,
+  calendarYear: number,
+  ageYears: number
+) {
+  const cappedYear = Math.min(Math.floor(calendarYear), projection.terminalYear);
+  const projectedYears = Math.max(0, cappedYear - projection.startYear);
+  if (projectedYears === 0) {
+    return 1;
+  }
+
+  const annualImprovement =
+    ageYears < 65 ? projection.annualImprovementUnder65 : projection.annualImprovement65Plus;
+  return Math.pow(1 - clamp(annualImprovement, 0, 0.2), projectedYears);
 }
 
 function interpolateRemainingLifeExpectancy(entries: MortalityBaselineEntry[], ageYears: number) {
@@ -349,12 +366,19 @@ export function predictLongevity(
 
   const percentiles: Partial<Record<keyof typeof SURVIVAL_PERCENTILES, number>> = {};
   let cumulativeSurvival = 1;
+  let medianProjectionFactor = 1;
   const maxDays = Math.round(Math.max(1, (121 - currentAgeYears) * DAYS_PER_YEAR));
 
   for (let day = 1; day <= maxDays; day += 1) {
     const ageAtDay = currentAgeYears + (day - 0.5) / DAYS_PER_YEAR;
     const baselineHazard = interpolateAnnualHazard(baselineEntries, ageAtDay);
-    const annualHazard = baselineHazard * hazardMultiplier;
+    const projectedTimestamp = nowTimestamp + day * MS_PER_DAY;
+    const projectionFactor = computeMortalityProjectionFactor(
+      dataset.mortalityProjection,
+      new Date(projectedTimestamp).getUTCFullYear(),
+      ageAtDay
+    );
+    const annualHazard = baselineHazard * projectionFactor * hazardMultiplier;
     cumulativeSurvival *= Math.exp(-annualHazard / DAYS_PER_YEAR);
 
     survivalTargetIndex = captureSurvivalAtHorizon(
@@ -370,7 +394,10 @@ export function predictLongevity(
       [keyof typeof SURVIVAL_PERCENTILES, number]
     >) {
       if (!(percentile in percentiles) && cumulativeSurvival <= targetSurvival) {
-        percentiles[percentile] = nowTimestamp + day * MS_PER_DAY;
+        percentiles[percentile] = projectedTimestamp;
+        if (percentile === 'p50') {
+          medianProjectionFactor = projectionFactor;
+        }
       }
     }
 
@@ -406,8 +433,11 @@ export function predictLongevity(
     currentAgeYears,
     estimatedYearsRemaining: (medianTimestamp - nowTimestamp) / (DAYS_PER_YEAR * MS_PER_DAY),
     baselineRemainingLifeExpectancy,
+    projectionId: dataset.mortalityProjection.id,
+    projectionLabel: dataset.mortalityProjection.label,
+    projectedBaselineAdjustment: medianProjectionFactor,
     modelDisclaimer:
-      'This is a survival-model estimate built from U.S. life tables and curated public-health evidence. It is not a medical diagnosis and it cannot predict a true day of death with certainty.'
+      'This is an actuarial model estimate built from U.S. life tables, mortality-improvement projections, and curated public-health evidence. It is not a medical diagnosis and it cannot identify a true personal outcome with certainty.'
   };
 }
 

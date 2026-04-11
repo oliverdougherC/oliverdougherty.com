@@ -89,6 +89,7 @@ class UtilitiesApp {
   private targetSelection: ImageSelection | null = null;
   private worker: Worker | null = null;
   private activeRequestId = 0;
+  private activeWorkerRequestId = 0;
   private activeTransform: ActiveTransform | null = null;
   private animationState: TransformAnimationState | null = null;
   private animationFramePixels: Uint8ClampedArray | null = null;
@@ -265,15 +266,39 @@ class UtilitiesApp {
     this.discardActiveRequest();
     this.sourceSelection = demo.source;
     this.targetSelection = demo.target;
-    this.demoButtons.forEach((button) => {
-      button.classList.toggle('active', button.dataset.demoKey === demoKey);
-    });
+    this.syncActiveDemo();
     this.syncSelectionLabels();
     this.invalidateComputedState('Built-in pair selected. Press generate to load the transform.');
   }
 
   private clearActiveDemo() {
     this.demoButtons.forEach((button) => button.classList.remove('active'));
+  }
+
+  private syncActiveDemo() {
+    const activeDemoKey = this.resolveActiveDemoKey();
+    this.demoButtons.forEach((button) => {
+      button.classList.toggle('active', Boolean(activeDemoKey) && button.dataset.demoKey === activeDemoKey);
+    });
+  }
+
+  private resolveActiveDemoKey() {
+    if (!this.sourceSelection || !this.targetSelection) {
+      return null;
+    }
+
+    for (const [demoKey, demo] of Object.entries(DEMOS)) {
+      if (
+        this.sourceSelection.kind === 'demo' &&
+        this.targetSelection.kind === 'demo' &&
+        this.sourceSelection.url === demo.source.url &&
+        this.targetSelection.url === demo.target.url
+      ) {
+        return demoKey;
+      }
+    }
+
+    return null;
   }
 
   private syncSelectionLabels() {
@@ -341,8 +366,30 @@ class UtilitiesApp {
       return;
     }
 
-    this.cancelActiveRequest();
+    this.abandonActiveComputation();
     this.activeRequestId += 1;
+  }
+
+  private isCurrentRequest(requestId: number) {
+    return requestId === this.activeRequestId;
+  }
+
+  private clearActiveWorkerRequest(requestId: number) {
+    if (this.activeWorkerRequestId === requestId) {
+      this.activeWorkerRequestId = 0;
+    }
+  }
+
+  private abandonActiveComputation() {
+    if (this.activeWorkerRequestId > 0) {
+      this.cancelActiveRequest(this.activeWorkerRequestId);
+      this.activeWorkerRequestId = 0;
+    }
+
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+    }
   }
 
   private clearAllCanvases() {
@@ -550,7 +597,7 @@ class UtilitiesApp {
       return;
     }
 
-    this.cancelActiveRequest();
+    this.abandonActiveComputation();
     this.pauseAnimation();
     this.activeTransform = null;
     this.animationState = null;
@@ -643,6 +690,12 @@ class UtilitiesApp {
       sourceBitmap = sourceResult.value;
       targetBitmap = targetResult.value;
 
+      if (!this.isCurrentRequest(requestId)) {
+        sourceBitmap.close();
+        targetBitmap.close();
+        return;
+      }
+
       if (options?.forceMainThread || this.workerUnavailable || typeof Worker === 'undefined') {
         await this.runOnMainThread(requestId, sourceBitmap, targetBitmap);
         return;
@@ -660,6 +713,7 @@ class UtilitiesApp {
           targetBitmap
         };
 
+        this.activeWorkerRequestId = requestId;
         worker.postMessage(request, [sourceBitmap, targetBitmap]);
         return;
       }
@@ -676,10 +730,14 @@ class UtilitiesApp {
         target: prepared.target
       };
 
+      this.activeWorkerRequestId = requestId;
       worker.postMessage(request, [prepared.source.pixels, prepared.target.pixels]);
     } catch (error) {
       sourceBitmap?.close();
       targetBitmap?.close();
+      if (!this.isCurrentRequest(requestId)) {
+        return;
+      }
       this.setState('error', error instanceof Error ? error.message : 'Unable to load the selected images.');
       this.setProgress(0, 'Image preparation failed.', 'Try different files or a demo pair.');
     }
@@ -709,6 +767,7 @@ class UtilitiesApp {
         },
         preset.quantizationBits,
         {
+          isCancelled: () => !this.isCurrentRequest(requestId),
           onProgress: (completed, total) => {
             this.handleWorkerMessage({
               type: 'progress',
@@ -757,21 +816,26 @@ class UtilitiesApp {
         workerCount: result.workerCount
       };
 
-      this.handleWorkerMessage({
-        type: 'success',
-        requestId,
-        source: {
-          ...prepared.source,
-          pixels: asArrayBuffer(sourcePixels.buffer)
-        },
-        target: {
-          ...prepared.target,
-          pixels: asArrayBuffer(targetPixels.buffer)
-        },
-        assignment: asArrayBuffer(result.assignment.buffer),
-        metadata
-      });
+      if (this.isCurrentRequest(requestId)) {
+        this.handleWorkerMessage({
+          type: 'success',
+          requestId,
+          source: {
+            ...prepared.source,
+            pixels: asArrayBuffer(sourcePixels.buffer)
+          },
+          target: {
+            ...prepared.target,
+            pixels: asArrayBuffer(targetPixels.buffer)
+          },
+          assignment: asArrayBuffer(result.assignment.buffer),
+          metadata
+        });
+      }
     } catch (error) {
+      if (!this.isCurrentRequest(requestId)) {
+        return;
+      }
       this.handleWorkerMessage({
         type: 'error',
         requestId,
@@ -802,6 +866,7 @@ class UtilitiesApp {
   }
 
   private handleWorkerFailure(message: string) {
+    this.activeWorkerRequestId = 0;
     if (this.worker) {
       this.worker.terminate();
       this.worker = null;
@@ -826,11 +891,11 @@ class UtilitiesApp {
     });
   }
 
-  private cancelActiveRequest() {
-    if (this.worker && this.activeRequestId > 0) {
+  private cancelActiveRequest(requestId: number = this.activeWorkerRequestId) {
+    if (this.worker && requestId > 0) {
       const request: WorkerRequest = {
         type: 'cancel',
-        requestId: this.activeRequestId
+        requestId
       };
       this.worker.postMessage(request);
     }
@@ -848,6 +913,7 @@ class UtilitiesApp {
     }
 
     if (message.type === 'error') {
+      this.clearActiveWorkerRequest(message.requestId);
       this.clearDiagnostics();
       this.setState('error', message.message);
       this.setProgress(0, message.message, 'Try a different image pair or preset.');
@@ -855,12 +921,14 @@ class UtilitiesApp {
     }
 
     if (message.type === 'cancelled') {
+      this.clearActiveWorkerRequest(message.requestId);
       this.clearDiagnostics();
       this.setState('idle', 'Transform cancelled.');
       this.setProgress(0, 'Transform cancelled.');
       return;
     }
 
+    this.clearActiveWorkerRequest(message.requestId);
     this.applyTransformSuccess(message);
   }
 
@@ -1154,6 +1222,7 @@ class UtilitiesApp {
     const sourceSelection = this.sourceSelection;
     this.sourceSelection = this.targetSelection;
     this.targetSelection = sourceSelection;
+    this.syncActiveDemo();
     this.syncSelectionLabels();
     await this.generateTransform();
   }

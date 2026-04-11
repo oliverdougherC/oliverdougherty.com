@@ -547,6 +547,8 @@ async function main() {
       introHidden: document.getElementById('deathIntroScreen')?.hasAttribute('hidden') ?? true,
       surveyHidden: document.getElementById('deathSurveyScreen')?.hasAttribute('hidden') ?? false,
       resultHidden: document.getElementById('deathResultScreen')?.hasAttribute('hidden') ?? false,
+      surveyDisplay: window.getComputedStyle(document.getElementById('deathSurveyScreen')).display,
+      resultDisplay: window.getComputedStyle(document.getElementById('deathResultScreen')).display,
       title: document.getElementById('deathCalculatorTitle')?.textContent?.trim() ?? '',
       beginLabel: document.getElementById('deathBeginBtn')?.textContent?.trim() ?? ''
     }));
@@ -554,8 +556,10 @@ async function main() {
     assert(deathIntroState.introHidden === false, 'Death Calculator should start on the intro card.');
     assert(deathIntroState.surveyHidden === true, 'Death Calculator survey should stay hidden until Begin is clicked.');
     assert(deathIntroState.resultHidden === true, 'Death Calculator result should stay hidden on first paint.');
-    assert(deathIntroState.title === 'Death Calculator', 'Death Calculator intro title is missing.');
-    assert(deathIntroState.beginLabel === 'Begin?', 'Death Calculator intro CTA should read Begin?.');
+    assert(deathIntroState.surveyDisplay === 'none', 'Hidden Death Calculator survey should not occupy layout space.');
+    assert(deathIntroState.resultDisplay === 'none', 'Hidden Death Calculator result should not occupy layout space.');
+    assert(deathIntroState.title === 'Longevity Estimate', 'Death Calculator intro title is missing.');
+    assert(deathIntroState.beginLabel === 'Begin', 'Death Calculator intro CTA should read Begin.');
 
     await page.click('#deathBeginBtn');
 
@@ -563,12 +567,16 @@ async function main() {
       surveyHidden: document.getElementById('deathSurveyScreen')?.hasAttribute('hidden') ?? true,
       activeCard: document.querySelector('[data-question-card]:not([hidden])')?.getAttribute('data-question-card') ?? '',
       visibleCardCount: document.querySelectorAll('[data-question-card]:not([hidden])').length,
+      hiddenCardDisplayCount: Array.from(document.querySelectorAll('[data-question-card][hidden]'))
+        .filter((card) => window.getComputedStyle(card).display !== 'none')
+        .length,
       progressText: document.getElementById('deathProgressText')?.textContent?.trim() ?? ''
     }));
 
     assert(deathSurveyStart.surveyHidden === false, 'Death Calculator should reveal the survey after Begin is clicked.');
     assert(deathSurveyStart.activeCard === 'birthDate', 'Death Calculator should begin on the birth-date card.');
     assert(deathSurveyStart.visibleCardCount === 1, 'Death Calculator should show exactly one question card at a time.');
+    assert(deathSurveyStart.hiddenCardDisplayCount === 0, 'Hidden Death Calculator question cards should not occupy layout space.');
     assert(/Question 1 of/i.test(deathSurveyStart.progressText), 'Death Calculator progress copy should start on question 1.');
 
     await page.fill('#deathBirthDate', '1989-05-14');
@@ -584,10 +592,12 @@ async function main() {
     await page.fill('#deathHeightInchesPart', '11');
     await page.click('#deathNextBtn');
 
-    await page.fill('#deathModerateMinutes', '180');
+    await page.fill('#deathModerateDays', '4');
+    await page.fill('#deathModerateMinutesSession', '45');
     await page.click('#deathNextBtn');
 
-    await page.fill('#deathVigorousMinutes', '40');
+    await page.fill('#deathVigorousDays', '1');
+    await page.fill('#deathVigorousMinutesSession', '40');
     await page.click('#deathNextBtn');
 
     await page.fill('#deathStrengthDays', '3');
@@ -654,14 +664,20 @@ async function main() {
     await page.click('#deathCalculateBtn');
     await page.waitForFunction(() => document.getElementById('deathResultScreen')?.hasAttribute('hidden') === false);
 
-    const deathResultState = await page.evaluate(() => ({
-      resultHidden: document.getElementById('deathResultScreen')?.hasAttribute('hidden') ?? true,
-      medianDate: document.getElementById('deathMedianDate')?.textContent?.trim() ?? '',
-      countdownDisplay: document.getElementById('deathCountdownDisplay')?.textContent?.trim() ?? '',
-      disclaimer: document.getElementById('deathDisclaimer')?.textContent?.trim() ?? '',
-      resultMeta: document.getElementById('deathResultMeta')?.textContent?.trim() ?? '',
-      missingLegacyStats: document.getElementById('deathHazardMultiplier') === null
-    }));
+    const deathResultState = await page.evaluate(() => {
+      const dateRect = document.getElementById('deathMedianDate')?.getBoundingClientRect();
+      return {
+        resultHidden: document.getElementById('deathResultScreen')?.hasAttribute('hidden') ?? true,
+        medianDate: document.getElementById('deathMedianDate')?.textContent?.trim() ?? '',
+        countdownDisplay: document.getElementById('deathCountdownDisplay')?.textContent?.trim() ?? '',
+        disclaimer: document.getElementById('deathDisclaimer')?.textContent?.trim() ?? '',
+        resultMeta: document.getElementById('deathResultMeta')?.textContent?.trim() ?? '',
+        resultLabels: Array.from(document.querySelectorAll('.death-result-label')).map((node) => node.textContent?.trim() ?? ''),
+        dateRect: dateRect ? { top: dateRect.top, bottom: dateRect.bottom } : null,
+        viewportHeight: window.innerHeight,
+        missingLegacyStats: document.getElementById('deathHazardMultiplier') === null
+      };
+    });
 
     assert(deathResultState.resultHidden === false, 'Death Calculator should reveal the result card after submission.');
     assert(deathResultState.medianDate && !/complete the survey/i.test(deathResultState.medianDate), 'Death Calculator should render a concrete median date.');
@@ -670,7 +686,19 @@ async function main() {
       'Death Calculator should render a unified labeled countdown in the expected format.'
     );
     assert(/not a medical diagnosis/i.test(deathResultState.disclaimer), 'Death Calculator should expose a clear disclaimer.');
-    assert(/50th percentile|survival curve/i.test(deathResultState.resultMeta), 'Death Calculator should explain the estimate briefly.');
+    assert(/median projected date|survival curve/i.test(deathResultState.resultMeta), 'Death Calculator should explain the estimate briefly.');
+    assert(deathResultState.resultLabels.includes('Median projected date'), 'Death Calculator should present a median projected date label.');
+    assert(deathResultState.resultLabels.includes('Projected interval'), 'Death Calculator should avoid morbid countdown labeling.');
+    assert(
+      !deathResultState.resultLabels.some((label) => /death/i.test(label)),
+      'Death Calculator result labels should use clinical, non-morbid wording.'
+    );
+    assert(
+      deathResultState.dateRect &&
+        deathResultState.dateRect.top >= 0 &&
+        deathResultState.dateRect.bottom <= deathResultState.viewportHeight,
+      'Death Calculator should keep the result date visible after calculation.'
+    );
     assert(deathResultState.missingLegacyStats === true, 'Death Calculator should remove the old analytics dashboard from the primary result.');
 
     const countdownBefore = deathResultState.countdownDisplay;
@@ -687,9 +715,9 @@ async function main() {
     }));
 
     assert(deathResetState.introHidden === false, 'Death Calculator reset should return the user to the intro card.');
-    assert(/local-only estimate|public-health evidence/i.test(deathResetState.statusText), 'Death Calculator reset should restore the intro copy.');
+    assert(/local-only actuarial estimate|public-health evidence/i.test(deathResetState.statusText), 'Death Calculator reset should restore the intro copy.');
     assert(deathResetState.birthDate === '', 'Death Calculator reset should clear submitted answers.');
-    assert(/estimated date will appear here/i.test(deathResetState.medianDate), 'Death Calculator reset should restore the result placeholder copy.');
+    assert(/projected date will appear here/i.test(deathResetState.medianDate), 'Death Calculator reset should restore the result placeholder copy.');
 
     await page.click('#retroVmLaunchBtn');
     await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmState === 'running');

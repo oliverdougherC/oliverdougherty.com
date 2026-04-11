@@ -1,6 +1,11 @@
 import { longevityDataset } from '@utilities/longevityDataset';
-import { formatCountdown, formatCountdownDisplay, predictLongevity } from '@utilities/longevityEngine';
-import type { LongevitySurveyAnswers } from '@utilities/longevityTypes';
+import {
+  computeMortalityProjectionFactor,
+  formatCountdown,
+  formatCountdownDisplay,
+  predictLongevity
+} from '@utilities/longevityEngine';
+import type { LongevityDataset, LongevitySurveyAnswers } from '@utilities/longevityTypes';
 
 function createBaselineAnswers(overrides: Partial<LongevitySurveyAnswers> = {}): LongevitySurveyAnswers {
   return {
@@ -32,6 +37,19 @@ function createBaselineAnswers(overrides: Partial<LongevitySurveyAnswers> = {}):
   };
 }
 
+function createStaticProjectionDataset(): LongevityDataset {
+  return {
+    ...longevityDataset,
+    mortalityProjection: {
+      ...longevityDataset.mortalityProjection,
+      id: 'static-period-baseline',
+      label: 'Static period baseline',
+      annualImprovementUnder65: 0,
+      annualImprovement65Plus: 0
+    }
+  };
+}
+
 describe('longevity engine', () => {
   const now = new Date('2026-04-08T12:00:00Z');
 
@@ -50,6 +68,50 @@ describe('longevity engine', () => {
     expect(prediction.percentileTimestamps.p25).toBeLessThan(prediction.percentileTimestamps.p50);
     expect(prediction.percentileTimestamps.p50).toBeLessThan(prediction.percentileTimestamps.p75);
     expect(prediction.percentileTimestamps.p75).toBeLessThan(prediction.percentileTimestamps.p90);
+  });
+
+  it('uses future mortality improvement to lower projected hazards', () => {
+    const factor = computeMortalityProjectionFactor(longevityDataset.mortalityProjection, 2050, 50);
+
+    expect(factor).toBeLessThan(1);
+    expect(factor).toBeCloseTo(Math.pow(1 - longevityDataset.mortalityProjection.annualImprovementUnder65, 26));
+  });
+
+  it('does not apply mortality improvement before the projection window advances', () => {
+    expect(computeMortalityProjectionFactor(longevityDataset.mortalityProjection, 2023, 50)).toBe(1);
+    expect(computeMortalityProjectionFactor(longevityDataset.mortalityProjection, 2024, 50)).toBe(1);
+  });
+
+  it('moves the prior sample scenario later than the static period model', () => {
+    const sampleAnswers = createBaselineAnswers({
+      birthDate: '1989-05-14',
+      heightInches: 71,
+      weightPounds: 192,
+      moderateMinutesPerWeek: 180,
+      vigorousMinutesPerWeek: 40,
+      strengthDaysPerWeek: 3,
+      sedentaryHoursPerDay: 7,
+      smokingStatus: 'former',
+      yearsSinceQuit: 12,
+      drinksPerWeek: 4,
+      sleepHoursPerNight: 7.5,
+      ultraProcessedFoodShare: 'moderate',
+      fruitVegetableServingsPerDay: 5,
+      hasHypertension: true,
+      diabetesStatus: 'prediabetes',
+      hasCardiovascularDisease: true,
+      hasCancerHistory: true,
+      hasCopdOrAsthma: true,
+      hasChronicKidneyDisease: true,
+      hasSleepApnea: true,
+      hasEarlyFamilyCardioHistory: true,
+      parentLongevityBand: 'one-85-plus'
+    });
+    const staticProjection = predictLongevity(sampleAnswers, createStaticProjectionDataset(), now);
+    const projected = predictLongevity(sampleAnswers, longevityDataset, now);
+
+    expect(projected.medianTimestamp).toBeGreaterThan(staticProjection.medianTimestamp);
+    expect(projected.projectedBaselineAdjustment).toBeLessThan(1);
   });
 
   it('assigns lower survival to heavy smokers than to never-smokers', () => {

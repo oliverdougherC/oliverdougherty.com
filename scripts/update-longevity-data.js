@@ -118,8 +118,36 @@ const SOURCE_DEFINITIONS = [
     fallbackPublishedDate: '2025-03-03',
     notes:
       'Used to define monotonic ultra-processed-food intake penalties through broad consumption bands.'
+  },
+  {
+    id: 'ssa-trustees-2025-cohort-life-expectancy',
+    url: 'https://www.ssa.gov/oact/TR/2025/lr5a5.html',
+    evidenceGrade: 'official-actuarial-projection',
+    fallbackTitle: 'Cohort Life Expectancy - 2025 OASDI Trustees Report',
+    fallbackPublishedDate: '2025',
+    notes:
+      'Defines SSA cohort life expectancy as projected death rates across the years a person reaches each future age.'
+  },
+  {
+    id: 'ssa-trustees-2025-report',
+    url: 'https://www.ssa.gov/oact/TR/2025/tr2025.pdf',
+    evidenceGrade: 'official-actuarial-projection',
+    fallbackTitle: 'The 2025 Annual Report of the Board of Trustees of the Federal OASDI Trust Funds',
+    fallbackPublishedDate: '2025',
+    notes:
+      'Supports the intermediate mortality-improvement projection used to adjust baseline future-year hazards.'
   }
 ];
+
+const MORTALITY_PROJECTION = {
+  id: 'ssa-trustees-2025-intermediate',
+  label: 'SSA Trustees 2025 intermediate mortality improvement',
+  startYear: 2024,
+  terminalYear: 2099,
+  annualImprovementUnder65: 0.0074,
+  annualImprovement65Plus: 0.0068,
+  sourceIds: ['ssa-trustees-2025-cohort-life-expectancy', 'ssa-trustees-2025-report']
+};
 
 const COEFFICIENTS = {
   clamp: {
@@ -465,6 +493,7 @@ async function buildDataset() {
       male: maleTable.entries,
       female: femaleTable.entries
     },
+    mortalityProjection: MORTALITY_PROJECTION,
     coefficients: COEFFICIENTS
   };
 }

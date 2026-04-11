@@ -10,6 +10,7 @@ export type EvidenceGrade =
   | 'official-guideline'
   | 'official-advisory'
   | 'official-technical'
+  | 'official-actuarial-projection'
   | 'cohort-study'
   | 'systematic-review';
 export type HazardCategory = 'baseline' | 'lifestyle' | 'medical' | 'family-history';
@@ -158,6 +159,16 @@ export interface SurvivalProbabilities {
   years20: number;
 }
 
+export interface MortalityProjectionConfig {
+  id: string;
+  label: string;
+  startYear: number;
+  terminalYear: number;
+  annualImprovementUnder65: number;
+  annualImprovement65Plus: number;
+  sourceIds: string[];
+}
+
 export interface PredictionResult {
   medianTimestamp: number;
   percentileTimestamps: Record<'p10' | 'p25' | 'p50' | 'p75' | 'p90', number>;
@@ -170,6 +181,9 @@ export interface PredictionResult {
   currentAgeYears: number;
   estimatedYearsRemaining: number;
   baselineRemainingLifeExpectancy: number;
+  projectionId: string;
+  projectionLabel: string;
+  projectedBaselineAdjustment: number;
   modelDisclaimer: string;
 }
 
@@ -182,5 +196,6 @@ export interface LongevityDataset {
   baselineSourceIds: string[];
   sources: EvidenceSource[];
   baselines: MortalityBaselineTable;
+  mortalityProjection: MortalityProjectionConfig;
   coefficients: RiskFactorDefinition;
 }
