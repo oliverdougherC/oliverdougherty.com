@@ -48,7 +48,7 @@ async function createDenseFixture(filePath, width, height, variant) {
 
 async function createAudioFixture(filePath) {
   const sampleRate = 16000;
-  const durationSeconds = 5;
+  const durationSeconds = 5 * 60;
   const sampleCount = sampleRate * durationSeconds;
   const dataSize = sampleCount * 2;
   const buffer = Buffer.alloc(44 + dataSize);
@@ -119,7 +119,7 @@ async function readTelemetry(page) {
   });
 }
 
-async function waitForAudioTelemetry(page, previousRequestId, timeout = 30000) {
+async function waitForAudioTelemetry(page, previousRequestId, timeout = 45000) {
   await page.waitForFunction(
     (lastCompletedRequestId) => {
       const root = document.getElementById('audioFourierApp');
@@ -144,10 +144,13 @@ async function readAudioTelemetry(page) {
 
     return {
       totalMs: Number(root.dataset.audioTotalMs ?? '0'),
-      fftMs: Number(root.dataset.audioFftMs ?? '0'),
-      reconstructionMs: Number(root.dataset.audioReconstructionMs ?? '0'),
+      proxyMs: Number(root.dataset.audioProxyMs ?? '0'),
+      analysisMs: Number(root.dataset.audioAnalysisMs ?? '0'),
+      bandMs: Number(root.dataset.audioBandMs ?? '0'),
       componentCount: Number(root.dataset.audioComponentCount ?? '0'),
-      sampleRate: Number(root.dataset.audioSampleRate ?? '0')
+      sampleRate: Number(root.dataset.audioSampleRate ?? '0'),
+      proxyDuration: Number(root.dataset.audioProxyDuration ?? '0'),
+      bandCount: Number(root.dataset.audioBandCount ?? '0')
     };
   });
 }
@@ -273,7 +276,7 @@ async function main() {
 
     for (const result of audioResults) {
       lines.push(
-        `${result.name}: wall=${formatMs(result.wallMs)} total=${formatMs(result.totalMs)} fft=${formatMs(result.fftMs)} reconstruction=${formatMs(result.reconstructionMs)} components=${result.componentCount} sampleRate=${result.sampleRate.toFixed(1)}`
+        `${result.name}: wall=${formatMs(result.wallMs)} total=${formatMs(result.totalMs)} proxy=${formatMs(result.proxyMs)} analysis=${formatMs(result.analysisMs)} bands=${formatMs(result.bandMs)} bandCount=${result.bandCount} components=${result.componentCount} sampleRate=${result.sampleRate.toFixed(1)} proxyDuration=${result.proxyDuration.toFixed(1)}s`
       );
     }
 

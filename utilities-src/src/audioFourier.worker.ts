@@ -1,15 +1,24 @@
 /// <reference lib="webworker" />
 
-import { buildAudioFourierReconstruction } from './audioFourierCore';
+import {
+  buildEnergyBandReconstruction,
+  buildWindowedFourierAnalysis,
+  type WindowedFourierAnalysis
+} from './audioFourierCore';
 import type { AudioFourierWorkerRequest, AudioFourierWorkerResponse } from './audioFourierWorkerTypes';
 import { getAudioFourierPreset } from './audioPresets';
 import { prepareAudioSignal } from './audioSignal';
 
 const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 const cancelledRequests = new Set<number>();
+const analyses = new Map<number, WindowedFourierAnalysis>();
 
 function asArrayBuffer(buffer: ArrayBufferLike) {
   return buffer as ArrayBuffer;
+}
+
+function cloneBuffer(buffer: ArrayBufferLike) {
+  return asArrayBuffer(buffer.slice(0));
 }
 
 function now() {
@@ -36,10 +45,10 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
       type: 'audio-fourier-progress',
       requestId: request.requestId,
       progress: 0.04,
-      message: 'Selecting the strongest audio segment...'
+      message: 'Building full-song analysis proxy...'
     });
 
-    const segmentStartedAt = now();
+    const proxyStartedAt = now();
     const prepared = prepareAudioSignal(
       {
         sampleRate: request.source.sampleRate,
@@ -47,28 +56,23 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
       },
       preset
     );
-    const segmentMs = now() - segmentStartedAt;
+    const proxyMs = now() - proxyStartedAt;
     assertNotCancelled(request.requestId);
 
     postMessage({
       type: 'audio-fourier-progress',
       requestId: request.requestId,
-      progress: 0.14,
-      message: 'Running Fourier transform...'
+      progress: 0.1,
+      message: 'Running windowed Fourier analysis...'
     });
 
-    const fftStartedAt = now();
-    let fftMs = 0;
-    const reconstructionStartedAt = now();
-    const reconstruction = buildAudioFourierReconstruction(
+    const analysisStartedAt = now();
+    const analysis = buildWindowedFourierAnalysis(
       prepared.samples,
       prepared.sampleRate,
       preset,
       (progress, message) => {
         assertNotCancelled(request.requestId);
-        if (fftMs === 0 && progress >= 0.18) {
-          fftMs = now() - fftStartedAt;
-        }
         postMessage({
           type: 'audio-fourier-progress',
           requestId: request.requestId,
@@ -77,16 +81,33 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
         });
       }
     );
-    if (fftMs === 0) {
-      fftMs = now() - fftStartedAt;
-    }
-    const reconstructionMs = now() - reconstructionStartedAt;
+    const analysisMs = now() - analysisStartedAt;
+    analyses.set(request.requestId, analysis);
     assertNotCancelled(request.requestId);
 
-    const finalFrame = reconstruction.visualFrames.slice(
-      (preset.visualFrameCount - 1) * preset.displaySampleCount,
-      preset.visualFrameCount * preset.displaySampleCount
+    postMessage({
+      type: 'audio-fourier-progress',
+      requestId: request.requestId,
+      progress: 0.82,
+      message: 'Rendering live energy bands...'
+    });
+    const bandsStartedAt = now();
+    const bands = buildEnergyBandReconstruction(
+      analysis,
+      preset.energyBandCount,
+      (progress, message) => {
+        assertNotCancelled(request.requestId);
+        postMessage({
+          type: 'audio-fourier-progress',
+          requestId: request.requestId,
+          progress,
+          message
+        });
+      }
     );
+    const bandsMs = now() - bandsStartedAt;
+    assertNotCancelled(request.requestId);
+
     const totalMs = now() - startedAt;
 
     postMessage(
@@ -94,43 +115,47 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
         type: 'audio-fourier-success',
         requestId: request.requestId,
         metadata: {
+          analysisId: request.requestId,
           presetId: preset.id,
           label: request.source.label,
           sourceKind: request.source.sourceKind,
           sourceDurationSeconds: prepared.sourceDurationSeconds,
-          segmentStartSeconds: prepared.segment.startSample / request.source.sampleRate,
-          segmentDurationSeconds: prepared.segment.durationSeconds,
-          sampleRate: prepared.sampleRate,
-          sampleCount: prepared.samples.length,
-          componentCount: reconstruction.analysis.components.length,
+          proxyDurationSeconds: prepared.proxyDurationSeconds,
+          proxySampleRate: prepared.sampleRate,
+          proxySampleCount: prepared.samples.length,
+          componentCount: analysis.componentOrder.length,
+          bandCount: bands.bandCount,
           displaySampleCount: preset.displaySampleCount,
-          visualFrameCount: preset.visualFrameCount,
-          playbackDurationSeconds: reconstruction.playbackSamples.length / prepared.sampleRate,
+          frameCount: analysis.frameCount,
+          frameSize: preset.frameSize,
+          hopSize: preset.hopSize,
+          sliderSteps: preset.sliderSteps,
           timingsMs: {
-            segment: segmentMs,
-            fft: fftMs,
-            reconstruction: reconstructionMs,
+            proxy: proxyMs,
+            analysis: analysisMs,
+            bands: bandsMs,
             total: totalMs
           }
         },
-        visualFrames: asArrayBuffer(reconstruction.visualFrames.buffer),
-        finalFrame: asArrayBuffer(finalFrame.buffer),
-        playbackSamples: asArrayBuffer(reconstruction.playbackSamples.buffer),
-        frameComponentCounts: asArrayBuffer(reconstruction.frameComponentCounts.buffer),
-        componentFrequencies: asArrayBuffer(reconstruction.componentFrequencies.buffer),
-        componentAmplitudes: asArrayBuffer(reconstruction.componentAmplitudes.buffer),
-        componentPhases: asArrayBuffer(reconstruction.componentPhases.buffer),
-        componentEnergies: asArrayBuffer(reconstruction.componentEnergies.buffer)
+        originalSamples: cloneBuffer(analysis.samples.buffer),
+        bandSamples: asArrayBuffer(bands.bandSamples.buffer),
+        bandEndComponentCounts: asArrayBuffer(bands.bandEndComponentCounts.buffer),
+        bandEnergyFractions: asArrayBuffer(bands.bandEnergyFractions.buffer),
+        fullMixFrame: asArrayBuffer(bands.mixedDisplayFrame.buffer),
+        componentFrequencies: asArrayBuffer(analysis.componentFrequencies.buffer),
+        componentAmplitudes: asArrayBuffer(analysis.componentAmplitudes.buffer),
+        componentPhases: asArrayBuffer(analysis.componentPhases.buffer),
+        componentEnergies: asArrayBuffer(analysis.componentEnergies.buffer)
       },
       [
-        asArrayBuffer(reconstruction.visualFrames.buffer),
-        asArrayBuffer(finalFrame.buffer),
-        asArrayBuffer(reconstruction.playbackSamples.buffer),
-        asArrayBuffer(reconstruction.frameComponentCounts.buffer),
-        asArrayBuffer(reconstruction.componentFrequencies.buffer),
-        asArrayBuffer(reconstruction.componentAmplitudes.buffer),
-        asArrayBuffer(reconstruction.componentPhases.buffer),
-        asArrayBuffer(reconstruction.componentEnergies.buffer)
+        asArrayBuffer(bands.bandSamples.buffer),
+        asArrayBuffer(bands.bandEndComponentCounts.buffer),
+        asArrayBuffer(bands.bandEnergyFractions.buffer),
+        asArrayBuffer(bands.mixedDisplayFrame.buffer),
+        asArrayBuffer(analysis.componentFrequencies.buffer),
+        asArrayBuffer(analysis.componentAmplitudes.buffer),
+        asArrayBuffer(analysis.componentPhases.buffer),
+        asArrayBuffer(analysis.componentEnergies.buffer)
       ]
     );
   } catch (error) {

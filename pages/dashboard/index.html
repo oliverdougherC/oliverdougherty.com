@@ -230,7 +230,7 @@
           <span class="section-tag">Signal Utility</span>
           <h2 class="section-title text-display">Audio Fourier Reconstruction</h2>
           <p class="section-desc">
-            Split an audio excerpt into frequency components, then hear the signal rebuild itself from the strongest waves back to the original.
+            Upload a full song or choose a preset, then drag through the Fourier signals that rebuild its proxy waveform.
           </p>
         </div>
 
@@ -269,9 +269,9 @@
                     <label class="control-field" for="audioFourierQuality">
                       <span class="control-label">Analysis quality</span>
                       <select id="audioFourierQuality" class="control-select">
-                        <option value="fast">Fast · 4s</option>
-                        <option value="balanced" selected>Balanced · 6s</option>
-                        <option value="detailed">Detailed · 8s</option>
+                        <option value="fast">Fast · 8 kHz proxy</option>
+                        <option value="balanced" selected>Balanced · 22 kHz proxy</option>
+                        <option value="detailed">Detailed · up to 32 kHz proxy</option>
                       </select>
                     </label>
 
@@ -299,7 +299,7 @@
               <div class="utility-progress" aria-live="polite">
                 <div class="utility-progress-copy">
                   <p class="utility-progress-text" id="audioFourierProgressText">Ready for audio.</p>
-                  <p class="utility-progress-meta" id="audioFourierProgressMeta">Balanced · 6s target excerpt</p>
+                  <p class="utility-progress-meta" id="audioFourierProgressMeta">Balanced · full-song proxy at 22 kHz</p>
                 </div>
                 <div class="utility-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="audioFourierProgressBar">
                   <span class="utility-progress-fill audio-progress-fill" id="audioFourierProgressFill"></span>
@@ -314,6 +314,19 @@
                 </div>
                 <div class="audio-wave-stage">
                   <canvas id="audioFourierWaveCanvas" width="1040" height="360"></canvas>
+                </div>
+
+                <div class="audio-component-control">
+                  <div class="audio-component-control-head">
+                    <span class="control-label">Signals added</span>
+                    <span class="audio-component-readout" id="audioFourierComponentReadout">Generate first</span>
+                  </div>
+                  <input id="audioFourierComponentSlider" class="audio-component-slider" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="Fourier signals added">
+                  <div class="audio-component-scale">
+                    <span id="audioFourierComponentMin">Sparse</span>
+                    <span>Half signal</span>
+                    <span id="audioFourierComponentMax">All signals</span>
+                  </div>
                 </div>
 
                 <div class="result-controls audio-result-controls">
@@ -332,8 +345,8 @@
                       <dd id="audioFourierComponentCount">—</dd>
                     </div>
                     <div>
-                      <dt>Segment</dt>
-                      <dd id="audioFourierSegment">—</dd>
+                      <dt>Source</dt>
+                      <dd id="audioFourierSourceDuration">—</dd>
                     </div>
                     <div>
                       <dt>Processing</dt>

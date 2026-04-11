@@ -33,29 +33,33 @@ export interface AudioFourierSuccessMessage {
   type: 'audio-fourier-success';
   requestId: number;
   metadata: {
+    analysisId: number;
     presetId: AudioFourierPresetId;
     label: string;
     sourceKind: 'preset' | 'file';
     sourceDurationSeconds: number;
-    segmentStartSeconds: number;
-    segmentDurationSeconds: number;
-    sampleRate: number;
-    sampleCount: number;
+    proxyDurationSeconds: number;
+    proxySampleRate: number;
+    proxySampleCount: number;
     componentCount: number;
+    bandCount: number;
     displaySampleCount: number;
-    visualFrameCount: number;
-    playbackDurationSeconds: number;
+    frameCount: number;
+    frameSize: number;
+    hopSize: number;
+    sliderSteps: number;
     timingsMs: {
-      segment: number;
-      fft: number;
-      reconstruction: number;
+      proxy: number;
+      analysis: number;
+      bands: number;
       total: number;
     };
   };
-  visualFrames: ArrayBuffer;
-  finalFrame: ArrayBuffer;
-  playbackSamples: ArrayBuffer;
-  frameComponentCounts: ArrayBuffer;
+  originalSamples: ArrayBuffer;
+  bandSamples: ArrayBuffer;
+  bandEndComponentCounts: ArrayBuffer;
+  bandEnergyFractions: ArrayBuffer;
+  fullMixFrame: ArrayBuffer;
   componentFrequencies: ArrayBuffer;
   componentAmplitudes: ArrayBuffer;
   componentPhases: ArrayBuffer;
@@ -78,4 +82,3 @@ export type AudioFourierWorkerResponse =
   | AudioFourierSuccessMessage
   | AudioFourierErrorMessage
   | AudioFourierCancelledMessage;
-
