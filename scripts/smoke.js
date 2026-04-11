@@ -98,6 +98,9 @@ function validatePages() {
   assert(dashboardHtml.includes('id="transformGenerateBtn"'), 'Utilities generate button missing');
   assert(dashboardHtml.includes('id="transformSourceCanvas"'), 'Utilities source canvas missing');
   assert(dashboardHtml.includes('id="transformResultCanvas"'), 'Utilities result canvas missing');
+  assert(dashboardHtml.includes('id="audioFourierApp"'), 'Audio Fourier shell missing.');
+  assert(dashboardHtml.includes('id="audioFourierWaveCanvas"'), 'Audio Fourier waveform canvas missing.');
+  assert(dashboardHtml.includes('id="audioFourierGenerateBtn"'), 'Audio Fourier generate button missing.');
   assert(dashboardHtml.includes('id="retroVmApp"'), 'Retro VM shell missing.');
   assert(dashboardHtml.includes('id="retroVmLaunchBtn"'), 'Retro VM launch button missing.');
   assert(dashboardHtml.includes('id="retroVmScreen"'), 'Retro VM screen container missing.');

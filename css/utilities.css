@@ -557,6 +557,88 @@
   min-height: 11.5rem;
 }
 
+.utility-shell--audio {
+  margin-top: var(--space-4);
+  --audio-cyan: #63f1da;
+  --audio-gold: #f5da71;
+  --audio-rose: #ff72a7;
+  --audio-ink: rgba(7, 16, 19, 0.96);
+}
+
+.utility-shell--audio .utility-kicker,
+.utility-shell--audio .canvas-eyebrow {
+  color: var(--audio-cyan);
+}
+
+.utility-shell--audio .utility-dropzone:hover,
+.utility-shell--audio .utility-dropzone:focus-within,
+.utility-shell--audio .utility-dropzone.drag-active {
+  border-color: rgba(99, 241, 218, 0.42);
+  box-shadow: 0 16px 34px -26px rgba(99, 241, 218, 0.75);
+}
+
+.utility-shell--audio .utility-dropzone-icon {
+  border-color: rgba(99, 241, 218, 0.34);
+  color: var(--audio-cyan);
+  background: rgba(99, 241, 218, 0.08);
+}
+
+.utility-shell--audio .demo-chip.active {
+  color: #0b1415;
+  border-color: rgba(99, 241, 218, 0.72);
+  background: linear-gradient(135deg, rgba(99, 241, 218, 0.94), rgba(245, 218, 113, 0.9));
+}
+
+.audio-progress-fill {
+  background: linear-gradient(90deg, var(--audio-cyan), var(--audio-gold) 58%, var(--audio-rose));
+  box-shadow: 0 0 16px rgba(99, 241, 218, 0.48);
+}
+
+.canvas-panel--audio-wave {
+  background:
+    linear-gradient(180deg, rgba(99, 241, 218, 0.07), transparent 28%),
+    rgba(255, 250, 232, 0.03);
+}
+
+.audio-wave-stage,
+.audio-spectrum-stage {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(99, 241, 218, 0.16);
+  border-radius: calc(var(--radius-2xl) - 0.2rem);
+  background:
+    radial-gradient(circle at 18% 18%, rgba(99, 241, 218, 0.12), transparent 30%),
+    radial-gradient(circle at 82% 24%, rgba(255, 114, 167, 0.1), transparent 26%),
+    linear-gradient(135deg, rgba(7, 16, 19, 0.98), rgba(18, 11, 22, 0.98));
+}
+
+.audio-wave-stage {
+  aspect-ratio: 13 / 4.5;
+}
+
+.audio-spectrum-stage {
+  aspect-ratio: 32 / 13;
+}
+
+.audio-wave-stage canvas,
+.audio-spectrum-stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.audio-result-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.audio-result-stats dd {
+  font-size: clamp(0.95rem, 1.4vw, 1.2rem);
+}
+
+.audio-support-panels .canvas-panel-header p {
+  min-height: 2.8rem;
+}
+
 .utility-shell--vm {
   margin-top: var(--space-4);
 }
@@ -1044,8 +1126,103 @@
   max-width: 42rem;
 }
 
+.death-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
 .death-reset-button {
   min-width: 10rem;
+}
+
+.death-more-info,
+.death-details-panel {
+  width: min(100%, 48rem);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.death-more-info[hidden],
+.death-details-panel[hidden] {
+  display: none;
+}
+
+.death-info-grid {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.death-info-group {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--death-line);
+}
+
+.death-info-value {
+  margin: 0;
+  color: var(--death-ivory);
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
+.death-info-note {
+  margin: 0;
+  color: var(--death-copy);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.death-survival-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.death-survival-list div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.death-survival-list dt {
+  color: var(--death-muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+.death-survival-list dd {
+  margin: 0;
+  color: var(--death-ivory);
+  font-family: var(--font-mono);
+  font-size: 1.2rem;
+}
+
+.death-impact-list,
+.death-source-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--death-copy);
+  text-align: left;
+}
+
+.death-impact-list li,
+.death-source-list li {
+  line-height: 1.5;
+}
+
+.death-details-button {
+  justify-self: center;
+}
+
+.death-source-list a {
+  color: var(--death-accent);
 }
 
 .utility-shell--death[data-state='processing'] .death-card--question-shell {
@@ -1304,7 +1481,9 @@
 
   .support-panels,
   .result-stats,
+  .audio-result-stats,
   .vm-meta-grid,
+  .death-info-grid,
   .death-card-grid--split {
     grid-template-columns: 1fr;
   }

@@ -110,6 +110,25 @@ const SOURCE_DEFINITIONS = [
       'Supports diabetes as a direct all-cause mortality multiplier rather than only a proxy risk factor.'
   },
   {
+    id: 'aha-prevent-calculator-overview',
+    url: 'https://professional.heart.org/en/guidelines-and-statements/about-prevent-calculator',
+    evidenceGrade: 'official-guideline',
+    fallbackTitle: 'Predicting Risk of cardiovascular disease EVENTs (American Heart Association PREVENT)',
+    fallbackPublishedDate: '2023',
+    notes:
+      'Anchors the optional clinical-basics question set around cardiovascular, kidney, and metabolic health factors without importing the licensed PREVENT source code.'
+  },
+  {
+    id: 'resting-heart-rate-mortality-meta-analysis',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/28552551/',
+    evidenceGrade: 'systematic-review',
+    fallbackTitle:
+      'Resting heart rate and the risk of cardiovascular disease, total cancer, and all-cause mortality - A systematic review and dose-response meta-analysis of prospective studies',
+    fallbackPublishedDate: '2017-04-04',
+    notes:
+      'Supports resting heart rate as an optional clinical marker associated with all-cause and cardiovascular mortality in prospective cohorts.'
+  },
+  {
     id: 'upf-meta-analysis-2025',
     url: 'https://pubmed.ncbi.nlm.nih.gov/40033461/',
     evidenceGrade: 'systematic-review',
@@ -237,6 +256,46 @@ const COEFFICIENTS = {
       { id: 'weekly', logHazard: 0.12, label: 'Weekly binge drinking', sourceIds: ['cdc-alcohol-health', 'surgeon-general-alcohol-cancer-advisory'] },
       { id: 'multiple-weekly', logHazard: 0.2, label: 'Multiple weekly binge episodes', sourceIds: ['cdc-alcohol-health', 'surgeon-general-alcohol-cancer-advisory'] }
     ]
+  },
+  clinical: {
+    systolicBloodPressureBands: [
+      { min: 0, max: 120, logHazard: -0.02, label: 'Optimal systolic blood pressure', sourceIds: ['aha-prevent-calculator-overview'] },
+      { min: 120, max: 130, logHazard: 0, label: 'Reference systolic blood pressure', sourceIds: ['aha-prevent-calculator-overview'] },
+      { min: 130, max: 140, logHazard: 0.04, label: 'Elevated systolic blood pressure', sourceIds: ['aha-prevent-calculator-overview'] },
+      { min: 140, max: 160, logHazard: 0.1, label: 'High systolic blood pressure', sourceIds: ['aha-prevent-calculator-overview'] },
+      { min: 160, max: 260, logHazard: 0.18, label: 'Very high systolic blood pressure', sourceIds: ['aha-prevent-calculator-overview'] }
+    ],
+    diastolicBloodPressureBands: [
+      { min: 0, max: 80, logHazard: 0, label: 'Reference diastolic blood pressure', sourceIds: ['aha-prevent-calculator-overview'] },
+      { min: 80, max: 90, logHazard: 0.03, label: 'Elevated diastolic blood pressure', sourceIds: ['aha-prevent-calculator-overview'] },
+      { min: 90, max: 100, logHazard: 0.08, label: 'High diastolic blood pressure', sourceIds: ['aha-prevent-calculator-overview'] },
+      { min: 100, max: 160, logHazard: 0.14, label: 'Very high diastolic blood pressure', sourceIds: ['aha-prevent-calculator-overview'] }
+    ],
+    cholesterolRatioBands: [
+      { min: 0, max: 3.5, logHazard: -0.03, label: 'Favorable total-to-HDL cholesterol ratio', sourceIds: ['aha-prevent-calculator-overview'] },
+      { min: 3.5, max: 5, logHazard: 0, label: 'Reference total-to-HDL cholesterol ratio', sourceIds: ['aha-prevent-calculator-overview'] },
+      { min: 5, max: 6.5, logHazard: 0.05, label: 'Elevated total-to-HDL cholesterol ratio', sourceIds: ['aha-prevent-calculator-overview'] },
+      { min: 6.5, max: 16, logHazard: 0.1, label: 'High total-to-HDL cholesterol ratio', sourceIds: ['aha-prevent-calculator-overview'] }
+    ],
+    restingHeartRateBands: [
+      { min: 0, max: 60, logHazard: -0.02, label: 'Low resting heart rate', sourceIds: ['resting-heart-rate-mortality-meta-analysis'] },
+      { min: 60, max: 80, logHazard: 0, label: 'Reference resting heart rate', sourceIds: ['resting-heart-rate-mortality-meta-analysis'] },
+      { min: 80, max: 90, logHazard: 0.04, label: 'Elevated resting heart rate', sourceIds: ['resting-heart-rate-mortality-meta-analysis'] },
+      { min: 90, max: 110, logHazard: 0.1, label: 'High resting heart rate', sourceIds: ['resting-heart-rate-mortality-meta-analysis'] },
+      { min: 110, max: 220, logHazard: 0.16, label: 'Very high resting heart rate', sourceIds: ['resting-heart-rate-mortality-meta-analysis'] }
+    ],
+    medicationMarkers: {
+      bloodPressureMedication: {
+        logHazard: 0.04,
+        label: 'Blood pressure medication marker',
+        sourceIds: ['aha-prevent-calculator-overview']
+      },
+      lipidMedication: {
+        logHazard: 0.03,
+        label: 'Lipid medication marker',
+        sourceIds: ['aha-prevent-calculator-overview']
+      }
+    }
   },
   medical: {
     hypertension: { logHazard: 0.11, label: 'Hypertension', sourceIds: ['cdc-obesity-consequences'] },

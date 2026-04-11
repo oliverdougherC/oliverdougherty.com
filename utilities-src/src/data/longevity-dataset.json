@@ -1,6 +1,6 @@
 {
   "dataVersion": "us-longevity-v1-2023",
-  "generatedAt": "2026-04-09T03:25:31.798Z",
+  "generatedAt": "2026-04-11T05:58:24.018Z",
   "localeScope": "US",
   "methodologyVersion": 1,
   "baselineYear": 2023,
@@ -14,7 +14,7 @@
       "title": "NVSS - Life Expectancy",
       "url": "https://www.cdc.gov/nchs/nvss/life-expectancy.htm",
       "publishedDate": "July 15, 2025",
-      "retrievedAt": "2026-04-09T03:25:31.798Z",
+      "retrievedAt": "2026-04-11T05:58:24.018Z",
       "evidenceGrade": "official-statistical-baseline",
       "notes": "Used to identify the latest published U.S. life-table release and the CDC download structure for annual Excel tables."
     },
@@ -23,7 +23,7 @@
       "title": "Table 2. Life table for males: United States, 2023",
       "url": "https://ftp.cdc.gov/pub/Health_Statistics/NCHS/Publications/NVSR/74-06/Table02.xlsx",
       "publishedDate": "2025-06-20",
-      "retrievedAt": "2026-04-09T03:25:31.798Z",
+      "retrievedAt": "2026-04-11T05:58:24.018Z",
       "evidenceGrade": "official-statistical-baseline",
       "notes": "Table 2 contains the male 2023 U.S. period life table used for baseline male annual death probabilities."
     },
@@ -32,7 +32,7 @@
       "title": "Table 3. Life table for females: United States, 2023",
       "url": "https://ftp.cdc.gov/pub/Health_Statistics/NCHS/Publications/NVSR/74-06/Table03.xlsx",
       "publishedDate": "2025-06-20",
-      "retrievedAt": "2026-04-09T03:25:31.798Z",
+      "retrievedAt": "2026-04-11T05:58:24.018Z",
       "evidenceGrade": "official-statistical-baseline",
       "notes": "Table 3 contains the female 2023 U.S. period life table used for baseline female annual death probabilities."
     },
@@ -41,7 +41,7 @@
       "title": "Products - Data Briefs - Number 492 - March 2024",
       "url": "https://www.cdc.gov/nchs/products/databriefs/db492.htm",
       "publishedDate": "March 21, 2024",
-      "retrievedAt": "2026-04-09T03:25:31.798Z",
+      "retrievedAt": "2026-04-11T05:58:24.018Z",
       "evidenceGrade": "official-context",
       "notes": "Provides U.S. mortality and life-expectancy context used in the methodology drawer and for baseline sanity checks."
     },
@@ -50,7 +50,7 @@
       "title": "WHO guidelines on physical activity and sedentary behaviour: at a glance",
       "url": "https://www.who.int/publications/i/item/9789240014886",
       "publishedDate": "2020-11-26",
-      "retrievedAt": "2026-04-09T03:25:31.798Z",
+      "retrievedAt": "2026-04-11T05:58:24.018Z",
       "evidenceGrade": "official-guideline",
       "notes": "Used to center activity questions around guideline-relevant weekly moderate and vigorous activity bands."
     },
@@ -59,7 +59,7 @@
       "title": "Cigarette Smoking",
       "url": "https://www.cdc.gov/tobacco/about/index.html",
       "publishedDate": "September 17, 2024",
-      "retrievedAt": "2026-04-09T03:25:31.798Z",
+      "retrievedAt": "2026-04-11T05:58:24.018Z",
       "evidenceGrade": "official-guideline",
       "notes": "Supports cigarette-smoking health-risk framing and anchors smoking as a major mortality driver."
     },
@@ -68,7 +68,7 @@
       "title": "Light Cigarette Smoking Increases Risk of All-Cause and Cause-Specific Mortality: Findings from the NHIS Cohort Study",
       "url": "https://pubmed.ncbi.nlm.nih.gov/32679883/",
       "publishedDate": "07/15/2020",
-      "retrievedAt": "2026-04-09T03:25:31.798Z",
+      "retrievedAt": "2026-04-11T05:58:24.018Z",
       "evidenceGrade": "cohort-study",
       "notes": "Used to calibrate current-smoking penalties and to ensure even light daily smoking materially raises mortality risk."
     },
@@ -77,7 +77,7 @@
       "title": "Alcohol Use and Your Health",
       "url": "https://www.cdc.gov/alcohol/about-alcohol-use/index.html",
       "publishedDate": "January 14, 2025",
-      "retrievedAt": "2026-04-09T03:25:31.798Z",
+      "retrievedAt": "2026-04-11T05:58:24.018Z",
       "evidenceGrade": "official-guideline",
       "notes": "Supports alcohol-use question framing and non-protective modeling assumptions for higher weekly use and bingeing."
     },
@@ -86,7 +86,7 @@
       "title": "About This Advisory",
       "url": "https://www.ncbi.nlm.nih.gov/books/NBK614464/",
       "publishedDate": "2025",
-      "retrievedAt": "2026-04-09T03:25:31.798Z",
+      "retrievedAt": "2026-04-11T05:58:24.018Z",
       "evidenceGrade": "official-advisory",
       "notes": "Supports conservative alcohol-risk modeling and the decision not to treat alcohol as longevity-protective."
     },
@@ -95,7 +95,7 @@
       "title": "Consequences of Obesity",
       "url": "https://www.cdc.gov/obesity/php/about/consequences.html",
       "publishedDate": "December 5, 2025",
-      "retrievedAt": "2026-04-09T03:25:31.798Z",
+      "retrievedAt": "2026-04-11T05:58:24.018Z",
       "evidenceGrade": "official-guideline",
       "notes": "Supports obesity-related chronic disease linkage used for BMI band penalties and overlap guardrails."
     },
@@ -104,25 +104,43 @@
       "title": "Deaths with Diabetes as Underlying Cause of Death",
       "url": "https://nccd.cdc.gov/Toolkit/DiabetesBurden/Mortality/DiabetesCauseRate",
       "publishedDate": "2024-06-01",
-      "retrievedAt": "2026-04-09T03:25:31.798Z",
+      "retrievedAt": "2026-04-11T05:58:24.018Z",
       "evidenceGrade": "official-technical",
       "notes": "Supports diabetes as a direct all-cause mortality multiplier rather than only a proxy risk factor."
+    },
+    {
+      "id": "aha-prevent-calculator-overview",
+      "title": "Predicting Risk of cardiovascular disease EVENTs (PREVENT) Calculator",
+      "url": "https://professional.heart.org/en/guidelines-and-statements/about-prevent-calculator",
+      "publishedDate": "2023",
+      "retrievedAt": "2026-04-11T05:58:24.018Z",
+      "evidenceGrade": "official-guideline",
+      "notes": "Anchors the optional clinical-basics question set around cardiovascular, kidney, and metabolic health factors without importing the licensed PREVENT source code."
+    },
+    {
+      "id": "resting-heart-rate-mortality-meta-analysis",
+      "title": "Resting heart rate and the risk of cardiovascular disease, total cancer, and all-cause mortality - A systematic review and dose-response meta-analysis of prospective studies",
+      "url": "https://pubmed.ncbi.nlm.nih.gov/28552551/",
+      "publishedDate": "2017 Jun",
+      "retrievedAt": "2026-04-11T05:58:24.018Z",
+      "evidenceGrade": "systematic-review",
+      "notes": "Supports resting heart rate as an optional clinical marker associated with all-cause and cardiovascular mortality in prospective cohorts."
     },
     {
       "id": "upf-meta-analysis-2025",
       "title": "Ultra-processed foods and risk of all-cause mortality: an updated systematic review and dose-response meta-analysis of prospective cohort studies",
       "url": "https://pubmed.ncbi.nlm.nih.gov/40033461/",
       "publishedDate": "03/03/2025",
-      "retrievedAt": "2026-04-09T03:25:31.798Z",
+      "retrievedAt": "2026-04-11T05:58:24.018Z",
       "evidenceGrade": "systematic-review",
       "notes": "Used to define monotonic ultra-processed-food intake penalties through broad consumption bands."
     },
     {
       "id": "ssa-trustees-2025-cohort-life-expectancy",
-      "title": "Cohort Life Expectancy - 2025 OASDI Trustees Report",
+      "title": "Cohort Life Expectancy &mdash; 2025 OASDI Trustees Report",
       "url": "https://www.ssa.gov/oact/TR/2025/lr5a5.html",
       "publishedDate": "2025",
-      "retrievedAt": "2026-04-09T03:25:31.798Z",
+      "retrievedAt": "2026-04-11T05:58:24.018Z",
       "evidenceGrade": "official-actuarial-projection",
       "notes": "Defines SSA cohort life expectancy as projected death rates across the years a person reaches each future age."
     },
@@ -131,7 +149,7 @@
       "title": "The 2025 Annual Report of the Board of Trustees of the Federal OASDI Trust Funds",
       "url": "https://www.ssa.gov/oact/TR/2025/tr2025.pdf",
       "publishedDate": "2025",
-      "retrievedAt": "2026-04-09T03:25:31.798Z",
+      "retrievedAt": "2026-04-11T05:58:24.018Z",
       "evidenceGrade": "official-actuarial-projection",
       "notes": "Supports the intermediate mortality-improvement projection used to adjust baseline future-year hazards."
     }
@@ -2162,6 +2180,18 @@
       }
     ]
   },
+  "mortalityProjection": {
+    "id": "ssa-trustees-2025-intermediate",
+    "label": "SSA Trustees 2025 intermediate mortality improvement",
+    "startYear": 2024,
+    "terminalYear": 2099,
+    "annualImprovementUnder65": 0.0074,
+    "annualImprovement65Plus": 0.0068,
+    "sourceIds": [
+      "ssa-trustees-2025-cohort-life-expectancy",
+      "ssa-trustees-2025-report"
+    ]
+  },
   "coefficients": {
     "clamp": {
       "under40": {
@@ -2651,6 +2681,194 @@
         }
       ]
     },
+    "clinical": {
+      "systolicBloodPressureBands": [
+        {
+          "min": 0,
+          "max": 120,
+          "logHazard": -0.02,
+          "label": "Optimal systolic blood pressure",
+          "sourceIds": [
+            "aha-prevent-calculator-overview"
+          ]
+        },
+        {
+          "min": 120,
+          "max": 130,
+          "logHazard": 0,
+          "label": "Reference systolic blood pressure",
+          "sourceIds": [
+            "aha-prevent-calculator-overview"
+          ]
+        },
+        {
+          "min": 130,
+          "max": 140,
+          "logHazard": 0.04,
+          "label": "Elevated systolic blood pressure",
+          "sourceIds": [
+            "aha-prevent-calculator-overview"
+          ]
+        },
+        {
+          "min": 140,
+          "max": 160,
+          "logHazard": 0.1,
+          "label": "High systolic blood pressure",
+          "sourceIds": [
+            "aha-prevent-calculator-overview"
+          ]
+        },
+        {
+          "min": 160,
+          "max": 260,
+          "logHazard": 0.18,
+          "label": "Very high systolic blood pressure",
+          "sourceIds": [
+            "aha-prevent-calculator-overview"
+          ]
+        }
+      ],
+      "diastolicBloodPressureBands": [
+        {
+          "min": 0,
+          "max": 80,
+          "logHazard": 0,
+          "label": "Reference diastolic blood pressure",
+          "sourceIds": [
+            "aha-prevent-calculator-overview"
+          ]
+        },
+        {
+          "min": 80,
+          "max": 90,
+          "logHazard": 0.03,
+          "label": "Elevated diastolic blood pressure",
+          "sourceIds": [
+            "aha-prevent-calculator-overview"
+          ]
+        },
+        {
+          "min": 90,
+          "max": 100,
+          "logHazard": 0.08,
+          "label": "High diastolic blood pressure",
+          "sourceIds": [
+            "aha-prevent-calculator-overview"
+          ]
+        },
+        {
+          "min": 100,
+          "max": 160,
+          "logHazard": 0.14,
+          "label": "Very high diastolic blood pressure",
+          "sourceIds": [
+            "aha-prevent-calculator-overview"
+          ]
+        }
+      ],
+      "cholesterolRatioBands": [
+        {
+          "min": 0,
+          "max": 3.5,
+          "logHazard": -0.03,
+          "label": "Favorable total-to-HDL cholesterol ratio",
+          "sourceIds": [
+            "aha-prevent-calculator-overview"
+          ]
+        },
+        {
+          "min": 3.5,
+          "max": 5,
+          "logHazard": 0,
+          "label": "Reference total-to-HDL cholesterol ratio",
+          "sourceIds": [
+            "aha-prevent-calculator-overview"
+          ]
+        },
+        {
+          "min": 5,
+          "max": 6.5,
+          "logHazard": 0.05,
+          "label": "Elevated total-to-HDL cholesterol ratio",
+          "sourceIds": [
+            "aha-prevent-calculator-overview"
+          ]
+        },
+        {
+          "min": 6.5,
+          "max": 16,
+          "logHazard": 0.1,
+          "label": "High total-to-HDL cholesterol ratio",
+          "sourceIds": [
+            "aha-prevent-calculator-overview"
+          ]
+        }
+      ],
+      "restingHeartRateBands": [
+        {
+          "min": 0,
+          "max": 60,
+          "logHazard": -0.02,
+          "label": "Low resting heart rate",
+          "sourceIds": [
+            "resting-heart-rate-mortality-meta-analysis"
+          ]
+        },
+        {
+          "min": 60,
+          "max": 80,
+          "logHazard": 0,
+          "label": "Reference resting heart rate",
+          "sourceIds": [
+            "resting-heart-rate-mortality-meta-analysis"
+          ]
+        },
+        {
+          "min": 80,
+          "max": 90,
+          "logHazard": 0.04,
+          "label": "Elevated resting heart rate",
+          "sourceIds": [
+            "resting-heart-rate-mortality-meta-analysis"
+          ]
+        },
+        {
+          "min": 90,
+          "max": 110,
+          "logHazard": 0.1,
+          "label": "High resting heart rate",
+          "sourceIds": [
+            "resting-heart-rate-mortality-meta-analysis"
+          ]
+        },
+        {
+          "min": 110,
+          "max": 220,
+          "logHazard": 0.16,
+          "label": "Very high resting heart rate",
+          "sourceIds": [
+            "resting-heart-rate-mortality-meta-analysis"
+          ]
+        }
+      ],
+      "medicationMarkers": {
+        "bloodPressureMedication": {
+          "logHazard": 0.04,
+          "label": "Blood pressure medication marker",
+          "sourceIds": [
+            "aha-prevent-calculator-overview"
+          ]
+        },
+        "lipidMedication": {
+          "logHazard": 0.03,
+          "label": "Lipid medication marker",
+          "sourceIds": [
+            "aha-prevent-calculator-overview"
+          ]
+        }
+      }
+    },
     "medical": {
       "hypertension": {
         "logHazard": 0.11,
@@ -2752,17 +2970,5 @@
         }
       ]
     }
-  },
-  "mortalityProjection": {
-    "id": "ssa-trustees-2025-intermediate",
-    "label": "SSA Trustees 2025 intermediate mortality improvement",
-    "startYear": 2024,
-    "terminalYear": 2099,
-    "annualImprovementUnder65": 0.0074,
-    "annualImprovement65Plus": 0.0068,
-    "sourceIds": [
-      "ssa-trustees-2025-cohort-life-expectancy",
-      "ssa-trustees-2025-report"
-    ]
   }
 }

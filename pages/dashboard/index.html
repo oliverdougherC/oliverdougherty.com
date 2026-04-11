@@ -227,6 +227,150 @@
         </section>
 
         <div class="utility-section-break" data-animate="fade-up">
+          <span class="section-tag">Signal Utility</span>
+          <h2 class="section-title text-display">Audio Fourier Reconstruction</h2>
+          <p class="section-desc">
+            Split an audio excerpt into frequency components, then hear the signal rebuild itself from the strongest waves back to the original.
+          </p>
+        </div>
+
+        <section class="utility-shell utility-shell--audio" id="audioFourierApp" data-animate="fade-up" data-audio-state="idle" aria-labelledby="audioFourierTitle">
+          <div class="utility-shell-header">
+            <div>
+              <span class="utility-kicker">Exact Additive Signal</span>
+              <h3 class="utility-title" id="audioFourierTitle">Audio Fourier Reconstruction</h3>
+            </div>
+            <div class="utility-status-cluster">
+              <span class="utility-status-chip utility-status-chip--idle" id="audioFourierStatusChip">Idle</span>
+              <p class="utility-status-copy" id="audioFourierStatusText" aria-live="polite">Choose a generated preset or upload an audio file.</p>
+            </div>
+          </div>
+
+          <div class="utility-layout utility-layout--audio">
+            <div class="utility-rail">
+              <div class="utility-toolbar">
+                <label class="utility-dropzone audio-dropzone" id="audioFourierDropzone">
+                  <input type="file" id="audioFourierInput" accept="audio/*">
+                  <span class="utility-dropzone-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                      <path d="M12 4v10"></path>
+                      <path d="M8.5 8.5 12 5l3.5 3.5"></path>
+                      <path d="M5 15.5V18a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5"></path>
+                    </svg>
+                  </span>
+                  <span class="utility-dropzone-label">Audio source</span>
+                  <strong>Upload a signal.</strong>
+                  <span class="utility-dropzone-copy">Any browser-supported audio file</span>
+                  <span class="utility-dropzone-meta" id="audioFourierSelection">Harmonic chord</span>
+                </label>
+
+                <div class="utility-controls-card audio-controls-card">
+                  <div class="utility-controls-grid">
+                    <label class="control-field" for="audioFourierQuality">
+                      <span class="control-label">Analysis quality</span>
+                      <select id="audioFourierQuality" class="control-select">
+                        <option value="fast">Fast · 4s</option>
+                        <option value="balanced" selected>Balanced · 6s</option>
+                        <option value="detailed">Detailed · 8s</option>
+                      </select>
+                    </label>
+
+                    <div class="control-group">
+                      <span class="control-label">Actions</span>
+                      <div class="control-actions">
+                        <button type="button" class="btn-primary-utility" id="audioFourierGenerateBtn">Generate transform</button>
+                        <button type="button" class="btn-secondary-utility" id="audioFourierResetBtn">Reset</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="utility-demo-strip audio-preset-strip" aria-label="Generated audio presets">
+                    <span class="demo-strip-label">Try a generated signal</span>
+                    <button type="button" class="demo-chip active" data-audio-preset="harmonic-chord">Harmonic chord</button>
+                    <button type="button" class="demo-chip" data-audio-preset="bass-pulse">Bass pulse</button>
+                    <button type="button" class="demo-chip" data-audio-preset="bell-sweep">Bell sweep</button>
+                    <button type="button" class="demo-chip" data-audio-preset="vowel-stack">Vowel stack</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="utility-view">
+              <div class="utility-progress" aria-live="polite">
+                <div class="utility-progress-copy">
+                  <p class="utility-progress-text" id="audioFourierProgressText">Ready for audio.</p>
+                  <p class="utility-progress-meta" id="audioFourierProgressMeta">Balanced · 6s target excerpt</p>
+                </div>
+                <div class="utility-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="audioFourierProgressBar">
+                  <span class="utility-progress-fill audio-progress-fill" id="audioFourierProgressFill"></span>
+                </div>
+              </div>
+
+              <article class="canvas-panel canvas-panel--audio-wave">
+                <div class="canvas-panel-header">
+                  <span class="canvas-eyebrow">Waveform</span>
+                  <h4>Reconstruction</h4>
+                  <p id="audioFourierResultMeta">Generate a Fourier transform to begin the reconstruction.</p>
+                </div>
+                <div class="audio-wave-stage">
+                  <canvas id="audioFourierWaveCanvas" width="1040" height="360"></canvas>
+                </div>
+
+                <div class="result-controls audio-result-controls">
+                  <div class="result-control-buttons">
+                    <button type="button" class="btn-primary-utility" id="audioFourierPlayBtn" disabled>Play</button>
+                    <button type="button" class="btn-secondary-utility" id="audioFourierPauseBtn" disabled>Pause</button>
+                  </div>
+
+                  <dl class="result-stats audio-result-stats">
+                    <div>
+                      <dt>Sample rate</dt>
+                      <dd id="audioFourierSampleRate">—</dd>
+                    </div>
+                    <div>
+                      <dt>Components</dt>
+                      <dd id="audioFourierComponentCount">—</dd>
+                    </div>
+                    <div>
+                      <dt>Segment</dt>
+                      <dd id="audioFourierSegment">—</dd>
+                    </div>
+                    <div>
+                      <dt>Processing</dt>
+                      <dd id="audioFourierDuration">—</dd>
+                    </div>
+                  </dl>
+                </div>
+              </article>
+
+              <div class="support-panels audio-support-panels">
+                <article class="canvas-panel canvas-panel--support canvas-panel--audio-spectrum">
+                  <div class="canvas-panel-header">
+                    <span class="canvas-eyebrow">Spectrum</span>
+                    <h4>Energy order</h4>
+                    <p>Bright bars are already inside the audible reconstruction.</p>
+                  </div>
+                  <div class="audio-spectrum-stage">
+                    <canvas id="audioFourierSpectrumCanvas" width="640" height="260"></canvas>
+                  </div>
+                </article>
+
+                <article class="canvas-panel canvas-panel--support canvas-panel--audio-component">
+                  <div class="canvas-panel-header">
+                    <span class="canvas-eyebrow">Component</span>
+                    <h4>Active wave</h4>
+                    <p>The newest frequency component is drawn with amplitude and phase.</p>
+                  </div>
+                  <div class="audio-spectrum-stage">
+                    <canvas id="audioFourierComponentCanvas" width="640" height="260"></canvas>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="utility-section-break" data-animate="fade-up">
           <span class="section-tag">Prediction Utility</span>
           <h2 class="section-title text-display">Longevity Estimate</h2>
           <p class="section-desc">
@@ -257,7 +401,7 @@
                   </div>
 
                   <div class="death-progress-stack" aria-live="polite">
-                    <p class="utility-progress-text" id="deathProgressText">Question 1 of 24</p>
+                    <p class="utility-progress-text" id="deathProgressText">Question 1 of 27</p>
                     <p class="utility-progress-meta" id="deathProgressMeta">CDC baseline + SSA projection</p>
                     <div class="death-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
                       <span class="death-progress-fill" id="deathProgressFill"></span>
@@ -413,6 +557,49 @@
                     </label>
                   </section>
 
+                  <section class="death-question-card" data-question-card="clinicalBloodPressure" hidden>
+                    <div class="death-card-grid death-card-grid--split">
+                      <label class="control-field" for="deathSystolicBloodPressure" data-unit="sys">
+                        <span class="control-label">Systolic blood pressure</span>
+                        <input id="deathSystolicBloodPressure" name="systolicBloodPressure" class="control-input" type="number" min="70" max="260" step="1" placeholder="Skip if unknown">
+                      </label>
+
+                      <label class="control-field" for="deathDiastolicBloodPressure" data-unit="dia">
+                        <span class="control-label">Diastolic blood pressure</span>
+                        <input id="deathDiastolicBloodPressure" name="diastolicBloodPressure" class="control-input" type="number" min="40" max="160" step="1" placeholder="Skip if unknown">
+                      </label>
+                    </div>
+                    <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathUsesBloodPressureMedication">
+                      <input id="deathUsesBloodPressureMedication" name="usesBloodPressureMedication" type="checkbox">
+                      <span>Currently taking blood pressure medication</span>
+                    </label>
+                  </section>
+
+                  <section class="death-question-card" data-question-card="clinicalCholesterol" hidden>
+                    <div class="death-card-grid death-card-grid--split">
+                      <label class="control-field" for="deathTotalCholesterol" data-unit="total">
+                        <span class="control-label">Total cholesterol</span>
+                        <input id="deathTotalCholesterol" name="totalCholesterol" class="control-input" type="number" min="80" max="450" step="1" placeholder="Skip if unknown">
+                      </label>
+
+                      <label class="control-field" for="deathHdlCholesterol" data-unit="HDL">
+                        <span class="control-label">HDL cholesterol</span>
+                        <input id="deathHdlCholesterol" name="hdlCholesterol" class="control-input" type="number" min="15" max="150" step="1" placeholder="Skip if unknown">
+                      </label>
+                    </div>
+                    <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathUsesLipidMedication">
+                      <input id="deathUsesLipidMedication" name="usesLipidMedication" type="checkbox">
+                      <span>Currently taking cholesterol medication</span>
+                    </label>
+                  </section>
+
+                  <section class="death-question-card" data-question-card="clinicalRestingHeartRate" hidden>
+                    <label class="control-field" for="deathRestingHeartRate" data-unit="bpm">
+                      <span class="control-label">Resting heart rate</span>
+                      <input id="deathRestingHeartRate" name="restingHeartRate" class="control-input" type="number" min="35" max="220" step="1" placeholder="Skip if unknown">
+                    </label>
+                  </section>
+
                   <section class="death-question-card" data-question-card="hasHypertension" hidden>
                     <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathHasHypertension">
                       <input id="deathHasHypertension" name="hasHypertension" type="checkbox">
@@ -513,7 +700,52 @@
                   This actuarial estimate uses U.S. life tables, mortality-improvement projections, and curated public-health evidence. It is not a medical diagnosis.
                 </p>
 
-                <button type="button" class="btn-secondary-utility death-reset-button" id="deathResetBtn">Start over</button>
+                <div class="death-result-actions">
+                  <button type="button" class="btn-secondary-utility" id="deathMoreInfoBtn" aria-expanded="false" aria-controls="deathMoreInfoPanel">More Info</button>
+                  <button type="button" class="btn-secondary-utility death-reset-button" id="deathResetBtn">Start over</button>
+                </div>
+
+                <section class="death-more-info" id="deathMoreInfoPanel" hidden>
+                  <div class="death-info-grid">
+                    <div class="death-info-group">
+                      <span class="death-result-label">Projected range</span>
+                      <p class="death-info-value" id="deathCentralRange">Complete the survey to reveal the central range.</p>
+                      <p class="death-info-note" id="deathWideRange">Wide range will appear here.</p>
+                    </div>
+
+                    <div class="death-info-group">
+                      <span class="death-result-label">Survival curve</span>
+                      <dl class="death-survival-list">
+                        <div>
+                          <dt>5 years</dt>
+                          <dd id="deathSurvival5">--</dd>
+                        </div>
+                        <div>
+                          <dt>10 years</dt>
+                          <dd id="deathSurvival10">--</dd>
+                        </div>
+                        <div>
+                          <dt>20 years</dt>
+                          <dd id="deathSurvival20">--</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </div>
+
+                  <div class="death-info-group">
+                    <span class="death-result-label">Answer impact</span>
+                    <ol class="death-impact-list" id="deathImpactList">
+                      <li>Complete the survey to reveal the largest model inputs.</li>
+                    </ol>
+                  </div>
+
+                  <button type="button" class="btn-secondary-utility death-details-button" id="deathDetailsBtn" aria-expanded="false" aria-controls="deathDetailsPanel">Details</button>
+
+                  <section class="death-details-panel" id="deathDetailsPanel" hidden>
+                    <p class="death-info-note" id="deathModelSummary">Model details will appear here.</p>
+                    <ul class="death-source-list" id="deathSourceList"></ul>
+                  </section>
+                </section>
               </article>
             </div>
           </div>
