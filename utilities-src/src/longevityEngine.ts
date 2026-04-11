@@ -2,6 +2,7 @@ import type {
   CorrelationGroup,
   HazardAdjustmentRule,
   LongevityDataset,
+  LongevityImpactRow,
   LongevitySurveyAnswers,
   MortalityBaselineEntry,
   MortalityProjectionConfig,
@@ -93,6 +94,14 @@ export function computeBodyMassIndex(heightInches: number, weightPounds: number)
     throw new Error('Height and weight must be greater than zero.');
   }
   return (weightPounds / (heightInches * heightInches)) * 703;
+}
+
+function hasMeasuredBloodPressure(answers: LongevitySurveyAnswers) {
+  return answers.systolicBloodPressure !== null || answers.diastolicBloodPressure !== null;
+}
+
+function hasMeasuredCholesterol(answers: LongevitySurveyAnswers) {
+  return answers.totalCholesterol !== null && answers.hdlCholesterol !== null && answers.hdlCholesterol > 0;
 }
 
 function createDriver(
@@ -259,7 +268,86 @@ function buildDrivers(answers: LongevitySurveyAnswers, dataset: LongevityDataset
     );
   }
 
-  if (answers.hasHypertension) {
+  if (answers.systolicBloodPressure !== null) {
+    const systolicBand = findRangeBand(coefficients.clinical.systolicBloodPressureBands, answers.systolicBloodPressure);
+    if (systolicBand.logHazard !== 0) {
+      drivers.push(
+        createDriver(
+          'clinical.bloodPressure.systolic',
+          systolicBand.label,
+          'medical',
+          'metabolic',
+          systolicBand.logHazard,
+          systolicBand.sourceIds
+        )
+      );
+    }
+  }
+
+  if (answers.diastolicBloodPressure !== null) {
+    const diastolicBand = findRangeBand(coefficients.clinical.diastolicBloodPressureBands, answers.diastolicBloodPressure);
+    if (diastolicBand.logHazard !== 0) {
+      drivers.push(
+        createDriver(
+          'clinical.bloodPressure.diastolic',
+          diastolicBand.label,
+          'medical',
+          'metabolic',
+          diastolicBand.logHazard,
+          diastolicBand.sourceIds
+        )
+      );
+    }
+  }
+
+  if (answers.usesBloodPressureMedication) {
+    const factor = coefficients.clinical.medicationMarkers.bloodPressureMedication;
+    drivers.push(
+      createDriver('clinical.bloodPressure.medication', factor.label, 'medical', 'metabolic', factor.logHazard, factor.sourceIds)
+    );
+  }
+
+  if (hasMeasuredCholesterol(answers)) {
+    const totalCholesterol = answers.totalCholesterol ?? 0;
+    const hdlCholesterol = answers.hdlCholesterol ?? 1;
+    const cholesterolRatio = totalCholesterol / hdlCholesterol;
+    const cholesterolBand = findRangeBand(coefficients.clinical.cholesterolRatioBands, cholesterolRatio);
+    if (cholesterolBand.logHazard !== 0) {
+      drivers.push(
+        createDriver(
+          'clinical.cholesterol.ratio',
+          cholesterolBand.label,
+          'medical',
+          'metabolic',
+          cholesterolBand.logHazard,
+          cholesterolBand.sourceIds
+        )
+      );
+    }
+  }
+
+  if (answers.usesLipidMedication) {
+    const factor = coefficients.clinical.medicationMarkers.lipidMedication;
+    drivers.push(createDriver('clinical.cholesterol.medication', factor.label, 'medical', 'metabolic', factor.logHazard, factor.sourceIds));
+  }
+
+  if (answers.restingHeartRate !== null) {
+    const heartRateBand = findRangeBand(coefficients.clinical.restingHeartRateBands, answers.restingHeartRate);
+    if (heartRateBand.logHazard !== 0) {
+      drivers.push(
+        createDriver(
+          'clinical.restingHeartRate',
+          heartRateBand.label,
+          'medical',
+          'metabolic',
+          heartRateBand.logHazard,
+          heartRateBand.sourceIds
+        )
+      );
+    }
+  }
+
+  if (answers.hasHypertension && !hasMeasuredBloodPressure(answers) && !answers.usesBloodPressureMedication) {
     const factor = coefficients.medical.hypertension;
     drivers.push(createDriver('medical.hypertension', factor.label, 'medical', 'metabolic', factor.logHazard, factor.sourceIds));
   }
@@ -338,28 +426,13 @@ function captureSurvivalAtHorizon(
   return index;
 }
 
-export function predictLongevity(
-  answers: LongevitySurveyAnswers,
+function projectSurvivalCurve(
+  baselineEntries: MortalityBaselineEntry[],
+  currentAgeYears: number,
   dataset: LongevityDataset,
-  now: Date = new Date()
-): PredictionResult {
-  const birthDate = parseBirthDateUtc(answers.birthDate);
-  const nowTimestamp = now.getTime();
-  if (birthDate.getTime() >= nowTimestamp) {
-    throw new Error('Birth date must be in the past.');
-  }
-
-  const currentAgeYears = (nowTimestamp - birthDate.getTime()) / (DAYS_PER_YEAR * MS_PER_DAY);
-  if (currentAgeYears < 18) {
-    throw new Error('Death Calculator v1 only supports adults 18 and older.');
-  }
-
-  const baselineEntries = dataset.baselines[answers.sex];
-  const baselineRemainingLifeExpectancy = interpolateRemainingLifeExpectancy(baselineEntries, currentAgeYears);
-  const { drivers } = buildDrivers(answers, dataset);
-  const adjusted = applyCorrelationShrinkage(drivers, currentAgeYears, dataset);
-  const hazardMultiplier = Math.exp(adjusted.totalLogHazard);
-
+  nowTimestamp: number,
+  hazardMultiplier: number
+) {
   const targetDayOffsets = [5, 10, 20].map((years) => Math.round(years * DAYS_PER_YEAR));
   const survivalValues = [1, 1, 1];
   let survivalTargetIndex = 0;
@@ -410,9 +483,8 @@ export function predictLongevity(
     throw new Error('The survival model did not converge to all percentile thresholds.');
   }
 
-  const medianTimestamp = percentiles.p50;
   return {
-    medianTimestamp,
+    medianTimestamp: percentiles.p50,
     percentileTimestamps: {
       p10: percentiles.p10,
       p25: percentiles.p25,
@@ -425,7 +497,95 @@ export function predictLongevity(
       years10: survivalValues[1],
       years20: survivalValues[2]
     },
-    driverBreakdown: adjusted.drivers.sort((left, right) => Math.abs(right.adjustedLogHazard) - Math.abs(left.adjustedLogHazard)),
+    medianProjectionFactor
+  };
+}
+
+function buildImpactBreakdown(
+  drivers: HazardAdjustmentRule[],
+  baselineEntries: MortalityBaselineEntry[],
+  currentAgeYears: number,
+  dataset: LongevityDataset,
+  nowTimestamp: number,
+  medianTimestamp: number,
+  totalLogHazard: number
+): LongevityImpactRow[] {
+  return drivers
+    .map((driver) => {
+      const counterfactualMultiplier = Math.exp(totalLogHazard - driver.adjustedLogHazard);
+      const counterfactual = projectSurvivalCurve(
+        baselineEntries,
+        currentAgeYears,
+        dataset,
+        nowTimestamp,
+        counterfactualMultiplier
+      );
+      const impactYears = (medianTimestamp - counterfactual.medianTimestamp) / (DAYS_PER_YEAR * MS_PER_DAY);
+
+      return {
+        driverId: driver.id,
+        label: driver.label,
+        category: driver.category,
+        direction: (impactYears >= 0 ? 'later' : 'earlier') as LongevityImpactRow['direction'],
+        years: Math.abs(impactYears),
+        adjustedLogHazard: driver.adjustedLogHazard,
+        sourceIds: driver.sourceIds
+      };
+    })
+    .filter((row) => row.years >= 0.05)
+    .sort((left, right) => Math.abs(right.years) - Math.abs(left.years))
+    .slice(0, 8);
+}
+
+export function predictLongevity(
+  answers: LongevitySurveyAnswers,
+  dataset: LongevityDataset,
+  now: Date = new Date()
+): PredictionResult {
+  const birthDate = parseBirthDateUtc(answers.birthDate);
+  const nowTimestamp = now.getTime();
+  if (birthDate.getTime() >= nowTimestamp) {
+    throw new Error('Birth date must be in the past.');
+  }
+
+  const currentAgeYears = (nowTimestamp - birthDate.getTime()) / (DAYS_PER_YEAR * MS_PER_DAY);
+  if (currentAgeYears < 18) {
+    throw new Error('Death Calculator v1 only supports adults 18 and older.');
+  }
+
+  const baselineEntries = dataset.baselines[answers.sex];
+  const baselineRemainingLifeExpectancy = interpolateRemainingLifeExpectancy(baselineEntries, currentAgeYears);
+  const { drivers } = buildDrivers(answers, dataset);
+  const adjusted = applyCorrelationShrinkage(drivers, currentAgeYears, dataset);
+  const hazardMultiplier = Math.exp(adjusted.totalLogHazard);
+
+  const projected = projectSurvivalCurve(baselineEntries, currentAgeYears, dataset, nowTimestamp, hazardMultiplier);
+  const medianTimestamp = projected.medianTimestamp;
+  const driverBreakdown = adjusted.drivers.sort((left, right) => Math.abs(right.adjustedLogHazard) - Math.abs(left.adjustedLogHazard));
+  return {
+    medianTimestamp,
+    percentileTimestamps: projected.percentileTimestamps,
+    projectedRange: {
+      central: {
+        lowerTimestamp: projected.percentileTimestamps.p25,
+        upperTimestamp: projected.percentileTimestamps.p75
+      },
+      wide: {
+        lowerTimestamp: projected.percentileTimestamps.p10,
+        upperTimestamp: projected.percentileTimestamps.p90
+      }
+    },
+    survivalProbabilities: projected.survivalProbabilities,
+    driverBreakdown,
+    impactBreakdown: buildImpactBreakdown(
+      driverBreakdown,
+      baselineEntries,
+      currentAgeYears,
+      dataset,
+      nowTimestamp,
+      medianTimestamp,
+      adjusted.totalLogHazard
+    ),
     dataVersion: dataset.dataVersion,
     baselineYear: dataset.baselineYear,
     totalLogHazard: adjusted.totalLogHazard,
@@ -435,9 +595,19 @@ export function predictLongevity(
     baselineRemainingLifeExpectancy,
     projectionId: dataset.mortalityProjection.id,
     projectionLabel: dataset.mortalityProjection.label,
-    projectedBaselineAdjustment: medianProjectionFactor,
+    projectedBaselineAdjustment: projected.medianProjectionFactor,
     modelDisclaimer:
-      'This is an actuarial model estimate built from U.S. life tables, mortality-improvement projections, and curated public-health evidence. It is not a medical diagnosis and it cannot identify a true personal outcome with certainty.'
+      'This is an actuarial model estimate built from U.S. life tables, mortality-improvement projections, and curated public-health evidence. It is not a medical diagnosis and it cannot identify a true personal outcome with certainty.',
+    modelDetails: {
+      dataVersion: dataset.dataVersion,
+      generatedAt: dataset.generatedAt,
+      methodologyVersion: dataset.methodologyVersion,
+      baselineYear: dataset.baselineYear,
+      baselineSourceIds: dataset.baselineSourceIds,
+      projectionId: dataset.mortalityProjection.id,
+      projectionLabel: dataset.mortalityProjection.label,
+      sources: dataset.sources
+    }
   };
 }
 

@@ -83,6 +83,37 @@ async function waitForProgressFill(page, minimumPercent, timeout = 15000, label 
   }
 }
 
+async function waitForAudioStatusMatch(page, pattern, timeout = 15000, label = pattern) {
+  try {
+    await page.waitForFunction((source) => {
+      const node = document.getElementById('audioFourierStatusText');
+      if (!node || !node.textContent) return false;
+      return new RegExp(source, 'i').test(node.textContent);
+    }, pattern, { timeout });
+  } catch (error) {
+    const currentStatus = await page
+      .evaluate(() => document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '')
+      .catch(() => '');
+    throw new Error(`audio status wait failed (${label}) after ${timeout}ms; current status: ${currentStatus || 'n/a'}`);
+  }
+}
+
+async function waitForAudioProgressFill(page, minimumPercent, timeout = 15000, label = `${minimumPercent}%`) {
+  try {
+    await page.waitForFunction((threshold) => {
+      const fill = document.getElementById('audioFourierProgressFill');
+      if (!fill) return false;
+      const width = Number.parseFloat(fill.style.width || '0');
+      return width >= threshold;
+    }, minimumPercent, { timeout });
+  } catch (error) {
+    const currentWidth = await page
+      .evaluate(() => document.getElementById('audioFourierProgressFill')?.style.width ?? '')
+      .catch(() => '');
+    throw new Error(`audio progress wait failed (${label}) after ${timeout}ms; current width: ${currentWidth || 'n/a'}`);
+  }
+}
+
 async function readStatusText(page) {
   return page
     .evaluate(() => document.getElementById('transformStatusText')?.textContent?.trim() ?? '')
@@ -115,6 +146,48 @@ async function createInvalidImageFile() {
   const invalidPath = path.join(os.tmpdir(), `od-invalid-image-${Date.now()}.txt`);
   fs.writeFileSync(invalidPath, 'not an image');
   return invalidPath;
+}
+
+async function createInvalidAudioFile() {
+  const invalidPath = path.join(os.tmpdir(), `od-invalid-audio-${Date.now()}.txt`);
+  fs.writeFileSync(invalidPath, 'not an audio file');
+  return invalidPath;
+}
+
+async function createGeneratedWavFile() {
+  const sampleRate = 16000;
+  const durationSeconds = 5;
+  const sampleCount = sampleRate * durationSeconds;
+  const dataSize = sampleCount * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+  const wavPath = path.join(os.tmpdir(), `od-fourier-upload-${Date.now()}.wav`);
+
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
+
+  for (let index = 0; index < sampleCount; index += 1) {
+    const time = index / sampleRate;
+    const envelope = Math.min(1, time / 0.2, (durationSeconds - time) / 0.35);
+    const value =
+      Math.sin(2 * Math.PI * 220 * time) * 0.42 +
+      Math.sin(2 * Math.PI * 440 * time + 0.4) * 0.24 +
+      Math.sin(2 * Math.PI * 880 * time) * 0.08;
+    buffer.writeInt16LE(Math.max(-1, Math.min(1, value * envelope)) * 32767, 44 + index * 2);
+  }
+
+  await fs.promises.writeFile(wavPath, buffer);
+  return wavPath;
 }
 
 async function readCanvasPixels(page, id) {
@@ -150,6 +223,19 @@ async function readOverlayAlphaPixels(page) {
     }
     return alphaPixels;
   });
+}
+
+function countActiveCanvasPixels(pixels) {
+  let count = 0;
+  for (let index = 0; index < pixels.length; index += 4) {
+    const red = pixels[index];
+    const green = pixels[index + 1];
+    const blue = pixels[index + 2];
+    if (red + green + blue > 120) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 async function readLayoutMetrics(page) {
@@ -320,7 +406,7 @@ async function main() {
     assert(initialTransformState.pixels === '—', 'Initial transform pixel count should stay blank until generate is clicked.');
     assert(initialTransformState.playLabel === 'Play', 'Primary playback control should remain Play before generation.');
     assert(initialTransformState.replayButtonExists === false, 'Dedicated replay button should not be rendered.');
-    assert(initialTransformState.uploadIconCount === 2, 'Both upload dropzones should expose a visible upload icon.');
+    assert(initialTransformState.uploadIconCount === 3, 'Utilities upload dropzones should expose visible upload icons.');
     assert(initialTransformState.activeDemo === 'Pattern → Face', 'Pattern → Face should be selected by default.');
     assert(initialTransformState.generateDisabled === false, 'Generate should be available when the built-in pair is preselected.');
     assert(precomputedTransformRequests.length === 0, 'Initial load should not fetch precomputed demo transforms.');
@@ -543,6 +629,96 @@ async function main() {
     assert(errorState.chip === 'Error', 'Invalid upload should set the error state.');
     assert(errorState.text && /unable|failed|could not/i.test(errorState.text), 'Invalid upload should surface a readable error.');
 
+    const initialAudioState = await page.evaluate(() => ({
+      status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
+      selected: document.getElementById('audioFourierSelection')?.textContent?.trim() ?? '',
+      sampleRate: document.getElementById('audioFourierSampleRate')?.textContent?.trim() ?? '',
+      componentCount: document.getElementById('audioFourierComponentCount')?.textContent?.trim() ?? '',
+      generateDisabled: document.getElementById('audioFourierGenerateBtn')?.hasAttribute('disabled') ?? true,
+      playDisabled: document.getElementById('audioFourierPlayBtn')?.hasAttribute('disabled') ?? false,
+      telemetryPresent: Boolean(document.getElementById('audioFourierApp')?.dataset.audioLastRequestId)
+    }));
+
+    assert(/choose|preset|audio/i.test(initialAudioState.status), 'Audio Fourier should start idle.');
+    assert(initialAudioState.selected === 'Harmonic chord', 'Audio Fourier should default to the Harmonic chord preset.');
+    assert(initialAudioState.sampleRate === '—', 'Audio Fourier sample-rate metric should stay blank before generation.');
+    assert(initialAudioState.componentCount === '—', 'Audio Fourier component count should stay blank before generation.');
+    assert(initialAudioState.generateDisabled === false, 'Audio Fourier generate should be available for the default preset.');
+    assert(initialAudioState.playDisabled === true, 'Audio Fourier playback should be disabled before generation.');
+    assert(initialAudioState.telemetryPresent === false, 'Audio Fourier should not analyze audio on first paint.');
+
+    await page.selectOption('#audioFourierQuality', 'fast');
+    await page.click('[data-audio-preset="bell-sweep"]');
+    await page.click('#audioFourierGenerateBtn');
+    await waitForAudioStatusMatch(page, 'Fourier reconstruction ready|Playing|complete|Press play', 30000, 'generated preset ready');
+
+    const generatedReadyState = await page.evaluate(() => ({
+      status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
+      sampleRate: document.getElementById('audioFourierSampleRate')?.textContent?.trim() ?? '',
+      componentCount: document.getElementById('audioFourierComponentCount')?.textContent?.trim() ?? '',
+      segment: document.getElementById('audioFourierSegment')?.textContent?.trim() ?? '',
+      telemetry: {
+        requestId: document.getElementById('audioFourierApp')?.dataset.audioLastRequestId ?? '',
+        totalMs: Number(document.getElementById('audioFourierApp')?.dataset.audioTotalMs ?? '0'),
+        fftMs: Number(document.getElementById('audioFourierApp')?.dataset.audioFftMs ?? '0'),
+        reconstructionMs: Number(document.getElementById('audioFourierApp')?.dataset.audioReconstructionMs ?? '0'),
+        components: Number(document.getElementById('audioFourierApp')?.dataset.audioComponentCount ?? '0')
+      },
+      playDisabled: document.getElementById('audioFourierPlayBtn')?.hasAttribute('disabled') ?? true
+    }));
+
+    assert(/ready|playing|complete|press play/i.test(generatedReadyState.status), 'Generated Audio Fourier preset did not finish analysis.');
+    assert(/\d+ Hz/.test(generatedReadyState.sampleRate), 'Audio Fourier sample-rate metric missing after preset generation.');
+    assert(generatedReadyState.componentCount !== '—', 'Audio Fourier component count missing after preset generation.');
+    assert(/→/.test(generatedReadyState.segment), 'Audio Fourier segment range missing after preset generation.');
+    assert(generatedReadyState.telemetry.requestId, 'Audio Fourier telemetry should include the completed request id.');
+    assert(generatedReadyState.telemetry.totalMs > 0, 'Audio Fourier telemetry should include total processing time.');
+    assert(generatedReadyState.telemetry.fftMs > 0, 'Audio Fourier telemetry should include FFT processing time.');
+    assert(generatedReadyState.telemetry.reconstructionMs > 0, 'Audio Fourier telemetry should include reconstruction time.');
+    assert(generatedReadyState.telemetry.components > 1000, 'Audio Fourier should expose a substantial component count.');
+
+    if (generatedReadyState.playDisabled === false) {
+      await page.click('#audioFourierPlayBtn');
+    }
+    await waitForAudioProgressFill(page, 25, 15000, 'generated preset playback');
+
+    const generatedWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
+    const generatedSpectrumPixels = await readCanvasPixels(page, 'audioFourierSpectrumCanvas');
+    const generatedComponentPixels = await readCanvasPixels(page, 'audioFourierComponentCanvas');
+    assert(countActiveCanvasPixels(generatedWavePixels) > 100, 'Audio Fourier waveform canvas should be visibly nonblank.');
+    assert(countActiveCanvasPixels(generatedSpectrumPixels) > 100, 'Audio Fourier spectrum canvas should be visibly nonblank.');
+    assert(countActiveCanvasPixels(generatedComponentPixels) > 100, 'Audio Fourier component canvas should be visibly nonblank.');
+
+    const wavPath = await createGeneratedWavFile();
+    await page.setInputFiles('#audioFourierInput', wavPath);
+    await page.click('#audioFourierGenerateBtn');
+    await waitForAudioStatusMatch(page, 'Fourier reconstruction ready|Playing|complete|Press play', 30000, 'uploaded wav ready');
+
+    const uploadedAudioState = await page.evaluate(() => ({
+      status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
+      selected: document.getElementById('audioFourierSelection')?.textContent?.trim() ?? '',
+      segment: document.getElementById('audioFourierSegment')?.textContent?.trim() ?? '',
+      sourceKind: document.getElementById('audioFourierApp')?.dataset.audioState ?? ''
+    }));
+
+    assert(/ready|playing|complete|press play/i.test(uploadedAudioState.status), 'Uploaded WAV did not complete Audio Fourier analysis.');
+    assert(/od-fourier-upload/.test(uploadedAudioState.selected), 'Audio Fourier upload selection label did not update.');
+    assert(/→/.test(uploadedAudioState.segment), 'Uploaded WAV should report an auto-selected segment.');
+    assert(/ready|animating|complete/.test(uploadedAudioState.sourceKind), 'Uploaded WAV should leave Audio Fourier in a usable state.');
+
+    const invalidAudioPath = await createInvalidAudioFile();
+    await page.setInputFiles('#audioFourierInput', invalidAudioPath);
+    await page.click('#audioFourierGenerateBtn');
+    await waitForAudioStatusMatch(page, 'not a browser-supported audio file|decode|unable', 15000, 'invalid audio error');
+
+    const audioErrorState = await page.evaluate(() => ({
+      chip: document.getElementById('audioFourierStatusChip')?.textContent?.trim() ?? '',
+      text: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? ''
+    }));
+
+    assert(audioErrorState.chip === 'Error', 'Invalid audio upload should set the Audio Fourier error chip.');
+    assert(/audio|decode|unable|supported/i.test(audioErrorState.text), 'Invalid audio upload should surface a readable error.');
+
     const deathIntroState = await page.evaluate(() => ({
       introHidden: document.getElementById('deathIntroScreen')?.hasAttribute('hidden') ?? true,
       surveyHidden: document.getElementById('deathSurveyScreen')?.hasAttribute('hidden') ?? false,
@@ -636,6 +812,19 @@ async function main() {
     await page.fill('#deathProduceServings', '5');
     await page.click('#deathNextBtn');
 
+    await page.fill('#deathSystolicBloodPressure', '142');
+    await page.fill('#deathDiastolicBloodPressure', '88');
+    await page.check('#deathUsesBloodPressureMedication');
+    await page.click('#deathNextBtn');
+
+    await page.fill('#deathTotalCholesterol', '210');
+    await page.fill('#deathHdlCholesterol', '44');
+    await page.check('#deathUsesLipidMedication');
+    await page.click('#deathNextBtn');
+
+    await page.fill('#deathRestingHeartRate', '76');
+    await page.click('#deathNextBtn');
+
     await page.check('#deathHasHypertension');
     await page.click('#deathNextBtn');
 
@@ -672,6 +861,10 @@ async function main() {
         countdownDisplay: document.getElementById('deathCountdownDisplay')?.textContent?.trim() ?? '',
         disclaimer: document.getElementById('deathDisclaimer')?.textContent?.trim() ?? '',
         resultMeta: document.getElementById('deathResultMeta')?.textContent?.trim() ?? '',
+        moreInfoHidden: document.getElementById('deathMoreInfoPanel')?.hasAttribute('hidden') ?? false,
+        detailsHidden: document.getElementById('deathDetailsPanel')?.hasAttribute('hidden') ?? false,
+        moreInfoExpanded: document.getElementById('deathMoreInfoBtn')?.getAttribute('aria-expanded') ?? '',
+        detailsExpanded: document.getElementById('deathDetailsBtn')?.getAttribute('aria-expanded') ?? '',
         resultLabels: Array.from(document.querySelectorAll('.death-result-label')).map((node) => node.textContent?.trim() ?? ''),
         dateRect: dateRect ? { top: dateRect.top, bottom: dateRect.bottom } : null,
         viewportHeight: window.innerHeight,
@@ -687,6 +880,10 @@ async function main() {
     );
     assert(/not a medical diagnosis/i.test(deathResultState.disclaimer), 'Death Calculator should expose a clear disclaimer.');
     assert(/median projected date|survival curve/i.test(deathResultState.resultMeta), 'Death Calculator should explain the estimate briefly.');
+    assert(deathResultState.moreInfoHidden === true, 'Death Calculator More Info panel should stay hidden by default.');
+    assert(deathResultState.detailsHidden === true, 'Death Calculator Details panel should stay hidden by default.');
+    assert(deathResultState.moreInfoExpanded === 'false', 'Death Calculator More Info button should start collapsed.');
+    assert(deathResultState.detailsExpanded === 'false', 'Death Calculator Details button should start collapsed.');
     assert(deathResultState.resultLabels.includes('Median projected date'), 'Death Calculator should present a median projected date label.');
     assert(deathResultState.resultLabels.includes('Projected interval'), 'Death Calculator should avoid morbid countdown labeling.');
     assert(
@@ -701,6 +898,36 @@ async function main() {
     );
     assert(deathResultState.missingLegacyStats === true, 'Death Calculator should remove the old analytics dashboard from the primary result.');
 
+    await page.click('#deathMoreInfoBtn');
+    const moreInfoState = await page.evaluate(() => ({
+      moreInfoHidden: document.getElementById('deathMoreInfoPanel')?.hasAttribute('hidden') ?? true,
+      moreInfoExpanded: document.getElementById('deathMoreInfoBtn')?.getAttribute('aria-expanded') ?? '',
+      detailsHidden: document.getElementById('deathDetailsPanel')?.hasAttribute('hidden') ?? false,
+      centralRange: document.getElementById('deathCentralRange')?.textContent?.trim() ?? '',
+      survival5: document.getElementById('deathSurvival5')?.textContent?.trim() ?? '',
+      impactCount: document.querySelectorAll('#deathImpactList li').length
+    }));
+
+    assert(moreInfoState.moreInfoHidden === false, 'Death Calculator More Info button should reveal the explanation panel.');
+    assert(moreInfoState.moreInfoExpanded === 'true', 'Death Calculator More Info button should update aria-expanded.');
+    assert(moreInfoState.detailsHidden === true, 'Death Calculator Details should remain hidden until clicked.');
+    assert(/to/i.test(moreInfoState.centralRange), 'Death Calculator More Info should show a projected range.');
+    assert(/%/.test(moreInfoState.survival5), 'Death Calculator More Info should show survival probabilities.');
+    assert(moreInfoState.impactCount > 0, 'Death Calculator More Info should show answer impact rows.');
+
+    await page.click('#deathDetailsBtn');
+    const detailsState = await page.evaluate(() => ({
+      detailsHidden: document.getElementById('deathDetailsPanel')?.hasAttribute('hidden') ?? true,
+      detailsExpanded: document.getElementById('deathDetailsBtn')?.getAttribute('aria-expanded') ?? '',
+      modelSummary: document.getElementById('deathModelSummary')?.textContent?.trim() ?? '',
+      sourceCount: document.querySelectorAll('#deathSourceList li').length
+    }));
+
+    assert(detailsState.detailsHidden === false, 'Death Calculator Details button should reveal methodology details.');
+    assert(detailsState.detailsExpanded === 'true', 'Death Calculator Details button should update aria-expanded.');
+    assert(/CDC|evidence snapshot|medical advice/i.test(detailsState.modelSummary), 'Death Calculator Details should summarize the model sources.');
+    assert(detailsState.sourceCount > 0, 'Death Calculator Details should list source records.');
+
     const countdownBefore = deathResultState.countdownDisplay;
     await page.waitForTimeout(1200);
     const countdownAfter = await page.evaluate(() => document.getElementById('deathCountdownDisplay')?.textContent?.trim() ?? '');
@@ -711,13 +938,19 @@ async function main() {
       introHidden: document.getElementById('deathIntroScreen')?.hasAttribute('hidden') ?? true,
       statusText: document.getElementById('deathStatusText')?.textContent?.trim() ?? '',
       birthDate: document.getElementById('deathBirthDate')?.value ?? '',
-      medianDate: document.getElementById('deathMedianDate')?.textContent?.trim() ?? ''
+      medianDate: document.getElementById('deathMedianDate')?.textContent?.trim() ?? '',
+      systolicBloodPressure: document.getElementById('deathSystolicBloodPressure')?.value ?? '',
+      moreInfoHidden: document.getElementById('deathMoreInfoPanel')?.hasAttribute('hidden') ?? false,
+      detailsHidden: document.getElementById('deathDetailsPanel')?.hasAttribute('hidden') ?? false
     }));
 
     assert(deathResetState.introHidden === false, 'Death Calculator reset should return the user to the intro card.');
     assert(/local-only actuarial estimate|public-health evidence/i.test(deathResetState.statusText), 'Death Calculator reset should restore the intro copy.');
     assert(deathResetState.birthDate === '', 'Death Calculator reset should clear submitted answers.');
     assert(/projected date will appear here/i.test(deathResetState.medianDate), 'Death Calculator reset should restore the result placeholder copy.');
+    assert(deathResetState.systolicBloodPressure === '', 'Death Calculator reset should clear clinical inputs.');
+    assert(deathResetState.moreInfoHidden === true, 'Death Calculator reset should collapse More Info.');
+    assert(deathResetState.detailsHidden === true, 'Death Calculator reset should collapse Details.');
 
     await page.click('#retroVmLaunchBtn');
     await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmState === 'running');

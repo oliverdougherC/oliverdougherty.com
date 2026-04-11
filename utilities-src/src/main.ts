@@ -10,6 +10,7 @@ import {
   type CachedBuiltInTransform
 } from './transformCache';
 import { DeathCalculatorController } from './deathCalculatorController';
+import { AudioFourierController } from './audioFourierController';
 import {
   createTransformAnimationState,
   renderTransformAnimationPixels,
@@ -1301,6 +1302,18 @@ document.addEventListener('DOMContentLoaded', () => {
       const statusText = document.getElementById('transformStatusText');
       if (statusText) {
         statusText.textContent = error instanceof Error ? error.message : 'Utilities failed to initialize.';
+      }
+    }
+  }
+
+  const audioFourierRoot = document.getElementById('audioFourierApp');
+  if (audioFourierRoot) {
+    try {
+      new AudioFourierController(audioFourierRoot).init();
+    } catch (error) {
+      const statusText = document.getElementById('audioFourierStatusText');
+      if (statusText) {
+        statusText.textContent = error instanceof Error ? error.message : 'Audio Fourier utility failed to initialize.';
       }
     }
   }

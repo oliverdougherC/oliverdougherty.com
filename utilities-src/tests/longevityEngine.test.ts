@@ -24,6 +24,13 @@ function createBaselineAnswers(overrides: Partial<LongevitySurveyAnswers> = {}):
     sleepHoursPerNight: 8,
     ultraProcessedFoodShare: 'low',
     fruitVegetableServingsPerDay: 4,
+    systolicBloodPressure: null,
+    diastolicBloodPressure: null,
+    usesBloodPressureMedication: false,
+    totalCholesterol: null,
+    hdlCholesterol: null,
+    usesLipidMedication: false,
+    restingHeartRate: null,
     hasHypertension: false,
     diabetesStatus: 'none',
     hasCardiovascularDisease: false,
@@ -68,6 +75,103 @@ describe('longevity engine', () => {
     expect(prediction.percentileTimestamps.p25).toBeLessThan(prediction.percentileTimestamps.p50);
     expect(prediction.percentileTimestamps.p50).toBeLessThan(prediction.percentileTimestamps.p75);
     expect(prediction.percentileTimestamps.p75).toBeLessThan(prediction.percentileTimestamps.p90);
+    expect(prediction.projectedRange.central.lowerTimestamp).toBe(prediction.percentileTimestamps.p25);
+    expect(prediction.projectedRange.central.upperTimestamp).toBe(prediction.percentileTimestamps.p75);
+    expect(prediction.projectedRange.wide.lowerTimestamp).toBe(prediction.percentileTimestamps.p10);
+    expect(prediction.projectedRange.wide.upperTimestamp).toBe(prediction.percentileTimestamps.p90);
+  });
+
+  it('keeps unknown clinical basics neutral', () => {
+    const baseline = predictLongevity(createBaselineAnswers(), longevityDataset, now);
+    const skippedClinical = predictLongevity(
+      createBaselineAnswers({
+        systolicBloodPressure: null,
+        diastolicBloodPressure: null,
+        totalCholesterol: null,
+        hdlCholesterol: null,
+        restingHeartRate: null
+      }),
+      longevityDataset,
+      now
+    );
+
+    expect(skippedClinical.totalHazardMultiplier).toBeCloseTo(baseline.totalHazardMultiplier, 8);
+    expect(skippedClinical.medianTimestamp).toBe(baseline.medianTimestamp);
+  });
+
+  it('moves clinical basics in the expected direction', () => {
+    const favorableClinical = predictLongevity(
+      createBaselineAnswers({
+        systolicBloodPressure: 112,
+        diastolicBloodPressure: 72,
+        totalCholesterol: 150,
+        hdlCholesterol: 62,
+        restingHeartRate: 55
+      }),
+      longevityDataset,
+      now
+    );
+    const elevatedClinical = predictLongevity(
+      createBaselineAnswers({
+        systolicBloodPressure: 162,
+        diastolicBloodPressure: 102,
+        totalCholesterol: 260,
+        hdlCholesterol: 34,
+        restingHeartRate: 96
+      }),
+      longevityDataset,
+      now
+    );
+
+    expect(favorableClinical.totalHazardMultiplier).toBeLessThan(elevatedClinical.totalHazardMultiplier);
+    expect(favorableClinical.medianTimestamp).toBeGreaterThan(elevatedClinical.medianTimestamp);
+  });
+
+  it('does not double-count measured blood pressure with hypertension diagnosis', () => {
+    const measuredBloodPressure = predictLongevity(
+      createBaselineAnswers({
+        systolicBloodPressure: 148,
+        diastolicBloodPressure: 92,
+        hasHypertension: false
+      }),
+      longevityDataset,
+      now
+    );
+    const measuredBloodPressureWithDiagnosis = predictLongevity(
+      createBaselineAnswers({
+        systolicBloodPressure: 148,
+        diastolicBloodPressure: 92,
+        hasHypertension: true
+      }),
+      longevityDataset,
+      now
+    );
+
+    expect(measuredBloodPressureWithDiagnosis.totalHazardMultiplier).toBeCloseTo(
+      measuredBloodPressure.totalHazardMultiplier,
+      8
+    );
+  });
+
+  it('sorts answer impact rows and preserves earlier/later signs', () => {
+    const prediction = predictLongevity(
+      createBaselineAnswers({
+        moderateMinutesPerWeek: 320,
+        strengthDaysPerWeek: 4,
+        systolicBloodPressure: 164,
+        diastolicBloodPressure: 104,
+        totalCholesterol: 260,
+        hdlCholesterol: 32,
+        restingHeartRate: 54
+      }),
+      longevityDataset,
+      now
+    );
+
+    const impactMagnitudes = prediction.impactBreakdown.map((impact) => impact.years);
+    expect(impactMagnitudes).toEqual([...impactMagnitudes].sort((left, right) => right - left));
+    expect(prediction.impactBreakdown.some((impact) => impact.direction === 'earlier')).toBe(true);
+    expect(prediction.impactBreakdown.some((impact) => impact.direction === 'later')).toBe(true);
   });
 
   it('uses future mortality improvement to lower projected hazards', () => {

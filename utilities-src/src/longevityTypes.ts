@@ -32,6 +32,13 @@ export interface LongevitySurveyAnswers {
   sleepHoursPerNight: number;
   ultraProcessedFoodShare: UltraProcessedFoodShare;
   fruitVegetableServingsPerDay: number;
+  systolicBloodPressure: number | null;
+  diastolicBloodPressure: number | null;
+  usesBloodPressureMedication: boolean;
+  totalCholesterol: number | null;
+  hdlCholesterol: number | null;
+  usesLipidMedication: boolean;
+  restingHeartRate: number | null;
   hasHypertension: boolean;
   diabetesStatus: DiabetesStatus;
   hasCardiovascularDisease: boolean;
@@ -118,6 +125,20 @@ export interface RiskFactorDefinition {
     weeklyBands: RangeHazardBand[];
     bingeBands: DiscreteHazardBand[];
   };
+  clinical: {
+    systolicBloodPressureBands: RangeHazardBand[];
+    diastolicBloodPressureBands: RangeHazardBand[];
+    cholesterolRatioBands: RangeHazardBand[];
+    restingHeartRateBands: RangeHazardBand[];
+    medicationMarkers: Record<
+      'bloodPressureMedication' | 'lipidMedication',
+      {
+        logHazard: number;
+        label: string;
+        sourceIds: string[];
+      }
+    >;
+  };
   medical: Record<
     | 'hypertension'
     | 'prediabetes'
@@ -159,6 +180,27 @@ export interface SurvivalProbabilities {
   years20: number;
 }
 
+export interface ProjectedRange {
+  central: {
+    lowerTimestamp: number;
+    upperTimestamp: number;
+  };
+  wide: {
+    lowerTimestamp: number;
+    upperTimestamp: number;
+  };
+}
+
+export interface LongevityImpactRow {
+  driverId: string;
+  label: string;
+  category: HazardCategory;
+  direction: 'earlier' | 'later';
+  years: number;
+  adjustedLogHazard: number;
+  sourceIds: string[];
+}
+
 export interface MortalityProjectionConfig {
   id: string;
   label: string;
@@ -172,8 +214,10 @@ export interface MortalityProjectionConfig {
 export interface PredictionResult {
   medianTimestamp: number;
   percentileTimestamps: Record<'p10' | 'p25' | 'p50' | 'p75' | 'p90', number>;
+  projectedRange: ProjectedRange;
   survivalProbabilities: SurvivalProbabilities;
   driverBreakdown: HazardAdjustmentRule[];
+  impactBreakdown: LongevityImpactRow[];
   dataVersion: string;
   baselineYear: number;
   totalLogHazard: number;
@@ -185,6 +229,16 @@ export interface PredictionResult {
   projectionLabel: string;
   projectedBaselineAdjustment: number;
   modelDisclaimer: string;
+  modelDetails: {
+    dataVersion: string;
+    generatedAt: string;
+    methodologyVersion: number;
+    baselineYear: number;
+    baselineSourceIds: string[];
+    projectionId: string;
+    projectionLabel: string;
+    sources: EvidenceSource[];
+  };
 }
 
 export interface LongevityDataset {
