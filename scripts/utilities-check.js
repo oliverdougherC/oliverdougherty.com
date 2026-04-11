@@ -238,6 +238,70 @@ function countActiveCanvasPixels(pixels) {
   return count;
 }
 
+function parseCssRgb(value) {
+  const match = /^rgba?\(([^)]+)\)$/.exec(value.trim());
+  if (!match) {
+    return null;
+  }
+
+  const parts = match[1].split(',').map((part) => Number.parseFloat(part.trim()));
+  if (parts.length < 3 || parts.some((part) => Number.isNaN(part))) {
+    return null;
+  }
+
+  return {
+    red: parts[0],
+    green: parts[1],
+    blue: parts[2],
+    alpha: parts[3] ?? 1
+  };
+}
+
+function compositeOver(color, background) {
+  const alpha = Math.max(0, Math.min(1, color.alpha));
+  return {
+    red: color.red * alpha + background.red * (1 - alpha),
+    green: color.green * alpha + background.green * (1 - alpha),
+    blue: color.blue * alpha + background.blue * (1 - alpha),
+    alpha: 1
+  };
+}
+
+function toLinearChannel(value) {
+  const normalized = value / 255;
+  return normalized <= 0.03928
+    ? normalized / 12.92
+    : Math.pow((normalized + 0.055) / 1.055, 2.4);
+}
+
+function relativeLuminance(color) {
+  return (
+    0.2126 * toLinearChannel(color.red) +
+    0.7152 * toLinearChannel(color.green) +
+    0.0722 * toLinearChannel(color.blue)
+  );
+}
+
+function contrastRatio(foreground, background) {
+  const foregroundLuminance = relativeLuminance(foreground);
+  const backgroundLuminance = relativeLuminance(background);
+  const light = Math.max(foregroundLuminance, backgroundLuminance);
+  const dark = Math.min(foregroundLuminance, backgroundLuminance);
+  return (light + 0.05) / (dark + 0.05);
+}
+
+function assertLightModeContrast(metrics, label, minimum = 4.5) {
+  const foreground = parseCssRgb(metrics.color);
+  const background = parseCssRgb(metrics.backgroundColor);
+  const bodyBackground = parseCssRgb(metrics.bodyBackground);
+
+  assert(foreground && background && bodyBackground, `[light:${label}] unable to parse computed colors.`);
+
+  const compositedBackground = background.alpha < 1 ? compositeOver(background, bodyBackground) : background;
+  const ratio = contrastRatio(foreground, compositedBackground);
+  assert(ratio >= minimum, `[light:${label}] contrast too low (${ratio.toFixed(2)}).`);
+}
+
 async function readLayoutMetrics(page) {
   return page.evaluate(() => {
     const nav = document.getElementById('nav');
@@ -281,6 +345,110 @@ async function readLayoutMetrics(page) {
       clientWidth: document.documentElement.clientWidth
     };
   });
+}
+
+async function readLightModeVisualMetrics(page) {
+  return page.evaluate(() => {
+    const bodyBackground = getComputedStyle(document.body).backgroundColor;
+    const describe = (label, selector) => {
+      const element = document.querySelector(selector);
+      if (!element) {
+        return { label, selector, missing: true };
+      }
+
+      const styles = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return {
+        label,
+        selector,
+        missing: false,
+        color: styles.color,
+        backgroundColor: styles.backgroundColor,
+        backgroundImage: styles.backgroundImage,
+        borderColor: styles.borderColor,
+        opacity: Number.parseFloat(styles.opacity || '1'),
+        bodyBackground,
+        width: rect.width,
+        height: rect.height,
+        visible: rect.width > 0 && rect.height > 0 && styles.visibility !== 'hidden' && styles.display !== 'none'
+      };
+    };
+
+    return {
+      colorMode: document.documentElement.getAttribute('data-color-mode') ?? '',
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      metrics: [
+        describe('image shell', '#utilitiesApp'),
+        describe('audio shell', '#audioFourierApp'),
+        describe('longevity intro', '#deathCalculatorApp .death-card--intro'),
+        describe('retro vm shell', '#retroVmApp'),
+        describe('image status copy', '#transformStatusText'),
+        describe('audio status copy', '#audioFourierStatusText'),
+        describe('longevity intro copy', '#deathStatusText'),
+        describe('retro vm status copy', '#retroVmStatusText'),
+        describe('primary action', '#transformGenerateBtn'),
+        describe('secondary action', '#transformResetBtn'),
+        describe('demo chip', '[data-demo-key="pattern-face"]'),
+        describe('select control', '#transformPreset'),
+        describe('dropzone', '#sourceDropzone'),
+        describe('canvas panel', '.canvas-panel--result'),
+        describe('audio panel', '.canvas-panel--audio-wave'),
+        describe('vm brief card', '.vm-brief-card')
+      ]
+    };
+  });
+}
+
+async function runLightModeVisualCheck(browser, pageUrl) {
+  for (const viewport of [
+    { label: 'desktop', width: 1440, height: 1100 },
+    { label: 'mobile', width: 390, height: 844 }
+  ]) {
+    const page = await browser.newPage({
+      viewport: { width: viewport.width, height: viewport.height }
+    });
+    await page.addInitScript(() => {
+      window.localStorage.setItem('od-color-mode', 'light');
+      window.__OD_RETRO_VM_TEST_MODE__ = true;
+    });
+
+    try {
+      await loadUtilitiesPage(page, pageUrl, 'Built-in pair selected|Ready for input', 15000, `light ${viewport.label}`);
+      const state = await readLightModeVisualMetrics(page);
+
+      assert(state.colorMode === 'light', `[light:${viewport.label}] expected light color mode.`);
+      assert(state.scrollWidth === state.clientWidth, `[light:${viewport.label}] page should not overflow horizontally.`);
+
+      for (const metric of state.metrics) {
+        assert(!metric.missing, `[light:${viewport.label}] missing ${metric.label}.`);
+        assert(metric.visible, `[light:${viewport.label}] ${metric.label} should be visible.`);
+        if (metric.label === 'image shell') {
+          assert(metric.opacity >= 0.99, `[light:${viewport.label}] first utility shell should not render transparent.`);
+        }
+        assert(metric.width <= viewport.width, `[light:${viewport.label}] ${metric.label} overflows viewport width.`);
+        assert(
+          !/rgba?\(13,\s*11,\s*8|rgb\(21,\s*17,\s*12|rgb\(15,\s*13,\s*9\)/i.test(metric.backgroundColor),
+          `[light:${viewport.label}] ${metric.label} is still using a dark-mode background color.`
+        );
+
+        if (metric.label === 'primary action') {
+          assert(metric.backgroundImage !== 'none', `[light:${viewport.label}] primary action should keep a distinct filled treatment.`);
+        } else if (/copy|action|chip|control/.test(metric.label)) {
+          assertLightModeContrast(metric, `${viewport.label}:${metric.label}`);
+        }
+      }
+
+      const lightDarkSurfaceLeakCount = state.metrics.filter((metric) =>
+        /rgba?\(13,\s*11,\s*8|#15110c|#1b1610|#0f0d09/i.test(
+          `${metric.backgroundColor} ${metric.backgroundImage}`
+        )
+      ).length;
+      assert(lightDarkSurfaceLeakCount === 0, `[light:${viewport.label}] utility chrome still leaks dark-mode surfaces.`);
+    } finally {
+      await page.close();
+    }
+  }
 }
 
 function isRetroVmAssetRequest(url) {
@@ -479,6 +647,8 @@ async function main() {
         desktopLayout.canvas.right <= desktopLayout.panel.right + 1,
       'Reconstruction stage or canvas exceeds the right edge of its panel.'
     );
+
+    await runLightModeVisualCheck(browser, pageUrl);
 
     const initialVmState = await readRetroVmState(page);
     assert(initialVmState.state === 'idle', 'Retro VM should be idle on first paint.');
