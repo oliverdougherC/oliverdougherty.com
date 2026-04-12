@@ -360,6 +360,80 @@ async function readLayoutMetrics(page) {
   });
 }
 
+async function assertUtilityHoverHitTargetsStable(page) {
+  const selectors = [
+    '#sourceDropzone',
+    '#targetDropzone',
+    '#transformPreset',
+    '#transformGenerateBtn',
+    '#transformSwapBtn',
+    '#transformResetBtn',
+    '[data-demo-key="pattern-face"]',
+    '[data-demo-key="source-target"]',
+    '[data-demo-key="face-pattern"]',
+    '#audioFourierDropzone',
+    '#audioFourierQuality',
+    '#audioFourierGenerateBtn',
+    '#audioFourierResetBtn',
+    '[data-audio-preset="best-friends"]',
+    '[data-audio-preset="i-cant-wait-to-get-there"]',
+    '[data-audio-preset="party-after-party"]',
+    '#deathBeginBtn',
+    '#retroVmLaunchBtn'
+  ];
+
+  for (const selector of selectors) {
+    const target = page.locator(selector).first();
+    const visible = await target.isVisible().catch(() => false);
+    if (!visible) {
+      continue;
+    }
+
+    await target.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(700);
+
+    const box = await target.boundingBox();
+    if (!box) {
+      continue;
+    }
+
+    const x = box.x + box.width / 2;
+    const y = box.y + Math.max(1, box.height - 2);
+    await page.mouse.move(x, y);
+    await page.waitForTimeout(260);
+
+    const state = await target.evaluate(
+      (element, point) => {
+        const hit = document.elementFromPoint(point.x, point.y);
+        const transform = getComputedStyle(element).transform;
+        return {
+          selector: element.id ? `#${element.id}` : element.getAttribute('data-demo-key') || element.getAttribute('data-audio-preset') || element.tagName,
+          hovered: element.matches(':hover'),
+          transform,
+          requiresStableHit: element.matches('.utility-dropzone'),
+          hitInside: Boolean(hit && (hit === element || element.contains(hit))),
+          hitLabel: hit?.id || hit?.closest?.('[id]')?.id || hit?.textContent?.trim()?.slice(0, 60) || hit?.tagName || ''
+        };
+      },
+      { x, y }
+    );
+
+    assert(
+      state.transform === 'none',
+      `Hovering ${selector} should not move the hit target; computed transform was ${state.transform}.`
+    );
+    if (state.requiresStableHit) {
+      assert(
+        state.hitInside,
+        `Hovering ${selector} at its lower edge should keep the pointer inside the same target; hit ${state.hitLabel || 'nothing'}.`
+      );
+    }
+
+    await page.mouse.move(8, 8);
+    await page.waitForTimeout(40);
+  }
+}
+
 async function readLightModeVisualMetrics(page) {
   return page.evaluate(() => {
     const bodyBackground = getComputedStyle(document.body).backgroundColor;
@@ -397,7 +471,7 @@ async function readLightModeVisualMetrics(page) {
         describe('longevity intro', '#deathCalculatorApp .death-card--intro'),
         describe('retro vm shell', '#retroVmApp'),
         describe('image status copy', '#transformProgressText'),
-        describe('audio status copy', '#audioFourierStatusText'),
+        describe('audio status copy', '#audioFourierProgressText'),
         describe('longevity intro copy', '#deathBeginBtn'),
         describe('retro vm status copy', '#retroVmProgressText'),
         describe('primary action', '#transformGenerateBtn'),
@@ -606,6 +680,7 @@ async function main() {
     assert(initialTransformState.activeDemo === 'Pattern → Face', 'Pattern → Face should be selected by default.');
     assert(initialTransformState.generateDisabled === false, 'Generate should be available when the built-in pair is preselected.');
     assert(precomputedTransformRequests.length === 0, 'Initial load should not fetch precomputed demo transforms.');
+    await assertUtilityHoverHitTargetsStable(page);
 
     await page.click('[data-demo-key="source-target"]');
     await page.waitForTimeout(300);
@@ -1081,19 +1156,6 @@ async function main() {
     await page.fill('#deathProduceServings', '5');
     await page.click('#deathNextBtn');
 
-    await page.fill('#deathSystolicBloodPressure', '142');
-    await page.fill('#deathDiastolicBloodPressure', '88');
-    await page.check('#deathUsesBloodPressureMedication');
-    await page.click('#deathNextBtn');
-
-    await page.fill('#deathTotalCholesterol', '210');
-    await page.fill('#deathHdlCholesterol', '44');
-    await page.check('#deathUsesLipidMedication');
-    await page.click('#deathNextBtn');
-
-    await page.fill('#deathRestingHeartRate', '76');
-    await page.click('#deathNextBtn');
-
     await page.check('#deathHasHypertension');
     await page.click('#deathNextBtn');
 
@@ -1130,10 +1192,11 @@ async function main() {
         countdownDisplay: document.getElementById('deathCountdownDisplay')?.textContent?.trim() ?? '',
         disclaimer: document.getElementById('deathDisclaimer')?.textContent?.trim() ?? '',
         resultMeta: document.getElementById('deathResultMeta')?.textContent?.trim() ?? '',
-        moreInfoHidden: document.getElementById('deathMoreInfoPanel')?.hasAttribute('hidden') ?? false,
-        detailsHidden: document.getElementById('deathDetailsPanel')?.hasAttribute('hidden') ?? false,
-        moreInfoExpanded: document.getElementById('deathMoreInfoBtn')?.getAttribute('aria-expanded') ?? '',
-        detailsExpanded: document.getElementById('deathDetailsBtn')?.getAttribute('aria-expanded') ?? '',
+        missingMoreInfoControls:
+          document.getElementById('deathMoreInfoPanel') === null &&
+          document.getElementById('deathMoreInfoBtn') === null &&
+          document.getElementById('deathDetailsPanel') === null &&
+          document.getElementById('deathDetailsBtn') === null,
         resultLabels: Array.from(document.querySelectorAll('.death-result-label')).map((node) => node.textContent?.trim() ?? ''),
         dateRect: dateRect ? { top: dateRect.top, bottom: dateRect.bottom } : null,
         viewportHeight: window.innerHeight,
@@ -1149,16 +1212,9 @@ async function main() {
     );
     assert(/not a medical diagnosis/i.test(deathResultState.disclaimer), 'Death Calculator should expose a clear disclaimer.');
     assert(/median projected date|survival curve/i.test(deathResultState.resultMeta), 'Death Calculator should explain the estimate briefly.');
-    assert(deathResultState.moreInfoHidden === true, 'Death Calculator More Info panel should stay hidden by default.');
-    assert(deathResultState.detailsHidden === true, 'Death Calculator Details panel should stay hidden by default.');
-    assert(deathResultState.moreInfoExpanded === 'false', 'Death Calculator More Info button should start collapsed.');
-    assert(deathResultState.detailsExpanded === 'false', 'Death Calculator Details button should start collapsed.');
-    assert(deathResultState.resultLabels.includes('Median projected date'), 'Death Calculator should present a median projected date label.');
-    assert(deathResultState.resultLabels.includes('Projected interval'), 'Death Calculator should avoid morbid countdown labeling.');
-    assert(
-      !deathResultState.resultLabels.some((label) => /death/i.test(label)),
-      'Death Calculator result labels should use clinical, non-morbid wording.'
-    );
+    assert(deathResultState.missingMoreInfoControls === true, 'Death Calculator should not render stale More Info controls.');
+    assert(deathResultState.resultLabels.includes('Estimated death date'), 'Death Calculator should present the estimated date label.');
+    assert(deathResultState.resultLabels.includes('Death timer'), 'Death Calculator should present the countdown label.');
     assert(
       deathResultState.dateRect &&
         deathResultState.dateRect.top >= 0 &&
@@ -1166,36 +1222,6 @@ async function main() {
       'Death Calculator should keep the result date visible after calculation.'
     );
     assert(deathResultState.missingLegacyStats === true, 'Death Calculator should remove the old analytics dashboard from the primary result.');
-
-    await page.click('#deathMoreInfoBtn');
-    const moreInfoState = await page.evaluate(() => ({
-      moreInfoHidden: document.getElementById('deathMoreInfoPanel')?.hasAttribute('hidden') ?? true,
-      moreInfoExpanded: document.getElementById('deathMoreInfoBtn')?.getAttribute('aria-expanded') ?? '',
-      detailsHidden: document.getElementById('deathDetailsPanel')?.hasAttribute('hidden') ?? false,
-      centralRange: document.getElementById('deathCentralRange')?.textContent?.trim() ?? '',
-      survival5: document.getElementById('deathSurvival5')?.textContent?.trim() ?? '',
-      impactCount: document.querySelectorAll('#deathImpactList li').length
-    }));
-
-    assert(moreInfoState.moreInfoHidden === false, 'Death Calculator More Info button should reveal the explanation panel.');
-    assert(moreInfoState.moreInfoExpanded === 'true', 'Death Calculator More Info button should update aria-expanded.');
-    assert(moreInfoState.detailsHidden === true, 'Death Calculator Details should remain hidden until clicked.');
-    assert(/to/i.test(moreInfoState.centralRange), 'Death Calculator More Info should show a projected range.');
-    assert(/%/.test(moreInfoState.survival5), 'Death Calculator More Info should show survival probabilities.');
-    assert(moreInfoState.impactCount > 0, 'Death Calculator More Info should show answer impact rows.');
-
-    await page.click('#deathDetailsBtn');
-    const detailsState = await page.evaluate(() => ({
-      detailsHidden: document.getElementById('deathDetailsPanel')?.hasAttribute('hidden') ?? true,
-      detailsExpanded: document.getElementById('deathDetailsBtn')?.getAttribute('aria-expanded') ?? '',
-      modelSummary: document.getElementById('deathModelSummary')?.textContent?.trim() ?? '',
-      sourceCount: document.querySelectorAll('#deathSourceList li').length
-    }));
-
-    assert(detailsState.detailsHidden === false, 'Death Calculator Details button should reveal methodology details.');
-    assert(detailsState.detailsExpanded === 'true', 'Death Calculator Details button should update aria-expanded.');
-    assert(/CDC|evidence snapshot|medical advice/i.test(detailsState.modelSummary), 'Death Calculator Details should summarize the model sources.');
-    assert(detailsState.sourceCount > 0, 'Death Calculator Details should list source records.');
 
     const countdownBefore = deathResultState.countdownDisplay;
     await page.waitForTimeout(1200);
@@ -1212,19 +1238,13 @@ async function main() {
         return fromData || fromLegacy;
       })(),
       birthDate: document.getElementById('deathBirthDate')?.value ?? '',
-      medianDate: document.getElementById('deathMedianDate')?.textContent?.trim() ?? '',
-      systolicBloodPressure: document.getElementById('deathSystolicBloodPressure')?.value ?? '',
-      moreInfoHidden: document.getElementById('deathMoreInfoPanel')?.hasAttribute('hidden') ?? false,
-      detailsHidden: document.getElementById('deathDetailsPanel')?.hasAttribute('hidden') ?? false
+      medianDate: document.getElementById('deathMedianDate')?.textContent?.trim() ?? ''
     }));
 
     assert(deathResetState.introHidden === false, 'Death Calculator reset should return the user to the intro card.');
     assert(/local-only actuarial estimate|public-health evidence/i.test(deathResetState.statusText), 'Death Calculator reset should restore the intro copy.');
     assert(deathResetState.birthDate === '', 'Death Calculator reset should clear submitted answers.');
-    assert(/projected date will appear here/i.test(deathResetState.medianDate), 'Death Calculator reset should restore the result placeholder copy.');
-    assert(deathResetState.systolicBloodPressure === '', 'Death Calculator reset should clear clinical inputs.');
-    assert(deathResetState.moreInfoHidden === true, 'Death Calculator reset should collapse More Info.');
-    assert(deathResetState.detailsHidden === true, 'Death Calculator reset should collapse Details.');
+    assert(/estimated date will appear here/i.test(deathResetState.medianDate), 'Death Calculator reset should restore the result placeholder copy.');
 
     await page.click('#retroVmLaunchBtn');
     await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmState === 'running');

@@ -212,7 +212,6 @@
   border-radius: var(--radius-2xl);
   transition:
     border-color var(--duration-base) var(--ease-smooth),
-    transform var(--duration-base) var(--ease-smooth),
     background var(--duration-base) var(--ease-smooth),
     box-shadow var(--duration-base) var(--ease-smooth);
   cursor: pointer;
@@ -246,7 +245,6 @@
 .utility-dropzone:hover,
 .utility-dropzone:focus-within,
 .utility-dropzone.drag-active {
-  transform: translateY(-2px);
   border-color: rgba(241, 230, 175, 0.4);
   background: rgba(255, 247, 214, 0.08);
   box-shadow: 0 0 20px -5px rgba(241, 230, 175, 0.15);
@@ -321,8 +319,7 @@
   background: rgba(255, 250, 232, 0.05);
   transition:
     border-color var(--duration-fast) var(--ease-smooth),
-    box-shadow var(--duration-fast) var(--ease-smooth),
-    transform var(--duration-fast) var(--ease-smooth);
+    box-shadow var(--duration-fast) var(--ease-smooth);
 }
 
 .control-input {
@@ -335,8 +332,7 @@
   background: rgba(255, 250, 232, 0.05);
   transition:
     border-color var(--duration-fast) var(--ease-smooth),
-    box-shadow var(--duration-fast) var(--ease-smooth),
-    transform var(--duration-fast) var(--ease-smooth);
+    box-shadow var(--duration-fast) var(--ease-smooth);
 }
 
 .control-actions,
@@ -353,7 +349,6 @@
   border-radius: var(--radius-full);
   border: 1px solid transparent;
   transition:
-    transform var(--duration-fast) var(--ease-smooth),
     border-color var(--duration-fast) var(--ease-smooth),
     background var(--duration-fast) var(--ease-smooth),
     color var(--duration-fast) var(--ease-smooth),
@@ -391,7 +386,6 @@
 .btn-primary-utility:hover,
 .btn-primary-utility:focus-visible {
   outline: none;
-  transform: translateY(-1px);
   background:
     linear-gradient(135deg, #fff9de 0%, #f1e6af 40%, #c4aa63 100%) padding-box,
     linear-gradient(rgba(241, 230, 175, 0.4), rgba(241, 230, 175, 0.4)) border-box;
@@ -406,7 +400,6 @@
 .control-select:focus-visible,
 .control-input:focus-visible {
   outline: none;
-  transform: translateY(-1px);
   border-color: rgba(241, 230, 175, 0.4);
   box-shadow: 0 0 16px -4px rgba(241, 230, 175, 0.2);
 }
@@ -415,7 +408,6 @@
 .btn-secondary-utility:disabled {
   opacity: 0.45;
   cursor: not-allowed;
-  transform: none;
 }
 
 .utility-demo-strip {
@@ -1542,4 +1534,32 @@ html[data-color-mode="light"] .vm-screen {
   background:
     radial-gradient(circle at 50% 14%, rgba(90, 139, 196, 0.06), transparent 28%),
     linear-gradient(180deg, #e8e4d8, #dcd7c9);
+}
+
+html[data-color-mode="light"] #retroVmApp[data-vm-state='idle'] #retroVmProgressText {
+  color: #4d5563;
+}
+
+html[data-color-mode="light"] #retroVmApp[data-vm-state='loading'] #retroVmProgressText {
+  color: #1f5f89;
+}
+
+html[data-color-mode="light"] #retroVmApp[data-vm-state='running'] #retroVmProgressText {
+  color: #27633a;
+}
+
+html[data-color-mode="light"] #retroVmApp[data-vm-state='fullscreen'] #retroVmProgressText {
+  color: #6d468a;
+}
+
+html[data-color-mode="light"] #retroVmApp[data-vm-state='resetting'] #retroVmProgressText {
+  color: #7a581b;
+}
+
+html[data-color-mode="light"] #retroVmApp[data-vm-state='error'] #retroVmProgressText {
+  color: #9b3a2e;
+}
+
+html[data-color-mode="light"] #retroVmApp[data-vm-state='unsupported'] #retroVmProgressText {
+  color: #5c5f66;
 }
