@@ -259,7 +259,7 @@ async function main() {
     }
 
     const audioResults = [
-      await runAudioPresetCase(page, 'audio-built-in-song', 'best-friends'),
+      await runAudioPresetCase(page, 'audio-generated-signal', 'harmonic-chord'),
       await runAudioUploadCase(page, 'audio-upload-wav', audioPath)
     ];
 

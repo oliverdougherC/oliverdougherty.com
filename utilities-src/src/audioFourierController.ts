@@ -1,6 +1,7 @@
 import {
   BUILT_IN_AUDIO_PRESETS,
   DEFAULT_BUILT_IN_AUDIO_PRESET_ID,
+  buildGeneratedAudioPresetChannels,
   getAudioFourierPreset,
   type AudioFourierPresetId,
   type BuiltInAudioPresetId
@@ -271,7 +272,7 @@ export class AudioFourierController {
       presetId
     };
     this.syncSelection();
-    this.invalidateComputedState('Song preset selected. Generate to inspect its Fourier energy.');
+    this.invalidateComputedState('Generated signal selected. Generate to inspect its Fourier energy.');
   }
 
   private clearActivePresetButton() {
@@ -429,23 +430,19 @@ export class AudioFourierController {
         return;
       }
       this.setState('error', error instanceof Error ? error.message : 'Unable to prepare this audio file.');
-      this.setProgress(0, 'Audio preparation failed.', 'Try a browser-supported audio file or a built-in song preset.');
+      this.setProgress(0, 'Audio preparation failed.', 'Try a browser-supported audio file or a generated preset.');
     }
   }
 
   private async resolveAudioSource(): Promise<AudioFourierSourceTransfer> {
     if (this.selection.kind === 'preset' && this.selection.presetId) {
       const preset = BUILT_IN_AUDIO_PRESETS[this.selection.presetId];
-      const response = await fetch(preset.url);
-      if (!response.ok) {
-        throw new Error(`Unable to load built-in song: ${preset.label}`);
-      }
-      const decoded = await this.decodeAudioData(await response.arrayBuffer());
-      return this.audioBufferToSourceTransfer(decoded, preset.label, 'preset', preset.id);
+      const generated = buildGeneratedAudioPresetChannels(preset.id);
+      return this.audioChannelsToSourceTransfer(generated.channels, generated.sampleRate, preset.label, 'preset', preset.id);
     }
 
     if (!this.selection.file) {
-      throw new Error('Choose an audio file or a built-in song preset first.');
+      throw new Error('Choose an audio file or a generated preset first.');
     }
 
     if (!this.selection.file.type.startsWith('audio/')) {
@@ -471,14 +468,23 @@ export class AudioFourierController {
     sourceKind: 'preset' | 'file',
     builtInPresetId?: BuiltInAudioPresetId
   ): AudioFourierSourceTransfer {
-    const channelBuffers: ArrayBuffer[] = [];
-    for (let channelIndex = 0; channelIndex < decoded.numberOfChannels; channelIndex += 1) {
-      channelBuffers.push(asArrayBuffer(new Float32Array(decoded.getChannelData(channelIndex)).buffer));
-    }
+    const channels = Array.from(
+      { length: decoded.numberOfChannels },
+      (_value, channelIndex) => new Float32Array(decoded.getChannelData(channelIndex))
+    );
+    return this.audioChannelsToSourceTransfer(channels, decoded.sampleRate, label, sourceKind, builtInPresetId);
+  }
 
+  private audioChannelsToSourceTransfer(
+    channels: Float32Array[],
+    sampleRate: number,
+    label: string,
+    sourceKind: 'preset' | 'file',
+    builtInPresetId?: BuiltInAudioPresetId
+  ): AudioFourierSourceTransfer {
     return {
-      sampleRate: decoded.sampleRate,
-      channelBuffers,
+      sampleRate,
+      channelBuffers: channels.map((channel) => asArrayBuffer(new Float32Array(channel).buffer)),
       label,
       sourceKind,
       builtInPresetId
@@ -531,7 +537,7 @@ export class AudioFourierController {
       this.activeWorkerRequestId = 0;
       this.clearDiagnostics();
       this.setState('error', message.message);
-      this.setProgress(0, message.message, 'Try a built-in song preset, a shorter file, or the Fast quality preset.');
+      this.setProgress(0, message.message, 'Try a generated preset, a shorter file, or the Fast quality preset.');
       return;
     }
 
@@ -802,7 +808,7 @@ export class AudioFourierController {
     this.bandBuffers = [];
     this.clearDiagnostics();
     this.syncSelection();
-    this.invalidateComputedState('Choose an audio file or start from a built-in song preset.');
+    this.invalidateComputedState('Choose an audio file or start from a generated preset.');
   }
 
   private drawEmptyState() {

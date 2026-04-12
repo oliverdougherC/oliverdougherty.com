@@ -73,7 +73,7 @@
           </p>
         </div>
 
-        <section class="utility-shell" id="utilitiesApp" data-animate="fade-up" aria-label="Image Transform">
+        <section class="utility-shell" id="utilitiesApp" data-utility-root="image-transform" data-animate="fade-up" aria-label="Image Transform">
           <div class="utility-layout">
             <div class="utility-rail">
               <div class="utility-toolbar">
@@ -215,15 +215,15 @@
         </section>
 
         <div class="utility-section-break" data-animate="fade-up">
-          <h2 class="section-title text-display">Sound Decompose</h2>
+          <h2 class="section-title text-display">Audio Fourier Reconstruction</h2>
           <p class="section-desc">
             Upload a full song or choose a preset, then drag through the Fourier signals that rebuild its proxy waveform.
           </p>
         </div>
 
-        <section class="utility-shell utility-shell--audio" id="audioFourierApp" data-animate="fade-up" data-audio-state="idle" aria-label="Sound Decompose">
+        <section class="utility-shell utility-shell--audio" id="audioFourierApp" data-utility-root="audio-fourier" data-animate="fade-up" data-audio-state="idle" aria-label="Audio Fourier Reconstruction">
           <span class="utility-status-chip utility-status-chip--idle" id="audioFourierStatusChip" hidden>Idle</span>
-          <p class="utility-status-copy" id="audioFourierStatusText" aria-live="polite" hidden>Choose a built-in song or upload an audio file.</p>
+          <p class="utility-status-copy" id="audioFourierStatusText" aria-live="polite" hidden>Choose a generated preset or upload an audio file.</p>
 
           <div class="utility-layout utility-layout--audio">
             <div class="utility-rail">
@@ -240,7 +240,7 @@
                   <span class="utility-dropzone-label">Audio source</span>
                   <strong>Upload a signal.</strong>
                   <span class="utility-dropzone-copy">Any browser-supported audio file</span>
-                  <span class="utility-dropzone-meta" id="audioFourierSelection">Best Friends</span>
+                  <span class="utility-dropzone-meta" id="audioFourierSelection">Harmonic chord</span>
                 </label>
 
                 <div class="utility-controls-card audio-controls-card">
@@ -263,11 +263,12 @@
                     </div>
                   </div>
 
-                  <div class="utility-demo-strip audio-preset-strip" aria-label="Built-in song presets">
-                    <span class="demo-strip-label">Try a built-in song</span>
-                    <button type="button" class="demo-chip active" data-audio-preset="best-friends">Best Friends</button>
-                    <button type="button" class="demo-chip" data-audio-preset="i-cant-wait-to-get-there">I Can't Wait To Get There</button>
-                    <button type="button" class="demo-chip" data-audio-preset="party-after-party">The Party &amp; The After Party</button>
+                  <div class="utility-demo-strip audio-preset-strip" aria-label="Generated audio presets">
+                    <span class="demo-strip-label">Try a generated signal</span>
+                    <button type="button" class="demo-chip active" data-audio-preset="harmonic-chord">Harmonic chord</button>
+                    <button type="button" class="demo-chip" data-audio-preset="bass-pulse">Bass pulse</button>
+                    <button type="button" class="demo-chip" data-audio-preset="bell-sweep">Bell sweep</button>
+                    <button type="button" class="demo-chip" data-audio-preset="vowel-stack">Vowel stack</button>
                   </div>
                 </div>
               </div>
@@ -366,7 +367,7 @@
           <p class="section-desc">Aren't you curious?</p>
         </div>
 
-        <section class="utility-shell utility-shell--death" id="deathCalculatorApp" data-animate="fade-up" data-state="intro" aria-label="Death Calculator">
+        <section class="utility-shell utility-shell--death" id="deathCalculatorApp" data-utility-root="death-calculator" data-animate="fade-up" data-state="intro" aria-label="Death Calculator">
           <p id="deathStatusText" class="utility-progress-text" aria-live="polite"></p>
           <div class="death-experience">
             <div class="death-screen death-screen--intro" id="deathIntroScreen">
@@ -654,7 +655,7 @@
           <p class="section-desc">A built-in virtual machine that wipes on tab closure</p>
         </div>
 
-        <section class="utility-shell utility-shell--vm" id="retroVmApp" data-animate="fade-up" aria-label="Virtual Machine" data-vm-state="idle" data-vm-supported="unknown" data-vm-running="false" data-vm-booted="false" data-vm-capture-state="uncaptured" data-vm-network-enabled="false" data-vm-relay-url="" data-vm-asset-label="Tiny Core Linux 11 · 20 MB remastered retro ISO" data-vm-session-label="Ephemeral per tab · clean boot every launch" data-vm-bridge-label-online="Clipboard paste + experimental relay hook" data-vm-bridge-label-offline="Clipboard paste only · offline-first rollback" data-vm-support-note-online="Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. Relay-backed networking remains experimental." data-vm-support-note-offline="Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first." data-vm-screen-badge-online="Experimental relay" data-vm-screen-badge-offline="Local only" data-vm-progress-meta="Tiny Core Linux 11">
+        <section class="utility-shell utility-shell--vm" id="retroVmApp" data-utility-root="retro-vm" data-animate="fade-up" aria-label="Virtual Machine" data-vm-state="idle" data-vm-supported="unknown" data-vm-running="false" data-vm-booted="false" data-vm-capture-state="uncaptured" data-vm-network-enabled="false" data-vm-relay-url="" data-vm-asset-label="Tiny Core Linux 11 · 20 MB remastered retro ISO" data-vm-session-label="Ephemeral per tab · clean boot every launch" data-vm-bridge-label-online="Clipboard paste + experimental relay hook" data-vm-bridge-label-offline="Clipboard paste only · offline-first rollback" data-vm-support-note-online="Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. Relay-backed networking remains experimental." data-vm-support-note-offline="Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first." data-vm-screen-badge-online="Experimental relay" data-vm-screen-badge-offline="Local only" data-vm-progress-meta="Tiny Core Linux 11">
           <div class="utility-layout utility-layout--vm">
             <div class="utility-rail">
               <div class="utility-toolbar">
@@ -686,13 +687,13 @@
 
               <article class="canvas-panel canvas-panel--vm">
                 <div class="vm-screen-shell" id="retroVmScreenShell">
-                  <div class="vm-screen-chrome">
-                    <span class="vm-screen-led"></span>
-                    <span class="vm-screen-title">Retro VM Console</span>
+                  <div class="vm-toolbar">
+                    <span class="vm-status-dot"></span>
+                    <span class="vm-toolbar-title">VM Console</span>
                     <span class="vm-capture-badge" id="retroVmCaptureBadge" aria-live="polite">Click desktop to capture mouse</span>
                     <span class="vm-screen-badge" id="retroVmScreenBadge">Local only</span>
                   </div>
-                  <div class="vm-screen-bezel">
+                  <div class="vm-viewport">
                     <div class="vm-screen" id="retroVmScreen"></div>
                     <div class="canvas-placeholder vm-placeholder" id="retroVmPlaceholder">
                       <div class="vm-placeholder-stack">

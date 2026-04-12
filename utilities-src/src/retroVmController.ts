@@ -95,6 +95,7 @@ class RetroVmMouseBridge {
     this.sendAbsolutePosition(event);
   };
   private readonly onMouseDown = (event: MouseEvent) => {
+    this.root.focus({ preventScroll: true });
     this.sendAbsolutePosition(event);
     void this.requestPointerLock();
     this.updateButtons(event, true);
@@ -229,7 +230,11 @@ class RetroVmMouseBridge {
     try {
       // Pointer lock keeps relative mouse input flowing even when the host cursor
       // would have left the VM viewport.
-      await this.root.requestPointerLock();
+      try {
+        await this.root.requestPointerLock({ unadjustedMovement: true });
+      } catch {
+        await this.root.requestPointerLock();
+      }
     } catch {
       // Ignore browsers that deny pointer lock; the unlocked fallback still works.
     }
@@ -365,7 +370,7 @@ export class RetroVmController {
       this.screenContainer,
       () => this.getGuestViewport(),
       () => this.getBus(),
-      () => this.graphicalModeActive,
+      () => Boolean(this.emulator) && (this.state === 'running' || this.state === 'fullscreen'),
       (captured) => this.setCaptureState(captured ? 'captured' : 'uncaptured')
     );
   }

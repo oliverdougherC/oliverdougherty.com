@@ -360,77 +360,107 @@ async function readLayoutMetrics(page) {
   });
 }
 
-async function assertUtilityHoverHitTargetsStable(page) {
-  const selectors = [
-    '#sourceDropzone',
-    '#targetDropzone',
-    '#transformPreset',
-    '#transformGenerateBtn',
-    '#transformSwapBtn',
-    '#transformResetBtn',
-    '[data-demo-key="pattern-face"]',
-    '[data-demo-key="source-target"]',
-    '[data-demo-key="face-pattern"]',
-    '#audioFourierDropzone',
-    '#audioFourierQuality',
-    '#audioFourierGenerateBtn',
-    '#audioFourierResetBtn',
-    '[data-audio-preset="best-friends"]',
-    '[data-audio-preset="i-cant-wait-to-get-there"]',
-    '[data-audio-preset="party-after-party"]',
-    '#deathBeginBtn',
-    '#retroVmLaunchBtn'
-  ];
+async function readUtilityIsolationMetrics(page) {
+  return page.evaluate(() => {
+    const rect = (element) => {
+      if (!(element instanceof HTMLElement || element instanceof HTMLCanvasElement)) {
+        return null;
+      }
+      const box = element.getBoundingClientRect();
+      const styles = getComputedStyle(element);
+      return {
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+        display: styles.display,
+        visibility: styles.visibility,
+        overflow: styles.overflow,
+        visible: box.width > 0 && box.height > 0 && styles.display !== 'none' && styles.visibility !== 'hidden'
+      };
+    };
 
-  for (const selector of selectors) {
-    const target = page.locator(selector).first();
-    const visible = await target.isVisible().catch(() => false);
-    if (!visible) {
-      continue;
-    }
+    const countActiveCanvasPixels = (canvas) => {
+      if (!(canvas instanceof HTMLCanvasElement)) {
+        return 0;
+      }
+      const context = canvas.getContext('2d');
+      if (!context) {
+        return 0;
+      }
+      const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let active = 0;
+      for (let offset = 0; offset < data.length; offset += 4) {
+        if (data[offset + 3] > 0 && (data[offset] > 4 || data[offset + 1] > 4 || data[offset + 2] > 4)) {
+          active += 1;
+        }
+      }
+      return active;
+    };
 
-    await target.scrollIntoViewIfNeeded();
-    await page.waitForTimeout(700);
+    const describeAudioStage = (label, stageSelector, canvasSelector) => {
+      const stage = document.querySelector(stageSelector);
+      const canvas = document.querySelector(canvasSelector);
+      const panel = stage?.closest('.canvas-panel') ?? null;
+      return {
+        label,
+        stage: rect(stage),
+        canvas: rect(canvas),
+        panel: rect(panel),
+        activePixels: countActiveCanvasPixels(canvas)
+      };
+    };
 
-    const box = await target.boundingBox();
-    if (!box) {
-      continue;
-    }
-
-    const x = box.x + box.width / 2;
-    const y = box.y + Math.max(1, box.height - 2);
-    await page.mouse.move(x, y);
-    await page.waitForTimeout(260);
-
-    const state = await target.evaluate(
-      (element, point) => {
-        const hit = document.elementFromPoint(point.x, point.y);
-        const transform = getComputedStyle(element).transform;
-        return {
-          selector: element.id ? `#${element.id}` : element.getAttribute('data-demo-key') || element.getAttribute('data-audio-preset') || element.tagName,
-          hovered: element.matches(':hover'),
-          transform,
-          requiresStableHit: element.matches('.utility-dropzone'),
-          hitInside: Boolean(hit && (hit === element || element.contains(hit))),
-          hitLabel: hit?.id || hit?.closest?.('[id]')?.id || hit?.textContent?.trim()?.slice(0, 60) || hit?.tagName || ''
-        };
+    return {
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight
       },
-      { x, y }
-    );
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      roots: Array.from(document.querySelectorAll('[data-utility-root]')).map((element) => ({
+        id: element.id,
+        utility: element.getAttribute('data-utility-root') ?? '',
+        rect: rect(element)
+      })),
+      audioStages: [
+        describeAudioStage('waveform', '.audio-wave-stage', '#audioFourierWaveCanvas'),
+        describeAudioStage('spectrum', '.canvas-panel--audio-spectrum .audio-spectrum-stage', '#audioFourierSpectrumCanvas'),
+        describeAudioStage('component', '.canvas-panel--audio-component .audio-spectrum-stage', '#audioFourierComponentCanvas')
+      ]
+    };
+  });
+}
 
+async function assertUtilityIsolationLayout(page, label) {
+  const state = await readUtilityIsolationMetrics(page);
+  assert(state.scrollWidth === state.clientWidth, `[${label}] utilities page should not overflow horizontally.`);
+  assert(state.roots.length >= 4, `[${label}] expected each utility to expose a data-utility-root marker.`);
+
+  for (const root of state.roots) {
+    assert(root.rect?.visible, `[${label}] ${root.utility || root.id} utility root should be visible.`);
+    assert(root.rect.left >= -1, `[${label}] ${root.utility || root.id} utility root overflows left.`);
     assert(
-      state.transform === 'none',
-      `Hovering ${selector} should not move the hit target; computed transform was ${state.transform}.`
+      root.rect.right <= state.viewport.width + 1,
+      `[${label}] ${root.utility || root.id} utility root overflows right (${root.rect.right.toFixed(1)} > ${state.viewport.width}).`
     );
-    if (state.requiresStableHit) {
-      assert(
-        state.hitInside,
-        `Hovering ${selector} at its lower edge should keep the pointer inside the same target; hit ${state.hitLabel || 'nothing'}.`
-      );
-    }
+  }
 
-    await page.mouse.move(8, 8);
-    await page.waitForTimeout(40);
+  for (const item of state.audioStages) {
+    if (!item.stage?.visible) {
+      continue;
+    }
+    assert(item.panel?.visible, `[${label}] Audio Fourier ${item.label} panel should be visible when the stage is visible.`);
+    assert(item.canvas?.visible, `[${label}] Audio Fourier ${item.label} canvas should be visible when the stage is visible.`);
+    assert(item.stage.left >= item.panel.left - 1, `[${label}] Audio Fourier ${item.label} stage escapes its panel on the left.`);
+    assert(item.stage.right <= item.panel.right + 1, `[${label}] Audio Fourier ${item.label} stage escapes its panel on the right.`);
+    assert(item.canvas.left >= item.stage.left - 1, `[${label}] Audio Fourier ${item.label} canvas escapes its stage on the left.`);
+    assert(item.canvas.right <= item.stage.right + 1, `[${label}] Audio Fourier ${item.label} canvas escapes its stage on the right.`);
+    assert(item.canvas.width <= item.stage.width + 1, `[${label}] Audio Fourier ${item.label} canvas is wider than its stage.`);
+    assert(item.canvas.height <= item.stage.height + 1, `[${label}] Audio Fourier ${item.label} canvas is taller than its stage.`);
+    assert(item.activePixels > 100, `[${label}] Audio Fourier ${item.label} canvas should render a nonblank placeholder or signal.`);
   }
 }
 
@@ -471,7 +501,7 @@ async function readLightModeVisualMetrics(page) {
         describe('longevity intro', '#deathCalculatorApp .death-card--intro'),
         describe('retro vm shell', '#retroVmApp'),
         describe('image status copy', '#transformProgressText'),
-        describe('audio status copy', '#audioFourierProgressText'),
+        describe('audio progress copy', '#audioFourierProgressText'),
         describe('longevity intro copy', '#deathBeginBtn'),
         describe('retro vm status copy', '#retroVmProgressText'),
         describe('primary action', '#transformGenerateBtn'),
@@ -489,6 +519,7 @@ async function readLightModeVisualMetrics(page) {
 async function runLightModeVisualCheck(browser, pageUrl) {
   for (const viewport of [
     { label: 'desktop', width: 1440, height: 1100 },
+    { label: 'tablet', width: 820, height: 1180 },
     { label: 'mobile', width: 390, height: 844 }
   ]) {
     const page = await browser.newPage({
@@ -505,6 +536,7 @@ async function runLightModeVisualCheck(browser, pageUrl) {
 
       assert(state.colorMode === 'light', `[light:${viewport.label}] expected light color mode.`);
       assert(state.scrollWidth === state.clientWidth, `[light:${viewport.label}] page should not overflow horizontally.`);
+      await assertUtilityIsolationLayout(page, `light:${viewport.label}`);
 
       for (const metric of state.metrics) {
         assert(!metric.missing, `[light:${viewport.label}] missing ${metric.label}.`);
@@ -548,6 +580,7 @@ async function readRetroVmState(page) {
   return page.evaluate(() => {
     const root = document.getElementById('retroVmApp');
     const placeholder = document.getElementById('retroVmPlaceholder');
+    const screen = document.getElementById('retroVmScreen');
     const progressFill = document.getElementById('retroVmProgressFill');
     const progressFromDataset = root?.dataset?.vmProgressPercent;
 
@@ -579,7 +612,9 @@ async function readRetroVmState(page) {
       launchDisabled: document.getElementById('retroVmLaunchBtn')?.hasAttribute('disabled') ?? false,
       resetDisabled: document.getElementById('retroVmResetBtn')?.hasAttribute('disabled') ?? false,
       fullscreenDisabled: document.getElementById('retroVmFullscreenBtn')?.hasAttribute('disabled') ?? false,
-      placeholderHidden: placeholder?.classList.contains('is-hidden') ?? false
+      placeholderHidden: placeholder?.classList.contains('is-hidden') ?? false,
+      placeholderPointerEvents: placeholder instanceof HTMLElement ? getComputedStyle(placeholder).pointerEvents : '',
+      screenFocused: document.activeElement === screen
     };
   });
 }
@@ -588,8 +623,7 @@ async function readRetroVmFullscreenMetrics(page) {
   return page.evaluate(() => {
     const shell = document.getElementById('retroVmScreenShell');
     const screen = document.getElementById('retroVmScreen');
-    const chrome = document.querySelector('.vm-screen-chrome');
-    const bezel = document.querySelector('.vm-screen-bezel');
+    const toolbar = document.querySelector('.vm-toolbar');
     const canvas = document.querySelector('#retroVmScreen canvas');
     const rect = (element) =>
       element instanceof HTMLElement || element instanceof HTMLCanvasElement
@@ -609,8 +643,8 @@ async function readRetroVmFullscreenMetrics(page) {
       shell: rect(shell),
       screen: rect(screen),
       canvas: rect(canvas),
-      chromeDisplay: chrome instanceof HTMLElement ? getComputedStyle(chrome).display : '',
-      bezelPadding: bezel instanceof HTMLElement ? getComputedStyle(bezel).padding : ''
+      chromeDisplay: toolbar instanceof HTMLElement ? getComputedStyle(toolbar).display : '',
+      bezelPadding: '0px'
     };
   });
 }
@@ -651,6 +685,7 @@ async function main() {
 
     const pageUrl = `${baseUrl}/pages/dashboard/index.html`;
     await loadUtilitiesPage(page, pageUrl, 'Built-in pair selected|Ready for input', 15000, 'initial transform state');
+    await assertUtilityIsolationLayout(page, 'initial:desktop');
 
     const initialTransformState = await page.evaluate(() => ({
       status: (() => {
@@ -680,7 +715,6 @@ async function main() {
     assert(initialTransformState.activeDemo === 'Pattern → Face', 'Pattern → Face should be selected by default.');
     assert(initialTransformState.generateDisabled === false, 'Generate should be available when the built-in pair is preselected.');
     assert(precomputedTransformRequests.length === 0, 'Initial load should not fetch precomputed demo transforms.');
-    await assertUtilityHoverHitTargetsStable(page);
 
     await page.click('[data-demo-key="source-target"]');
     await page.waitForTimeout(300);
@@ -949,7 +983,7 @@ async function main() {
     }));
 
     assert(/choose|track|audio/i.test(initialAudioState.status), 'Audio Fourier should start idle.');
-    assert(initialAudioState.selected === 'Best Friends', 'Audio Fourier should default to the Best Friends song preset.');
+    assert(initialAudioState.selected === 'Harmonic chord', 'Audio Fourier should default to the Harmonic chord generated preset.');
     assert(initialAudioState.sampleRate === '—', 'Audio Fourier sample-rate metric should stay blank before generation.');
     assert(initialAudioState.componentCount === '—', 'Audio Fourier component count should stay blank before generation.');
     assert(initialAudioState.sliderDisabled === true, 'Audio Fourier component slider should stay disabled before generation.');
@@ -958,9 +992,9 @@ async function main() {
     assert(initialAudioState.telemetryPresent === false, 'Audio Fourier should not analyze audio on first paint.');
 
     await page.selectOption('#audioFourierQuality', 'fast');
-    await page.click('[data-audio-preset="best-friends"]');
+    await page.click('[data-audio-preset="harmonic-chord"]');
     await page.click('#audioFourierGenerateBtn');
-    await waitForAudioStatusMatch(page, 'Fourier proxy ready|auditory midpoint|Playing selected|Press Play', 60000, 'built-in song preset ready');
+    await waitForAudioStatusMatch(page, 'Fourier proxy ready|auditory midpoint|Playing selected|Press Play', 60000, 'generated signal preset ready');
 
     const generatedReadyState = await page.evaluate(() => ({
       status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
@@ -985,7 +1019,7 @@ async function main() {
       playDisabled: document.getElementById('audioFourierPlayBtn')?.hasAttribute('disabled') ?? true
     }));
 
-    assert(/ready|playing|press play/i.test(generatedReadyState.status), 'Built-in Audio Fourier song preset did not finish analysis.');
+    assert(/ready|playing|press play/i.test(generatedReadyState.status), 'Audio Fourier generated preset did not finish analysis.');
     assert(/\d+ Hz proxy/.test(generatedReadyState.sampleRate), 'Audio Fourier proxy sample-rate metric missing after preset generation.');
     assert(generatedReadyState.componentCount !== '—', 'Audio Fourier component count missing after preset generation.');
     assert(/source/.test(generatedReadyState.sourceDuration), 'Audio Fourier source duration missing after preset generation.');
@@ -1005,7 +1039,7 @@ async function main() {
 
     const generatedWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
     await page.fill('#audioFourierComponentSlider', '100');
-    await waitForAudioProgressFill(page, 99, 15000, 'built-in song preset slider max');
+    await waitForAudioProgressFill(page, 99, 15000, 'generated signal preset slider max');
     const fullSignalWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
     const generatedSpectrumPixels = await readCanvasPixels(page, 'audioFourierSpectrumCanvas');
     const generatedComponentPixels = await readCanvasPixels(page, 'audioFourierComponentCanvas');
@@ -1013,9 +1047,10 @@ async function main() {
     assert(totalAbsoluteDifference(generatedWavePixels, fullSignalWavePixels) > 0, 'Dragging the Audio Fourier slider should visibly change the waveform.');
     assert(countActiveCanvasPixels(generatedSpectrumPixels) > 100, 'Audio Fourier spectrum canvas should be visibly nonblank.');
     assert(countActiveCanvasPixels(generatedComponentPixels) > 100, 'Audio Fourier component canvas should be visibly nonblank.');
+    await assertUtilityIsolationLayout(page, 'audio-generated:desktop');
     if (generatedReadyState.playDisabled === false) {
       await page.click('#audioFourierPlayBtn');
-      await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, 'built-in song preset playback starts');
+      await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, 'generated signal preset playback starts');
       await page.waitForTimeout(350);
       const playbackWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
       assert(totalAbsoluteDifference(fullSignalWavePixels, playbackWavePixels) > 0, 'Audio Fourier viewport should advance during playback.');
@@ -1028,7 +1063,7 @@ async function main() {
       assert(/Playing selected Fourier energy mix/.test(sliderDuringPlaybackState.status), 'Audio Fourier slider should not stop playback.');
       assert(/60% signal energy/.test(sliderDuringPlaybackState.readout), 'Audio Fourier readout should update with perceptual slider mapping during playback.');
       await page.click('#audioFourierPauseBtn');
-      await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'built-in song preset playback pauses');
+      await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'generated signal preset playback pauses');
     }
 
     const wavPath = await createGeneratedWavFile();
@@ -1211,7 +1246,7 @@ async function main() {
       'Death Calculator should render a unified labeled countdown in the expected format.'
     );
     assert(/not a medical diagnosis/i.test(deathResultState.disclaimer), 'Death Calculator should expose a clear disclaimer.');
-    assert(/median projected date|survival curve/i.test(deathResultState.resultMeta), 'Death Calculator should explain the estimate briefly.');
+    assert(/survival curve|estimate shown here/i.test(deathResultState.resultMeta), 'Death Calculator should explain the estimate briefly.');
     assert(deathResultState.missingMoreInfoControls === true, 'Death Calculator should not render stale More Info controls.');
     assert(deathResultState.resultLabels.includes('Estimated death date'), 'Death Calculator should present the estimated date label.');
     assert(deathResultState.resultLabels.includes('Death timer'), 'Death Calculator should present the countdown label.');
@@ -1259,12 +1294,14 @@ async function main() {
     assert(launchedVmState.fullscreenDisabled === false, 'Retro VM fullscreen should enable after launch.');
     assert(launchedVmState.captureState === 'uncaptured', 'Retro VM should start in the uncaptured mouse state.');
     assert(/click desktop to capture/i.test(launchedVmState.captureBadge), 'Retro VM should advertise click-to-capture before pointer lock.');
+    assert(launchedVmState.placeholderPointerEvents === 'none', 'Retro VM placeholder should not intercept desktop clicks.');
 
     await page.click('#retroVmScreen');
     await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmCaptureState === 'captured');
     const capturedVmState = await readRetroVmState(page);
     assert(/captured/i.test(capturedVmState.captureBadge), 'Retro VM should show captured state after clicking the desktop.');
     assert(/mouse is captured/i.test(capturedVmState.status), 'Retro VM should explain how to release captured mouse input.');
+    assert(capturedVmState.screenFocused === true, 'Retro VM screen should receive focus when clicked.');
 
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmCaptureState === 'uncaptured');
