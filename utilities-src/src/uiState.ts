@@ -10,16 +10,16 @@ export interface ImageSelection {
 
 export const DEMOS: Record<string, { source: ImageSelection; target: ImageSelection }> = {
   'pattern-face': {
-    source: { kind: 'demo', label: 'Pattern', url: '../../assets/utilities/pattern.png' },
-    target: { kind: 'demo', label: 'Face', url: '../../assets/utilities/face.png' }
+    source: { kind: 'demo', label: 'Pattern', url: '../../assets/utilities/image-transform/pattern.png' },
+    target: { kind: 'demo', label: 'Face', url: '../../assets/utilities/image-transform/face.png' }
   },
   'source-target': {
-    source: { kind: 'demo', label: 'Pattern', url: '../../assets/utilities/pattern.png' },
-    target: { kind: 'demo', label: 'Lucki', url: '../../assets/utilities/lucki.jpeg' }
+    source: { kind: 'demo', label: 'Pattern', url: '../../assets/utilities/image-transform/pattern.png' },
+    target: { kind: 'demo', label: 'Lucki', url: '../../assets/utilities/image-transform/lucki.jpeg' }
   },
   'face-pattern': {
-    source: { kind: 'demo', label: 'Pattern', url: '../../assets/utilities/pattern.png' },
-    target: { kind: 'demo', label: 'Keef', url: '../../assets/utilities/keef.jpeg' }
+    source: { kind: 'demo', label: 'Pattern', url: '../../assets/utilities/image-transform/pattern.png' },
+    target: { kind: 'demo', label: 'Keef', url: '../../assets/utilities/image-transform/keef.jpeg' }
   }
 };
 

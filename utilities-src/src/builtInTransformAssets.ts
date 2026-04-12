@@ -2,10 +2,10 @@ function createCacheKey(presetId: string, sourceUrl: string, targetUrl: string) 
   return `${presetId}::${sourceUrl}::${targetUrl}`;
 }
 
-const PATTERN_URL = '../../assets/utilities/pattern.png';
-const FACE_URL = '../../assets/utilities/face.png';
-const LUCKI_URL = '../../assets/utilities/lucki.jpeg';
-const KEEF_URL = '../../assets/utilities/keef.jpeg';
+const PATTERN_URL = '../../assets/utilities/image-transform/pattern.png';
+const FACE_URL = '../../assets/utilities/image-transform/face.png';
+const LUCKI_URL = '../../assets/utilities/image-transform/lucki.jpeg';
+const KEEF_URL = '../../assets/utilities/image-transform/keef.jpeg';
 
 export const PRECOMPUTED_BUILT_IN_TRANSFORM_ASSETS: Record<string, string> = {
   [createCacheKey('balanced', PATTERN_URL, FACE_URL)]: new URL(

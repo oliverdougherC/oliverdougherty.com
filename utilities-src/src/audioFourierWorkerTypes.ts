@@ -1,11 +1,11 @@
-import type { AudioFourierPresetId, GeneratedAudioPresetId } from './audioPresets';
+import type { AudioFourierPresetId, BuiltInAudioPresetId } from './audioPresets';
 
 export interface AudioFourierSourceTransfer {
   sampleRate: number;
   channelBuffers: ArrayBuffer[];
   label: string;
   sourceKind: 'preset' | 'file';
-  generatedPresetId?: GeneratedAudioPresetId;
+  builtInPresetId?: BuiltInAudioPresetId;
 }
 
 export interface AudioFourierAnalyzeRequest {

@@ -1,9 +1,9 @@
 import {
-  buildGeneratedAudioPreset,
-  GENERATED_AUDIO_PRESETS,
+  BUILT_IN_AUDIO_PRESETS,
+  DEFAULT_BUILT_IN_AUDIO_PRESET_ID,
   getAudioFourierPreset,
   type AudioFourierPresetId,
-  type GeneratedAudioPresetId
+  type BuiltInAudioPresetId
 } from './audioPresets';
 import {
   mapSliderValueToEnergyPercent,
@@ -19,8 +19,17 @@ type AudioFourierState = 'idle' | 'processing' | 'ready' | 'animating' | 'comple
 interface AudioFourierSelection {
   kind: 'preset' | 'file';
   label: string;
-  presetId?: GeneratedAudioPresetId;
+  presetId?: BuiltInAudioPresetId;
   file?: File;
+}
+
+function buildDefaultAudioSelection(): AudioFourierSelection {
+  const preset = BUILT_IN_AUDIO_PRESETS[DEFAULT_BUILT_IN_AUDIO_PRESET_ID];
+  return {
+    kind: 'preset',
+    label: preset.label,
+    presetId: preset.id
+  };
 }
 
 interface ActiveBandNode {
@@ -101,11 +110,7 @@ export class AudioFourierController {
   private readonly dropzone: HTMLElement;
   private readonly presetButtons: HTMLButtonElement[];
 
-  private selection: AudioFourierSelection = {
-    kind: 'preset',
-    label: GENERATED_AUDIO_PRESETS['harmonic-chord'].label,
-    presetId: 'harmonic-chord'
-  };
+  private selection: AudioFourierSelection = buildDefaultAudioSelection();
   private worker: Worker | null = null;
   private activeRequestId = 0;
   private activeWorkerRequestId = 0;
@@ -170,11 +175,11 @@ export class AudioFourierController {
 
     this.presetButtons.forEach((button) => {
       button.addEventListener('click', () => {
-        const presetId = button.dataset.audioPreset as GeneratedAudioPresetId | undefined;
-        if (!presetId || !(presetId in GENERATED_AUDIO_PRESETS)) {
+        const presetId = button.dataset.audioPreset as BuiltInAudioPresetId | undefined;
+        if (!presetId || !(presetId in BUILT_IN_AUDIO_PRESETS)) {
           return;
         }
-        this.applyGeneratedPreset(presetId);
+        this.applyBuiltInPreset(presetId);
       });
     });
 
@@ -258,15 +263,15 @@ export class AudioFourierController {
     this.invalidateComputedState('Audio file selected. Generate to build a full-song proxy.');
   }
 
-  private applyGeneratedPreset(presetId: GeneratedAudioPresetId) {
-    const preset = GENERATED_AUDIO_PRESETS[presetId];
+  private applyBuiltInPreset(presetId: BuiltInAudioPresetId) {
+    const preset = BUILT_IN_AUDIO_PRESETS[presetId];
     this.selection = {
       kind: 'preset',
       label: preset.label,
       presetId
     };
     this.syncSelection();
-    this.invalidateComputedState('Generated preset selected. Generate to inspect its Fourier energy.');
+    this.invalidateComputedState('Song preset selected. Generate to inspect its Fourier energy.');
   }
 
   private clearActivePresetButton() {
@@ -424,39 +429,48 @@ export class AudioFourierController {
         return;
       }
       this.setState('error', error instanceof Error ? error.message : 'Unable to prepare this audio file.');
-      this.setProgress(0, 'Audio preparation failed.', 'Try a browser-supported audio file or a generated preset.');
+      this.setProgress(0, 'Audio preparation failed.', 'Try a browser-supported audio file or a built-in song preset.');
     }
   }
 
   private async resolveAudioSource(): Promise<AudioFourierSourceTransfer> {
     if (this.selection.kind === 'preset' && this.selection.presetId) {
-      const generated = buildGeneratedAudioPreset(this.selection.presetId);
-      return {
-        sampleRate: generated.sampleRate,
-        channelBuffers: generated.channels.map((channel) => asArrayBuffer(channel.buffer)),
-        label: this.selection.label,
-        sourceKind: 'preset',
-        generatedPresetId: this.selection.presetId
-      };
+      const preset = BUILT_IN_AUDIO_PRESETS[this.selection.presetId];
+      const response = await fetch(preset.url);
+      if (!response.ok) {
+        throw new Error(`Unable to load built-in song: ${preset.label}`);
+      }
+      const decoded = await this.decodeAudioData(await response.arrayBuffer());
+      return this.audioBufferToSourceTransfer(decoded, preset.label, 'preset', preset.id);
     }
 
     if (!this.selection.file) {
-      throw new Error('Choose an audio file or a generated preset first.');
+      throw new Error('Choose an audio file or a built-in song preset first.');
     }
 
     if (!this.selection.file.type.startsWith('audio/')) {
       throw new Error('Selected file is not a browser-supported audio file.');
     }
 
-    const context = this.getAudioContext();
     const arrayBuffer = await this.selection.file.arrayBuffer();
-    let decoded: AudioBuffer;
+    const decoded = await this.decodeAudioData(arrayBuffer);
+    return this.audioBufferToSourceTransfer(decoded, this.selection.file.name, 'file');
+  }
+
+  private async decodeAudioData(arrayBuffer: ArrayBuffer) {
     try {
-      decoded = await context.decodeAudioData(arrayBuffer.slice(0));
+      return await this.getAudioContext().decodeAudioData(arrayBuffer.slice(0));
     } catch (_error) {
       throw new Error('Unable to decode this audio file in the browser.');
     }
+  }
 
+  private audioBufferToSourceTransfer(
+    decoded: AudioBuffer,
+    label: string,
+    sourceKind: 'preset' | 'file',
+    builtInPresetId?: BuiltInAudioPresetId
+  ): AudioFourierSourceTransfer {
     const channelBuffers: ArrayBuffer[] = [];
     for (let channelIndex = 0; channelIndex < decoded.numberOfChannels; channelIndex += 1) {
       channelBuffers.push(asArrayBuffer(new Float32Array(decoded.getChannelData(channelIndex)).buffer));
@@ -465,8 +479,9 @@ export class AudioFourierController {
     return {
       sampleRate: decoded.sampleRate,
       channelBuffers,
-      label: this.selection.file.name,
-      sourceKind: 'file'
+      label,
+      sourceKind,
+      builtInPresetId
     };
   }
 
@@ -516,7 +531,7 @@ export class AudioFourierController {
       this.activeWorkerRequestId = 0;
       this.clearDiagnostics();
       this.setState('error', message.message);
-      this.setProgress(0, message.message, 'Try a generated preset, a shorter file, or the Fast quality preset.');
+      this.setProgress(0, message.message, 'Try a built-in song preset, a shorter file, or the Fast quality preset.');
       return;
     }
 
@@ -782,16 +797,12 @@ export class AudioFourierController {
   private resetAll() {
     this.stopPlayback(true);
     this.abandonActiveComputation();
-    this.selection = {
-      kind: 'preset',
-      label: GENERATED_AUDIO_PRESETS['harmonic-chord'].label,
-      presetId: 'harmonic-chord'
-    };
+    this.selection = buildDefaultAudioSelection();
     this.activeResult = null;
     this.bandBuffers = [];
     this.clearDiagnostics();
     this.syncSelection();
-    this.invalidateComputedState('Choose an audio file or start from a generated preset.');
+    this.invalidateComputedState('Choose an audio file or start from a built-in song preset.');
   }
 
   private drawEmptyState() {

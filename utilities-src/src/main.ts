@@ -55,8 +55,8 @@ class UtilitiesApp {
   private readonly resetButton: HTMLButtonElement;
   private readonly playButton: HTMLButtonElement;
   private readonly pauseButton: HTMLButtonElement;
-  private readonly statusChip: HTMLElement;
-  private readonly statusText: HTMLElement;
+  private readonly statusChip: HTMLElement | null;
+  private readonly statusText: HTMLElement | null;
   private readonly progressText: HTMLElement;
   private readonly progressMeta: HTMLElement;
   private readonly progressBar: HTMLElement;
@@ -65,7 +65,7 @@ class UtilitiesApp {
   private readonly targetSelectionLabel: HTMLElement;
   private readonly sourceMeta: HTMLElement;
   private readonly targetMeta: HTMLElement;
-  private readonly resultMeta: HTMLElement;
+  private readonly resultMeta: HTMLElement | null;
   private readonly outputSize: HTMLElement;
   private readonly pixelCount: HTMLElement;
   private readonly duration: HTMLElement;
@@ -112,8 +112,8 @@ class UtilitiesApp {
     this.resetButton = this.requireElement('transformResetBtn');
     this.playButton = this.requireElement('transformPlayBtn');
     this.pauseButton = this.requireElement('transformPauseBtn');
-    this.statusChip = this.requireElement('transformStatusChip');
-    this.statusText = this.requireElement('transformStatusText');
+    this.statusChip = document.getElementById('transformStatusChip');
+    this.statusText = document.getElementById('transformStatusText');
     this.progressText = this.requireElement('transformProgressText');
     this.progressMeta = this.requireElement('transformProgressMeta');
     this.progressBar = this.requireElement('transformProgressBar');
@@ -122,7 +122,7 @@ class UtilitiesApp {
     this.targetSelectionLabel = this.requireElement('transformTargetSelection');
     this.sourceMeta = this.requireElement('transformSourceMeta');
     this.targetMeta = this.requireElement('transformTargetMeta');
-    this.resultMeta = this.requireElement('transformResultMeta');
+    this.resultMeta = document.getElementById('transformResultMeta');
     this.outputSize = this.requireElement('transformOutputSize');
     this.pixelCount = this.requireElement('transformPixelCount');
     this.duration = this.requireElement('transformDuration');
@@ -198,6 +198,13 @@ class UtilitiesApp {
       throw new Error(`Missing required element: ${id}`);
     }
     return element;
+  }
+
+  private setResultMetaCopy(text: string) {
+    this.root.dataset.resultMetaMessage = text;
+    if (this.resultMeta) {
+      this.resultMeta.textContent = text;
+    }
   }
 
   private getContext(canvas: HTMLCanvasElement) {
@@ -331,9 +338,17 @@ class UtilitiesApp {
 
   private setState(state: StateKind, text: string) {
     this.state = state;
-    this.statusText.textContent = text;
-    this.statusChip.textContent = state === 'ready' ? 'Ready' : state === 'complete' ? 'Complete' : state[0].toUpperCase() + state.slice(1);
-    this.statusChip.className = `utility-status-chip utility-status-chip--${state}`;
+    if (this.statusText) {
+      this.statusText.textContent = text;
+    }
+    this.root.dataset.transformStatusMessage = text;
+    const chipLabel =
+      state === 'ready' ? 'Ready' : state === 'complete' ? 'Complete' : state[0].toUpperCase() + state.slice(1);
+    this.root.dataset.transformStatusChip = chipLabel;
+    if (this.statusChip) {
+      this.statusChip.textContent = chipLabel;
+      this.statusChip.className = `utility-status-chip utility-status-chip--${state}`;
+    }
     this.syncButtons();
   }
 
@@ -416,10 +431,11 @@ class UtilitiesApp {
     this.targetMeta.textContent = this.targetSelection
       ? 'Generate a transform to preview the selected target image.'
       : 'Waiting for an image.';
-    this.resultMeta.textContent =
+    this.setResultMetaCopy(
       this.sourceSelection && this.targetSelection
         ? 'Generate a transform to rebuild the current image pair.'
-        : 'Generate a transform to begin the animation.';
+        : 'Generate a transform to begin the animation.'
+    );
     this.outputSize.textContent = '—';
     this.pixelCount.textContent = '—';
     this.duration.textContent = '—';
@@ -606,7 +622,7 @@ class UtilitiesApp {
     this.finalResultImageData = null;
     this.clearDiagnostics();
     this.updateCanvasPlaceholder(this.resultPlaceholder, true);
-    this.resultMeta.textContent = 'Generating transform…';
+    this.setResultMetaCopy('Generating transform…');
     this.outputSize.textContent = '—';
     this.pixelCount.textContent = '—';
     this.duration.textContent = '—';
@@ -1017,7 +1033,7 @@ class UtilitiesApp {
         'Transform complete.',
         `${transform.metadata.matcherStrategy} · analyze ${transform.metadata.timingsMs.analyze.toFixed(0)} ms · assign ${transform.metadata.timingsMs.assign.toFixed(0)} ms`
       );
-      this.resultMeta.textContent = 'Final result rendered immediately for reduced motion.';
+      this.setResultMetaCopy('Final result rendered immediately for reduced motion.');
     } else {
       this.setState('ready', 'Transform ready. Press play or replay to run the animation.');
       this.setProgress(
@@ -1025,7 +1041,7 @@ class UtilitiesApp {
         'Transform ready to animate.',
         `${transform.metadata.matcherStrategy} · analyze ${transform.metadata.timingsMs.analyze.toFixed(0)} ms · assign ${transform.metadata.timingsMs.assign.toFixed(0)} ms`
       );
-      this.resultMeta.textContent = 'Pixels from the source image shift into their assigned landing positions.';
+      this.setResultMetaCopy('Pixels from the source image shift into their assigned landing positions.');
       this.playAnimation();
     }
   }
@@ -1142,7 +1158,7 @@ class UtilitiesApp {
     const preset = getPreset(this.activeTransform.metadata.presetId);
     const durationMs = preset.animationDurationMs;
     this.setState('animating', 'Animating the result image…');
-    this.resultMeta.textContent = 'The source pixels are physically rearranging into the new image.';
+    this.setResultMetaCopy('The source pixels are physically rearranging into the new image.');
     this.syncButtons();
 
     const step = (timestamp: number) => {
@@ -1168,7 +1184,7 @@ class UtilitiesApp {
         this.animationFrameId = 0;
         this.renderCompleteResult();
         this.setState('complete', 'Animation complete.');
-        this.resultMeta.textContent = 'Every source pixel has reached its final landing position.';
+        this.setResultMetaCopy('Every source pixel has reached its final landing position.');
         this.syncButtons();
         return;
       }
@@ -1191,7 +1207,7 @@ class UtilitiesApp {
         this.animationStartedAt = 0;
       }
       this.setState('ready', 'Animation stopped. Press replay to run it again.');
-      this.resultMeta.textContent = 'The current pass stopped. Replay restarts the full rearrangement from frame zero.';
+      this.setResultMetaCopy('The current pass stopped. Replay restarts the full rearrangement from frame zero.');
     }
   }
 
@@ -1299,10 +1315,12 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       new UtilitiesApp(transformRoot).init();
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Utilities failed to initialize.';
       const statusText = document.getElementById('transformStatusText');
       if (statusText) {
-        statusText.textContent = error instanceof Error ? error.message : 'Utilities failed to initialize.';
+        statusText.textContent = message;
       }
+      transformRoot.dataset.transformStatusMessage = message;
     }
   }
 
@@ -1323,10 +1341,12 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       new DeathCalculatorController(deathCalculatorRoot).init();
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Death Calculator failed to initialize.';
       const statusText = document.getElementById('deathStatusText');
       if (statusText) {
-        statusText.textContent = error instanceof Error ? error.message : 'Death Calculator failed to initialize.';
+        statusText.textContent = message;
       }
+      deathCalculatorRoot.dataset.deathStatusMessage = message;
     }
   }
 
@@ -1335,10 +1355,12 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       new RetroVmController(vmRoot).init();
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Retro VM failed to initialize.';
       const statusText = document.getElementById('retroVmStatusText');
       if (statusText) {
-        statusText.textContent = error instanceof Error ? error.message : 'Retro VM failed to initialize.';
+        statusText.textContent = message;
       }
+      vmRoot.dataset.vmStatusMessage = message;
     }
   }
 });

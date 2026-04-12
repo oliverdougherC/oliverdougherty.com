@@ -3,15 +3,15 @@ import { DEMOS, resolvePlaybackButtonLabel } from '@utilities/uiState';
 describe('utilities UI state', () => {
   it('maps the source-target demo to Pattern and Lucki', () => {
     expect(DEMOS['source-target']).toMatchObject({
-      source: { label: 'Pattern', url: '../../assets/utilities/pattern.png' },
-      target: { label: 'Lucki', url: '../../assets/utilities/lucki.jpeg' }
+      source: { label: 'Pattern', url: '../../assets/utilities/image-transform/pattern.png' },
+      target: { label: 'Lucki', url: '../../assets/utilities/image-transform/lucki.jpeg' }
     });
   });
 
   it('maps the face-pattern demo key to Pattern and Keef', () => {
     expect(DEMOS['face-pattern']).toMatchObject({
-      source: { label: 'Pattern', url: '../../assets/utilities/pattern.png' },
-      target: { label: 'Keef', url: '../../assets/utilities/keef.jpeg' }
+      source: { label: 'Pattern', url: '../../assets/utilities/image-transform/pattern.png' },
+      target: { label: 'Keef', url: '../../assets/utilities/image-transform/keef.jpeg' }
     });
   });
 
