@@ -27,10 +27,8 @@ mkdir -p \
   "${GENERATED_DIR}/opt/backgrounds" \
   "${GENERATED_DIR}/usr/local/share/pixmaps"
 
-rsvg-convert \
-  --format=png \
-  --output="${GENERATED_DIR}/opt/backgrounds/retro-vm-wallpaper.png" \
-  "${ROOT_DIR}/vm-src/tinycore/branding/retro-wallpaper.svg"
+cp "${ROOT_DIR}/vm-src/tinycore/branding/bliss-wallpaper.png" \
+  "${GENERATED_DIR}/opt/backgrounds/retro-vm-wallpaper.png"
 rsvg-convert \
   --format=png \
   --output="${GENERATED_DIR}/usr/local/share/pixmaps/retro-browser.png" \
