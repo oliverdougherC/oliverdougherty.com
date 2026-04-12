@@ -3,18 +3,6 @@
  * Minimal, warm, and centered on a single in-page tool.
  */
 
-/* Fingerprint bar: confirms utilities.css from this tree is loading (WebStorm preview cache often serves stale CSS). */
-html[data-theme='utilities'] body::before {
-  content: '';
-  position: fixed;
-  inset: 0 0 auto;
-  height: 3px;
-  z-index: 100000;
-  pointer-events: none;
-  background: linear-gradient(90deg, #8a7038, #f1e6af, #8a7038);
-  box-shadow: 0 0 24px rgba(241, 230, 175, 0.35);
-}
-
 .utilities-main {
   position: relative;
   overflow: clip;
@@ -621,6 +609,10 @@ html[data-theme='utilities'] body::before {
 
 .canvas-panel--support .canvas-stage {
   min-height: 11.5rem;
+}
+
+#utilitiesApp:not([data-transform-has-result='true']) .support-panels {
+  display: none;
 }
 
 /* ========================================

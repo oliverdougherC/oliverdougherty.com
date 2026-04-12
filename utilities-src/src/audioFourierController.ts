@@ -1,7 +1,6 @@
 import {
   BUILT_IN_AUDIO_PRESETS,
   DEFAULT_BUILT_IN_AUDIO_PRESET_ID,
-  buildGeneratedAudioPresetChannels,
   getAudioFourierPreset,
   type AudioFourierPresetId,
   type BuiltInAudioPresetId
@@ -272,7 +271,7 @@ export class AudioFourierController {
       presetId
     };
     this.syncSelection();
-    this.invalidateComputedState('Generated signal selected. Generate to inspect its Fourier energy.');
+    this.invalidateComputedState('Song preset selected. Generate to inspect its Fourier energy.');
   }
 
   private clearActivePresetButton() {
@@ -430,19 +429,23 @@ export class AudioFourierController {
         return;
       }
       this.setState('error', error instanceof Error ? error.message : 'Unable to prepare this audio file.');
-      this.setProgress(0, 'Audio preparation failed.', 'Try a browser-supported audio file or a generated preset.');
+      this.setProgress(0, 'Audio preparation failed.', 'Try a browser-supported audio file or a built-in song preset.');
     }
   }
 
   private async resolveAudioSource(): Promise<AudioFourierSourceTransfer> {
     if (this.selection.kind === 'preset' && this.selection.presetId) {
       const preset = BUILT_IN_AUDIO_PRESETS[this.selection.presetId];
-      const generated = buildGeneratedAudioPresetChannels(preset.id);
-      return this.audioChannelsToSourceTransfer(generated.channels, generated.sampleRate, preset.label, 'preset', preset.id);
+      const response = await fetch(preset.url);
+      if (!response.ok) {
+        throw new Error(`Unable to load built-in song: ${preset.label}`);
+      }
+      const decoded = await this.decodeAudioData(await response.arrayBuffer());
+      return this.audioBufferToSourceTransfer(decoded, preset.label, 'preset', preset.id);
     }
 
     if (!this.selection.file) {
-      throw new Error('Choose an audio file or a generated preset first.');
+      throw new Error('Choose an audio file or a built-in song preset first.');
     }
 
     if (!this.selection.file.type.startsWith('audio/')) {
@@ -537,7 +540,7 @@ export class AudioFourierController {
       this.activeWorkerRequestId = 0;
       this.clearDiagnostics();
       this.setState('error', message.message);
-      this.setProgress(0, message.message, 'Try a generated preset, a shorter file, or the Fast quality preset.');
+      this.setProgress(0, message.message, 'Try a built-in song preset, a shorter file, or the Fast quality preset.');
       return;
     }
 
@@ -808,7 +811,7 @@ export class AudioFourierController {
     this.bandBuffers = [];
     this.clearDiagnostics();
     this.syncSelection();
-    this.invalidateComputedState('Choose an audio file or start from a generated preset.');
+    this.invalidateComputedState('Choose an audio file or start from a built-in song preset.');
   }
 
   private drawEmptyState() {
@@ -946,7 +949,7 @@ export class AudioFourierController {
     for (let index = 0; index < barCount; index += 1) {
       const height = Math.max(2, this.activeResult.bandEnergyFractions[index] * (canvas.height - 36));
       const x = index * (barWidth + gap);
-      const y = canvas.height - height - 18;
+      const y = canvas.height - height;
       const gain = this.activeResult.bandGains[index];
       context.fillStyle = gain > 0 ? `rgba(245, 218, 113, ${0.28 + gain * 0.68})` : 'rgba(111, 133, 145, 0.24)';
       context.fillRect(x, y, barWidth, height);
