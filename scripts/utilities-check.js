@@ -700,7 +700,9 @@ async function main() {
       replayButtonExists: Boolean(document.getElementById('transformReplayBtn')),
       uploadIconCount: document.querySelectorAll('.utility-dropzone-icon').length,
       activeDemo: document.querySelector('.demo-chip.active')?.textContent?.trim() ?? '',
-      generateDisabled: document.getElementById('transformGenerateBtn')?.hasAttribute('disabled') ?? true
+      generateDisabled: document.getElementById('transformGenerateBtn')?.hasAttribute('disabled') ?? true,
+      supportPanelsDisplay: getComputedStyle(document.querySelector('#utilitiesApp .support-panels')).display,
+      hasResult: document.getElementById('utilitiesApp')?.dataset.transformHasResult ?? ''
     }));
 
     assert(
@@ -714,6 +716,8 @@ async function main() {
     assert(initialTransformState.uploadIconCount === 3, 'Utilities upload dropzones should expose visible upload icons.');
     assert(initialTransformState.activeDemo === 'Pattern → Face', 'Pattern → Face should be selected by default.');
     assert(initialTransformState.generateDisabled === false, 'Generate should be available when the built-in pair is preselected.');
+    assert(initialTransformState.hasResult !== 'true', 'Image Transform should not report a result before generation.');
+    assert(initialTransformState.supportPanelsDisplay === 'none', 'Image Transform source/reference panels should stay hidden before generation.');
     assert(precomputedTransformRequests.length === 0, 'Initial load should not fetch precomputed demo transforms.');
 
     await page.click('[data-demo-key="source-target"]');
@@ -753,13 +757,17 @@ async function main() {
       })(),
       outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
       pixels: document.getElementById('transformPixelCount')?.textContent?.trim(),
-      playLabel: document.getElementById('transformPlayBtn')?.textContent?.trim()
+      playLabel: document.getElementById('transformPlayBtn')?.textContent?.trim(),
+      supportPanelsDisplay: getComputedStyle(document.querySelector('#utilitiesApp .support-panels')).display,
+      hasResult: document.getElementById('utilitiesApp')?.dataset.transformHasResult ?? ''
     }));
 
     assert(afterDemo.status && /Transform ready|Animation complete|Reduced motion/i.test(afterDemo.status), 'Built-in demo did not initialize after generate.');
     assert(afterDemo.outputSize && afterDemo.outputSize !== '—', 'Built-in demo output size missing after generate.');
     assert(afterDemo.pixels && afterDemo.pixels !== '—', 'Built-in demo pixel count missing after generate.');
     assert(afterDemo.playLabel === 'Replay', 'Primary playback control should switch to Replay after the built-in animation runs.');
+    assert(afterDemo.hasResult === 'true', 'Image Transform should report a result after generation.');
+    assert(afterDemo.supportPanelsDisplay !== 'none', 'Image Transform source/reference panels should appear after generation.');
     assert(precomputedTransformRequests.length > 0, 'Built-in demo generation should fetch a shipped precomputed transform asset.');
 
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -983,7 +991,7 @@ async function main() {
     }));
 
     assert(/choose|track|audio/i.test(initialAudioState.status), 'Audio Fourier should start idle.');
-    assert(initialAudioState.selected === 'Harmonic chord', 'Audio Fourier should default to the Harmonic chord generated preset.');
+    assert(initialAudioState.selected === 'Best Friends', 'Audio Fourier should default to the Best Friends song preset.');
     assert(initialAudioState.sampleRate === '—', 'Audio Fourier sample-rate metric should stay blank before generation.');
     assert(initialAudioState.componentCount === '—', 'Audio Fourier component count should stay blank before generation.');
     assert(initialAudioState.sliderDisabled === true, 'Audio Fourier component slider should stay disabled before generation.');
@@ -992,9 +1000,9 @@ async function main() {
     assert(initialAudioState.telemetryPresent === false, 'Audio Fourier should not analyze audio on first paint.');
 
     await page.selectOption('#audioFourierQuality', 'fast');
-    await page.click('[data-audio-preset="harmonic-chord"]');
+    await page.click('[data-audio-preset="best-friends"]');
     await page.click('#audioFourierGenerateBtn');
-    await waitForAudioStatusMatch(page, 'Fourier proxy ready|auditory midpoint|Playing selected|Press Play', 60000, 'generated signal preset ready');
+    await waitForAudioStatusMatch(page, 'Fourier proxy ready|auditory midpoint|Playing selected|Press Play', 60000, 'built-in song preset ready');
 
     const generatedReadyState = await page.evaluate(() => ({
       status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
@@ -1019,7 +1027,7 @@ async function main() {
       playDisabled: document.getElementById('audioFourierPlayBtn')?.hasAttribute('disabled') ?? true
     }));
 
-    assert(/ready|playing|press play/i.test(generatedReadyState.status), 'Audio Fourier generated preset did not finish analysis.');
+    assert(/ready|playing|press play/i.test(generatedReadyState.status), 'Built-in Audio Fourier song preset did not finish analysis.');
     assert(/\d+ Hz proxy/.test(generatedReadyState.sampleRate), 'Audio Fourier proxy sample-rate metric missing after preset generation.');
     assert(generatedReadyState.componentCount !== '—', 'Audio Fourier component count missing after preset generation.');
     assert(/source/.test(generatedReadyState.sourceDuration), 'Audio Fourier source duration missing after preset generation.');
@@ -1039,7 +1047,7 @@ async function main() {
 
     const generatedWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
     await page.fill('#audioFourierComponentSlider', '100');
-    await waitForAudioProgressFill(page, 99, 15000, 'generated signal preset slider max');
+    await waitForAudioProgressFill(page, 99, 15000, 'built-in song preset slider max');
     const fullSignalWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
     const generatedSpectrumPixels = await readCanvasPixels(page, 'audioFourierSpectrumCanvas');
     const generatedComponentPixels = await readCanvasPixels(page, 'audioFourierComponentCanvas');
@@ -1047,10 +1055,10 @@ async function main() {
     assert(totalAbsoluteDifference(generatedWavePixels, fullSignalWavePixels) > 0, 'Dragging the Audio Fourier slider should visibly change the waveform.');
     assert(countActiveCanvasPixels(generatedSpectrumPixels) > 100, 'Audio Fourier spectrum canvas should be visibly nonblank.');
     assert(countActiveCanvasPixels(generatedComponentPixels) > 100, 'Audio Fourier component canvas should be visibly nonblank.');
-    await assertUtilityIsolationLayout(page, 'audio-generated:desktop');
+    await assertUtilityIsolationLayout(page, 'audio-preset:desktop');
     if (generatedReadyState.playDisabled === false) {
       await page.click('#audioFourierPlayBtn');
-      await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, 'generated signal preset playback starts');
+      await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, 'built-in song preset playback starts');
       await page.waitForTimeout(350);
       const playbackWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
       assert(totalAbsoluteDifference(fullSignalWavePixels, playbackWavePixels) > 0, 'Audio Fourier viewport should advance during playback.');
@@ -1063,7 +1071,7 @@ async function main() {
       assert(/Playing selected Fourier energy mix/.test(sliderDuringPlaybackState.status), 'Audio Fourier slider should not stop playback.');
       assert(/60% signal energy/.test(sliderDuringPlaybackState.readout), 'Audio Fourier readout should update with perceptual slider mapping during playback.');
       await page.click('#audioFourierPauseBtn');
-      await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'generated signal preset playback pauses');
+      await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'built-in song preset playback pauses');
     }
 
     const wavPath = await createGeneratedWavFile();
