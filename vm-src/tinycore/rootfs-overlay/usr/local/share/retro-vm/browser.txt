@@ -1,0 +1,10 @@
+Retro Browser Slot
+==================
+
+This rollback keeps Tiny Core fast and lightweight.
+
+The in-guest browser is intentionally deferred in this pass
+unless a lightweight option can be added without hurting
+boot speed or the retro desktop feel.
+
+For now, this launcher is a placeholder.

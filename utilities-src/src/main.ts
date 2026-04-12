@@ -1,5 +1,16 @@
 import { getPreset } from './presets';
+import { PRECOMPUTED_BUILT_IN_TRANSFORM_ASSETS } from './builtInTransformAssets';
 import { buildTransformRenderPlan } from './transformRenderPlan';
+import {
+  buildBuiltInTransformCacheKey,
+  cloneCachedBuiltInTransform,
+  createCachedBuiltInTransform,
+  hydratePrecomputedBuiltInTransform,
+  type SerializedPrecomputedBuiltInTransform,
+  type CachedBuiltInTransform
+} from './transformCache';
+import { DeathCalculatorController } from './deathCalculatorController';
+import { AudioFourierController } from './audioFourierController';
 import {
   createTransformAnimationState,
   renderTransformAnimationPixels,
@@ -7,9 +18,10 @@ import {
   type TransformAnimationState
 } from './transformAnimation';
 import { resolveOutputDimensions, transformPreparedImages } from './transformCore';
+import { RetroVmController } from './retroVmController';
 import type { PreparedImageTransfer, TransformMetadata, TransformPresetId } from './types';
 import { DEMOS, resolvePlaybackButtonLabel, type ImageSelection, type SelectionKind, type StateKind } from './uiState';
-import type { WorkerRequest, WorkerResponse } from './workerTypes';
+import type { WorkerRequest, WorkerResponse, WorkerSuccessMessage } from './workerTypes';
 
 interface HydratedTransfer {
   width: number;
@@ -43,8 +55,8 @@ class UtilitiesApp {
   private readonly resetButton: HTMLButtonElement;
   private readonly playButton: HTMLButtonElement;
   private readonly pauseButton: HTMLButtonElement;
-  private readonly statusChip: HTMLElement;
-  private readonly statusText: HTMLElement;
+  private readonly statusChip: HTMLElement | null;
+  private readonly statusText: HTMLElement | null;
   private readonly progressText: HTMLElement;
   private readonly progressMeta: HTMLElement;
   private readonly progressBar: HTMLElement;
@@ -53,7 +65,7 @@ class UtilitiesApp {
   private readonly targetSelectionLabel: HTMLElement;
   private readonly sourceMeta: HTMLElement;
   private readonly targetMeta: HTMLElement;
-  private readonly resultMeta: HTMLElement;
+  private readonly resultMeta: HTMLElement | null;
   private readonly outputSize: HTMLElement;
   private readonly pixelCount: HTMLElement;
   private readonly duration: HTMLElement;
@@ -71,11 +83,14 @@ class UtilitiesApp {
   private readonly resultContext: CanvasRenderingContext2D;
   private readonly overlayContext: CanvasRenderingContext2D;
   private readonly demoButtons: HTMLButtonElement[];
+  private readonly builtInTransformCache = new Map<string, CachedBuiltInTransform>();
+  private readonly builtInTransformAssetPromises = new Map<string, Promise<SerializedPrecomputedBuiltInTransform>>();
 
   private sourceSelection: ImageSelection | null = null;
   private targetSelection: ImageSelection | null = null;
   private worker: Worker | null = null;
   private activeRequestId = 0;
+  private activeWorkerRequestId = 0;
   private activeTransform: ActiveTransform | null = null;
   private animationState: TransformAnimationState | null = null;
   private animationFramePixels: Uint8ClampedArray | null = null;
@@ -97,8 +112,8 @@ class UtilitiesApp {
     this.resetButton = this.requireElement('transformResetBtn');
     this.playButton = this.requireElement('transformPlayBtn');
     this.pauseButton = this.requireElement('transformPauseBtn');
-    this.statusChip = this.requireElement('transformStatusChip');
-    this.statusText = this.requireElement('transformStatusText');
+    this.statusChip = document.getElementById('transformStatusChip');
+    this.statusText = document.getElementById('transformStatusText');
     this.progressText = this.requireElement('transformProgressText');
     this.progressMeta = this.requireElement('transformProgressMeta');
     this.progressBar = this.requireElement('transformProgressBar');
@@ -107,7 +122,7 @@ class UtilitiesApp {
     this.targetSelectionLabel = this.requireElement('transformTargetSelection');
     this.sourceMeta = this.requireElement('transformSourceMeta');
     this.targetMeta = this.requireElement('transformTargetMeta');
-    this.resultMeta = this.requireElement('transformResultMeta');
+    this.resultMeta = document.getElementById('transformResultMeta');
     this.outputSize = this.requireElement('transformOutputSize');
     this.pixelCount = this.requireElement('transformPixelCount');
     this.duration = this.requireElement('transformDuration');
@@ -163,7 +178,6 @@ class UtilitiesApp {
           return;
         }
         this.applyDemo(demoKey);
-        void this.generateTransform();
       });
     });
 
@@ -172,7 +186,6 @@ class UtilitiesApp {
     this.syncSelectionLabels();
     this.syncButtons();
     this.applyDemo('pattern-face');
-    void this.generateTransform();
   }
 
   private get selectedPreset(): TransformPresetId {
@@ -185,6 +198,17 @@ class UtilitiesApp {
       throw new Error(`Missing required element: ${id}`);
     }
     return element;
+  }
+
+  private setResultMetaCopy(text: string) {
+    this.root.dataset.resultMetaMessage = text;
+    if (this.resultMeta) {
+      this.resultMeta.textContent = text;
+    }
+  }
+
+  private setSupportPanelsVisible(visible: boolean) {
+    this.root.dataset.transformHasResult = visible ? 'true' : 'false';
   }
 
   private getContext(canvas: HTMLCanvasElement) {
@@ -251,16 +275,42 @@ class UtilitiesApp {
 
   private applyDemo(demoKey: string) {
     const demo = DEMOS[demoKey];
+    this.discardActiveRequest();
     this.sourceSelection = demo.source;
     this.targetSelection = demo.target;
+    this.syncActiveDemo();
     this.syncSelectionLabels();
-    this.demoButtons.forEach((button) => {
-      button.classList.toggle('active', button.dataset.demoKey === demoKey);
-    });
+    this.invalidateComputedState('Built-in pair selected. Press generate to load the transform.');
   }
 
   private clearActiveDemo() {
     this.demoButtons.forEach((button) => button.classList.remove('active'));
+  }
+
+  private syncActiveDemo() {
+    const activeDemoKey = this.resolveActiveDemoKey();
+    this.demoButtons.forEach((button) => {
+      button.classList.toggle('active', Boolean(activeDemoKey) && button.dataset.demoKey === activeDemoKey);
+    });
+  }
+
+  private resolveActiveDemoKey() {
+    if (!this.sourceSelection || !this.targetSelection) {
+      return null;
+    }
+
+    for (const [demoKey, demo] of Object.entries(DEMOS)) {
+      if (
+        this.sourceSelection.kind === 'demo' &&
+        this.targetSelection.kind === 'demo' &&
+        this.sourceSelection.url === demo.source.url &&
+        this.targetSelection.url === demo.target.url
+      ) {
+        return demoKey;
+      }
+    }
+
+    return null;
   }
 
   private syncSelectionLabels() {
@@ -292,9 +342,17 @@ class UtilitiesApp {
 
   private setState(state: StateKind, text: string) {
     this.state = state;
-    this.statusText.textContent = text;
-    this.statusChip.textContent = state === 'ready' ? 'Ready' : state === 'complete' ? 'Complete' : state[0].toUpperCase() + state.slice(1);
-    this.statusChip.className = `utility-status-chip utility-status-chip--${state}`;
+    if (this.statusText) {
+      this.statusText.textContent = text;
+    }
+    this.root.dataset.transformStatusMessage = text;
+    const chipLabel =
+      state === 'ready' ? 'Ready' : state === 'complete' ? 'Complete' : state[0].toUpperCase() + state.slice(1);
+    this.root.dataset.transformStatusChip = chipLabel;
+    if (this.statusChip) {
+      this.statusChip.textContent = chipLabel;
+      this.statusChip.className = `utility-status-chip utility-status-chip--${state}`;
+    }
     this.syncButtons();
   }
 
@@ -328,8 +386,30 @@ class UtilitiesApp {
       return;
     }
 
-    this.cancelActiveRequest();
+    this.abandonActiveComputation();
     this.activeRequestId += 1;
+  }
+
+  private isCurrentRequest(requestId: number) {
+    return requestId === this.activeRequestId;
+  }
+
+  private clearActiveWorkerRequest(requestId: number) {
+    if (this.activeWorkerRequestId === requestId) {
+      this.activeWorkerRequestId = 0;
+    }
+  }
+
+  private abandonActiveComputation() {
+    if (this.activeWorkerRequestId > 0) {
+      this.cancelActiveRequest(this.activeWorkerRequestId);
+      this.activeWorkerRequestId = 0;
+    }
+
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+    }
   }
 
   private clearAllCanvases() {
@@ -344,6 +424,7 @@ class UtilitiesApp {
     this.animationState = null;
     this.animationFramePixels = null;
     this.finalResultImageData = null;
+    this.setSupportPanelsVisible(false);
     this.clearDiagnostics();
     this.clearAllCanvases();
     this.updateCanvasPlaceholder(this.sourcePlaceholder, true);
@@ -355,10 +436,11 @@ class UtilitiesApp {
     this.targetMeta.textContent = this.targetSelection
       ? 'Generate a transform to preview the selected target image.'
       : 'Waiting for an image.';
-    this.resultMeta.textContent =
+    this.setResultMetaCopy(
       this.sourceSelection && this.targetSelection
         ? 'Generate a transform to rebuild the current image pair.'
-        : 'Generate a transform to begin the animation.';
+        : 'Generate a transform to begin the animation.'
+    );
     this.outputSize.textContent = '—';
     this.pixelCount.textContent = '—';
     this.duration.textContent = '—';
@@ -388,6 +470,148 @@ class UtilitiesApp {
     this.root.dataset.averageGroupsPerTarget = metadata.averageGroupsPerTarget.toFixed(4);
   }
 
+  private getBuiltInTransformCacheKey(presetId: TransformPresetId) {
+    return buildBuiltInTransformCacheKey(this.sourceSelection, this.targetSelection, presetId);
+  }
+
+  private getPrecomputedBuiltInTransformAssetUrl(presetId: TransformPresetId) {
+    const cacheKey = this.getBuiltInTransformCacheKey(presetId);
+    if (!cacheKey) {
+      return null;
+    }
+
+    return PRECOMPUTED_BUILT_IN_TRANSFORM_ASSETS[cacheKey] ?? null;
+  }
+
+  private getCachedBuiltInTransform(requestId: number, presetId: TransformPresetId) {
+    const cacheKey = this.getBuiltInTransformCacheKey(presetId);
+    if (!cacheKey) {
+      return null;
+    }
+
+    const cached = this.builtInTransformCache.get(cacheKey);
+    return cached ? cloneCachedBuiltInTransform(cached, requestId) : null;
+  }
+
+  private storeBuiltInTransform(message: WorkerSuccessMessage, renderPlan: ReturnType<typeof buildTransformRenderPlan>) {
+    const cacheKey = this.getBuiltInTransformCacheKey(message.metadata.presetId);
+    if (!cacheKey) {
+      return;
+    }
+
+    this.builtInTransformCache.set(cacheKey, createCachedBuiltInTransform(message, renderPlan));
+  }
+
+  private async loadPrecomputedBuiltInTransformAsset(
+    presetId: TransformPresetId
+  ): Promise<SerializedPrecomputedBuiltInTransform | null> {
+    const cacheKey = this.getBuiltInTransformCacheKey(presetId);
+    const assetUrl = this.getPrecomputedBuiltInTransformAssetUrl(presetId);
+    if (!cacheKey || !assetUrl) {
+      return null;
+    }
+
+    let assetPromise = this.builtInTransformAssetPromises.get(cacheKey);
+    if (!assetPromise) {
+      assetPromise = fetch(assetUrl).then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`Unable to load precomputed built-in transform asset: ${response.status}`);
+        }
+
+        return (await response.json()) as SerializedPrecomputedBuiltInTransform;
+      });
+      this.builtInTransformAssetPromises.set(cacheKey, assetPromise);
+    }
+
+    try {
+      return await assetPromise;
+    } catch (error) {
+      this.builtInTransformAssetPromises.delete(cacheKey);
+      throw error;
+    }
+  }
+
+  private async restorePrecomputedBuiltInTransform(
+    requestId: number,
+    presetId: TransformPresetId
+  ) {
+    const serialized = await this.loadPrecomputedBuiltInTransformAsset(presetId);
+    if (!serialized) {
+      return null;
+    }
+
+    let sourceBitmap: ImageBitmap | null = null;
+    let targetBitmap: ImageBitmap | null = null;
+
+    try {
+      const settled = await Promise.allSettled([
+        this.selectionToBitmap(this.sourceSelection as ImageSelection),
+        this.selectionToBitmap(this.targetSelection as ImageSelection)
+      ]);
+      const sourceResult = settled[0];
+      const targetResult = settled[1];
+
+      if (sourceResult.status !== 'fulfilled' || targetResult.status !== 'fulfilled') {
+        if (sourceResult.status === 'fulfilled') {
+          sourceResult.value.close();
+        }
+        if (targetResult.status === 'fulfilled') {
+          targetResult.value.close();
+        }
+        throw sourceResult.status === 'rejected'
+          ? sourceResult.reason
+          : targetResult.status === 'rejected'
+            ? targetResult.reason
+            : new Error('Unable to load demo assets.');
+      }
+
+      sourceBitmap = sourceResult.value;
+      targetBitmap = targetResult.value;
+
+      const hydrated = hydratePrecomputedBuiltInTransform(serialized);
+      const preset = getPreset(presetId);
+      const prepared = this.prepareBitmapsOnMainThread(sourceBitmap, targetBitmap, preset.maxDimension);
+      sourceBitmap.close();
+      targetBitmap.close();
+      sourceBitmap = null;
+      targetBitmap = null;
+
+      if (
+        prepared.source.width !== hydrated.metadata.outputWidth ||
+        prepared.source.height !== hydrated.metadata.outputHeight
+      ) {
+        throw new Error('Precomputed built-in transform dimensions do not match the prepared demo assets.');
+      }
+
+      return {
+        message: {
+          type: 'success' as const,
+          requestId,
+          source: prepared.source,
+          target: prepared.target,
+          assignment: hydrated.assignment,
+          metadata: {
+            ...hydrated.metadata,
+            sourceOriginalWidth: prepared.source.originalWidth,
+            sourceOriginalHeight: prepared.source.originalHeight,
+            targetOriginalWidth: prepared.target.originalWidth,
+            targetOriginalHeight: prepared.target.originalHeight,
+            sourceScaled: prepared.source.scaled,
+            targetScaled: prepared.target.scaled
+          }
+        },
+        renderPlan: {
+          finalPixels: new Uint8ClampedArray(hydrated.finalPixels),
+          tintStrengthByTarget: new Float32Array(hydrated.tintStrengthByTarget),
+          cheatedTargetPixels: new Uint8Array(hydrated.cheatedTargetPixels)
+        }
+      };
+    } finally {
+      sourceBitmap?.close();
+      targetBitmap?.close();
+    }
+  }
+
   private async generateTransform(options?: { forceMainThread?: boolean; retryMessage?: string }) {
     if (!this.sourceSelection || !this.targetSelection) {
       this.setState('error', 'Choose both a source image and a target image.');
@@ -395,15 +619,16 @@ class UtilitiesApp {
       return;
     }
 
-    this.cancelActiveRequest();
+    this.abandonActiveComputation();
     this.pauseAnimation();
     this.activeTransform = null;
     this.animationState = null;
     this.animationFramePixels = null;
     this.finalResultImageData = null;
+    this.setSupportPanelsVisible(false);
     this.clearDiagnostics();
     this.updateCanvasPlaceholder(this.resultPlaceholder, true);
-    this.resultMeta.textContent = 'Generating transform…';
+    this.setResultMetaCopy('Generating transform…');
     this.outputSize.textContent = '—';
     this.pixelCount.textContent = '—';
     this.duration.textContent = '—';
@@ -411,6 +636,47 @@ class UtilitiesApp {
 
     const requestId = ++this.activeRequestId;
     const preset = getPreset(this.selectedPreset);
+    const cachedTransform = this.getCachedBuiltInTransform(requestId, preset.id);
+    if (cachedTransform) {
+      this.setState('processing', 'Loading cached built-in transform…');
+      this.setProgress(0.98, 'Restoring built-in pair from cache…', `${preset.label} preset · cached demo pair`);
+      this.applyTransformSuccess(
+        cachedTransform.message,
+        {
+          finalPixels: new Uint8ClampedArray(cachedTransform.finalPixels),
+          tintStrengthByTarget: new Float32Array(cachedTransform.tintStrengthByTarget),
+          cheatedTargetPixels: new Uint8Array(cachedTransform.cheatedTargetPixels)
+        },
+        false
+      );
+      return;
+    }
+
+    if (!options?.forceMainThread) {
+      const precomputedBuiltInTransformUrl = this.getPrecomputedBuiltInTransformAssetUrl(preset.id);
+      if (precomputedBuiltInTransformUrl) {
+        this.setState('processing', 'Loading precomputed built-in transform…');
+        this.setProgress(0.08, 'Loading precomputed demo asset…', `${preset.label} preset · shipped demo cache`);
+
+        try {
+          const precomputedBuiltInTransform = await this.restorePrecomputedBuiltInTransform(requestId, preset.id);
+          if (precomputedBuiltInTransform && requestId === this.activeRequestId) {
+            this.setProgress(0.98, 'Restoring precomputed built-in transform…', `${preset.label} preset · shipped demo cache`);
+            this.applyTransformSuccess(precomputedBuiltInTransform.message, precomputedBuiltInTransform.renderPlan);
+            return;
+          }
+        } catch (error) {
+          this.setProgress(
+            0.12,
+            error instanceof Error
+              ? `${error.message} Falling back to live generation…`
+              : 'Precomputed demo unavailable. Falling back to live generation…',
+            `${preset.label} preset · live fallback`
+          );
+        }
+      }
+    }
+
     this.setState('processing', 'Preparing images and analyzing pixels…');
     this.setProgress(
       0.02,
@@ -447,6 +713,12 @@ class UtilitiesApp {
       sourceBitmap = sourceResult.value;
       targetBitmap = targetResult.value;
 
+      if (!this.isCurrentRequest(requestId)) {
+        sourceBitmap.close();
+        targetBitmap.close();
+        return;
+      }
+
       if (options?.forceMainThread || this.workerUnavailable || typeof Worker === 'undefined') {
         await this.runOnMainThread(requestId, sourceBitmap, targetBitmap);
         return;
@@ -464,6 +736,7 @@ class UtilitiesApp {
           targetBitmap
         };
 
+        this.activeWorkerRequestId = requestId;
         worker.postMessage(request, [sourceBitmap, targetBitmap]);
         return;
       }
@@ -480,10 +753,14 @@ class UtilitiesApp {
         target: prepared.target
       };
 
+      this.activeWorkerRequestId = requestId;
       worker.postMessage(request, [prepared.source.pixels, prepared.target.pixels]);
     } catch (error) {
       sourceBitmap?.close();
       targetBitmap?.close();
+      if (!this.isCurrentRequest(requestId)) {
+        return;
+      }
       this.setState('error', error instanceof Error ? error.message : 'Unable to load the selected images.');
       this.setProgress(0, 'Image preparation failed.', 'Try different files or a demo pair.');
     }
@@ -513,6 +790,7 @@ class UtilitiesApp {
         },
         preset.quantizationBits,
         {
+          isCancelled: () => !this.isCurrentRequest(requestId),
           onProgress: (completed, total) => {
             this.handleWorkerMessage({
               type: 'progress',
@@ -561,21 +839,26 @@ class UtilitiesApp {
         workerCount: result.workerCount
       };
 
-      this.handleWorkerMessage({
-        type: 'success',
-        requestId,
-        source: {
-          ...prepared.source,
-          pixels: asArrayBuffer(sourcePixels.buffer)
-        },
-        target: {
-          ...prepared.target,
-          pixels: asArrayBuffer(targetPixels.buffer)
-        },
-        assignment: asArrayBuffer(result.assignment.buffer),
-        metadata
-      });
+      if (this.isCurrentRequest(requestId)) {
+        this.handleWorkerMessage({
+          type: 'success',
+          requestId,
+          source: {
+            ...prepared.source,
+            pixels: asArrayBuffer(sourcePixels.buffer)
+          },
+          target: {
+            ...prepared.target,
+            pixels: asArrayBuffer(targetPixels.buffer)
+          },
+          assignment: asArrayBuffer(result.assignment.buffer),
+          metadata
+        });
+      }
     } catch (error) {
+      if (!this.isCurrentRequest(requestId)) {
+        return;
+      }
       this.handleWorkerMessage({
         type: 'error',
         requestId,
@@ -606,6 +889,7 @@ class UtilitiesApp {
   }
 
   private handleWorkerFailure(message: string) {
+    this.activeWorkerRequestId = 0;
     if (this.worker) {
       this.worker.terminate();
       this.worker = null;
@@ -630,11 +914,11 @@ class UtilitiesApp {
     });
   }
 
-  private cancelActiveRequest() {
-    if (this.worker && this.activeRequestId > 0) {
+  private cancelActiveRequest(requestId: number = this.activeWorkerRequestId) {
+    if (this.worker && requestId > 0) {
       const request: WorkerRequest = {
         type: 'cancel',
-        requestId: this.activeRequestId
+        requestId
       };
       this.worker.postMessage(request);
     }
@@ -652,6 +936,7 @@ class UtilitiesApp {
     }
 
     if (message.type === 'error') {
+      this.clearActiveWorkerRequest(message.requestId);
       this.clearDiagnostics();
       this.setState('error', message.message);
       this.setProgress(0, message.message, 'Try a different image pair or preset.');
@@ -659,12 +944,22 @@ class UtilitiesApp {
     }
 
     if (message.type === 'cancelled') {
+      this.clearActiveWorkerRequest(message.requestId);
       this.clearDiagnostics();
       this.setState('idle', 'Transform cancelled.');
       this.setProgress(0, 'Transform cancelled.');
       return;
     }
 
+    this.clearActiveWorkerRequest(message.requestId);
+    this.applyTransformSuccess(message);
+  }
+
+  private applyTransformSuccess(
+    message: WorkerSuccessMessage,
+    precomputedRenderPlan?: ReturnType<typeof buildTransformRenderPlan>,
+    shouldStoreBuiltInTransform: boolean = true
+  ) {
     const transform: ActiveTransform = {
       metadata: message.metadata,
       source: this.inflateTransfer(message.source),
@@ -676,6 +971,7 @@ class UtilitiesApp {
     this.syncDiagnostics(transform.metadata, message.requestId);
     this.paintPreparedImage(this.sourceCanvas, this.sourceContext, transform.source);
     this.paintPreparedImage(this.targetCanvas, this.targetContext, transform.target);
+    this.setSupportPanelsVisible(true);
     this.updateCanvasPlaceholder(this.sourcePlaceholder, false);
     this.updateCanvasPlaceholder(this.targetPlaceholder, false);
     this.configureCanvasAspect(transform.metadata.outputWidth, transform.metadata.outputHeight);
@@ -697,20 +993,25 @@ class UtilitiesApp {
     this.outputSize.textContent = `${transform.metadata.outputWidth} × ${transform.metadata.outputHeight}`;
     this.pixelCount.textContent = transform.metadata.pixelCount.toLocaleString();
     this.duration.textContent = `${transform.metadata.processingMs.toFixed(0)} ms`;
-    const renderPlan = buildTransformRenderPlan(
-      {
-        width: transform.source.width,
-        height: transform.source.height,
-        pixels: transform.source.pixels
-      },
-      {
-        width: transform.target.width,
-        height: transform.target.height,
-        pixels: transform.target.pixels
-      },
-      transform.assignment,
-      transform.metadata.quantizationBits
-    );
+    const renderPlan =
+      precomputedRenderPlan ??
+      buildTransformRenderPlan(
+        {
+          width: transform.source.width,
+          height: transform.source.height,
+          pixels: transform.source.pixels
+        },
+        {
+          width: transform.target.width,
+          height: transform.target.height,
+          pixels: transform.target.pixels
+        },
+        transform.assignment,
+        transform.metadata.quantizationBits
+      );
+    if (shouldStoreBuiltInTransform) {
+      this.storeBuiltInTransform(message, renderPlan);
+    }
     const finalResultPixels = renderPlan.finalPixels;
     this.finalResultImageData = new ImageData(
       finalResultPixels.slice(),
@@ -739,7 +1040,7 @@ class UtilitiesApp {
         'Transform complete.',
         `${transform.metadata.matcherStrategy} · analyze ${transform.metadata.timingsMs.analyze.toFixed(0)} ms · assign ${transform.metadata.timingsMs.assign.toFixed(0)} ms`
       );
-      this.resultMeta.textContent = 'Final result rendered immediately for reduced motion.';
+      this.setResultMetaCopy('Final result rendered immediately for reduced motion.');
     } else {
       this.setState('ready', 'Transform ready. Press play or replay to run the animation.');
       this.setProgress(
@@ -747,7 +1048,7 @@ class UtilitiesApp {
         'Transform ready to animate.',
         `${transform.metadata.matcherStrategy} · analyze ${transform.metadata.timingsMs.analyze.toFixed(0)} ms · assign ${transform.metadata.timingsMs.assign.toFixed(0)} ms`
       );
-      this.resultMeta.textContent = 'Pixels from the source image shift into their assigned landing positions.';
+      this.setResultMetaCopy('Pixels from the source image shift into their assigned landing positions.');
       this.playAnimation();
     }
   }
@@ -864,7 +1165,7 @@ class UtilitiesApp {
     const preset = getPreset(this.activeTransform.metadata.presetId);
     const durationMs = preset.animationDurationMs;
     this.setState('animating', 'Animating the result image…');
-    this.resultMeta.textContent = 'The source pixels are physically rearranging into the new image.';
+    this.setResultMetaCopy('The source pixels are physically rearranging into the new image.');
     this.syncButtons();
 
     const step = (timestamp: number) => {
@@ -890,7 +1191,7 @@ class UtilitiesApp {
         this.animationFrameId = 0;
         this.renderCompleteResult();
         this.setState('complete', 'Animation complete.');
-        this.resultMeta.textContent = 'Every source pixel has reached its final landing position.';
+        this.setResultMetaCopy('Every source pixel has reached its final landing position.');
         this.syncButtons();
         return;
       }
@@ -913,7 +1214,7 @@ class UtilitiesApp {
         this.animationStartedAt = 0;
       }
       this.setState('ready', 'Animation stopped. Press replay to run it again.');
-      this.resultMeta.textContent = 'The current pass stopped. Replay restarts the full rearrangement from frame zero.';
+      this.setResultMetaCopy('The current pass stopped. Replay restarts the full rearrangement from frame zero.');
     }
   }
 
@@ -945,6 +1246,7 @@ class UtilitiesApp {
     const sourceSelection = this.sourceSelection;
     this.sourceSelection = this.targetSelection;
     this.targetSelection = sourceSelection;
+    this.syncActiveDemo();
     this.syncSelectionLabels();
     await this.generateTransform();
   }
@@ -1015,17 +1317,57 @@ class UtilitiesApp {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const root = document.getElementById('utilitiesApp');
-  if (!root) {
-    return;
+  const transformRoot = document.getElementById('utilitiesApp');
+  if (transformRoot) {
+    try {
+      new UtilitiesApp(transformRoot).init();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Utilities failed to initialize.';
+      const statusText = document.getElementById('transformStatusText');
+      if (statusText) {
+        statusText.textContent = message;
+      }
+      transformRoot.dataset.transformStatusMessage = message;
+    }
   }
 
-  try {
-    new UtilitiesApp(root).init();
-  } catch (error) {
-    const statusText = document.getElementById('transformStatusText');
-    if (statusText) {
-      statusText.textContent = error instanceof Error ? error.message : 'Utilities failed to initialize.';
+  const audioFourierRoot = document.getElementById('audioFourierApp');
+  if (audioFourierRoot) {
+    try {
+      new AudioFourierController(audioFourierRoot).init();
+    } catch (error) {
+      const statusText = document.getElementById('audioFourierStatusText');
+      if (statusText) {
+        statusText.textContent = error instanceof Error ? error.message : 'Audio Fourier utility failed to initialize.';
+      }
+    }
+  }
+
+  const deathCalculatorRoot = document.getElementById('deathCalculatorApp');
+  if (deathCalculatorRoot) {
+    try {
+      new DeathCalculatorController(deathCalculatorRoot).init();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Death Calculator failed to initialize.';
+      const statusText = document.getElementById('deathStatusText');
+      if (statusText) {
+        statusText.textContent = message;
+      }
+      deathCalculatorRoot.dataset.deathStatusMessage = message;
+    }
+  }
+
+  const vmRoot = document.getElementById('retroVmApp');
+  if (vmRoot) {
+    try {
+      new RetroVmController(vmRoot).init();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Retro VM failed to initialize.';
+      const statusText = document.getElementById('retroVmStatusText');
+      if (statusText) {
+        statusText.textContent = message;
+      }
+      vmRoot.dataset.vmStatusMessage = message;
     }
   }
 });

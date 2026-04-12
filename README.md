@@ -11,6 +11,7 @@ Static portfolio site for me (Oliver Dougherty, duh), with a hand-authored site 
 - `assets/`: static media, gallery photo originals, optimized variants, and metadata manifests.
 - `utilities-src/`: editable TypeScript source for the utilities page app bundle.
 - `game-src/`: editable TypeScript source for the game.
+- `config/`: Vite, Vitest, and TypeScript config files for the generated utilities and game projects.
 - `scripts/`: repo checks, image processing, deploy build, and Playwright utilities.
 - `docs/`: maintainer documentation for architecture and workflows.
 
@@ -54,6 +55,7 @@ npm run optimize-images
 - Edit `game-src/`; do not hand-edit `pages/game/` or `pages/game/assets/`.
 - Edit `utilities-src/`; do not hand-edit `pages/dashboard/assets/` or the hashed worker chunks nested under `pages/dashboard/assets/assets/`.
 - Edit source files in the repo root, `pages/`, `js/`, `css/`, and `assets/`; `dist/` is deploy output.
+- Keep build/test config changes in `config/` so the repo root stays limited to shipped site files and top-level package metadata.
 - `assets/photos/photos.json` and `assets/photos/gallery-sequence.json` are the gallery data contracts.
 - `output/`, `.omx/`, IDE folders, and local logs are workstation artifacts and are intentionally ignored.
 
