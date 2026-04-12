@@ -3,18 +3,6 @@
  * Minimal, warm, and centered on a single in-page tool.
  */
 
-/* Fingerprint bar: confirms utilities.css from this tree is loading (WebStorm preview cache often serves stale CSS). */
-html[data-theme='utilities'] body::before {
-  content: '';
-  position: fixed;
-  inset: 0 0 auto;
-  height: 3px;
-  z-index: 100000;
-  pointer-events: none;
-  background: linear-gradient(90deg, #8a7038, #f1e6af, #8a7038);
-  box-shadow: 0 0 24px rgba(241, 230, 175, 0.35);
-}
-
 .utilities-main {
   position: relative;
   overflow: clip;
@@ -108,7 +96,7 @@ html[data-theme='utilities'] body::before {
     rgba(13, 11, 8, 0.65);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  box-shadow: 
+  box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     0 32px 64px -24px rgba(0, 0, 0, 0.8),
     var(--utilities-shadow);
@@ -434,6 +422,14 @@ html[data-theme='utilities'] body::before {
   align-items: center;
 }
 
+.audio-preset-strip {
+  align-items: flex-start;
+}
+
+.audio-preset-strip .demo-strip-label {
+  flex: 0 0 100%;
+}
+
 .demo-chip {
   padding: 0.58rem 0.82rem;
 }
@@ -522,7 +518,7 @@ html[data-theme='utilities'] body::before {
   background: rgba(255, 250, 232, 0.03);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  box-shadow: 
+  box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
     0 12px 24px -12px rgba(0, 0, 0, 0.4);
 }
@@ -612,8 +608,165 @@ html[data-theme='utilities'] body::before {
   gap: var(--space-3);
 }
 
+#utilitiesApp:not([data-transform-has-result='true']) .support-panels {
+  display: none;
+}
+
 .canvas-panel--support .canvas-stage {
   min-height: 11.5rem;
+}
+
+.utility-shell--audio {
+  margin-top: var(--space-4);
+  --audio-accent: #ebe4b3;
+  --audio-gold: #c4aa63;
+  --audio-highlight: #f1e6af;
+  --audio-stage-border: rgba(235, 228, 179, 0.14);
+  --audio-stage-bg:
+    radial-gradient(circle at 18% 18%, rgba(235, 228, 179, 0.1), transparent 30%),
+    radial-gradient(circle at 82% 24%, rgba(196, 170, 99, 0.09), transparent 26%),
+    linear-gradient(135deg, rgba(18, 15, 10, 0.98), rgba(10, 9, 7, 0.98));
+  --audio-control-bg: rgba(255, 249, 224, 0.045);
+  --audio-hover-border: rgba(241, 230, 175, 0.38);
+  --audio-hover-shadow: 0 16px 34px -26px rgba(241, 230, 175, 0.6);
+  --audio-active-chip-text: #0b1415;
+  --audio-active-chip-border: rgba(241, 230, 175, 0.62);
+  --audio-active-chip-bg: linear-gradient(135deg, rgba(241, 230, 175, 0.94), rgba(196, 170, 99, 0.9));
+  --audio-progress-glow: 0 0 14px rgba(241, 230, 175, 0.38);
+}
+
+.utility-shell--audio [hidden] {
+  display: none !important;
+}
+
+html[data-color-mode='light'] .utility-shell--audio {
+  --audio-accent: #8d7130;
+  --audio-gold: #a1833f;
+  --audio-highlight: #c4aa63;
+  --audio-stage-border: rgba(141, 113, 48, 0.14);
+  --audio-stage-bg:
+    radial-gradient(circle at 18% 18%, rgba(141, 113, 48, 0.08), transparent 30%),
+    radial-gradient(circle at 82% 24%, rgba(161, 131, 63, 0.06), transparent 26%),
+    linear-gradient(135deg, #f6f2e6, #ece7d9);
+  --audio-control-bg: rgba(141, 113, 48, 0.05);
+  --audio-hover-border: rgba(141, 113, 48, 0.34);
+  --audio-hover-shadow: 0 0 0 3px rgba(141, 113, 48, 0.12);
+  --audio-active-chip-text: #2b220f;
+  --audio-active-chip-border: rgba(141, 113, 48, 0.46);
+  --audio-active-chip-bg: linear-gradient(135deg, #f5e9b8, #c4aa63);
+  --audio-progress-glow: none;
+}
+
+.utility-shell--audio .utility-kicker,
+.utility-shell--audio .canvas-eyebrow {
+  color: var(--audio-accent);
+}
+
+.utility-shell--audio .utility-dropzone:hover,
+.utility-shell--audio .utility-dropzone:focus-within,
+.utility-shell--audio .utility-dropzone.drag-active {
+  border-color: var(--audio-hover-border);
+  box-shadow: var(--audio-hover-shadow);
+}
+
+.utility-shell--audio .utility-dropzone-icon {
+  border-color: var(--audio-hover-border);
+  color: var(--audio-accent);
+  background: var(--audio-control-bg);
+}
+
+.utility-shell--audio .demo-chip.active {
+  color: var(--audio-active-chip-text);
+  border-color: var(--audio-active-chip-border);
+  background: var(--audio-active-chip-bg);
+}
+
+.audio-progress-fill {
+  background: linear-gradient(90deg, var(--audio-gold), var(--audio-highlight) 58%, var(--audio-accent));
+  box-shadow: var(--audio-progress-glow);
+}
+
+.canvas-panel--audio-wave {
+  background:
+    linear-gradient(180deg, var(--audio-control-bg), transparent 28%),
+    var(--utilities-panel);
+}
+
+.audio-wave-stage,
+.audio-spectrum-stage {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--audio-stage-border);
+  border-radius: calc(var(--radius-2xl) - 0.2rem);
+  background: var(--audio-stage-bg);
+}
+
+.audio-wave-stage {
+  aspect-ratio: 13 / 4.5;
+}
+
+.audio-spectrum-stage {
+  aspect-ratio: 32 / 13;
+}
+
+.audio-wave-stage canvas,
+.audio-spectrum-stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.audio-component-control {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0.85rem 0.9rem;
+  border: 1px solid var(--audio-stage-border);
+  border-radius: var(--radius-xl);
+  background: var(--audio-control-bg);
+}
+
+.audio-component-control-head,
+.audio-component-scale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.audio-component-readout,
+.audio-component-scale {
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.audio-component-slider {
+  width: 100%;
+  accent-color: var(--audio-accent);
+}
+
+.audio-component-slider:disabled {
+  opacity: 0.48;
+}
+
+.audio-result-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.audio-result-stats dd {
+  font-size: clamp(0.95rem, 1.4vw, 1.2rem);
+}
+
+.audio-support-panels .canvas-panel-header p {
+  min-height: 2.8rem;
+}
+
+.utility-shell--audio:is(
+  [data-audio-state='idle'],
+  [data-audio-state='processing'],
+  [data-audio-state='error']
+) .audio-support-panels {
+  display: none;
 }
 
 .utility-shell--vm {

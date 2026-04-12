@@ -821,7 +821,7 @@ export class AudioFourierController {
     gradient.addColorStop(1, 'rgba(18, 11, 22, 0.98)');
     context.fillStyle = gradient;
     context.fillRect(0, 0, canvas.width, canvas.height);
-    context.strokeStyle = 'rgba(128, 232, 214, 0.12)';
+    context.strokeStyle = 'rgba(235, 228, 179, 0.12)';
     context.lineWidth = 1;
     for (let x = 0; x <= canvas.width; x += canvas.width / 12) {
       context.beginPath();
@@ -892,7 +892,7 @@ export class AudioFourierController {
   private drawWaveFrame(original: Float32Array, reconstructed: Float32Array, startSeconds: number, endSeconds: number) {
     this.clearCanvas(this.waveCanvas, this.waveContext);
     this.drawWaveform(original, 'rgba(255, 206, 115, 0.36)', 2);
-    this.drawWaveform(reconstructed, 'rgba(99, 241, 218, 0.95)', 3);
+    this.drawWaveform(reconstructed, 'rgba(241, 230, 175, 0.95)', 3);
     this.waveContext.save();
     this.waveContext.fillStyle = 'rgba(238, 246, 241, 0.72)';
     this.waveContext.font = '13px JetBrains Mono, monospace';
@@ -963,9 +963,9 @@ export class AudioFourierController {
     const cycles = clamp(frequency / Math.max(1, this.activeResult.metadata.proxySampleRate) * 48, 1, 18);
 
     context.save();
-    context.strokeStyle = 'rgba(255, 114, 167, 0.95)';
+    context.strokeStyle = 'rgba(196, 170, 99, 0.95)';
     context.lineWidth = 3;
-    context.shadowColor = 'rgba(255, 114, 167, 0.7)';
+    context.shadowColor = 'rgba(196, 170, 99, 0.7)';
     context.shadowBlur = 14;
     context.beginPath();
     for (let x = 0; x < canvas.width; x += 1) {

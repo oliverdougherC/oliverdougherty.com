@@ -207,6 +207,10 @@ class UtilitiesApp {
     }
   }
 
+  private setSupportPanelsVisible(visible: boolean) {
+    this.root.dataset.transformHasResult = visible ? 'true' : 'false';
+  }
+
   private getContext(canvas: HTMLCanvasElement) {
     const context = canvas.getContext('2d');
     if (!context) {
@@ -420,6 +424,7 @@ class UtilitiesApp {
     this.animationState = null;
     this.animationFramePixels = null;
     this.finalResultImageData = null;
+    this.setSupportPanelsVisible(false);
     this.clearDiagnostics();
     this.clearAllCanvases();
     this.updateCanvasPlaceholder(this.sourcePlaceholder, true);
@@ -620,6 +625,7 @@ class UtilitiesApp {
     this.animationState = null;
     this.animationFramePixels = null;
     this.finalResultImageData = null;
+    this.setSupportPanelsVisible(false);
     this.clearDiagnostics();
     this.updateCanvasPlaceholder(this.resultPlaceholder, true);
     this.setResultMetaCopy('Generating transform…');
@@ -965,6 +971,7 @@ class UtilitiesApp {
     this.syncDiagnostics(transform.metadata, message.requestId);
     this.paintPreparedImage(this.sourceCanvas, this.sourceContext, transform.source);
     this.paintPreparedImage(this.targetCanvas, this.targetContext, transform.target);
+    this.setSupportPanelsVisible(true);
     this.updateCanvasPlaceholder(this.sourcePlaceholder, false);
     this.updateCanvasPlaceholder(this.targetPlaceholder, false);
     this.configureCanvasAspect(transform.metadata.outputWidth, transform.metadata.outputHeight);
