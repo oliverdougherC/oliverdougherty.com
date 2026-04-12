@@ -259,7 +259,7 @@ async function main() {
     }
 
     const audioResults = [
-      await runAudioPresetCase(page, 'audio-generated-preset', 'bell-sweep'),
+      await runAudioPresetCase(page, 'audio-built-in-song', 'best-friends'),
       await runAudioUploadCase(page, 'audio-upload-wav', audioPath)
     ];
 

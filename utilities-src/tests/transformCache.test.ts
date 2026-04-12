@@ -79,11 +79,11 @@ function createRenderPlan(): TransformRenderPlan {
 
 describe('transform cache', () => {
   it('builds cache keys only for built-in demo selections', () => {
-    const source = createDemoSelection('Pattern', '../../assets/utilities/pattern.png');
-    const target = createDemoSelection('Face', '../../assets/utilities/face.png');
+    const source = createDemoSelection('Pattern', '../../assets/utilities/image-transform/pattern.png');
+    const target = createDemoSelection('Face', '../../assets/utilities/image-transform/face.png');
 
     expect(buildBuiltInTransformCacheKey(source, target, 'fast')).toBe(
-      'fast::../../assets/utilities/pattern.png::../../assets/utilities/face.png'
+      'fast::../../assets/utilities/image-transform/pattern.png::../../assets/utilities/image-transform/face.png'
     );
     expect(
       buildBuiltInTransformCacheKey(

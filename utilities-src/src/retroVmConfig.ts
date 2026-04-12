@@ -3,9 +3,12 @@ import type { RetroVmConfig, RetroVmDatasetConfig } from './retroVmTypes';
 
 const MB = 1024 * 1024;
 
+/** Guest OS name + version (shown in progress meta; keep in sync with ISO). */
+const RETRO_VM_DISTRO = 'Tiny Core Linux 11';
+
 export const RETRO_VM_CONFIG: RetroVmConfig = {
   label: 'Retro VM',
-  distro: 'Tiny Core Linux 11',
+  distro: RETRO_VM_DISTRO,
   guestName: 'Tiny Core',
   biosUrl: '../../assets/utilities/vm/seabios.bin',
   vgaBiosUrl: '../../assets/utilities/vm/vgabios.bin',
@@ -27,7 +30,7 @@ export const RETRO_VM_CONFIG: RetroVmConfig = {
       'Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first.',
     screenBadgeOnline: 'Experimental relay',
     screenBadgeOffline: 'Local only',
-    progressMeta: 'Remastered Tiny Core 11 guest · retro desktop utility'
+    progressMeta: RETRO_VM_DISTRO
   },
   network: {
     enabled: false,

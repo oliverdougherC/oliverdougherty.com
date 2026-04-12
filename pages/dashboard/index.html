@@ -1,5 +1,6 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="utilities">
+<!-- Utilities shell id: utilities-2026-04-09b (View Source: if missing, this is not the file your server is serving) -->
+<html lang="en" data-theme="utilities" data-utilities-shell="utilities-2026-04-09b">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,9 +12,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="../../css/design-system.css">
-  <link rel="stylesheet" href="../../css/utilities.css">
-  <link rel="stylesheet" href="../../css/cursor.css">
+  <link rel="stylesheet" href="../../css/design-system.css?v=utilities-2026-04-09b">
+  <link rel="stylesheet" href="../../css/utilities.css?v=utilities-2026-04-09b">
+  <link rel="stylesheet" href="../../css/cursor.css?v=utilities-2026-04-09b">
 </head>
 <body>
   <div class="noise-overlay"></div>
@@ -66,25 +67,13 @@
     <section class="utilities-stage section">
       <div class="container">
         <div class="section-heading" data-animate="fade-up">
-          <span class="section-tag">Featured Utility</span>
           <h2 class="section-title text-display">Image Transform</h2>
           <p class="section-desc">
-            Rebuild one image using the pixels of another, then watch the reconstruction pull itself into place.
+            Rearrange the pixels from any image to create any other image
           </p>
         </div>
 
-        <section class="utility-shell" id="utilitiesApp" data-animate="fade-up" aria-labelledby="imageTransformTitle">
-          <div class="utility-shell-header">
-            <div>
-              <span class="utility-kicker">Single Utility</span>
-              <h3 class="utility-title" id="imageTransformTitle">Image Transform</h3>
-            </div>
-            <div class="utility-status-cluster">
-              <span class="utility-status-chip utility-status-chip--idle" id="transformStatusChip">Idle</span>
-              <p class="utility-status-copy" id="transformStatusText" aria-live="polite">Load two images or start from a demo pair.</p>
-            </div>
-          </div>
-
+        <section class="utility-shell" id="utilitiesApp" data-animate="fade-up" aria-label="Image Transform">
           <div class="utility-layout">
             <div class="utility-rail">
               <div class="utility-toolbar">
@@ -166,7 +155,6 @@
                 <div class="canvas-panel-header">
                   <span class="canvas-eyebrow">Output</span>
                   <h4>Reconstruction</h4>
-                  <p id="transformResultMeta">Generate a transform to begin the animation.</p>
                 </div>
                 <div class="canvas-stage canvas-stage--result">
                   <canvas id="transformResultCanvas" width="384" height="384"></canvas>
@@ -227,24 +215,15 @@
         </section>
 
         <div class="utility-section-break" data-animate="fade-up">
-          <span class="section-tag">Signal Utility</span>
           <h2 class="section-title text-display">Audio Fourier Reconstruction</h2>
           <p class="section-desc">
             Upload a full song or choose a preset, then drag through the Fourier signals that rebuild its proxy waveform.
           </p>
         </div>
 
-        <section class="utility-shell utility-shell--audio" id="audioFourierApp" data-animate="fade-up" data-audio-state="idle" aria-labelledby="audioFourierTitle">
-          <div class="utility-shell-header">
-            <div>
-              <span class="utility-kicker">Exact Additive Signal</span>
-              <h3 class="utility-title" id="audioFourierTitle">Audio Fourier Reconstruction</h3>
-            </div>
-            <div class="utility-status-cluster">
-              <span class="utility-status-chip utility-status-chip--idle" id="audioFourierStatusChip">Idle</span>
-              <p class="utility-status-copy" id="audioFourierStatusText" aria-live="polite">Choose a generated preset or upload an audio file.</p>
-            </div>
-          </div>
+        <section class="utility-shell utility-shell--audio" id="audioFourierApp" data-animate="fade-up" data-audio-state="idle" aria-label="Audio Fourier Reconstruction">
+          <span class="utility-status-chip utility-status-chip--idle" id="audioFourierStatusChip" hidden>Idle</span>
+          <p class="utility-status-copy" id="audioFourierStatusText" aria-live="polite" hidden>Choose a generated preset or upload an audio file.</p>
 
           <div class="utility-layout utility-layout--audio">
             <div class="utility-rail">
@@ -384,41 +363,36 @@
         </section>
 
         <div class="utility-section-break" data-animate="fade-up">
-          <span class="section-tag">Prediction Utility</span>
-          <h2 class="section-title text-display">Longevity Estimate</h2>
-          <p class="section-desc">
-            A local-only actuarial estimate built from U.S. life tables, public-health evidence, and projected mortality improvement. Your answers are never cached or saved.
-          </p>
+          <h2 class="section-title text-display">Death Calculator</h2>
+          <p class="section-desc">Aren't you curious?</p>
         </div>
 
-        <section class="utility-shell utility-shell--death" id="deathCalculatorApp" data-animate="fade-up" data-state="intro" aria-labelledby="deathCalculatorTitle">
+        <section class="utility-shell utility-shell--death" id="deathCalculatorApp" data-animate="fade-up" data-state="intro" aria-label="Death Calculator">
+          <p id="deathStatusText" class="utility-progress-text" aria-live="polite"></p>
           <div class="death-experience">
             <div class="death-screen death-screen--intro" id="deathIntroScreen">
               <article class="death-card death-card--intro">
-                <span class="utility-kicker">Actuarial Model</span>
-                <h3 class="utility-title death-intro-title" id="deathCalculatorTitle">Longevity Estimate</h3>
-                <p class="death-intro-copy" id="deathStatusText" aria-live="polite">
-                  A local-only actuarial estimate built from U.S. life tables and public-health evidence. Your answers are never cached or saved.
-                </p>
-                <button type="button" class="btn-primary-utility death-begin-button" id="deathBeginBtn">Begin</button>
+                <button type="button" class="btn-primary-utility death-begin-button" id="deathBeginBtn">Begin?</button>
               </article>
             </div>
 
             <div class="death-screen death-screen--survey" id="deathSurveyScreen" hidden>
               <article class="death-card death-card--question-shell">
                 <div class="death-flow-head">
-                  <div class="death-flow-copy">
-                    <span class="canvas-eyebrow" id="deathQuestionEyebrow">Question 01</span>
-                    <h4 class="death-question-title" id="deathQuestionTitle">When were you born?</h4>
-                    <p class="death-question-description" id="deathQuestionDescription" hidden></p>
-                  </div>
-
-                  <div class="death-progress-stack" aria-live="polite">
-                    <p class="utility-progress-text" id="deathProgressText">Question 1 of 27</p>
-                    <p class="utility-progress-meta" id="deathProgressMeta">CDC baseline + SSA projection</p>
+                  <div class="death-flow-meta death-progress-stack" aria-live="polite">
                     <div class="death-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
                       <span class="death-progress-fill" id="deathProgressFill"></span>
                     </div>
+                    <p class="utility-progress-meta" id="deathProgressMeta">U.S.-only • evidence snapshot</p>
+                    <p class="death-question-description" id="deathQuestionDescription">
+                      This anchors the actuarial baseline for the model.
+                    </p>
+                    <p class="utility-progress-text" id="deathProgressText">Question 1 of 24</p>
+                  </div>
+
+                  <div class="death-flow-copy">
+                    <span class="canvas-eyebrow" id="deathQuestionEyebrow">Question 01</span>
+                    <h4 class="death-question-title" id="deathQuestionTitle">When were you born?</h4>
                   </div>
                 </div>
 
@@ -441,7 +415,7 @@
                   </section>
 
                   <section class="death-question-card" data-question-card="weight" hidden>
-                    <label class="control-field" for="deathWeightPounds" data-unit="lb">
+                    <label class="control-field" for="deathWeightPounds">
                       <span class="control-label">Weight (lb)</span>
                       <input id="deathWeightPounds" name="weightPounds" class="control-input" type="number" min="50" max="700" step="1" value="180" required>
                     </label>
@@ -449,12 +423,12 @@
 
                   <section class="death-question-card" data-question-card="height" hidden>
                     <div class="death-card-grid death-card-grid--split">
-                      <label class="control-field" for="deathHeightFeet" data-unit="ft">
+                      <label class="control-field" for="deathHeightFeet">
                         <span class="control-label">Height (ft)</span>
                         <input id="deathHeightFeet" name="heightFeet" class="control-input" type="number" min="3" max="8" step="1" value="5" required>
                       </label>
 
-                      <label class="control-field" for="deathHeightInchesPart" data-unit="in">
+                      <label class="control-field" for="deathHeightInchesPart">
                         <span class="control-label">Extra inches</span>
                         <input id="deathHeightInchesPart" name="heightInchesPart" class="control-input" type="number" min="0" max="11" step="1" value="10" required>
                       </label>
@@ -463,12 +437,12 @@
 
                   <section class="death-question-card" data-question-card="moderateMinutes" hidden>
                     <div class="death-card-grid death-card-grid--split">
-                      <label class="control-field" for="deathModerateDays" data-unit="days">
+                      <label class="control-field" for="deathModerateDays">
                         <span class="control-label">Days per week</span>
                         <input id="deathModerateDays" name="moderateDaysPerWeek" class="control-input" type="number" min="0" max="7" step="1" value="4" required>
                       </label>
 
-                      <label class="control-field" for="deathModerateMinutesSession" data-unit="min">
+                      <label class="control-field" for="deathModerateMinutesSession">
                         <span class="control-label">Minutes per session</span>
                         <input id="deathModerateMinutesSession" name="moderateMinutesSession" class="control-input" type="number" min="0" max="300" step="5" value="30" required>
                       </label>
@@ -477,12 +451,12 @@
 
                   <section class="death-question-card" data-question-card="vigorousMinutes" hidden>
                     <div class="death-card-grid death-card-grid--split">
-                      <label class="control-field" for="deathVigorousDays" data-unit="days">
+                      <label class="control-field" for="deathVigorousDays">
                         <span class="control-label">Days per week</span>
                         <input id="deathVigorousDays" name="vigorousDaysPerWeek" class="control-input" type="number" min="0" max="7" step="1" value="1" required>
                       </label>
 
-                      <label class="control-field" for="deathVigorousMinutesSession" data-unit="min">
+                      <label class="control-field" for="deathVigorousMinutesSession">
                         <span class="control-label">Minutes per session</span>
                         <input id="deathVigorousMinutesSession" name="vigorousMinutesSession" class="control-input" type="number" min="0" max="300" step="5" value="30" required>
                       </label>
@@ -490,14 +464,14 @@
                   </section>
 
                   <section class="death-question-card" data-question-card="strengthDays" hidden>
-                    <label class="control-field" for="deathStrengthDays" data-unit="days">
+                    <label class="control-field" for="deathStrengthDays">
                       <span class="control-label">Strength days per week</span>
                       <input id="deathStrengthDays" name="strengthDaysPerWeek" class="control-input" type="number" min="0" max="7" step="1" value="2" required>
                     </label>
                   </section>
 
                   <section class="death-question-card" data-question-card="sedentaryHours" hidden>
-                    <label class="control-field" for="deathSedentaryHours" data-unit="hrs">
+                    <label class="control-field" for="deathSedentaryHours">
                       <span class="control-label">Sedentary hours per day</span>
                       <input id="deathSedentaryHours" name="sedentaryHoursPerDay" class="control-input" type="number" min="0" max="18" step="0.5" value="8" required>
                     </label>
@@ -518,14 +492,14 @@
                   </section>
 
                   <section class="death-question-card" data-question-card="yearsSinceQuit" id="deathYearsSinceQuitField" hidden>
-                    <label class="control-field" for="deathYearsSinceQuit" data-unit="yrs">
+                    <label class="control-field" for="deathYearsSinceQuit">
                       <span class="control-label">Years since quitting</span>
                       <input id="deathYearsSinceQuit" name="yearsSinceQuit" class="control-input" type="number" min="0" max="80" step="1" value="5">
                     </label>
                   </section>
 
                   <section class="death-question-card" data-question-card="drinksPerWeek" hidden>
-                    <label class="control-field" for="deathDrinksPerWeek" data-unit="drinks">
+                    <label class="control-field" for="deathDrinksPerWeek">
                       <span class="control-label">Alcoholic drinks per week</span>
                       <input id="deathDrinksPerWeek" name="drinksPerWeek" class="control-input" type="number" min="0" max="70" step="1" value="3" required>
                     </label>
@@ -544,7 +518,7 @@
                   </section>
 
                   <section class="death-question-card" data-question-card="sleepHours" hidden>
-                    <label class="control-field" for="deathSleepHours" data-unit="hrs">
+                    <label class="control-field" for="deathSleepHours">
                       <span class="control-label">Sleep hours per night</span>
                       <input id="deathSleepHours" name="sleepHoursPerNight" class="control-input" type="number" min="3" max="14" step="0.5" value="7.5" required>
                     </label>
@@ -564,52 +538,9 @@
                   </section>
 
                   <section class="death-question-card" data-question-card="produceServings" hidden>
-                    <label class="control-field" for="deathProduceServings" data-unit="servings">
+                    <label class="control-field" for="deathProduceServings">
                       <span class="control-label">Fruit + vegetable servings per day</span>
                       <input id="deathProduceServings" name="fruitVegetableServingsPerDay" class="control-input" type="number" min="0" max="20" step="1" value="4" required>
-                    </label>
-                  </section>
-
-                  <section class="death-question-card" data-question-card="clinicalBloodPressure" hidden>
-                    <div class="death-card-grid death-card-grid--split">
-                      <label class="control-field" for="deathSystolicBloodPressure" data-unit="sys">
-                        <span class="control-label">Systolic blood pressure</span>
-                        <input id="deathSystolicBloodPressure" name="systolicBloodPressure" class="control-input" type="number" min="70" max="260" step="1" placeholder="Skip if unknown">
-                      </label>
-
-                      <label class="control-field" for="deathDiastolicBloodPressure" data-unit="dia">
-                        <span class="control-label">Diastolic blood pressure</span>
-                        <input id="deathDiastolicBloodPressure" name="diastolicBloodPressure" class="control-input" type="number" min="40" max="160" step="1" placeholder="Skip if unknown">
-                      </label>
-                    </div>
-                    <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathUsesBloodPressureMedication">
-                      <input id="deathUsesBloodPressureMedication" name="usesBloodPressureMedication" type="checkbox">
-                      <span>Currently taking blood pressure medication</span>
-                    </label>
-                  </section>
-
-                  <section class="death-question-card" data-question-card="clinicalCholesterol" hidden>
-                    <div class="death-card-grid death-card-grid--split">
-                      <label class="control-field" for="deathTotalCholesterol" data-unit="total">
-                        <span class="control-label">Total cholesterol</span>
-                        <input id="deathTotalCholesterol" name="totalCholesterol" class="control-input" type="number" min="80" max="450" step="1" placeholder="Skip if unknown">
-                      </label>
-
-                      <label class="control-field" for="deathHdlCholesterol" data-unit="HDL">
-                        <span class="control-label">HDL cholesterol</span>
-                        <input id="deathHdlCholesterol" name="hdlCholesterol" class="control-input" type="number" min="15" max="150" step="1" placeholder="Skip if unknown">
-                      </label>
-                    </div>
-                    <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathUsesLipidMedication">
-                      <input id="deathUsesLipidMedication" name="usesLipidMedication" type="checkbox">
-                      <span>Currently taking cholesterol medication</span>
-                    </label>
-                  </section>
-
-                  <section class="death-question-card" data-question-card="clinicalRestingHeartRate" hidden>
-                    <label class="control-field" for="deathRestingHeartRate" data-unit="bpm">
-                      <span class="control-label">Resting heart rate</span>
-                      <input id="deathRestingHeartRate" name="restingHeartRate" class="control-input" type="number" min="35" max="220" step="1" placeholder="Skip if unknown">
                     </label>
                   </section>
 
@@ -696,123 +627,38 @@
 
             <div class="death-screen death-screen--result" id="deathResultScreen" hidden>
               <article class="death-card death-card--result">
-                <span class="utility-kicker">Projected Result</span>
+                <span class="utility-kicker">Estimated Outcome</span>
                 <div class="death-result-block">
-                  <span class="death-result-label">Median projected date</span>
-                  <h4 class="death-result-date" id="deathMedianDate">Projected date will appear here</h4>
+                  <span class="death-result-label">Estimated death date</span>
+                  <h4 class="death-result-date" id="deathMedianDate">Estimated date will appear here</h4>
                 </div>
 
                 <div class="death-result-block">
-                  <span class="death-result-label">Projected interval</span>
+                  <span class="death-result-label">Death timer</span>
                   <div class="death-countdown-display" id="deathCountdownDisplay">00:000:00:00:00</div>
                   <p class="death-countdown-legend">Years : Days : Hours : Minutes : Seconds</p>
                 </div>
 
-                <p class="death-result-meta" id="deathResultMeta">Complete the survey to reveal the median projected date.</p>
+                <p class="death-result-meta" id="deathResultMeta">Answer every card to reveal the estimate.</p>
                 <p class="death-result-disclaimer" id="deathDisclaimer">
-                  This actuarial estimate uses U.S. life tables, mortality-improvement projections, and curated public-health evidence. It is not a medical diagnosis.
+                  This is a modeled estimate based on U.S. actuarial life tables and curated public-health evidence. It is not a medical diagnosis.
                 </p>
 
-                <div class="death-result-actions">
-                  <button type="button" class="btn-secondary-utility" id="deathMoreInfoBtn" aria-expanded="false" aria-controls="deathMoreInfoPanel">More Info</button>
-                  <button type="button" class="btn-secondary-utility death-reset-button" id="deathResetBtn">Start over</button>
-                </div>
-
-                <section class="death-more-info" id="deathMoreInfoPanel" hidden>
-                  <div class="death-info-grid">
-                    <div class="death-info-group">
-                      <span class="death-result-label">Projected range</span>
-                      <p class="death-info-value" id="deathCentralRange">Complete the survey to reveal the central range.</p>
-                      <p class="death-info-note" id="deathWideRange">Wide range will appear here.</p>
-                    </div>
-
-                    <div class="death-info-group">
-                      <span class="death-result-label">Survival curve</span>
-                      <dl class="death-survival-list">
-                        <div>
-                          <dt>5 years</dt>
-                          <dd id="deathSurvival5">--</dd>
-                        </div>
-                        <div>
-                          <dt>10 years</dt>
-                          <dd id="deathSurvival10">--</dd>
-                        </div>
-                        <div>
-                          <dt>20 years</dt>
-                          <dd id="deathSurvival20">--</dd>
-                        </div>
-                      </dl>
-                    </div>
-                  </div>
-
-                  <div class="death-info-group">
-                    <span class="death-result-label">Answer impact</span>
-                    <ol class="death-impact-list" id="deathImpactList">
-                      <li>Complete the survey to reveal the largest model inputs.</li>
-                    </ol>
-                  </div>
-
-                  <button type="button" class="btn-secondary-utility death-details-button" id="deathDetailsBtn" aria-expanded="false" aria-controls="deathDetailsPanel">Details</button>
-
-                  <section class="death-details-panel" id="deathDetailsPanel" hidden>
-                    <p class="death-info-note" id="deathModelSummary">Model details will appear here.</p>
-                    <ul class="death-source-list" id="deathSourceList"></ul>
-                  </section>
-                </section>
+                <button type="button" class="btn-secondary-utility death-reset-button" id="deathResetBtn">Start over</button>
               </article>
             </div>
           </div>
         </section>
 
         <div class="utility-section-break" data-animate="fade-up">
-          <span class="section-tag">Experimental Utility</span>
-          <h2 class="section-title text-display">Retro VM</h2>
-          <p class="section-desc">
-            A browser-local x86 machine that boots on demand, runs entirely on the client, and wipes its writable state when the tab is closed or reset.
-          </p>
+          <h2 class="section-title text-display">Virtual Machine</h2>
+          <p class="section-desc">A built-in virtual machine that wipes on tab closure</p>
         </div>
 
-        <section class="utility-shell utility-shell--vm" id="retroVmApp" data-animate="fade-up" aria-labelledby="retroVmTitle" data-vm-state="idle" data-vm-supported="unknown" data-vm-running="false" data-vm-booted="false" data-vm-capture-state="uncaptured" data-vm-network-enabled="false" data-vm-relay-url="" data-vm-asset-label="Tiny Core Linux 11 · 20 MB remastered retro ISO" data-vm-session-label="Ephemeral per tab · clean boot every launch" data-vm-bridge-label-online="Clipboard paste + experimental relay hook" data-vm-bridge-label-offline="Clipboard paste only · offline-first rollback" data-vm-support-note-online="Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. Relay-backed networking remains experimental." data-vm-support-note-offline="Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first." data-vm-screen-badge-online="Experimental relay" data-vm-screen-badge-offline="Local only" data-vm-progress-meta="Remastered Tiny Core 11 guest · retro desktop utility">
-          <div class="utility-shell-header">
-            <div>
-              <span class="utility-kicker">Experimental VM</span>
-              <h3 class="utility-title" id="retroVmTitle">Retro VM</h3>
-            </div>
-            <div class="utility-status-cluster">
-              <span class="utility-status-chip utility-status-chip--idle" id="retroVmStatusChip">Idle</span>
-              <p class="utility-status-copy" id="retroVmStatusText" aria-live="polite">
-                Launch a fresh local session when you are ready. Nothing persists after the tab closes.
-              </p>
-            </div>
-          </div>
-
+        <section class="utility-shell utility-shell--vm" id="retroVmApp" data-animate="fade-up" aria-label="Virtual Machine" data-vm-state="idle" data-vm-supported="unknown" data-vm-running="false" data-vm-booted="false" data-vm-capture-state="uncaptured" data-vm-network-enabled="false" data-vm-relay-url="" data-vm-asset-label="Tiny Core Linux 11 · 20 MB remastered retro ISO" data-vm-session-label="Ephemeral per tab · clean boot every launch" data-vm-bridge-label-online="Clipboard paste + experimental relay hook" data-vm-bridge-label-offline="Clipboard paste only · offline-first rollback" data-vm-support-note-online="Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. Relay-backed networking remains experimental." data-vm-support-note-offline="Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first." data-vm-screen-badge-online="Experimental relay" data-vm-screen-badge-offline="Local only" data-vm-progress-meta="Tiny Core Linux 11">
           <div class="utility-layout utility-layout--vm">
             <div class="utility-rail">
               <div class="utility-toolbar">
-                <article class="utility-controls-card vm-brief-card">
-                  <div class="vm-copy-stack">
-                    <span class="control-label">V1 brief</span>
-                    <p class="vm-lead">
-                      Desktop-first, fully client-side, and intentionally isolated. The guest boots on demand and starts fresh every time.
-                    </p>
-                  </div>
-
-                  <dl class="vm-meta-grid">
-                    <div>
-                      <dt class="control-label">Guest</dt>
-                      <dd id="retroVmAssetLabel">Tiny Core Linux 11 · 20 MB remastered retro ISO</dd>
-                    </div>
-                    <div>
-                      <dt class="control-label">Session</dt>
-                      <dd id="retroVmSessionLabel">Ephemeral per tab · clean boot every launch</dd>
-                    </div>
-                    <div>
-                      <dt class="control-label">Bridge</dt>
-                      <dd id="retroVmBridgeLabel">Clipboard paste only · offline-first rollback</dd>
-                    </div>
-                  </dl>
-                </article>
-
                 <article class="utility-controls-card">
                   <div class="control-group">
                     <span class="control-label">Actions</span>
@@ -828,16 +674,6 @@
                     Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first.
                   </p>
                 </article>
-
-                <article class="utility-controls-card">
-                  <span class="control-label">Scope guardrails</span>
-                  <ul class="vm-note-list">
-                    <li>No server-side compute.</li>
-                    <li>No saved writable state after reset or tab close.</li>
-                    <li>Guest internet is intentionally deferred in this rollback.</li>
-                    <li>Designed for keyboard + mouse desktops first.</li>
-                  </ul>
-                </article>
               </div>
             </div>
 
@@ -845,20 +681,11 @@
               <div class="utility-progress" aria-live="polite">
                 <div class="utility-progress-copy">
                   <p class="utility-progress-text" id="retroVmProgressText">Runtime is idle.</p>
-                  <p class="utility-progress-meta" id="retroVmProgressMeta">Remastered Tiny Core 11 guest · retro desktop utility</p>
-                </div>
-                <div class="utility-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-                  <span class="utility-progress-fill" id="retroVmProgressFill" style="width: 0%;"></span>
+                  <p class="utility-progress-meta" id="retroVmProgressMeta">Tiny Core Linux 11</p>
                 </div>
               </div>
 
               <article class="canvas-panel canvas-panel--vm">
-                <div class="canvas-panel-header">
-                  <span class="canvas-eyebrow">Machine</span>
-                  <h4>Windows-Classic Inspired Linux Box</h4>
-                  <p>Retro frame on the outside, browser-local x86 guest on the inside.</p>
-                </div>
-
                 <div class="vm-screen-shell" id="retroVmScreenShell">
                   <div class="vm-screen-chrome">
                     <span class="vm-screen-led"></span>
@@ -895,7 +722,7 @@
 
   <script src="../../js/year.js" defer></script>
   <script src="../../js/main.js" defer></script>
-  <script type="module" src="./assets/utilities-app.js"></script>
+  <script type="module" src="./assets/utilities-app.js?v=utilities-2026-04-09b"></script>
 
   <div class="cursor-dot" id="cursorDot"></div>
   <div class="cursor-circle" id="cursorCircle"></div>

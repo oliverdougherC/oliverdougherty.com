@@ -255,11 +255,11 @@ class RetroVmMouseBridge {
 export class RetroVmController {
   private readonly root: HTMLElement;
   private readonly config: RetroVmConfig;
-  private readonly statusChip: HTMLElement;
-  private readonly statusText: HTMLElement;
+  private readonly statusChip: HTMLElement | null;
+  private readonly statusText: HTMLElement | null;
   private readonly progressText: HTMLElement;
   private readonly progressMeta: HTMLElement;
-  private readonly progressFill: HTMLElement;
+  private readonly progressFill: HTMLElement | null;
   private readonly launchButton: HTMLButtonElement;
   private readonly resetButton: HTMLButtonElement;
   private readonly fullscreenButton: HTMLButtonElement;
@@ -268,9 +268,6 @@ export class RetroVmController {
   private readonly screenContainer: HTMLElement;
   private readonly placeholder: HTMLElement;
   private readonly supportNote: HTMLElement;
-  private readonly assetLabel: HTMLElement;
-  private readonly sessionLabel: HTMLElement;
-  private readonly bridgeLabel: HTMLElement;
   private readonly captureBadge: HTMLElement;
   private readonly screenBadge: HTMLElement;
   private readonly mouseBridge: RetroVmMouseBridge;
@@ -338,7 +335,9 @@ export class RetroVmController {
     void this.autoAdvanceBootMenu();
     this.bootHintTimer = window.setTimeout(() => {
       if (this.state === 'running') {
-        this.statusText.textContent = `The guest is running locally now. ${this.config.guestName} will finish loading its desktop after the initial boot chatter.`;
+        this.setVmStatusLine(
+          `The guest is running locally now. ${this.config.guestName} will finish loading its desktop after the initial boot chatter.`
+        );
       }
     }, this.config.bootHintDelayMs);
   };
@@ -347,11 +346,11 @@ export class RetroVmController {
     this.root = root;
     this.config = resolveRetroVmConfigFromDataset(root.dataset as unknown as RetroVmDatasetConfig);
     this.progress = { loadedBytes: 0, totalBytes: this.config.cdromSizeBytes };
-    this.statusChip = this.requireElement('retroVmStatusChip');
-    this.statusText = this.requireElement('retroVmStatusText');
+    this.statusChip = document.getElementById('retroVmStatusChip');
+    this.statusText = document.getElementById('retroVmStatusText');
     this.progressText = this.requireElement('retroVmProgressText');
     this.progressMeta = this.requireElement('retroVmProgressMeta');
-    this.progressFill = this.requireElement('retroVmProgressFill');
+    this.progressFill = document.getElementById('retroVmProgressFill');
     this.launchButton = this.requireElement('retroVmLaunchBtn');
     this.resetButton = this.requireElement('retroVmResetBtn');
     this.fullscreenButton = this.requireElement('retroVmFullscreenBtn');
@@ -360,9 +359,6 @@ export class RetroVmController {
     this.screenContainer = this.requireElement('retroVmScreen');
     this.placeholder = this.requireElement('retroVmPlaceholder');
     this.supportNote = this.requireElement('retroVmSupportNote');
-    this.assetLabel = this.requireElement('retroVmAssetLabel');
-    this.sessionLabel = this.requireElement('retroVmSessionLabel');
-    this.bridgeLabel = this.requireElement('retroVmBridgeLabel');
     this.captureBadge = this.requireElement('retroVmCaptureBadge');
     this.screenBadge = this.requireElement('retroVmScreenBadge');
     this.mouseBridge = new RetroVmMouseBridge(
@@ -422,6 +418,13 @@ export class RetroVmController {
       throw new Error(`Missing required element: ${id}`);
     }
     return element;
+  }
+
+  private setVmStatusLine(text: string) {
+    this.root.dataset.vmStatusMessage = text;
+    if (this.statusText) {
+      this.statusText.textContent = text;
+    }
   }
 
   private async launch() {
@@ -496,7 +499,7 @@ export class RetroVmController {
       this.setState(transitionRetroVmState(this.state, 'enter-fullscreen'));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Fullscreen is unavailable in this browser.';
-      this.statusText.textContent = message;
+      this.setVmStatusLine(message);
       this.supportNote.textContent = message;
     }
   }
@@ -509,15 +512,15 @@ export class RetroVmController {
     try {
       const text = await navigator.clipboard.readText();
       if (!text) {
-        this.statusText.textContent = 'Clipboard is empty. Copy some text first, then try again.';
+        this.setVmStatusLine('Clipboard is empty. Copy some text first, then try again.');
         return;
       }
 
       await this.emulator.keyboard_send_text(text, 0);
-      this.statusText.textContent = 'Clipboard text was sent into the guest keyboard buffer.';
+      this.setVmStatusLine('Clipboard text was sent into the guest keyboard buffer.');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Clipboard access was denied.';
-      this.statusText.textContent = `Clipboard paste failed: ${message}`;
+      this.setVmStatusLine(`Clipboard paste failed: ${message}`);
     }
   }
 
@@ -651,18 +654,11 @@ export class RetroVmController {
     return isRetroVmNetworkReady(this.config) ? this.config.copy.supportNoteOnline : this.config.copy.supportNoteOffline;
   }
 
-  private getBridgeLabel() {
-    return isRetroVmNetworkReady(this.config) ? this.config.copy.bridgeLabelOnline : this.config.copy.bridgeLabelOffline;
-  }
-
   private getScreenBadgeLabel() {
     return isRetroVmNetworkReady(this.config) ? this.config.copy.screenBadgeOnline : this.config.copy.screenBadgeOffline;
   }
 
   private applyRuntimeLabels() {
-    this.assetLabel.textContent = this.config.copy.assetLabel;
-    this.sessionLabel.textContent = this.config.copy.sessionLabel;
-    this.bridgeLabel.textContent = this.getBridgeLabel();
     this.progressMeta.textContent = this.config.copy.progressMeta;
     this.screenBadge.textContent = this.getScreenBadgeLabel();
     this.root.dataset.vmNetworkReady = isRetroVmNetworkReady(this.config) ? 'true' : 'false';
@@ -675,10 +671,10 @@ export class RetroVmController {
 
     if (this.captureState === 'captured') {
       if (this.state === 'fullscreen') {
-        this.statusText.textContent = 'Mouse is captured. Press Escape to exit fullscreen and release it.';
+        this.setVmStatusLine('Mouse is captured. Press Escape to exit fullscreen and release it.');
         this.supportNote.textContent = 'Mouse is captured. Press Escape to exit fullscreen and return to the page.';
       } else {
-        this.statusText.textContent = 'Mouse is captured now. Press Escape to release it and return to the page cursor.';
+        this.setVmStatusLine('Mouse is captured now. Press Escape to release it and return to the page cursor.');
         this.supportNote.textContent = 'Mouse is captured. Press Escape to release it and return to the page cursor.';
       }
       return;
@@ -689,7 +685,9 @@ export class RetroVmController {
       return;
     }
 
-    this.statusText.textContent = `${this.config.guestName} is booting locally in your browser. Click into the desktop to capture mouse input.`;
+    this.setVmStatusLine(
+      `${this.config.guestName} is booting locally in your browser. Click into the desktop to capture mouse input.`
+    );
     this.supportNote.textContent = this.getDefaultSupportNote();
   }
 
@@ -727,9 +725,12 @@ export class RetroVmController {
 
   private syncUi(reason?: string) {
     const view = resolveRetroVmStatusView(this.state, this.progress, this.config.guestName, reason ?? this.support.reason);
-    this.statusChip.textContent = view.chipLabel;
-    this.statusChip.className = `utility-status-chip ${view.chipClass}`;
-    this.statusText.textContent = view.statusText;
+    this.root.dataset.vmStatusChip = view.chipLabel;
+    if (this.statusChip) {
+      this.statusChip.textContent = view.chipLabel;
+      this.statusChip.className = `utility-status-chip ${view.chipClass}`;
+    }
+    this.setVmStatusLine(view.statusText);
     this.progressText.textContent = view.progressText;
     this.applyRuntimeLabels();
     if (this.state !== 'error' && this.state !== 'unsupported') {
@@ -740,7 +741,11 @@ export class RetroVmController {
       : this.emulator
         ? 100
         : 0;
-    this.progressFill.style.width = `${percent}%`;
+    const roundedPercent = Math.round(percent);
+    this.root.dataset.vmProgressPercent = String(roundedPercent);
+    if (this.progressFill) {
+      this.progressFill.style.width = `${percent}%`;
+    }
     this.launchButton.disabled = !this.support.supported || Boolean(this.emulator) || this.state === 'loading' || this.state === 'fullscreen';
     this.resetButton.disabled = !this.support.supported || (!this.emulator && this.state !== 'error');
     this.fullscreenButton.disabled = !this.emulator || !document.fullscreenEnabled;

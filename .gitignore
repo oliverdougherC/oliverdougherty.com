@@ -15,4 +15,4 @@ server.pid
 *.pid
 npm-debug.log*
 
-image-transform/
+/image-transform/

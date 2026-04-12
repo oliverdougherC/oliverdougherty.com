@@ -55,13 +55,21 @@ function countNearWhitePixels(pixels, threshold = 245) {
 async function waitForStatusMatch(page, pattern, timeout = 15000, label = pattern) {
   try {
     await page.waitForFunction((source) => {
-      const node = document.getElementById('transformStatusText');
-      if (!node || !node.textContent) return false;
-      return new RegExp(source, 'i').test(node.textContent);
+      const app = document.getElementById('utilitiesApp');
+      const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
+      const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
+      const combined = fromData || fromLegacy;
+      if (!combined) return false;
+      return new RegExp(source, 'i').test(combined);
     }, pattern, { timeout });
   } catch (error) {
     const currentStatus = await page
-      .evaluate(() => document.getElementById('transformStatusText')?.textContent?.trim() ?? '')
+      .evaluate(() => {
+        const app = document.getElementById('utilitiesApp');
+        const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
+        const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
+        return fromData || fromLegacy;
+      })
       .catch(() => '');
     throw new Error(`status wait failed (${label}) after ${timeout}ms; current status: ${currentStatus || 'n/a'}`);
   }
@@ -116,7 +124,12 @@ async function waitForAudioProgressFill(page, minimumPercent, timeout = 15000, l
 
 async function readStatusText(page) {
   return page
-    .evaluate(() => document.getElementById('transformStatusText')?.textContent?.trim() ?? '')
+    .evaluate(() => {
+      const app = document.getElementById('utilitiesApp');
+      const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
+      const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
+      return fromData || fromLegacy;
+    })
     .catch(() => '');
 }
 
@@ -383,10 +396,10 @@ async function readLightModeVisualMetrics(page) {
         describe('audio shell', '#audioFourierApp'),
         describe('longevity intro', '#deathCalculatorApp .death-card--intro'),
         describe('retro vm shell', '#retroVmApp'),
-        describe('image status copy', '#transformStatusText'),
+        describe('image status copy', '#transformProgressText'),
         describe('audio status copy', '#audioFourierStatusText'),
-        describe('longevity intro copy', '#deathStatusText'),
-        describe('retro vm status copy', '#retroVmStatusText'),
+        describe('longevity intro copy', '#deathBeginBtn'),
+        describe('retro vm status copy', '#retroVmProgressText'),
         describe('primary action', '#transformGenerateBtn'),
         describe('secondary action', '#transformResetBtn'),
         describe('demo chip', '[data-demo-key="pattern-face"]'),
@@ -394,7 +407,6 @@ async function readLightModeVisualMetrics(page) {
         describe('dropzone', '#sourceDropzone'),
         describe('canvas panel', '.canvas-panel--result'),
         describe('audio panel', '.canvas-panel--audio-wave'),
-        describe('vm brief card', '.vm-brief-card')
       ]
     };
   });
@@ -463,6 +475,12 @@ async function readRetroVmState(page) {
     const root = document.getElementById('retroVmApp');
     const placeholder = document.getElementById('retroVmPlaceholder');
     const progressFill = document.getElementById('retroVmProgressFill');
+    const progressFromDataset = root?.dataset?.vmProgressPercent;
+
+    const networkReady = root?.dataset.vmNetworkReady === 'true';
+    const bridgeLabel = networkReady
+      ? root?.dataset.vmBridgeLabelOnline?.trim() ?? ''
+      : root?.dataset.vmBridgeLabelOffline?.trim() ?? '';
 
     return {
       state: root?.dataset.vmState ?? '',
@@ -471,14 +489,19 @@ async function readRetroVmState(page) {
       running: root?.dataset.vmRunning ?? '',
       supported: root?.dataset.vmSupported ?? '',
       booted: root?.dataset.vmBooted ?? '',
-      status: document.getElementById('retroVmStatusText')?.textContent?.trim() ?? '',
-      chip: document.getElementById('retroVmStatusChip')?.textContent?.trim() ?? '',
+      status: root?.dataset?.vmStatusMessage?.trim() ?? document.getElementById('retroVmStatusText')?.textContent?.trim() ?? '',
+      chip: root?.dataset?.vmStatusChip?.trim() ?? document.getElementById('retroVmStatusChip')?.textContent?.trim() ?? '',
       captureBadge: document.getElementById('retroVmCaptureBadge')?.textContent?.trim() ?? '',
       screenBadge: document.getElementById('retroVmScreenBadge')?.textContent?.trim() ?? '',
-      assetLabel: document.getElementById('retroVmAssetLabel')?.textContent?.trim() ?? '',
-      bridgeLabel: document.getElementById('retroVmBridgeLabel')?.textContent?.trim() ?? '',
+      assetLabel: root?.dataset.vmAssetLabel?.trim() ?? '',
+      bridgeLabel,
       progress: document.getElementById('retroVmProgressText')?.textContent?.trim() ?? '',
-      progressWidth: progressFill instanceof HTMLElement ? progressFill.style.width : '',
+      progressWidth:
+        progressFromDataset !== undefined && progressFromDataset !== ''
+          ? `${progressFromDataset}%`
+          : progressFill instanceof HTMLElement
+            ? progressFill.style.width
+            : '',
       launchDisabled: document.getElementById('retroVmLaunchBtn')?.hasAttribute('disabled') ?? false,
       resetDisabled: document.getElementById('retroVmResetBtn')?.hasAttribute('disabled') ?? false,
       fullscreenDisabled: document.getElementById('retroVmFullscreenBtn')?.hasAttribute('disabled') ?? false,
@@ -556,7 +579,12 @@ async function main() {
     await loadUtilitiesPage(page, pageUrl, 'Built-in pair selected|Ready for input', 15000, 'initial transform state');
 
     const initialTransformState = await page.evaluate(() => ({
-      status: document.getElementById('transformStatusText')?.textContent?.trim(),
+      status: (() => {
+        const app = document.getElementById('utilitiesApp');
+        const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
+        const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
+        return fromData || fromLegacy;
+      })(),
       outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
       pixels: document.getElementById('transformPixelCount')?.textContent?.trim(),
       playLabel: document.getElementById('transformPlayBtn')?.textContent?.trim(),
@@ -583,7 +611,12 @@ async function main() {
     await page.waitForTimeout(300);
 
     const afterDemoSelection = await page.evaluate(() => ({
-      status: document.getElementById('transformStatusText')?.textContent?.trim(),
+      status: (() => {
+        const app = document.getElementById('utilitiesApp');
+        const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
+        const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
+        return fromData || fromLegacy;
+      })(),
       outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
       activeDemo: document.querySelector('.demo-chip.active')?.textContent?.trim() ?? ''
     }));
@@ -603,7 +636,12 @@ async function main() {
     await waitForProgressFill(page, 90, 20000);
 
     const afterDemo = await page.evaluate(() => ({
-      status: document.getElementById('transformStatusText')?.textContent?.trim(),
+      status: (() => {
+        const app = document.getElementById('utilitiesApp');
+        const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
+        const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
+        return fromData || fromLegacy;
+      })(),
       outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
       pixels: document.getElementById('transformPixelCount')?.textContent?.trim(),
       playLabel: document.getElementById('transformPlayBtn')?.textContent?.trim()
@@ -727,7 +765,12 @@ async function main() {
     await waitForStatusMatch(page, 'Transform ready|Animation complete|Reduced motion', 30000);
 
     const uploadedState = await page.evaluate(() => ({
-      status: document.getElementById('transformStatusText')?.textContent?.trim(),
+      status: (() => {
+        const app = document.getElementById('utilitiesApp');
+        const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
+        const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
+        return fromData || fromLegacy;
+      })(),
       sourceMeta: document.getElementById('transformSourceMeta')?.textContent?.trim(),
       targetMeta: document.getElementById('transformTargetMeta')?.textContent?.trim()
     }));
@@ -738,12 +781,22 @@ async function main() {
 
     await page.setInputFiles('#transformSourceInput', whiteHeavySourcePath);
     const staleState = await page.evaluate(() => ({
-      status: document.getElementById('transformStatusText')?.textContent?.trim(),
+      status: (() => {
+        const app = document.getElementById('utilitiesApp');
+        const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
+        const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
+        return fromData || fromLegacy;
+      })(),
       progress: document.getElementById('transformProgressText')?.textContent?.trim(),
       outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
       playDisabled: document.getElementById('transformPlayBtn')?.hasAttribute('disabled'),
       sourceMeta: document.getElementById('transformSourceMeta')?.textContent?.trim(),
-      resultMeta: document.getElementById('transformResultMeta')?.textContent?.trim()
+      resultMeta: (() => {
+        const app = document.getElementById('utilitiesApp');
+        const fromData = app?.dataset?.resultMetaMessage?.trim() ?? '';
+        const fromLegacy = document.getElementById('transformResultMeta')?.textContent?.trim() ?? '';
+        return fromData || fromLegacy;
+      })()
     }));
 
     assert(/Selection updated/i.test(staleState.status || ''), 'Selecting a new source should invalidate the old transform status.');
@@ -792,8 +845,18 @@ async function main() {
     await waitForStatusMatch(page, 'could not|unable|failed', 15000);
 
     const errorState = await page.evaluate(() => ({
-      chip: document.getElementById('transformStatusChip')?.textContent?.trim(),
-      text: document.getElementById('transformStatusText')?.textContent?.trim()
+      chip: (() => {
+        const app = document.getElementById('utilitiesApp');
+        const fromData = app?.dataset?.transformStatusChip?.trim() ?? '';
+        const fromLegacy = document.getElementById('transformStatusChip')?.textContent?.trim() ?? '';
+        return fromData || fromLegacy;
+      })(),
+      text: (() => {
+        const app = document.getElementById('utilitiesApp');
+        const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
+        const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
+        return fromData || fromLegacy;
+      })()
     }));
 
     assert(errorState.chip === 'Error', 'Invalid upload should set the error state.');
@@ -810,8 +873,8 @@ async function main() {
       telemetryPresent: Boolean(document.getElementById('audioFourierApp')?.dataset.audioLastRequestId)
     }));
 
-    assert(/choose|preset|audio/i.test(initialAudioState.status), 'Audio Fourier should start idle.');
-    assert(initialAudioState.selected === 'Harmonic chord', 'Audio Fourier should default to the Harmonic chord preset.');
+    assert(/choose|track|audio/i.test(initialAudioState.status), 'Audio Fourier should start idle.');
+    assert(initialAudioState.selected === 'Best Friends', 'Audio Fourier should default to the Best Friends song preset.');
     assert(initialAudioState.sampleRate === '—', 'Audio Fourier sample-rate metric should stay blank before generation.');
     assert(initialAudioState.componentCount === '—', 'Audio Fourier component count should stay blank before generation.');
     assert(initialAudioState.sliderDisabled === true, 'Audio Fourier component slider should stay disabled before generation.');
@@ -820,9 +883,9 @@ async function main() {
     assert(initialAudioState.telemetryPresent === false, 'Audio Fourier should not analyze audio on first paint.');
 
     await page.selectOption('#audioFourierQuality', 'fast');
-    await page.click('[data-audio-preset="bell-sweep"]');
+    await page.click('[data-audio-preset="best-friends"]');
     await page.click('#audioFourierGenerateBtn');
-    await waitForAudioStatusMatch(page, 'Fourier proxy ready|auditory midpoint|Playing selected|Press Play', 30000, 'generated preset ready');
+    await waitForAudioStatusMatch(page, 'Fourier proxy ready|auditory midpoint|Playing selected|Press Play', 60000, 'built-in song preset ready');
 
     const generatedReadyState = await page.evaluate(() => ({
       status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
@@ -847,7 +910,7 @@ async function main() {
       playDisabled: document.getElementById('audioFourierPlayBtn')?.hasAttribute('disabled') ?? true
     }));
 
-    assert(/ready|playing|press play/i.test(generatedReadyState.status), 'Generated Audio Fourier preset did not finish analysis.');
+    assert(/ready|playing|press play/i.test(generatedReadyState.status), 'Built-in Audio Fourier song preset did not finish analysis.');
     assert(/\d+ Hz proxy/.test(generatedReadyState.sampleRate), 'Audio Fourier proxy sample-rate metric missing after preset generation.');
     assert(generatedReadyState.componentCount !== '—', 'Audio Fourier component count missing after preset generation.');
     assert(/source/.test(generatedReadyState.sourceDuration), 'Audio Fourier source duration missing after preset generation.');
@@ -867,7 +930,7 @@ async function main() {
 
     const generatedWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
     await page.fill('#audioFourierComponentSlider', '100');
-    await waitForAudioProgressFill(page, 99, 15000, 'generated preset slider max');
+    await waitForAudioProgressFill(page, 99, 15000, 'built-in song preset slider max');
     const fullSignalWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
     const generatedSpectrumPixels = await readCanvasPixels(page, 'audioFourierSpectrumCanvas');
     const generatedComponentPixels = await readCanvasPixels(page, 'audioFourierComponentCanvas');
@@ -877,7 +940,7 @@ async function main() {
     assert(countActiveCanvasPixels(generatedComponentPixels) > 100, 'Audio Fourier component canvas should be visibly nonblank.');
     if (generatedReadyState.playDisabled === false) {
       await page.click('#audioFourierPlayBtn');
-      await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, 'generated preset playback starts');
+      await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, 'built-in song preset playback starts');
       await page.waitForTimeout(350);
       const playbackWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
       assert(totalAbsoluteDifference(fullSignalWavePixels, playbackWavePixels) > 0, 'Audio Fourier viewport should advance during playback.');
@@ -890,7 +953,7 @@ async function main() {
       assert(/Playing selected Fourier energy mix/.test(sliderDuringPlaybackState.status), 'Audio Fourier slider should not stop playback.');
       assert(/60% signal energy/.test(sliderDuringPlaybackState.readout), 'Audio Fourier readout should update with perceptual slider mapping during playback.');
       await page.click('#audioFourierPauseBtn');
-      await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'generated preset playback pauses');
+      await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'built-in song preset playback pauses');
     }
 
     const wavPath = await createGeneratedWavFile();
@@ -931,7 +994,7 @@ async function main() {
       resultHidden: document.getElementById('deathResultScreen')?.hasAttribute('hidden') ?? false,
       surveyDisplay: window.getComputedStyle(document.getElementById('deathSurveyScreen')).display,
       resultDisplay: window.getComputedStyle(document.getElementById('deathResultScreen')).display,
-      title: document.getElementById('deathCalculatorTitle')?.textContent?.trim() ?? '',
+      title: document.getElementById('deathCalculatorApp')?.getAttribute('aria-label')?.trim() ?? '',
       beginLabel: document.getElementById('deathBeginBtn')?.textContent?.trim() ?? ''
     }));
 
@@ -940,8 +1003,8 @@ async function main() {
     assert(deathIntroState.resultHidden === true, 'Death Calculator result should stay hidden on first paint.');
     assert(deathIntroState.surveyDisplay === 'none', 'Hidden Death Calculator survey should not occupy layout space.');
     assert(deathIntroState.resultDisplay === 'none', 'Hidden Death Calculator result should not occupy layout space.');
-    assert(deathIntroState.title === 'Longevity Estimate', 'Death Calculator intro title is missing.');
-    assert(deathIntroState.beginLabel === 'Begin', 'Death Calculator intro CTA should read Begin.');
+    assert(deathIntroState.title === 'Death Calculator', 'Death Calculator shell should expose an accessible name.');
+    assert(deathIntroState.beginLabel === 'Begin?', 'Death Calculator intro CTA should read Begin?.');
 
     await page.click('#deathBeginBtn');
 
@@ -1142,7 +1205,12 @@ async function main() {
     await page.click('#deathResetBtn');
     const deathResetState = await page.evaluate(() => ({
       introHidden: document.getElementById('deathIntroScreen')?.hasAttribute('hidden') ?? true,
-      statusText: document.getElementById('deathStatusText')?.textContent?.trim() ?? '',
+      statusText: (() => {
+        const app = document.getElementById('deathCalculatorApp');
+        const fromData = app?.dataset?.deathStatusMessage?.trim() ?? '';
+        const fromLegacy = document.getElementById('deathStatusText')?.textContent?.trim() ?? '';
+        return fromData || fromLegacy;
+      })(),
       birthDate: document.getElementById('deathBirthDate')?.value ?? '',
       medianDate: document.getElementById('deathMedianDate')?.textContent?.trim() ?? '',
       systolicBloodPressure: document.getElementById('deathSystolicBloodPressure')?.value ?? '',
@@ -1250,7 +1318,12 @@ async function main() {
     );
 
     const noWorkerState = await noWorkerPage.evaluate(() => ({
-      status: document.getElementById('transformStatusText')?.textContent?.trim(),
+      status: (() => {
+        const app = document.getElementById('utilitiesApp');
+        const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
+        const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
+        return fromData || fromLegacy;
+      })(),
       outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
       matcherStrategy: document.getElementById('utilitiesApp')?.dataset.matcherStrategy ?? ''
     }));
@@ -1277,9 +1350,17 @@ async function main() {
     const mobileState = await mobilePage.evaluate(() => ({
       width: window.innerWidth,
       shellWidth: document.querySelector('.utility-shell')?.getBoundingClientRect().width ?? 0,
-      resultStatus: document.getElementById('transformStatusText')?.textContent?.trim(),
+      resultStatus: (() => {
+        const app = document.getElementById('utilitiesApp');
+        const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
+        const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
+        return fromData || fromLegacy;
+      })(),
       vmState: document.getElementById('retroVmApp')?.dataset.vmState ?? '',
-      vmStatus: document.getElementById('retroVmStatusText')?.textContent?.trim() ?? '',
+      vmStatus: (() => {
+        const app = document.getElementById('retroVmApp');
+        return app?.dataset?.vmStatusMessage?.trim() ?? document.getElementById('retroVmStatusText')?.textContent?.trim() ?? '';
+      })(),
       navBottom: document.getElementById('nav')?.getBoundingClientRect().bottom ?? 0,
       heroTitleTop: document.querySelector('.utilities-hero .hero-title')?.getBoundingClientRect().top ?? 0
     }));
