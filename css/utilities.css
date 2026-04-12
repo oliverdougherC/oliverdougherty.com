@@ -100,7 +100,7 @@
     rgba(13, 11, 8, 0.65);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  box-shadow: 
+  box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.08),
     0 32px 64px -24px rgba(0, 0, 0, 0.8),
     var(--utilities-shadow);
@@ -516,7 +516,7 @@
   background: rgba(255, 250, 232, 0.03);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  box-shadow: 
+  box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
     0 12px 24px -12px rgba(0, 0, 0, 0.4);
 }
