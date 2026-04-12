@@ -198,6 +198,20 @@ function parseNumber(value: string, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function parseNullableNumber(value: FormDataEntryValue | null) {
+  if (value === null) {
+    return null;
+  }
+
+  const text = String(value).trim();
+  if (!text) {
+    return null;
+  }
+
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export class DeathCalculatorController {
   private readonly root: HTMLElement;
   private readonly form: HTMLFormElement;
@@ -552,6 +566,13 @@ export class DeathCalculatorController {
       sleepHoursPerNight: parseNumber(String(formData.get('sleepHoursPerNight') ?? '0'), 0),
       ultraProcessedFoodShare: String(formData.get('ultraProcessedFoodShare') ?? 'moderate') as LongevitySurveyAnswers['ultraProcessedFoodShare'],
       fruitVegetableServingsPerDay: parseNumber(String(formData.get('fruitVegetableServingsPerDay') ?? '0'), 0),
+      systolicBloodPressure: parseNullableNumber(formData.get('systolicBloodPressure')),
+      diastolicBloodPressure: parseNullableNumber(formData.get('diastolicBloodPressure')),
+      usesBloodPressureMedication: formData.get('usesBloodPressureMedication') === 'on',
+      totalCholesterol: parseNullableNumber(formData.get('totalCholesterol')),
+      hdlCholesterol: parseNullableNumber(formData.get('hdlCholesterol')),
+      usesLipidMedication: formData.get('usesLipidMedication') === 'on',
+      restingHeartRate: parseNullableNumber(formData.get('restingHeartRate')),
       hasHypertension: formData.get('hasHypertension') === 'on',
       diabetesStatus: String(formData.get('diabetesStatus') ?? 'none') as LongevitySurveyAnswers['diabetesStatus'],
       hasCardiovascularDisease: formData.get('hasCardiovascularDisease') === 'on',
