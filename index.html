@@ -5,7 +5,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Oliver Dougherty</title>
-  <meta name="description" content="Engineer, photographer, and creator. Welcome to my corner of the internet.">
+  <meta name="description" content="Engineer, photographer, and creator.">
+  <link rel="alternate" media="only screen and (max-width: 760px)" href="mobile/">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
 
   <!-- Fonts -->
@@ -77,11 +78,19 @@
         </div>
 
         <div class="hero-titles">
-          <h1 class="hero-title title-main">
-            <span class="mask-wrap"><span class="mask-inner">OLIVER</span></span>
+          <h1 class="hero-title title-main" aria-label="OLIVER">
+            <span class="mask-wrap">
+              <span class="mask-inner hero-word" data-word="OLIVER" aria-hidden="true">
+                <span class="hero-letter">O</span><span class="hero-letter">L</span><span class="hero-letter">I</span><span class="hero-letter">V</span><span class="hero-letter">E</span><span class="hero-letter">R</span>
+              </span>
+            </span>
           </h1>
-          <h1 class="hero-title title-sub text-gradient">
-            <span class="mask-wrap"><span class="mask-inner">DOUGHERTY</span></span>
+          <h1 class="hero-title title-sub text-gradient" aria-label="DOUGHERTY">
+            <span class="mask-wrap">
+              <span class="mask-inner hero-word" data-word="DOUGHERTY" aria-hidden="true">
+                <span class="hero-letter">D</span><span class="hero-letter">O</span><span class="hero-letter">U</span><span class="hero-letter">G</span><span class="hero-letter">H</span><span class="hero-letter">E</span><span class="hero-letter">R</span><span class="hero-letter">T</span><span class="hero-letter">Y</span>
+              </span>
+            </span>
           </h1>
         </div>
 
@@ -149,91 +158,6 @@
       </div>
     </section>
 
-    <!-- Work / Portal Section -->
-    <section class="work section-lg" id="work">
-      <div class="container">
-        <div class="section-header" data-animate="fade-up">
-          <span class="section-tag">Explore</span>
-          <h2 class="section-title text-display">My corner of the internet</h2>
-          <p class="section-desc">My various projects and endeavors.</p>
-        </div>
-
-        <div class="portal-grid">
-          <!-- Gallery Portal -->
-          <a href="pages/gallery/index.html" class="portal-card portal-gallery" data-animate="fade-up" data-index="01">
-            <div class="portal-bg"></div>
-            <div class="portal-content">
-              <div class="portal-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                  <circle cx="8.5" cy="8.5" r="1.5" />
-                  <polyline points="21 15 16 10 5 21" />
-                </svg>
-              </div>
-              <h3 class="portal-title">Photography</h3>
-              <p class="portal-desc">A curated collection of full-frame images</p>
-              <span class="portal-arrow">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  stroke-width="2">
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                  <polyline points="12 5 19 12 12 19" />
-                </svg>
-              </span>
-            </div>
-          </a>
-
-          <!-- Resume Portal -->
-          <a href="pages/resume/index.html" class="portal-card portal-resume" data-animate="fade-up" data-index="02">
-            <div class="portal-bg"></div>
-            <div class="portal-content">
-              <div class="portal-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                  <circle cx="12" cy="7" r="4" />
-                </svg>
-              </div>
-              <h3 class="portal-title">Resume</h3>
-              <p class="portal-desc">Professional experience, skills, and qualifications</p>
-              <span class="portal-arrow">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  stroke-width="2">
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                  <polyline points="12 5 19 12 12 19" />
-                </svg>
-              </span>
-            </div>
-          </a>
-
-          <!-- Utilities Portal -->
-          <a href="pages/dashboard/index.html" class="portal-card portal-utilities" data-animate="fade-up" data-index="03">
-            <div class="portal-bg"></div>
-            <div class="portal-content">
-              <div class="portal-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3" y="3" width="7" height="7" />
-                  <rect x="14" y="3" width="7" height="7" />
-                  <rect x="14" y="14" width="7" height="7" />
-                  <rect x="3" y="14" width="7" height="7" />
-                </svg>
-              </div>
-              <h3 class="portal-title">Utilities</h3>
-              <p class="portal-desc">Interactive experiments and browser-native tools</p>
-              <span class="portal-arrow">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  stroke-width="2">
-                  <line x1="5" y1="12" x2="19" y2="12" />
-                  <polyline points="12 5 19 12 12 19" />
-                </svg>
-              </span>
-            </div>
-          </a>
-        </div>
-      </div>
-    </section>
-
     <!-- Projects Preview -->
     <section class="projects section" id="projects">
       <div class="container">
@@ -274,8 +198,8 @@
             <div class="project-number">02</div>
             <div class="project-content">
               <h3 class="project-title">Computer Hardware Club</h3>
-              <p class="project-desc">Founded and lead OSU's Computer Hardware Club. Building Dell PowerEdge R620
-                infrastructure, teaching Docker and CUDA workshops to 20+ members.</p>
+              <p class="project-desc">Founder and Vice-President of OSU's Computer Hardware Club. Building Dell PowerEdge R620
+                infrastructure and teaching Docker and CUDA workshops to 20+ members.</p>
               <div class="project-tags">
                 <span class="tag">Leadership</span>
                 <span class="tag">Docker</span>

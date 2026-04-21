@@ -24,6 +24,7 @@
     "format": "node scripts/format.js --write",
     "format:check": "node scripts/format.js --check",
     "check-links": "node scripts/check-links.js",
+    "mobile:check": "node scripts/mobile-site-check.js",
     "gallery:shots": "node scripts/gallery-playwright.js",
     "gallery:perf": "node scripts/gallery-perf-probe.js",
     "gallery:check": "node scripts/gallery-dropdown-check.js",
