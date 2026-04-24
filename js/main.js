@@ -7,6 +7,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   initMotionPreference();
   initNavigation();
+  initDeferredImages();
   initScrollAnimations();
   initSmoothScroll();
   initPortalGlow();
@@ -23,6 +24,39 @@ function initMotionPreference() {
 
 function prefersReducedMotion() {
   return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/**
+ * Keep below-fold imagery out of the initial home-page load.
+ */
+function initDeferredImages() {
+  const images = document.querySelectorAll('img[data-deferred-src]');
+  if (!images.length) return;
+
+  const loadImage = (image) => {
+    const src = image.getAttribute('data-deferred-src');
+    if (!src) return;
+
+    image.src = src;
+    image.removeAttribute('data-deferred-src');
+  };
+
+  if (!('IntersectionObserver' in window)) {
+    images.forEach(loadImage);
+    return;
+  }
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      loadImage(entry.target);
+      observer.unobserve(entry.target);
+    });
+  }, {
+    rootMargin: '80px 0px'
+  });
+
+  images.forEach((image) => observer.observe(image));
 }
 
 /**

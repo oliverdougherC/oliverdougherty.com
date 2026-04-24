@@ -39,7 +39,7 @@ body.gallery-lightbox-open {
 .gallery-main {
   position: relative;
   padding-bottom: var(--space-24);
-  overflow: clip;
+  overflow: visible;
 }
 
 .gallery-hero {
@@ -101,8 +101,10 @@ html[data-color-mode="light"] .hero-aurora {
   -webkit-text-fill-color: transparent;
   background-clip: text;
   font-size: clamp(4.2rem, 11.5vw, 10rem);
-  line-height: 0.8;
+  line-height: 0.95;
   letter-spacing: -0.02em;
+  overflow: visible;
+  margin-bottom: 0.2em;
 }
 
 .hero-title em {
@@ -110,6 +112,9 @@ html[data-color-mode="light"] .hero-aurora {
   font-style: italic;
   padding-left: 0.5em;
   font-weight: 400;
+  overflow: visible;
+  line-height: 0.95;
+  margin-top: -0.2em;
 }
 
 

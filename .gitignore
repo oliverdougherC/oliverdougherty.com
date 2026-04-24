@@ -8,6 +8,8 @@ output/
 .claude/
 .codex-tmp/
 .omx/
+.playwright-mcp/
+.openclaude/
 
 server.log
 server.pid

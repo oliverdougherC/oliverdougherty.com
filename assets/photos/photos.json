@@ -7,7 +7,7 @@
       "displayTitle": "Squirrel",
       "description": "A head-on shot of a squirrel standing in a grassy field.",
       "category": "WILDLIFE",
-      "location": "Field Edge",
+      "location": "Portland, Oregon",
       "variantBaseName": "a7rii_335",
       "width": 7952,
       "height": 5304,
@@ -33,7 +33,7 @@
         "height": 1601
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 400,
         "aperture": 6.3,
@@ -49,7 +49,7 @@
       "displayTitle": "Lighthouse",
       "description": "A medium-long zoom shot of a white lighthouse sitting alone at the end of a peninsula.",
       "category": "LANDSCAPE",
-      "location": "Peninsula Edge",
+      "location": "Newport, Oregon",
       "variantBaseName": "a7rii_474",
       "width": 7888,
       "height": 5262,
@@ -75,7 +75,7 @@
         "height": 1601
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 202,
         "aperture": 8,
@@ -91,7 +91,7 @@
       "displayTitle": "Ember M4",
       "description": "A close up of the rear end of a BMW M4 competition, showing off the badges and the \"EMBER M4\" license plate.",
       "category": "AUTOMOTIVE",
-      "location": "Mountain Pullout",
+      "location": "Menlo Park, California",
       "variantBaseName": "DSC04084",
       "width": 7952,
       "height": 5304,
@@ -117,7 +117,7 @@
         "height": 1601
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 284,
         "aperture": 13,
@@ -133,7 +133,7 @@
       "displayTitle": "Union",
       "description": "A long, night shot of a big, union building with a dome roof.",
       "category": "NIGHT_STUDIES",
-      "location": "Civic Center",
+      "location": "Oregon State University",
       "variantBaseName": "IMG_20251211_232447_034",
       "width": 6324,
       "height": 4743,
@@ -170,7 +170,7 @@
       "displayTitle": "Hawk",
       "description": "A zoomed shot of a hawk sitting on a tree branch.",
       "category": "WILDLIFE",
-      "location": "Tree Line",
+      "location": "Menlo Park, California",
       "variantBaseName": "DSC04229",
       "width": 5783,
       "height": 4267,
@@ -196,7 +196,7 @@
         "height": 1771
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 400,
         "aperture": 6.3,
@@ -212,7 +212,7 @@
       "displayTitle": "Chairs",
       "description": "A rear shot of 2 chairs on a tropical beach.",
       "category": "LANDSCAPE",
-      "location": "Beachfront",
+      "location": "Kailua-Kona, Hawaii",
       "variantBaseName": "Hawaii_S25_121",
       "width": 7952,
       "height": 5304,
@@ -238,7 +238,7 @@
         "height": 1601
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "FE 28-70mm F3.5-5.6 OSS",
         "focalLength": 38,
         "aperture": 10,
@@ -254,7 +254,7 @@
       "displayTitle": "Forest",
       "description": "A landscape shot of a seeming neverending forest.",
       "category": "LANDSCAPE",
-      "location": "Forest Line",
+      "location": "Windy Hill, California",
       "variantBaseName": "DSC04166",
       "width": 7952,
       "height": 5304,
@@ -280,7 +280,7 @@
         "height": 1601
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 100,
         "aperture": 5,
@@ -296,7 +296,7 @@
       "displayTitle": "Looking for Shells",
       "description": "A long zoom shot of 1 woman and 2 children on a rocky beach looking for shells.",
       "category": "FIGURES",
-      "location": "Rocky Shore",
+      "location": "Newport, Oregon",
       "variantBaseName": "a7rii_492",
       "width": 7952,
       "height": 5304,
@@ -322,7 +322,7 @@
         "height": 1601
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 400,
         "aperture": 6.3,
@@ -338,7 +338,7 @@
       "displayTitle": "Pond",
       "description": "A close-medium top view shot of a coi pond.",
       "category": "LANDSCAPE",
-      "location": "Garden Pond",
+      "location": "Kailua-Kona, Hawaii",
       "variantBaseName": "Dream_Pond",
       "width": 7952,
       "height": 5304,
@@ -364,7 +364,7 @@
         "height": 1601
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "FE 28-70mm F3.5-5.6 OSS",
         "focalLength": 40,
         "aperture": 4.5,
@@ -380,7 +380,7 @@
       "displayTitle": "Hills",
       "description": "A landscape shot of rolling, green hills.",
       "category": "LANDSCAPE",
-      "location": "Open Range",
+      "location": "Windy Hill, California",
       "variantBaseName": "DSC04139",
       "width": 7952,
       "height": 5304,
@@ -406,7 +406,7 @@
         "height": 1601
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 100,
         "aperture": 8,
@@ -422,7 +422,7 @@
       "displayTitle": "Fog",
       "description": "A landscape shot of a bed of fog laying on distant hills.",
       "category": "LANDSCAPE",
-      "location": "Distant Ridge",
+      "location": "Windy Hill, California",
       "variantBaseName": "DSC04161",
       "width": 7952,
       "height": 5304,
@@ -448,7 +448,7 @@
         "height": 1601
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 311,
         "aperture": 8,
@@ -464,7 +464,7 @@
       "displayTitle": "Moon",
       "description": "A zoomed shot of the moon.",
       "category": "NIGHT_STUDIES",
-      "location": "Night Sky",
+      "location": "Moon",
       "variantBaseName": "DSC04599",
       "width": 1143,
       "height": 1143,
@@ -490,7 +490,7 @@
         "height": 1143
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 400,
         "aperture": 29,
@@ -506,7 +506,7 @@
       "displayTitle": "Sitting",
       "description": "A zoomed, slightly raised shot of a squirrel sitting on a fence.",
       "category": "WILDLIFE",
-      "location": "Fence Line",
+      "location": "Menlo Park, California",
       "variantBaseName": "DSC04549",
       "width": 7952,
       "height": 5304,
@@ -532,7 +532,7 @@
         "height": 1601
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 400,
         "aperture": 6.3,
@@ -548,7 +548,7 @@
       "displayTitle": "In Flight",
       "description": "A zoomed shot of a small bird as it zips downward.",
       "category": "WILDLIFE",
-      "location": "Open Sky",
+      "location": "Menlo Park, California",
       "variantBaseName": "DSC04554",
       "width": 5073,
       "height": 3450,
@@ -574,7 +574,7 @@
         "height": 1632
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 400,
         "aperture": 6.3,
@@ -590,7 +590,7 @@
       "displayTitle": "Caught",
       "description": "A near birds-eye view down onto a staircase where a young woman looks up into the camera as she walks up the stairs.",
       "category": "FIGURES",
-      "location": "Concrete Stairwell",
+     "location": "Newport, Oregon",
       "variantBaseName": "a7rii_477",
       "width": 4163,
       "height": 3122,
@@ -616,7 +616,7 @@
         "height": 1800
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 139,
         "aperture": 5.6,
@@ -632,7 +632,7 @@
       "displayTitle": "Stroller",
       "description": "A long, 80 degree shot of a young woman pushing a stroller.",
       "category": "FIGURES",
-      "location": "Waterfront Path",
+      "location": "Menlo Park, California",
       "variantBaseName": "DSC04205",
       "width": 6076,
       "height": 3906,
@@ -658,7 +658,7 @@
         "height": 1543
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 400,
         "aperture": 6.3,
@@ -674,7 +674,7 @@
       "displayTitle": "Swing",
       "description": "A long, 45 degree shot of two men in the follow through of their golf swing.",
       "category": "FIGURES",
-      "location": "Driving Range",
+      "location": "Menlo Park, California",
       "variantBaseName": "DSC04179",
       "width": 5461,
       "height": 3644,
@@ -700,7 +700,7 @@
         "height": 1601
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 383,
         "aperture": 6.3,
@@ -716,7 +716,7 @@
       "displayTitle": "Putt",
       "description": "A long shot of 2 men while 1 putts a golf ball.",
       "category": "FIGURES",
-      "location": "Practice Green",
+      "location": "Menlo Park, California",
       "variantBaseName": "DSC04209",
       "width": 7952,
       "height": 5304,
@@ -742,7 +742,7 @@
         "height": 1601
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 400,
         "aperture": 6.3,
@@ -758,7 +758,7 @@
       "displayTitle": "Nose",
       "description": "A medium, 30 degree shot of the front end of a Audi RS6.",
       "category": "AUTOMOTIVE",
-      "location": "Street Shoulder",
+      "location": "Menlo Park, California",
       "variantBaseName": "DSC04098",
       "width": 7670,
       "height": 5116,
@@ -784,7 +784,7 @@
         "height": 1601
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 100,
         "aperture": 8,
@@ -800,7 +800,7 @@
       "displayTitle": "Stare",
       "description": "A medium, perfectly head on shot of an Audi RS6.",
       "category": "AUTOMOTIVE",
-      "location": "Street Shoulder",
+      "location": "Menlo Park, California",
       "variantBaseName": "DSC04102",
       "width": 7828,
       "height": 5288,
@@ -826,7 +826,7 @@
         "height": 1621
       },
       "exif": {
-        "camera": "ILCE-7RM2",
+        "camera": "Sony A7RII",
         "lens": "100-400mm F5-6.3 DG DN OS | Contemporary 020",
         "focalLength": 187,
         "aperture": 8,
@@ -842,7 +842,7 @@
       "displayTitle": "Yellow",
       "description": "A stylized night shot of a yellow traffic light.",
       "category": "NIGHT_STUDIES",
-      "location": "Intersection",
+      "location": "Corvallis, Oregon",
       "variantBaseName": "IMG_20251211_225252_010",
       "width": 2864,
       "height": 2148,
@@ -879,7 +879,7 @@
       "displayTitle": "Night",
       "description": "A wide angle shot of a small park at night.",
       "category": "NIGHT_STUDIES",
-      "location": "Neighborhood Park",
+      "location": "Oregon State University",
       "variantBaseName": "IMG_20251211_225510_015",
       "width": 8192,
       "height": 6144,
@@ -916,7 +916,7 @@
       "displayTitle": "Yield",
       "description": "A stylized close up of a yield sign.",
       "category": "NIGHT_STUDIES",
-      "location": "Street Corner",
+      "location": "Oregon State University",
       "variantBaseName": "IMG_20251211_225546_016",
       "width": 8192,
       "height": 6144,
@@ -953,7 +953,7 @@
       "displayTitle": "Lights",
       "description": "A styled shot of a large, concrete building from the sidewalk.",
       "category": "NIGHT_STUDIES",
-      "location": "Downtown Sidewalk",
+      "location": "Oregon State University",
       "variantBaseName": "IMG_20251211_225914_024_crop",
       "width": 4601,
       "height": 4601,
