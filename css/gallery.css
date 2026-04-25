@@ -101,10 +101,9 @@ html[data-color-mode="light"] .hero-aurora {
   -webkit-text-fill-color: transparent;
   background-clip: text;
   font-size: clamp(4.2rem, 11.5vw, 10rem);
-  line-height: 0.95;
+  line-height: 1.0;
   letter-spacing: -0.02em;
   overflow: visible;
-  margin-bottom: 0.2em;
 }
 
 .hero-title em {
@@ -113,8 +112,8 @@ html[data-color-mode="light"] .hero-aurora {
   padding-left: 0.5em;
   font-weight: 400;
   overflow: visible;
-  line-height: 0.95;
-  margin-top: -0.2em;
+  line-height: 1.0;
+  transform: translateY(-0.05em);
 }
 
 

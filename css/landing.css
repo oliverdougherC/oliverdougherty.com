@@ -279,6 +279,7 @@
 }
 
 .drafting-field,
+.letter-measure-guides,
 .word-paths,
 .letter-path,
 .measurement-rails {
@@ -297,7 +298,8 @@
 
 .drafting-field path,
 .drafting-field line,
-.construction-guides path {
+.construction-guides path,
+.letter-measure-guides path {
   stroke-dasharray: var(--grid-dash, 900);
   stroke-dashoffset: var(--grid-dash, 900);
   animation: gridLineSketch var(--grid-duration, 760ms) cubic-bezier(0.48, 0, 0.18, 1) calc(var(--dougherty-start) + var(--grid-delay, 0ms)) forwards;
@@ -360,6 +362,38 @@
   --grid-dash: 900;
   --grid-duration: 960ms;
   --grid-delay: 210ms;
+}
+
+.letter-measure-guides {
+  fill: none;
+  opacity: 1;
+  vector-effect: non-scaling-stroke;
+  --grid-dash: 900;
+  --grid-duration: 1120ms;
+  --grid-delay: 260ms;
+}
+
+.letter-measure-guide {
+  stroke: rgba(183, 213, 200, 0.16);
+  stroke-width: 0.4;
+}
+
+.letter-measure-guide--major {
+  stroke: rgba(183, 213, 200, 0.31);
+  stroke-width: 0.54;
+}
+
+.letter-measure-guide--minor {
+  stroke: rgba(183, 213, 200, 0.13);
+  stroke-width: 0.36;
+  --grid-delay: 360ms;
+}
+
+.letter-measure-rail {
+  stroke: rgba(183, 213, 200, 0.2);
+  stroke-width: 0.5;
+  --grid-duration: 980ms;
+  --grid-delay: 180ms;
 }
 
 .word-paths {
@@ -1554,7 +1588,8 @@ html[data-color-mode="light"] .bored-void-inner::before {
   .title-main .hero-letter,
   .blueprint-title,
   .blueprint-word,
-  .drafting-field {
+  .drafting-field,
+  .letter-measure-guides {
     opacity: 1 !important;
     transform: none !important;
     filter: none !important;
@@ -1581,7 +1616,8 @@ html[data-color-mode="light"] .bored-void-inner::before {
     opacity: 1 !important;
   }
 
-  .drafting-field {
+  .drafting-field,
+  .letter-measure-guides {
     opacity: 0.2 !important;
   }
 
