@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="../../css/design-system.css?v=utilities-2026-04-09b">
   <link rel="stylesheet" href="../../css/utilities.css?v=utilities-2026-04-09b">
   <link rel="stylesheet" href="../../css/cursor.css?v=utilities-2026-04-09b">
+  <link rel="stylesheet" href="../../css/local-llm-chat.css?v=utilities-2026-04-09b">
 </head>
 <body>
   <div class="noise-overlay"></div>
@@ -269,7 +270,7 @@
                     <span class="demo-strip-label">Try a built-in song</span>
                     <button type="button" class="demo-chip active" data-audio-preset="best-friends">Best Friends</button>
                     <button type="button" class="demo-chip" data-audio-preset="i-cant-wait-to-get-there">I Can't Wait To Get There</button>
-                    <button type="button" class="demo-chip" data-audio-preset="party-after-party">The Party &amp; The After Party</button>
+                    <button type="button" class="demo-chip" data-audio-preset="tell-your-friends">Tell Your Friends</button>
                   </div>
                 </div>
               </div>
@@ -362,6 +363,13 @@
             </div>
           </div>
         </section>
+
+        <div class="utility-section-break" data-animate="fade-up">
+          <h2 class="section-title text-display">Local AI Chat</h2>
+          <p class="section-desc">A tiny text-generation model that runs entirely in your browser.</p>
+        </div>
+
+        <section class="utility-shell utility-shell--local-llm" id="localLlmUtilityApp" data-utility-root="local-llm" data-animate="fade-up" data-local-llm-status="idle" aria-label="Local AI Chat"></section>
 
         <div class="utility-section-break" data-animate="fade-up">
           <h2 class="section-title text-display">Death Calculator</h2>
@@ -724,6 +732,7 @@
   <script src="../../js/year.js" defer></script>
   <script src="../../js/main.js" defer></script>
   <script type="module" src="./assets/utilities-app.js?v=utilities-2026-04-09b"></script>
+  <script type="module" src="../../js/local-llm-chat.js?v=utilities-2026-04-09b"></script>
 
   <div class="cursor-dot" id="cursorDot"></div>
   <div class="cursor-circle" id="cursorCircle"></div>

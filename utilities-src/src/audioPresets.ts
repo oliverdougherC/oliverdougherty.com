@@ -1,4 +1,4 @@
-export type BuiltInAudioPresetId = 'best-friends' | 'i-cant-wait-to-get-there' | 'party-after-party';
+export type BuiltInAudioPresetId = 'best-friends' | 'i-cant-wait-to-get-there' | 'tell-your-friends';
 export type AudioFourierPresetId = 'fast' | 'balanced' | 'detailed';
 
 export interface BuiltInAudioPreset {
@@ -38,11 +38,11 @@ export const BUILT_IN_AUDIO_PRESETS: Record<BuiltInAudioPresetId, BuiltInAudioPr
     description: 'Song source for Fourier proxy reconstruction.',
     url: `${FOURIER_DECOMPOSE_ASSET_BASE}/I Can't Wait To Get There.flac`
   },
-  'party-after-party': {
-    id: 'party-after-party',
-    label: 'The Party & The After Party',
+  'tell-your-friends': {
+    id: 'tell-your-friends',
+    label: 'Tell Your Friends',
     description: 'Song source for Fourier proxy reconstruction.',
-    url: `${FOURIER_DECOMPOSE_ASSET_BASE}/The Party & The After Party.flac`
+    url: `${FOURIER_DECOMPOSE_ASSET_BASE}/Tell Your Friends.flac`
   }
 };
 

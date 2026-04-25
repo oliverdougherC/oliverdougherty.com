@@ -10,13 +10,13 @@ describe('built-in audio presets', () => {
     expect(Object.keys(BUILT_IN_AUDIO_PRESETS)).toEqual([
       'best-friends',
       'i-cant-wait-to-get-there',
-      'party-after-party'
+      'tell-your-friends'
     ]);
 
     const expectedFiles: Record<BuiltInAudioPresetId, string> = {
       'best-friends': 'Best Friends.flac',
       'i-cant-wait-to-get-there': "I Can't Wait To Get There.flac",
-      'party-after-party': 'The Party & The After Party.flac'
+      'tell-your-friends': 'Tell Your Friends.flac'
     };
 
     for (const [presetId, filename] of Object.entries(expectedFiles) as Array<[BuiltInAudioPresetId, string]>) {
