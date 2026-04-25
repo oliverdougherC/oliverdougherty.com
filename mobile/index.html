@@ -6,8 +6,9 @@
   <title>Oliver Dougherty - Mobile</title>
   <meta name="description" content="A mobile-first profile hub for Oliver Dougherty.">
   <link rel="canonical" href="../index.html">
-  <link rel="icon" type="image/svg+xml" href="/favicon-happy.svg" id="favicon">
-  <script>document.addEventListener('visibilitychange',function(){var f=document.getElementById('favicon');if(f)f.href=document.hidden?'/favicon-sad.svg':'/favicon-happy.svg'})</script>
+  <link rel="icon" type="image/svg+xml" href="/favicon-happy.svg?v=face-5" id="favicon">
+  <link rel="alternate icon" href="/favicon-happy.ico?v=face-5" id="favicon-fallback">
+  <script>document.addEventListener('visibilitychange',function(){var hidden=document.hidden;var f=document.getElementById('favicon');var i=document.getElementById('favicon-fallback');if(f)f.href=hidden?'/favicon-sad.svg?v=face-5':'/favicon-happy.svg?v=face-5';if(i)i.href=hidden?'/favicon-sad.ico?v=face-5':'/favicon-happy.ico?v=face-5'})</script>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
