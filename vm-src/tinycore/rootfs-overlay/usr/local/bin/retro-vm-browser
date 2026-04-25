@@ -1,0 +1,2 @@
+#!/bin/sh
+exec aterm -title "Retro Browser Slot" -geometry 92x24+52+96 -e /bin/sh -lc 'clear; cat /usr/local/share/retro-vm/browser.txt; printf "\n"; exec sh'

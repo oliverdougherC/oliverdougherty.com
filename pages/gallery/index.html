@@ -6,7 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Oliver - Photo Gallery</title>
   <meta name="description" content="A curated photo gallery of selected works from recent shoots.">
-  <link rel="icon" type="image/svg+xml" href="../../favicon.svg">
+  <link rel="icon" type="image/svg+xml" href="/favicon-happy.svg?v=face-5" id="favicon">
+  <link rel="alternate icon" href="/favicon-happy.ico?v=face-5" id="favicon-fallback">
+  <script>document.addEventListener('visibilitychange',function(){var hidden=document.hidden;var f=document.getElementById('favicon');var i=document.getElementById('favicon-fallback');if(f)f.href=hidden?'/favicon-sad.svg?v=face-5':'/favicon-happy.svg?v=face-5';if(i)i.href=hidden?'/favicon-sad.ico?v=face-5':'/favicon-happy.ico?v=face-5'})</script>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -50,7 +52,6 @@
       <a href="../resume/index.html" class="nav-link nav-link--resume" data-cursor="hover">Resume</a>
       <a href="../gallery/index.html" class="nav-link nav-link--gallery active" aria-current="page"
         data-cursor="hover">Gallery</a>
-      <a href="../archive/index.html" class="nav-link nav-link--archive" data-cursor="hover">Archive</a>
       <a href="../dashboard/index.html" class="nav-link nav-link--utilities" data-cursor="hover">Utilities</a>
 
       <div class="nav-menu-footer">

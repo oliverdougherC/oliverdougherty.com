@@ -13,6 +13,7 @@ const ASSET_PHOTOS_DIR = path.join(ROOT, 'assets', 'photos');
 
 const ROOT_ENTRIES = [
   'index.html',
+  'mobile',
   'css',
   'js',
   'pages',

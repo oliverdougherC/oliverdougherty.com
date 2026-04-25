@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oliver Dougherty - Mobile</title>
+  <meta name="description" content="A mobile-first profile hub for Oliver Dougherty.">
+  <link rel="canonical" href="../index.html">
+  <link rel="icon" type="image/svg+xml" href="/favicon-happy.svg?v=face-5" id="favicon">
+  <link rel="alternate icon" href="/favicon-happy.ico?v=face-5" id="favicon-fallback">
+  <script>document.addEventListener('visibilitychange',function(){var hidden=document.hidden;var f=document.getElementById('favicon');var i=document.getElementById('favicon-fallback');if(f)f.href=hidden?'/favicon-sad.svg?v=face-5':'/favicon-happy.svg?v=face-5';if(i)i.href=hidden?'/favicon-sad.ico?v=face-5':'/favicon-happy.ico?v=face-5'})</script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap"
+    rel="stylesheet">
+
+  <link rel="stylesheet" href="../css/design-system.css">
+  <link rel="stylesheet" href="../css/mobile.css">
+</head>
+<body class="mobile-page mobile-home-page">
+  <header class="mobile-topbar">
+    <a class="mobile-brand" href="./" aria-current="page">OD</a>
+    <nav class="mobile-nav" aria-label="Mobile site">
+      <a class="mobile-nav-link mobile-nav-link-active" href="./" aria-current="page">Home</a>
+      <a class="mobile-nav-link" href="resume/">Resume</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="mobile-hero mobile-section">
+      <div class="mobile-kicker">Corvallis, OR · ECE</div>
+      <h1>Oliver Dougherty</h1>
+      <p class="mobile-hero-copy">
+        Electrical and Computer Engineering student building at the intersection of logic, systems, and visual craft.
+      </p>
+      <div class="mobile-action-row">
+        <a class="mobile-button mobile-button-primary" href="resume/">Read resume</a>
+      </div>
+    </section>
+
+    <figure class="mobile-feature-image">
+      <img src="../assets/images/blueprint-david.jpg" alt="Blueprint-style study of Michelangelo's David" loading="eager" decoding="async">
+      <figcaption>Engineering discipline, visual judgment, and a bias toward craft.</figcaption>
+    </figure>
+
+    <section class="mobile-section" aria-labelledby="mobile-focus-title">
+      <p class="mobile-section-label">Current focus</p>
+      <h2 id="mobile-focus-title">Systems that stay understandable</h2>
+      <p>
+        I care about work where the technical shape and the human experience reinforce each other: signal processing,
+        computer architecture, web systems, photography, and practical tools.
+      </p>
+      <div class="mobile-stat-grid" aria-label="Profile facts">
+        <div class="mobile-stat">
+          <strong>2028</strong>
+          <span>Expected graduation</span>
+        </div>
+        <div class="mobile-stat">
+          <strong>OSU</strong>
+          <span>Oregon State</span>
+        </div>
+        <div class="mobile-stat">
+          <strong>ECE</strong>
+          <span>B.S. + math minor</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="mobile-section" aria-labelledby="mobile-projects-title">
+      <p class="mobile-section-label">Selected work</p>
+      <h2 id="mobile-projects-title">Projects</h2>
+      <div class="mobile-list">
+        <article class="mobile-list-item">
+          <div>
+            <p class="mobile-item-meta">2025 - Present</p>
+            <h3>Encoding DB</h3>
+          </div>
+          <p>Public FFmpeg-based video encoding database with a Node.js, Express, Prisma, and PostgreSQL backend.</p>
+          <a href="https://encodingdb.platinumlabs.dev" target="_blank" rel="noopener noreferrer">Visit Encoding DB</a>
+        </article>
+
+        <article class="mobile-list-item">
+          <div>
+            <p class="mobile-item-meta">2024 - Present</p>
+            <h3>Computer Hardware Club</h3>
+          </div>
+          <p>Founder and Vice-President of OSU's Computer Hardware Club, including server infrastructure and Docker/CUDA workshops.</p>
+          <a href="https://computerhardwareclub.org" target="_blank" rel="noopener noreferrer">Visit club site</a>
+        </article>
+
+        <article class="mobile-list-item">
+          <div>
+            <p class="mobile-item-meta">2025 - Present</p>
+            <h3>NatGen</h3>
+          </div>
+          <p>Collaborative PyTorch diffusion project for synthesizing nature sounds with SoundTrip LLC.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="mobile-section mobile-contact" aria-labelledby="mobile-contact-title">
+      <p class="mobile-section-label">Connect</p>
+      <h2 id="mobile-contact-title">Contact</h2>
+      <div class="mobile-contact-links">
+        <a href="mailto:oliverfdougherty@gmail.com">oliverfdougherty@gmail.com</a>
+        <a href="https://github.com/oliverdougherC" target="_blank" rel="noopener noreferrer">GitHub: oliverdougherC</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="mobile-footer">
+    <p>&copy; <span data-current-year>2026</span> Oliver Dougherty</p>
+    <a href="../index.html?full=1">Open full site</a>
+  </footer>
+
+  <script src="../js/year.js" defer></script>
+</body>
+</html>

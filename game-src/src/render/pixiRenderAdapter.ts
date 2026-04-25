@@ -432,6 +432,11 @@ export class PixiRenderAdapter implements IRenderAdapter<GameWorld> {
     return ua.includes('safari') && !ua.includes('chrome') && !ua.includes('android');
   }
 
+  private isFirefoxBrowser(): boolean {
+    if (typeof navigator === 'undefined') return false;
+    return navigator.userAgent.toLowerCase().includes('firefox');
+  }
+
   private getDeviceCapabilityProfile(): { scalar: number; resolutionCap: number; ultraEligible: boolean } {
     if (typeof window === 'undefined') {
       return { scalar: 1, resolutionCap: 1.75, ultraEligible: true };
@@ -512,8 +517,11 @@ export class PixiRenderAdapter implements IRenderAdapter<GameWorld> {
     this.readabilityGovernor.reset();
 
     const requested = options.requestedRenderer;
-    const effectivePolicy =
-      this.safariSafeMode && this.safariLikeBrowser && requested === 'auto' ? 'prefer_webgl' : this.rendererPolicy;
+    const shouldPreferWebgl =
+      requested === 'auto' &&
+      this.rendererPolicy === 'auto' &&
+      (this.isFirefoxBrowser() || (this.safariSafeMode && this.safariLikeBrowser));
+    const effectivePolicy = shouldPreferWebgl ? 'prefer_webgl' : this.rendererPolicy;
     const initOrder: RendererKind[] = [];
     if (requested === 'webgpu') {
       initOrder.push('webgpu', 'webgl');

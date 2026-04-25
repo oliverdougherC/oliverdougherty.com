@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node", "vitest/globals"],
+    "baseUrl": "..",
+    "paths": {
+      "@/*": ["game-src/src/*"]
+    }
+  },
+  "include": [
+    "../game-src/src/**/*.ts",
+    "../game-src/tests/**/*.ts",
+    "./vite.game.mts",
+    "./vitest.game.mts"
+  ]
+}

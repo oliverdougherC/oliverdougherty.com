@@ -46,6 +46,40 @@ async function createDenseFixture(filePath, width, height, variant) {
     .toFile(filePath);
 }
 
+async function createAudioFixture(filePath) {
+  const sampleRate = 16000;
+  const durationSeconds = 5 * 60;
+  const sampleCount = sampleRate * durationSeconds;
+  const dataSize = sampleCount * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
+
+  for (let index = 0; index < sampleCount; index += 1) {
+    const time = index / sampleRate;
+    const envelope = Math.min(1, time / 0.2, (durationSeconds - time) / 0.35);
+    const value =
+      Math.sin(2 * Math.PI * 196 * time) * 0.42 +
+      Math.sin(2 * Math.PI * 392 * time + 0.3) * 0.26 +
+      Math.sin(2 * Math.PI * 784 * time) * 0.09;
+    buffer.writeInt16LE(Math.max(-1, Math.min(1, value * envelope)) * 32767, 44 + index * 2);
+  }
+
+  await fs.promises.writeFile(filePath, buffer);
+}
+
 async function waitForTelemetry(page, previousRequestId, timeout = 30000) {
   await page.waitForFunction(
     (lastCompletedRequestId) => {
@@ -85,8 +119,48 @@ async function readTelemetry(page) {
   });
 }
 
+async function waitForAudioTelemetry(page, previousRequestId, timeout = 45000) {
+  await page.waitForFunction(
+    (lastCompletedRequestId) => {
+      const root = document.getElementById('audioFourierApp');
+      return (
+        root &&
+        root.dataset.audioLastRequestId &&
+        root.dataset.audioLastRequestId !== lastCompletedRequestId &&
+        Boolean(root.dataset.audioTotalMs)
+      );
+    },
+    previousRequestId,
+    { timeout }
+  );
+}
+
+async function readAudioTelemetry(page) {
+  return page.evaluate(() => {
+    const root = document.getElementById('audioFourierApp');
+    if (!root) {
+      throw new Error('Audio Fourier root missing.');
+    }
+
+    return {
+      totalMs: Number(root.dataset.audioTotalMs ?? '0'),
+      proxyMs: Number(root.dataset.audioProxyMs ?? '0'),
+      analysisMs: Number(root.dataset.audioAnalysisMs ?? '0'),
+      bandMs: Number(root.dataset.audioBandMs ?? '0'),
+      componentCount: Number(root.dataset.audioComponentCount ?? '0'),
+      sampleRate: Number(root.dataset.audioSampleRate ?? '0'),
+      proxyDuration: Number(root.dataset.audioProxyDuration ?? '0'),
+      bandCount: Number(root.dataset.audioBandCount ?? '0')
+    };
+  });
+}
+
 async function currentRequestId(page) {
   return page.evaluate(() => document.getElementById('utilitiesApp')?.dataset.lastRequestId ?? '');
+}
+
+async function currentAudioRequestId(page) {
+  return page.evaluate(() => document.getElementById('audioFourierApp')?.dataset.audioLastRequestId ?? '');
 }
 
 async function runCase(page, name, sourcePath, targetPath) {
@@ -106,27 +180,60 @@ async function runCase(page, name, sourcePath, targetPath) {
   };
 }
 
+async function runAudioPresetCase(page, name, presetId) {
+  const previousRequestId = await currentAudioRequestId(page);
+  const startedAt = performance.now();
+  await page.selectOption('#audioFourierQuality', 'fast');
+  await page.click(`[data-audio-preset="${presetId}"]`);
+  await page.click('#audioFourierGenerateBtn');
+  await waitForAudioTelemetry(page, previousRequestId);
+  const telemetry = await readAudioTelemetry(page);
+  return {
+    name,
+    wallMs: performance.now() - startedAt,
+    ...telemetry
+  };
+}
+
+async function runAudioUploadCase(page, name, audioPath) {
+  const previousRequestId = await currentAudioRequestId(page);
+  const startedAt = performance.now();
+  await page.selectOption('#audioFourierQuality', 'fast');
+  await page.setInputFiles('#audioFourierInput', audioPath);
+  await page.click('#audioFourierGenerateBtn');
+  await waitForAudioTelemetry(page, previousRequestId);
+  const telemetry = await readAudioTelemetry(page);
+  return {
+    name,
+    wallMs: performance.now() - startedAt,
+    ...telemetry
+  };
+}
+
 async function main() {
   const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'utilities-perf-'));
   const denseSourcePath = path.join(tempDir, 'dense-source.png');
   const denseTargetPath = path.join(tempDir, 'dense-target.png');
+  const audioPath = path.join(tempDir, 'audio-source.wav');
   await createDenseFixture(denseSourcePath, 640, 420, 1);
   await createDenseFixture(denseTargetPath, 640, 420, 2);
+  await createAudioFixture(audioPath);
 
-  const server = startLocalStaticServer({
+  const server = await startLocalStaticServer({
     url: BASE_URL,
     cwd: ROOT
   });
+  const baseUrl = server?.url || BASE_URL;
 
   const browser = await chromium.launch({ headless: true });
 
   try {
-    await waitForServer(`${BASE_URL}/pages/dashboard/index.html`);
+    await waitForServer(`${baseUrl}/pages/dashboard/index.html`);
 
     const page = await browser.newPage({
       viewport: { width: 1440, height: 1100 }
     });
-    await page.goto(`${BASE_URL}/pages/dashboard/index.html`, { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/pages/dashboard/index.html`, { waitUntil: 'networkidle' });
 
     const benchmarkCases = [
       {
@@ -151,6 +258,11 @@ async function main() {
       results.push(await runCase(page, benchmarkCase.name, benchmarkCase.source, benchmarkCase.target));
     }
 
+    const audioResults = [
+      await runAudioPresetCase(page, 'audio-built-in-song', 'best-friends'),
+      await runAudioUploadCase(page, 'audio-upload-wav', audioPath)
+    ];
+
     const lines = [
       'Utilities performance snapshot',
       '========================================'
@@ -159,6 +271,12 @@ async function main() {
     for (const result of results) {
       lines.push(
         `${result.name}: strategy=${result.matcherStrategy} wall=${formatMs(result.wallMs)} total=${formatMs(result.totalMs)} decode=${formatMs(result.decodeMs)} analyze=${formatMs(result.analyzeMs)} rank=${formatMs(result.rankMs)} assign=${formatMs(result.assignMs)} fallback=${result.fallbackCount} shortlistHitRate=${result.shortlistHitRate.toFixed(3)} evaluatedCandidates=${result.evaluatedCandidateCount} evaluatedGroups=${result.evaluatedGroupCount} avgGroupsPerTarget=${result.averageGroupsPerTarget.toFixed(2)}`
+      );
+    }
+
+    for (const result of audioResults) {
+      lines.push(
+        `${result.name}: wall=${formatMs(result.wallMs)} total=${formatMs(result.totalMs)} proxy=${formatMs(result.proxyMs)} analysis=${formatMs(result.analysisMs)} bands=${formatMs(result.bandMs)} bandCount=${result.bandCount} components=${result.componentCount} sampleRate=${result.sampleRate.toFixed(1)} proxyDuration=${result.proxyDuration.toFixed(1)}s`
       );
     }
 

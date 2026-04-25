@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node", "vitest/globals"],
+    "baseUrl": "..",
+    "paths": {
+      "@utilities/*": ["utilities-src/src/*"]
+    }
+  },
+  "include": [
+    "../utilities-src/src/**/*.ts",
+    "../utilities-src/tests/**/*.ts",
+    "./vite.utilities.mts",
+    "./vitest.utilities.mts"
+  ]
+}

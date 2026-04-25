@@ -39,6 +39,23 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+function collectHtmlFiles(dirPath, output = []) {
+  for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+    const fullPath = path.join(dirPath, entry.name);
+
+    if (entry.isDirectory()) {
+      collectHtmlFiles(fullPath, output);
+      continue;
+    }
+
+    if (entry.name.endsWith('.html')) {
+      output.push(fullPath);
+    }
+  }
+
+  return output;
+}
+
 function validatePages() {
   for (const page of REQUIRED_PAGES) {
     const pagePath = path.join(ROOT, page);
@@ -81,6 +98,12 @@ function validatePages() {
   assert(dashboardHtml.includes('id="transformGenerateBtn"'), 'Utilities generate button missing');
   assert(dashboardHtml.includes('id="transformSourceCanvas"'), 'Utilities source canvas missing');
   assert(dashboardHtml.includes('id="transformResultCanvas"'), 'Utilities result canvas missing');
+  assert(dashboardHtml.includes('id="audioFourierApp"'), 'Audio Fourier shell missing.');
+  assert(dashboardHtml.includes('id="audioFourierWaveCanvas"'), 'Audio Fourier waveform canvas missing.');
+  assert(dashboardHtml.includes('id="audioFourierGenerateBtn"'), 'Audio Fourier generate button missing.');
+  assert(dashboardHtml.includes('id="retroVmApp"'), 'Retro VM shell missing.');
+  assert(dashboardHtml.includes('id="retroVmLaunchBtn"'), 'Retro VM launch button missing.');
+  assert(dashboardHtml.includes('id="retroVmScreen"'), 'Retro VM screen container missing.');
   assert(dashboardHtml.includes('assets/utilities-app.js'), 'Utilities bundle include missing');
   assert(!dashboardHtml.includes('servicesRefreshBtn'), 'Legacy services refresh UI should not ship');
   assert(!dashboardHtml.includes('data-health-url='), 'Legacy service health attributes should not ship');
@@ -92,6 +115,25 @@ function validatePages() {
   assert(homeHtml.includes('id="boredVoid"'), 'Homepage bored-void section missing');
   assert(homeHtml.includes('id="boredPortalButton"'), 'Homepage bored portal button missing');
   assert(homeHtml.includes('href="pages/game/index.html"'), 'Homepage game route link missing');
+  assert(!homeHtml.includes('href="pages/archive/index.html"'), 'Homepage should not expose the archive route');
+  assert(!homeHtml.includes('Technical Archive'), 'Homepage should not surface the archive portal');
+  assert(!homeHtml.includes('Neurophasia'), 'Homepage still references the old archive name');
+
+  const surfacedPages = [
+    'pages/resume/index.html',
+    'pages/gallery/index.html',
+    'pages/dashboard/index.html'
+  ];
+  for (const page of surfacedPages) {
+    const html = fs.readFileSync(path.join(ROOT, page), 'utf8');
+    assert(!html.includes('../archive/index.html'), `${page} should not expose the archive route`);
+  }
+
+  const archiveHtmlFiles = collectHtmlFiles(path.join(ROOT, 'pages', 'archive'));
+  for (const archiveFilePath of archiveHtmlFiles) {
+    const archiveFileHtml = fs.readFileSync(archiveFilePath, 'utf8');
+    assert(!archiveFileHtml.includes('Neurophasia'), `Stale archive name present in ${rel(archiveFilePath)}`);
+  }
 
   const gamePagePath = path.join(ROOT, 'pages/game/index.html');
   assert(fs.existsSync(gamePagePath), 'Game page missing: pages/game/index.html');

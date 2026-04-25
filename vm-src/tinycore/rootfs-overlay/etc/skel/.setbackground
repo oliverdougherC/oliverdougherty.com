@@ -1,0 +1,3 @@
+#!/bin/sh
+hsetroot -fill /opt/backgrounds/retro-vm-wallpaper.png
+[ "$(which wbar.sh)" ] && wbar.sh
