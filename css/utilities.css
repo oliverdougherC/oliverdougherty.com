@@ -1418,10 +1418,12 @@
     #ffea00, /* Bright Yellow */
     #00ffcc, /* Cyan/Aqua */
     #6a00ff, /* Deep Purple */
-    #ff2a5f  /* Back to Hot Pink */
+    #ff2a5f, /* Back to Hot Pink */
+    #ff7b00, /* Vibrant Orange */
+    #ffea00  /* Bright Yellow */
   );
   background-size: 300% 100%;
-  animation: title-enter 2.5s ease-out both, nebula-shift 8s linear infinite 2.5s;
+  animation: title-enter 2.5s ease-out both, nebula-shift 12s linear infinite 2.5s;
   animation-delay: 1.5s, 4s; /* Wait for stars to fade in */
   box-shadow: 0 0 40px rgba(106, 0, 255, 0.3), inset 0 0 20px rgba(255,255,255,0.1);
   opacity: 0; /* Start hidden */
@@ -1452,7 +1454,7 @@
 
 @keyframes nebula-shift {
   0% { background-position: 0% 50%; }
-  100% { background-position: 200% 50%; }
+  100% { background-position: 150% 50%; } /* Shift exactly half the width to loop seamlessly */
 }
 
 .utilities-buttons {
