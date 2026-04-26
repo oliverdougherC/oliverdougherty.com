@@ -1412,10 +1412,19 @@
   display: inline-block;
   padding: 4px;
   border-radius: 24px;
-  background: linear-gradient(90deg, rgba(255,255,255,0.1), rgba(255,255,255,0.3), rgba(200,181,224,0.4), rgba(168,216,240,0.4), rgba(255,255,255,0.3), rgba(255,255,255,0.1));
-  background-size: 200% 100%;
-  animation: title-enter 2.5s ease-out both, nebula-shift 12s linear infinite 2.5s;
-  box-shadow: 0 0 30px rgba(200,181,224,0.15), inset 0 0 20px rgba(255,255,255,0.05);
+  background: linear-gradient(90deg, 
+    #ff2a5f, /* Hot Pink */
+    #ff7b00, /* Vibrant Orange */
+    #ffea00, /* Bright Yellow */
+    #00ffcc, /* Cyan/Aqua */
+    #6a00ff, /* Deep Purple */
+    #ff2a5f  /* Back to Hot Pink */
+  );
+  background-size: 300% 100%;
+  animation: title-enter 2.5s ease-out both, nebula-shift 8s linear infinite 2.5s;
+  animation-delay: 1.5s, 4s; /* Wait for stars to fade in */
+  box-shadow: 0 0 40px rgba(106, 0, 255, 0.3), inset 0 0 20px rgba(255,255,255,0.1);
+  opacity: 0; /* Start hidden */
 }
 
 .utilities-title {
