@@ -247,6 +247,21 @@
   --gradient-subtle: linear-gradient(135deg, #050505, #000000);
 }
 
+/* ========================================
+   Starfield Background
+   ======================================== */
+
+#starfield {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+  background: #000000;
+}
+
 /* Global Light Mode */
 html[data-color-mode="light"] {
   --color-bg-primary: #f3f0e7;
