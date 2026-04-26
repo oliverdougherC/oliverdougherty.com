@@ -7,6 +7,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   initMotionPreference();
   initNavigation();
+  initHeroNavReveal();
   initDeferredImages();
   initScrollAnimations();
   initSmoothScroll();
@@ -173,6 +174,63 @@ function initNavigation() {
     syncNavScrollState();
     window.addEventListener('scroll', syncNavScrollState, { passive: true });
   }
+}
+
+/**
+ * Home hero: keep the top bar off-screen until the DOUGHERTY blueprint finishes,
+ * or until the user scrolls past the wordmark (animations jump to the end, then the bar slides in).
+ */
+function initHeroNavReveal() {
+  if (!document.body.classList.contains('page-home')) return;
+
+  const blueprint = document.querySelector('.blueprint-title');
+  if (!blueprint) return;
+
+  if (prefersReducedMotion()) {
+    document.body.classList.add('dougherty-nav-revealed');
+    return;
+  }
+
+  let revealTimer = null;
+  let revealed = false;
+  const DOUGHERTY_SEQUENCE_MS = 7500;
+
+  const finishBlueprintAnimations = () => {
+    if (typeof Element === 'undefined' || !Element.prototype.getAnimations) return;
+    const root = document.querySelector('.blueprint-title');
+    if (!root) return;
+    const animations = root.getAnimations({ subtree: true });
+    for (const anim of animations) {
+      if (anim.playState === 'finished') continue;
+      try {
+        anim.finish();
+      } catch {
+        // Ignore unsupported or non-finite animations
+      }
+    }
+  };
+
+  const reveal = () => {
+    if (revealed) return;
+    revealed = true;
+    if (revealTimer !== null) {
+      window.clearTimeout(revealTimer);
+      revealTimer = null;
+    }
+    document.body.classList.add('dougherty-nav-revealed');
+    window.removeEventListener('scroll', onScrollMaybePastDougherty, { passive: true });
+  };
+
+  const onScrollMaybePastDougherty = () => {
+    if (blueprint.getBoundingClientRect().bottom < 0) {
+      finishBlueprintAnimations();
+      requestAnimationFrame(reveal);
+    }
+  };
+
+  window.addEventListener('scroll', onScrollMaybePastDougherty, { passive: true });
+
+  revealTimer = window.setTimeout(reveal, DOUGHERTY_SEQUENCE_MS);
 }
 
 /**
