@@ -31,6 +31,7 @@
       font-size: 1rem;
       padding: 0.5rem 0;
       opacity: 0;
+      pointer-events: none;
       animation: fade-in-home 1.5s ease-out forwards;
       animation-delay: 6s;
       transition: opacity 0.2s ease;
@@ -728,6 +729,13 @@
           btn.classList.add('is-visible');
         }, Math.max(0, delay));
       });
+
+      var homeBtn = document.querySelector('.nav-home-btn');
+      if (homeBtn) {
+        homeBtn.addEventListener('animationend', function() {
+          homeBtn.style.pointerEvents = 'auto';
+        });
+      }
     })();
   </script>
   <script src="../../js/year.js" defer></script>
