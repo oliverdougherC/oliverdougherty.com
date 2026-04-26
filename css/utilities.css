@@ -40,7 +40,7 @@
 }
 
 .hero-title {
-  font-family: var(--font-display);
+  font-family: var(--font-display), serif;
   font-size: clamp(3.6rem, 10vw, 6.4rem);
   font-weight: var(--weight-normal);
   line-height: 0.94;
@@ -114,7 +114,7 @@
 }
 
 .utility-title {
-  font-family: var(--font-display);
+  font-family: var(--font-display), serif;
   font-size: clamp(2rem, 3.5vw, 2.8rem);
   font-weight: 400;
   line-height: 0.95;
@@ -288,7 +288,7 @@
 
 .utility-dropzone-meta {
   margin-top: auto;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono), monospace;
   font-size: var(--text-sm);
 }
 
@@ -497,7 +497,7 @@
 
 .utility-progress-fill {
   display: block;
-  width: 0%;
+  width: 0;
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #00e5ff, #ffffff);
@@ -727,7 +727,7 @@
 .utility-shell--audio .audio-component-readout,
 .utility-shell--audio .audio-component-scale {
   color: var(--color-text-secondary);
-  font-family: var(--font-mono);
+  font-family: var(--font-mono), monospace;
   font-size: var(--text-sm);
 }
 
@@ -884,7 +884,7 @@
 }
 
 .death-question-title {
-  font-family: var(--font-display);
+  font-family: var(--font-display), serif;
   font-size: clamp(2.4rem, 4vw, 3.4rem);
   font-weight: 400;
   line-height: 0.96;
@@ -915,7 +915,7 @@
 
 .death-progress-fill {
   display: block;
-  width: 0%;
+  width: 0;
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #ff5533, #ffaa66);
@@ -999,7 +999,7 @@
   border: none;
   background: transparent;
   color: #ffffff;
-  font-family: var(--font-mono);
+  font-family: var(--font-mono), monospace;
   font-size: clamp(1.4rem, 4vw, 3rem);
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -1026,9 +1026,9 @@
 }
 
 @keyframes death-infinity-shimmer {
-  0%   { background-position: 0% 50%; }
+  0%   { background-position: 0 50%; }
   50%  { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+  100% { background-position: 0 50%; }
 }
 
 @keyframes death-infinity-breathe {
@@ -1042,7 +1042,7 @@
 }
 
 .death-countdown-legend {
-  font-family: var(--font-mono);
+  font-family: var(--font-mono), monospace;
   font-size: var(--text-sm);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1084,6 +1084,9 @@
   position: relative;
   display: grid;
   gap: 0;
+  --vm-guest-width: auto;
+  --vm-guest-height: auto;
+  --vm-fit-scale: 1;
   border-radius: calc(var(--radius-2xl) + 0.25rem);
   border: 1px solid var(--utilities-border-soft);
   background: #000000;
@@ -1435,7 +1438,7 @@
   background: rgba(0, 0, 0, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  font-family: var(--font-display);
+  font-family: var(--font-display), serif;
   font-size: clamp(4rem, 12vw, 8rem);
   font-weight: 400;
   line-height: 0.94;
@@ -1451,7 +1454,7 @@
 }
 
 @keyframes nebula-shift {
-  0% { background-position: 0% 50%; }
+  0% { background-position: 0 50%; }
   100% { background-position: 200% 50%; }
 }
 

@@ -371,7 +371,7 @@ html[data-color-mode="light"] {
 }
 
 body {
-  font-family: var(--font-body);
+  font-family: var(--font-body), sans-serif;
   font-size: var(--text-base);
   line-height: var(--leading-normal);
   color: var(--color-text-primary);
@@ -412,7 +412,7 @@ body {
    ======================================== */
 
 .text-display {
-  font-family: var(--font-display);
+  font-family: var(--font-display), serif;
   font-weight: var(--weight-normal);
   text-shadow: 0.012em 0 currentColor, -0.012em 0 currentColor;
   letter-spacing: var(--tracking-tighter);
@@ -420,20 +420,20 @@ body {
 }
 
 .text-heading {
-  font-family: var(--font-body);
+  font-family: var(--font-body), sans-serif;
   font-weight: var(--weight-semibold);
   letter-spacing: var(--tracking-tight);
   line-height: var(--leading-snug);
 }
 
 .text-body {
-  font-family: var(--font-body);
+  font-family: var(--font-body), sans-serif;
   font-weight: var(--weight-normal);
   line-height: var(--leading-relaxed);
 }
 
 .text-mono {
-  font-family: var(--font-mono);
+  font-family: var(--font-mono), monospace;
   font-size: 0.9em;
 }
 
@@ -631,7 +631,7 @@ html[data-color-mode="light"] .card:hover {
   justify-content: center;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-6);
-  font-family: var(--font-body);
+  font-family: var(--font-body), sans-serif;
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   letter-spacing: var(--tracking-wide);
@@ -964,7 +964,7 @@ body.nav-open .nav.scrolled {
 }
 
 .logo-text {
-  font-family: var(--font-display);
+  font-family: var(--font-display), serif;
   font-size: var(--text-3xl);
   text-shadow: 0.01em 0 currentColor, -0.01em 0 currentColor;
   color: var(--color-text-primary);
@@ -1027,7 +1027,7 @@ body.nav-open .nav.scrolled {
 
 .nav-overlay .nav-link {
   --nav-link-shift-x: 0px;
-  font-family: var(--font-display);
+  font-family: var(--font-display), serif;
   font-size: clamp(3rem, 6vw, 6rem);
   line-height: var(--leading-none);
   color: var(--color-text-primary);
