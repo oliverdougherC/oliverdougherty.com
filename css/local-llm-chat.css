@@ -2,27 +2,26 @@
   max-width: min(78rem, calc(100vw - 2rem));
   margin-inline: auto;
   padding: 0;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .local-llm-window {
-  --local-llm-panel: color-mix(in srgb, var(--color-bg-elevated) 90%, var(--color-accent) 10%);
-  --local-llm-panel-soft: color-mix(in srgb, var(--color-bg-secondary) 92%, var(--color-accent) 8%);
-  --local-llm-line: color-mix(in srgb, var(--color-border-emphasis) 76%, var(--color-accent) 24%);
+  --local-llm-panel: #000000;
+  --local-llm-panel-soft: rgba(0, 0, 0, 0.4);
+  --local-llm-line: rgba(255, 255, 255, 0.12);
   --local-llm-control-size: 3.25rem;
   /* One surface for sticky toolbar + main transcript (no “second box” at the top) */
-  --local-llm-transcript-surface: color-mix(in srgb, var(--color-bg-primary) 32%, transparent);
+  --local-llm-transcript-surface: transparent;
 
   min-width: 0;
-  min-height: clamp(34rem, 72vh, 46rem);
+  height: 100%;
+  max-height: none;
   display: grid;
-  grid-template-rows: minmax(22rem, 1fr) auto;
-  border: 1px solid var(--local-llm-line);
-  border-radius: clamp(1.4rem, 3vw, 2.25rem);
+  grid-template-rows: minmax(0, 1fr) auto;
+  border: none;
+  border-radius: 0;
   background: var(--local-llm-panel);
-  box-shadow:
-    0 28px 72px -42px rgba(0, 0, 0, 0.82),
-    inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
+  box-shadow: none;
   isolation: isolate;
   overflow: hidden;
 }
@@ -342,8 +341,12 @@
   align-items: end;
   gap: clamp(0.65rem, 1.5vw, 0.95rem);
   padding: clamp(0.85rem, 2vw, 1.15rem) clamp(0.9rem, 2.4vw, 1.35rem);
-  border-top: 1px solid var(--local-llm-line);
-  background: color-mix(in srgb, var(--local-llm-panel-soft) 88%, transparent);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  position: relative;
+  z-index: 10;
 }
 
 .local-llm-label {
@@ -512,13 +515,13 @@
   max-height: 10rem;
   resize: none;
   padding: 0.9rem 1.05rem;
-  border: 1px solid var(--local-llm-line);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-full);
   color: var(--color-text-primary);
   caret-color: var(--color-text-primary);
   font: 400 0.98rem / 1.42 var(--font-body);
   letter-spacing: 0;
-  background: color-mix(in srgb, var(--color-surface) 66%, transparent);
+  background: rgba(255, 255, 255, 0.03);
   transition:
     border-color var(--duration-fast) var(--ease-smooth),
     box-shadow var(--duration-fast) var(--ease-smooth);
@@ -530,8 +533,8 @@
 
 .local-llm-input:focus-visible {
   outline: none;
-  border-color: color-mix(in srgb, var(--color-accent) 56%, var(--local-llm-line));
-  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+  border-color: rgba(168,224,200,0.5);
+  box-shadow: 0 0 15px rgba(168,224,200,0.2);
 }
 
 .local-llm-input:disabled {
