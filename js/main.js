@@ -108,6 +108,9 @@ function initNavigation() {
       navToggle.setAttribute('aria-expanded', String(isOpen));
       navOverlay.setAttribute('aria-hidden', String(!isOpen));
       document.body.classList.toggle('nav-open', isOpen);
+      if (navToggle.classList.contains('nav-dot')) {
+        navToggle.setAttribute('aria-label', isOpen ? 'Close menu' : 'Open menu');
+      }
 
       if (isOpen && opening) {
         startOpeningState();
