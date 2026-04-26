@@ -71,7 +71,7 @@ Do not hand-edit bundled files in `pages/game/assets/`.
 The utilities page also has a strict source/build split:
 
 - Editable source: `utilities-src/`
-- Shipped build output: `pages/dashboard/assets/`
+- Shipped build output: `pages/utilities/assets/`
 
 When `utilities-src/` changes, rebuild the shipped page assets with:
 
@@ -88,7 +88,7 @@ npm run utilities:perf
 npm run smoke
 ```
 
-Do not hand-edit the generated utilities bundle or the hashed worker chunks in `pages/dashboard/assets/assets/`.
+Do not hand-edit the generated utilities bundle or the hashed worker chunks in `pages/utilities/assets/assets/`.
 
 ## Deploy build workflow
 

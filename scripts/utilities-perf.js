@@ -18,6 +18,10 @@ function formatMs(value) {
   return `${Number(value).toFixed(1)}ms`;
 }
 
+function formatFps(value) {
+  return `${Number(value).toFixed(1)}fps`;
+}
+
 async function createDenseFixture(filePath, width, height, variant) {
   const pixels = Buffer.alloc(width * height * 4);
 
@@ -163,6 +167,66 @@ async function currentAudioRequestId(page) {
   return page.evaluate(() => document.getElementById('audioFourierApp')?.dataset.audioLastRequestId ?? '');
 }
 
+async function navigateUtility(page, baseUrl, utilityId) {
+  const targetUrl = `${baseUrl}/pages/utilities/index.html#${utilityId}`;
+  if (page.url() !== targetUrl) {
+    await page.goto(targetUrl, { waitUntil: 'networkidle' });
+  }
+
+  await page.waitForFunction(
+    (id) => document.querySelector(`.utility-stage[data-utility-id="${id}"]`)?.classList.contains('is-active'),
+    utilityId,
+    { timeout: 10000 }
+  );
+}
+
+async function measureAudioPlaybackResponsiveness(page) {
+  await page.waitForFunction(
+    () => {
+      const root = document.getElementById('audioFourierApp');
+      const play = document.getElementById('audioFourierPlayBtn');
+      return root?.dataset.audioState === 'animating' || (play && !play.hasAttribute('disabled'));
+    },
+    { timeout: 10000 }
+  );
+
+  const state = await page.evaluate(() => document.getElementById('audioFourierApp')?.dataset.audioState ?? '');
+  if (state !== 'animating') {
+    await page.click('#audioFourierPlayBtn');
+    await page.waitForFunction(() => document.getElementById('audioFourierApp')?.dataset.audioState === 'animating', {
+      timeout: 10000
+    });
+  }
+
+  return page.evaluate(async () => {
+    const samples = [];
+    const startedAt = performance.now();
+    let previous = startedAt;
+
+    await new Promise((resolve) => {
+      function step(timestamp) {
+        samples.push(timestamp - previous);
+        previous = timestamp;
+        if (timestamp - startedAt >= 2000) {
+          resolve();
+          return;
+        }
+        requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    });
+
+    const sorted = samples.slice(1).sort((left, right) => left - right);
+    const p95 = sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] : 0;
+    const elapsedSeconds = Math.max(0.001, (performance.now() - startedAt) / 1000);
+    return {
+      rafFps: samples.length / elapsedSeconds,
+      rafP95FrameMs: p95,
+      rafSampleCount: samples.length
+    };
+  });
+}
+
 async function runCase(page, name, sourcePath, targetPath) {
   const previousRequestId = await currentRequestId(page);
   const startedAt = performance.now();
@@ -188,10 +252,12 @@ async function runAudioPresetCase(page, name, presetId) {
   await page.click('#audioFourierGenerateBtn');
   await waitForAudioTelemetry(page, previousRequestId);
   const telemetry = await readAudioTelemetry(page);
+  const responsiveness = await measureAudioPlaybackResponsiveness(page);
   return {
     name,
     wallMs: performance.now() - startedAt,
-    ...telemetry
+    ...telemetry,
+    ...responsiveness
   };
 }
 
@@ -203,10 +269,12 @@ async function runAudioUploadCase(page, name, audioPath) {
   await page.click('#audioFourierGenerateBtn');
   await waitForAudioTelemetry(page, previousRequestId);
   const telemetry = await readAudioTelemetry(page);
+  const responsiveness = await measureAudioPlaybackResponsiveness(page);
   return {
     name,
     wallMs: performance.now() - startedAt,
-    ...telemetry
+    ...telemetry,
+    ...responsiveness
   };
 }
 
@@ -233,7 +301,7 @@ async function main() {
     const page = await browser.newPage({
       viewport: { width: 1440, height: 1100 }
     });
-    await page.goto(`${baseUrl}/pages/utilities/index.html`, { waitUntil: 'networkidle' });
+    await navigateUtility(page, baseUrl, 'image-transform');
 
     const benchmarkCases = [
       {
@@ -258,6 +326,7 @@ async function main() {
       results.push(await runCase(page, benchmarkCase.name, benchmarkCase.source, benchmarkCase.target));
     }
 
+    await navigateUtility(page, baseUrl, 'audio-fourier');
     const audioResults = [
       await runAudioPresetCase(page, 'audio-built-in-song', 'best-friends'),
       await runAudioUploadCase(page, 'audio-upload-wav', audioPath)
@@ -276,11 +345,18 @@ async function main() {
 
     for (const result of audioResults) {
       lines.push(
-        `${result.name}: wall=${formatMs(result.wallMs)} total=${formatMs(result.totalMs)} proxy=${formatMs(result.proxyMs)} analysis=${formatMs(result.analysisMs)} bands=${formatMs(result.bandMs)} bandCount=${result.bandCount} components=${result.componentCount} sampleRate=${result.sampleRate.toFixed(1)} proxyDuration=${result.proxyDuration.toFixed(1)}s`
+        `${result.name}: wall=${formatMs(result.wallMs)} total=${formatMs(result.totalMs)} proxy=${formatMs(result.proxyMs)} analysis=${formatMs(result.analysisMs)} bands=${formatMs(result.bandMs)} bandCount=${result.bandCount} components=${result.componentCount} sampleRate=${result.sampleRate.toFixed(1)} proxyDuration=${result.proxyDuration.toFixed(1)}s playbackRaf=${formatFps(result.rafFps)} playbackP95=${formatMs(result.rafP95FrameMs)} rafSamples=${result.rafSampleCount}`
       );
     }
 
     console.log(lines.join('\n'));
+
+    const slowPlayback = audioResults.find((result) => result.rafP95FrameMs > 50);
+    if (slowPlayback) {
+      throw new Error(
+        `${slowPlayback.name} playback responsiveness regressed: p95 RAF frame ${formatMs(slowPlayback.rafP95FrameMs)} exceeds 50ms.`
+      );
+    }
   } finally {
     await browser.close();
     if (server) {

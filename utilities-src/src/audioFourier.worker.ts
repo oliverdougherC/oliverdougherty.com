@@ -2,8 +2,7 @@
 
 import {
   buildEnergyBandReconstruction,
-  buildWindowedFourierAnalysis,
-  type WindowedFourierAnalysis
+  buildWindowedFourierAnalysis
 } from './audioFourierCore';
 import type { AudioFourierWorkerRequest, AudioFourierWorkerResponse } from './audioFourierWorkerTypes';
 import { getAudioFourierPreset } from './audioPresets';
@@ -11,14 +10,9 @@ import { prepareAudioSignal } from './audioSignal';
 
 const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 const cancelledRequests = new Set<number>();
-const analyses = new Map<number, WindowedFourierAnalysis>();
 
 function asArrayBuffer(buffer: ArrayBufferLike) {
   return buffer as ArrayBuffer;
-}
-
-function cloneBuffer(buffer: ArrayBufferLike) {
-  return asArrayBuffer(buffer.slice(0));
 }
 
 function now() {
@@ -82,7 +76,6 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
       }
     );
     const analysisMs = now() - analysisStartedAt;
-    analyses.set(request.requestId, analysis);
     assertNotCancelled(request.requestId);
 
     postMessage({
@@ -137,25 +130,22 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
             total: totalMs
           }
         },
-        originalSamples: cloneBuffer(analysis.samples.buffer),
+        originalSamples: asArrayBuffer(analysis.samples.buffer),
         bandSamples: asArrayBuffer(bands.bandSamples.buffer),
         bandEndComponentCounts: asArrayBuffer(bands.bandEndComponentCounts.buffer),
         bandEnergyFractions: asArrayBuffer(bands.bandEnergyFractions.buffer),
-        fullMixFrame: asArrayBuffer(bands.mixedDisplayFrame.buffer),
         componentFrequencies: asArrayBuffer(analysis.componentFrequencies.buffer),
         componentAmplitudes: asArrayBuffer(analysis.componentAmplitudes.buffer),
-        componentPhases: asArrayBuffer(analysis.componentPhases.buffer),
-        componentEnergies: asArrayBuffer(analysis.componentEnergies.buffer)
+        componentPhases: asArrayBuffer(analysis.componentPhases.buffer)
       },
       [
+        asArrayBuffer(analysis.samples.buffer),
         asArrayBuffer(bands.bandSamples.buffer),
         asArrayBuffer(bands.bandEndComponentCounts.buffer),
         asArrayBuffer(bands.bandEnergyFractions.buffer),
-        asArrayBuffer(bands.mixedDisplayFrame.buffer),
         asArrayBuffer(analysis.componentFrequencies.buffer),
         asArrayBuffer(analysis.componentAmplitudes.buffer),
-        asArrayBuffer(analysis.componentPhases.buffer),
-        asArrayBuffer(analysis.componentEnergies.buffer)
+        asArrayBuffer(analysis.componentPhases.buffer)
       ]
     );
   } catch (error) {

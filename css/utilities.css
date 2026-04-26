@@ -2508,6 +2508,11 @@
   animation-delay: -3s;
 }
 
+html[data-active-utility] .utilities-title-wrapper,
+html[data-active-utility] .utilities-buttons button {
+  animation-play-state: paused;
+}
+
 @keyframes float-lavender {
   0%, 100% { transform: translateY(0) rotate(0deg); box-shadow: 0 0 20px -5px rgba(200,181,224,0.1), inset 0 0 10px rgba(200,181,224,0.05); }
   50% { transform: translateY(-8px) rotate(1deg); box-shadow: 0 15px 30px -5px rgba(200,181,224,0.3), inset 0 0 20px rgba(200,181,224,0.15); }
@@ -2663,12 +2668,15 @@
   flex: 1;
   min-height: 0;
   height: 100%;
+  contain: layout paint style;
 }
 
 .utility-stage.is-active {
   display: flex;
   flex-direction: column;
   animation: stage-enter 0.5s ease both;
+  content-visibility: auto;
+  contain-intrinsic-size: 1000px 760px;
 }
 
 /* Cross-fade between utilities */

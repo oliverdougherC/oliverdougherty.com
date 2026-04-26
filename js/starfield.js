@@ -13,10 +13,18 @@
   let width, height;
   let stars = [];
   let comets = [];
+  let animationFrameId = 0;
+  let lastTimestamp = 0;
+  let isHidden = document.hidden;
+  let heavyUtilityActive = false;
+  const activeLoadSources = new Set();
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // Configuration
-  const STAR_COUNT = 500;
-  const BASE_SPEED = 0.15;
+  const BASE_STAR_COUNT = 500;
+  const BASE_SPEED = 9; // px/sec at shallow depth
+  const MAX_DPR = 1.5;
+  const HEAVY_MAX_DPR = 1;
   const STAR_COLORS = [
     '#ffffff', // White
     '#e0f7fa', // Light blue
@@ -28,27 +36,47 @@
   function resize() {
     width = window.innerWidth;
     height = window.innerHeight;
-    
-    // Handle high-DPI displays
-    const dpr = window.devicePixelRatio || 1;
+
+    const dpr = resolveDpr();
     canvas.width = width * dpr;
     canvas.height = height * dpr;
-    
-    ctx.scale(dpr, dpr);
-    
-    // Re-initialize elements on resize to ensure even distribution
-    initSpace();
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    reconcileSpace();
+    draw();
   }
 
-  function initSpace() {
-    // Initialize Stars
-    stars = [];
-    for (let i = 0; i < STAR_COUNT; i++) {
-      stars.push(createStar());
+  function resolveDpr() {
+    if (reducedMotion || heavyUtilityActive) {
+      return Math.min(window.devicePixelRatio || 1, HEAVY_MAX_DPR);
+    }
+    return Math.min(window.devicePixelRatio || 1, MAX_DPR);
+  }
+
+  function resolveStarCount() {
+    if (reducedMotion) {
+      return Math.min(140, BASE_STAR_COUNT);
     }
 
-    // Comets are spawned randomly during the update loop
-    comets = [];
+    const areaScale = Math.max(0.45, Math.min(1.15, width * height / (1440 * 900)));
+    const coreScale = (navigator.hardwareConcurrency || 4) <= 4 ? 0.72 : 1;
+    const loadScale = heavyUtilityActive ? 0.5 : 1;
+    return Math.round(BASE_STAR_COUNT * areaScale * coreScale * loadScale);
+  }
+
+  function reconcileSpace() {
+    const targetCount = resolveStarCount();
+    while (stars.length < targetCount) {
+      stars.push(createStar());
+    }
+    if (stars.length > targetCount) {
+      stars.length = targetCount;
+    }
+    if (heavyUtilityActive || reducedMotion) {
+      comets = [];
+    }
   }
 
   function createStar() {
@@ -60,9 +88,9 @@
       speed: BASE_SPEED + (depth * BASE_SPEED * 2),
       color: STAR_COLORS[Math.floor(Math.random() * STAR_COLORS.length)],
       baseOpacity: 0.2 + (depth * 0.6),
-      twinkleSpeed: 0.02 + (Math.random() * 0.05),
+      twinkleSpeed: 1.2 + (Math.random() * 3),
       twinklePhase: Math.random() * Math.PI * 2,
-      drift: (Math.random() - 0.5) * 0.1
+      drift: (Math.random() - 0.5) * 6
     };
   }
 
@@ -72,20 +100,24 @@
       x: isLeftToRight ? -50 : width + 50,
       y: Math.random() * (height * 0.5), // Mostly in upper half
       length: 100 + Math.random() * 150,
-      speedX: (isLeftToRight ? 1 : -1) * (5 + Math.random() * 5),
-      speedY: 1 + Math.random() * 3,
+      speedX: (isLeftToRight ? 1 : -1) * (300 + Math.random() * 300),
+      speedY: 60 + Math.random() * 180,
       opacity: 0.8,
       thickness: 1 + Math.random() * 2
     };
   }
 
-  function update() {
+  function update(deltaSeconds) {
+    const timeScale = heavyUtilityActive ? 0.75 : 1;
+
     // Update Stars
     for (let i = 0; i < stars.length; i++) {
       const star = stars[i];
-      star.y -= star.speed;
-      star.x += star.drift;
-      star.twinklePhase += star.twinkleSpeed;
+      star.y -= star.speed * deltaSeconds * timeScale;
+      star.x += star.drift * deltaSeconds * timeScale;
+      if (!heavyUtilityActive) {
+        star.twinklePhase += star.twinkleSpeed * deltaSeconds;
+      }
       
       if (star.y < -10) {
         star.y = height + 10;
@@ -98,16 +130,14 @@
       }
     }
 
-    // Update Comets
-    // 0.1% chance per frame to spawn a comet if none exist
-    if (comets.length === 0 && Math.random() < 0.001) {
+    if (!heavyUtilityActive && comets.length === 0 && Math.random() < 0.06 * deltaSeconds) {
       comets.push(spawnComet());
     }
 
     for (let i = comets.length - 1; i >= 0; i--) {
       const comet = comets[i];
-      comet.x += comet.speedX;
-      comet.y += comet.speedY;
+      comet.x += comet.speedX * deltaSeconds;
+      comet.y += comet.speedY * deltaSeconds;
       
       // Remove if off screen
       if (comet.x > width + 200 || comet.x < -200 || comet.y > height + 200) {
@@ -124,7 +154,7 @@
     // Draw Stars
     for (let i = 0; i < stars.length; i++) {
       const star = stars[i];
-      const twinkle = Math.sin(star.twinklePhase) * 0.3;
+      const twinkle = heavyUtilityActive ? 0 : Math.sin(star.twinklePhase) * 0.3;
       const currentOpacity = Math.max(0.1, Math.min(1, star.baseOpacity + twinkle));
       
       ctx.beginPath();
@@ -164,17 +194,68 @@
     }
   }
 
-  function loop() {
-    update();
+  function loop(timestamp) {
+    if (isHidden) {
+      animationFrameId = 0;
+      return;
+    }
+
+    const deltaSeconds = lastTimestamp ? Math.min(0.08, (timestamp - lastTimestamp) / 1000) : 1 / 60;
+    lastTimestamp = timestamp;
+    update(deltaSeconds);
     draw();
-    requestAnimationFrame(loop);
+    animationFrameId = requestAnimationFrame(loop);
+  }
+
+  function startLoop() {
+    if (animationFrameId || reducedMotion || isHidden) {
+      return;
+    }
+    lastTimestamp = 0;
+    animationFrameId = requestAnimationFrame(loop);
+  }
+
+  function stopLoop() {
+    if (animationFrameId) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = 0;
+    }
+  }
+
+  function syncLoadState(active) {
+    if (heavyUtilityActive === active) {
+      return;
+    }
+    heavyUtilityActive = active;
+    reconcileSpace();
+    resize();
   }
 
   // Initialization
   window.addEventListener('resize', resize);
-  resize(); // This calls initSpace()
-  
-  // Start loop immediately, CSS handles the fade in
-  requestAnimationFrame(loop);
+  document.addEventListener('visibilitychange', function() {
+    isHidden = document.hidden;
+    if (isHidden) {
+      stopLoop();
+    } else {
+      startLoop();
+    }
+  });
+  window.addEventListener('utilities-load-state', function(event) {
+    const detail = event.detail || {};
+    const source = detail.source || 'unknown';
+    if (detail.active) {
+      activeLoadSources.add(source);
+    } else {
+      activeLoadSources.delete(source);
+    }
+    syncLoadState(activeLoadSources.size > 0);
+  });
+  resize();
+  if (reducedMotion) {
+    draw();
+  } else {
+    startLoop();
+  }
 
 })();

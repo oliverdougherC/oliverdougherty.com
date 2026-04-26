@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 export default defineConfig({
   base: './',
   build: {
-    outDir: path.resolve(__dirname, '../pages/dashboard/assets'),
+    outDir: path.resolve(__dirname, '../pages/utilities/assets'),
     emptyOutDir: true,
     target: 'es2022',
     rollupOptions: {

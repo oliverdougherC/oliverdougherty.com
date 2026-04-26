@@ -3,6 +3,11 @@ export interface ComplexSpectrum {
   imag: Float32Array;
 }
 
+export interface FftWorkspace {
+  real: Float32Array;
+  imag: Float32Array;
+}
+
 function assertPowerOfTwo(size: number) {
   if (!Number.isInteger(size) || size < 2 || (size & (size - 1)) !== 0) {
     throw new Error('FFT size must be a power of two.');
@@ -18,16 +23,34 @@ function reverseBits(value: number, bits: number) {
   return reversed;
 }
 
-export function fft(inputReal: Float32Array, inputImag?: Float32Array, inverse = false): ComplexSpectrum {
+export function createFftWorkspace(size: number): FftWorkspace {
+  assertPowerOfTwo(size);
+  return {
+    real: new Float32Array(size),
+    imag: new Float32Array(size)
+  };
+}
+
+export function fftInto(
+  inputReal: Float32Array,
+  inputImag: Float32Array | undefined,
+  inverse: boolean,
+  workspace: FftWorkspace
+): ComplexSpectrum {
   assertPowerOfTwo(inputReal.length);
   if (inputImag && inputImag.length !== inputReal.length) {
     throw new Error('FFT real and imaginary buffers must have matching lengths.');
   }
 
   const size = inputReal.length;
+  if (workspace.real.length !== size || workspace.imag.length !== size) {
+    throw new Error('FFT workspace buffers must match the input size.');
+  }
+
   const bits = Math.log2(size);
-  const real = new Float32Array(size);
-  const imag = new Float32Array(size);
+  const { real, imag } = workspace;
+  real.fill(0);
+  imag.fill(0);
 
   for (let index = 0; index < size; index += 1) {
     const reversedIndex = reverseBits(index, bits);
@@ -73,3 +96,11 @@ export function fft(inputReal: Float32Array, inputImag?: Float32Array, inverse =
   return { real, imag };
 }
 
+export function fft(inputReal: Float32Array, inputImag?: Float32Array, inverse = false): ComplexSpectrum {
+  const workspace = createFftWorkspace(inputReal.length);
+  const spectrum = fftInto(inputReal, inputImag, inverse, workspace);
+  return {
+    real: new Float32Array(spectrum.real),
+    imag: new Float32Array(spectrum.imag)
+  };
+}

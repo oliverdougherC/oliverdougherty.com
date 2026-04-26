@@ -59,11 +59,9 @@ export interface AudioFourierSuccessMessage {
   bandSamples: ArrayBuffer;
   bandEndComponentCounts: ArrayBuffer;
   bandEnergyFractions: ArrayBuffer;
-  fullMixFrame: ArrayBuffer;
   componentFrequencies: ArrayBuffer;
   componentAmplitudes: ArrayBuffer;
   componentPhases: ArrayBuffer;
-  componentEnergies: ArrayBuffer;
 }
 
 export interface AudioFourierErrorMessage {

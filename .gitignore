@@ -12,6 +12,7 @@ output/
 .openclaude/
 .kilo/
 .openclaude-profile.json
+inspection_reports/
 
 server.log
 server.pid

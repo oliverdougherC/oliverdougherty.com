@@ -37,12 +37,7 @@ function getInitialColorMode() {
   return COLOR_MODE_DARK;
 }
 
-  const storedColorMode = readStoredColorMode();
-  if (storedColorMode) return storedColorMode;
-  return COLOR_MODE_DARK;
-}
-
-function readStoredColorMode() {
+ function readStoredColorMode() {
   try {
     const stored = window.localStorage.getItem(COLOR_MODE_STORAGE_KEY);
     if (stored === COLOR_MODE_DARK || stored === COLOR_MODE_LIGHT) {
@@ -69,11 +64,6 @@ function applyColorMode(mode) {
     document.documentElement.style.colorScheme = COLOR_MODE_DARK;
     return;
   }
-
-  const normalizedMode = mode === COLOR_MODE_LIGHT ? COLOR_MODE_LIGHT : COLOR_MODE_DARK;
-  document.documentElement.setAttribute('data-color-mode', normalizedMode);
-  document.documentElement.style.colorScheme = normalizedMode;
-}
 
   const normalizedMode = mode === COLOR_MODE_LIGHT ? COLOR_MODE_LIGHT : COLOR_MODE_DARK;
   document.documentElement.setAttribute('data-color-mode', normalizedMode);

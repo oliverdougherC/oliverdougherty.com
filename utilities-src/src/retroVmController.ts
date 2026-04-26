@@ -589,8 +589,6 @@ export class RetroVmController {
     const eventInit: KeyboardEventInit = {
       key: 'Enter',
       code: 'Enter',
-      keyCode: 13,
-      which: 13,
       bubbles: true,
       cancelable: true
     };

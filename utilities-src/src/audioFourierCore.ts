@@ -1,4 +1,4 @@
-import { fft } from './fft';
+import { createFftWorkspace, fft, fftInto } from './fft';
 
 export interface WindowedFourierOptions {
   frameSize: number;
@@ -39,6 +39,15 @@ export interface EnergyBandReconstruction {
   bandEnergyFractions: Float32Array;
   mixedSamples: Float32Array;
   mixedDisplayFrame: Float32Array;
+}
+
+interface ReconstructionScratch {
+  window: Float32Array;
+  spectraReal: Float32Array;
+  spectraImag: Float32Array;
+  output: Float32Array;
+  normalization: Float32Array;
+  fftWorkspace: ReturnType<typeof createFftWorkspace>;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -177,6 +186,7 @@ export function buildWindowedFourierAnalysis(
   const energies = new Float32Array(coefficientCount);
   const order = Array.from({ length: coefficientCount }, (_value, index) => index);
   const frameInput = new Float32Array(frameSize);
+  const fftWorkspace = createFftWorkspace(frameSize);
 
   for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
     frameInput.fill(0);
@@ -186,7 +196,7 @@ export function buildWindowedFourierAnalysis(
       frameInput[offset] = (sampleIndex < samples.length ? samples[sampleIndex] : 0) * window[offset];
     }
 
-    const spectrum = fft(frameInput);
+    const spectrum = fftInto(frameInput, undefined, false, fftWorkspace);
     const coefficientOffset = frameIndex * binCount;
     for (let bin = 0; bin < binCount; bin += 1) {
       const coefficientIndex = coefficientOffset + bin;
@@ -306,21 +316,34 @@ export function reconstructWindowedComponentCount(
   return trimmed;
 }
 
+function createReconstructionScratch(analysis: WindowedFourierAnalysis): ReconstructionScratch {
+  const outputLength = (analysis.frameCount - 1) * analysis.hopSize + analysis.frameSize;
+  return {
+    window: createHannWindow(analysis.frameSize),
+    spectraReal: new Float32Array(analysis.frameCount * analysis.frameSize),
+    spectraImag: new Float32Array(analysis.frameCount * analysis.frameSize),
+    output: new Float32Array(outputLength),
+    normalization: new Float32Array(outputLength),
+    fftWorkspace: createFftWorkspace(analysis.frameSize)
+  };
+}
+
 export function reconstructWindowedComponentRange(
   analysis: WindowedFourierAnalysis,
   startComponentIndex: number,
-  endComponentIndex: number
+  endComponentIndex: number,
+  scratch = createReconstructionScratch(analysis)
 ): Float32Array {
   const start = clamp(Math.round(startComponentIndex), 0, analysis.componentOrder.length);
   const end = clamp(Math.round(endComponentIndex), start, analysis.componentOrder.length);
   const frameSize = analysis.frameSize;
   const hopSize = analysis.hopSize;
   const binCount = analysis.binCount;
-  const window = createHannWindow(frameSize);
-  const spectraReal = new Float32Array(analysis.frameCount * frameSize);
-  const spectraImag = new Float32Array(analysis.frameCount * frameSize);
-  const output = new Float32Array((analysis.frameCount - 1) * hopSize + frameSize);
-  const normalization = new Float32Array(output.length);
+  const { window, spectraReal, spectraImag, output, normalization, fftWorkspace } = scratch;
+  spectraReal.fill(0);
+  spectraImag.fill(0);
+  output.fill(0);
+  normalization.fill(0);
 
   for (let orderedIndex = start; orderedIndex < end; orderedIndex += 1) {
     const coefficientIndex = analysis.componentOrder[orderedIndex];
@@ -339,10 +362,11 @@ export function reconstructWindowedComponentRange(
 
   for (let frameIndex = 0; frameIndex < analysis.frameCount; frameIndex += 1) {
     const frameOffset = frameIndex * frameSize;
-    const time = fft(
+    const time = fftInto(
       spectraReal.subarray(frameOffset, frameOffset + frameSize),
       spectraImag.subarray(frameOffset, frameOffset + frameSize),
-      true
+      true,
+      fftWorkspace
     ).real;
     const sampleStart = frameIndex * hopSize;
 
@@ -389,6 +413,7 @@ export function buildEnergyBandReconstruction(
   const bandEndComponentCounts = new Uint32Array(resolvedBandCount);
   const bandEnergyFractions = new Float32Array(resolvedBandCount);
   const mixedSamples = new Float32Array(analysis.samples.length);
+  const reconstructionScratch = createReconstructionScratch(analysis);
   let totalEnergy = 0;
   for (let index = 0; index < analysis.componentEnergies.length; index += 1) {
     totalEnergy += analysis.componentEnergies[index];
@@ -409,7 +434,7 @@ export function buildEnergyBandReconstruction(
       energySum = totalEnergy;
     }
 
-    const band = reconstructWindowedComponentRange(analysis, componentStart, componentEnd);
+    const band = reconstructWindowedComponentRange(analysis, componentStart, componentEnd, reconstructionScratch);
     bandSamples.set(band, bandIndex * analysis.samples.length);
     for (let sampleIndex = 0; sampleIndex < mixedSamples.length; sampleIndex += 1) {
       mixedSamples[sampleIndex] += band[sampleIndex];

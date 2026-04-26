@@ -9,8 +9,6 @@ import {
   type SerializedPrecomputedBuiltInTransform,
   type CachedBuiltInTransform
 } from './transformCache';
-import { DeathCalculatorController } from './deathCalculatorController';
-import { AudioFourierController } from './audioFourierController';
 import {
   createTransformAnimationState,
   renderTransformAnimationPixels,
@@ -18,7 +16,6 @@ import {
   type TransformAnimationState
 } from './transformAnimation';
 import { resolveOutputDimensions, transformPreparedImages } from './transformCore';
-import { RetroVmController } from './retroVmController';
 import type { PreparedImageTransfer, TransformMetadata, TransformPresetId } from './types';
 import { DEMOS, resolvePlaybackButtonLabel, type ImageSelection, type SelectionKind, type StateKind } from './uiState';
 import type { WorkerRequest, WorkerResponse, WorkerSuccessMessage } from './workerTypes';
@@ -353,6 +350,12 @@ class UtilitiesApp {
       this.statusChip.textContent = chipLabel;
       this.statusChip.className = `utility-status-chip utility-status-chip--${state}`;
     }
+    window.dispatchEvent(new CustomEvent('utilities-load-state', {
+      detail: {
+        source: 'image-transform',
+        active: state === 'processing' || state === 'animating'
+      }
+    }));
     this.syncButtons();
   }
 
@@ -1317,57 +1320,115 @@ class UtilitiesApp {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const transformRoot = document.getElementById('utilitiesApp');
-  if (transformRoot) {
-    try {
-      new UtilitiesApp(transformRoot).init();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Utilities failed to initialize.';
-      const statusText = document.getElementById('transformStatusText');
-      if (statusText) {
-        statusText.textContent = message;
-      }
-      transformRoot.dataset.transformStatusMessage = message;
+  const initializedUtilities = new Set<string>();
+  const initializationPromises = new Map<string, Promise<void>>();
+
+  async function initializeUtility(utilityId: string) {
+    if (initializedUtilities.has(utilityId)) {
+      return;
     }
+
+    const pending = initializationPromises.get(utilityId);
+    if (pending) {
+      await pending;
+      return;
+    }
+
+    const promise = (async () => {
+      if (utilityId === 'image-transform') {
+        const transformRoot = document.getElementById('utilitiesApp');
+        if (!transformRoot) {
+          return;
+        }
+        try {
+          new UtilitiesApp(transformRoot).init();
+          initializedUtilities.add(utilityId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Utilities failed to initialize.';
+          const statusText = document.getElementById('transformStatusText');
+          if (statusText) {
+            statusText.textContent = message;
+          }
+          transformRoot.dataset.transformStatusMessage = message;
+        }
+        return;
+      }
+
+      if (utilityId === 'audio-fourier') {
+        const audioFourierRoot = document.getElementById('audioFourierApp');
+        if (!audioFourierRoot) {
+          return;
+        }
+        try {
+          const { AudioFourierController } = await import('./audioFourierController');
+          new AudioFourierController(audioFourierRoot).init();
+          initializedUtilities.add(utilityId);
+        } catch (error) {
+          const statusText = document.getElementById('audioFourierStatusText');
+          if (statusText) {
+            statusText.textContent = error instanceof Error ? error.message : 'Audio Fourier utility failed to initialize.';
+          }
+        }
+        return;
+      }
+
+      if (utilityId === 'death-calculator') {
+        const deathCalculatorRoot = document.getElementById('deathCalculatorApp');
+        if (!deathCalculatorRoot) {
+          return;
+        }
+        try {
+          const { DeathCalculatorController } = await import('./deathCalculatorController');
+          new DeathCalculatorController(deathCalculatorRoot).init();
+          initializedUtilities.add(utilityId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Death Calculator failed to initialize.';
+          const statusText = document.getElementById('deathStatusText');
+          if (statusText) {
+            statusText.textContent = message;
+          }
+          deathCalculatorRoot.dataset.deathStatusMessage = message;
+        }
+        return;
+      }
+
+      if (utilityId === 'virtual-machine') {
+        const vmRoot = document.getElementById('retroVmApp');
+        if (!vmRoot) {
+          return;
+        }
+        try {
+          const { RetroVmController } = await import('./retroVmController');
+          new RetroVmController(vmRoot).init();
+          initializedUtilities.add(utilityId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Retro VM failed to initialize.';
+          const statusText = document.getElementById('retroVmStatusText');
+          if (statusText) {
+            statusText.textContent = message;
+          }
+          vmRoot.dataset.vmStatusMessage = message;
+        }
+      }
+    })().finally(() => {
+      initializationPromises.delete(utilityId);
+    });
+
+    initializationPromises.set(utilityId, promise);
+    await promise;
   }
 
-  const audioFourierRoot = document.getElementById('audioFourierApp');
-  if (audioFourierRoot) {
-    try {
-      new AudioFourierController(audioFourierRoot).init();
-    } catch (error) {
-      const statusText = document.getElementById('audioFourierStatusText');
-      if (statusText) {
-        statusText.textContent = error instanceof Error ? error.message : 'Audio Fourier utility failed to initialize.';
-      }
+  document.addEventListener('utility-activate', (event) => {
+    const stage = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-utility-id]') : null;
+    const utilityId = stage?.dataset.utilityId;
+    if (utilityId) {
+      void initializeUtility(utilityId);
     }
-  }
+  });
 
-  const deathCalculatorRoot = document.getElementById('deathCalculatorApp');
-  if (deathCalculatorRoot) {
-    try {
-      new DeathCalculatorController(deathCalculatorRoot).init();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Death Calculator failed to initialize.';
-      const statusText = document.getElementById('deathStatusText');
-      if (statusText) {
-        statusText.textContent = message;
-      }
-      deathCalculatorRoot.dataset.deathStatusMessage = message;
+  document.querySelectorAll<HTMLElement>('.utility-stage.is-active[data-utility-id]').forEach((stage) => {
+    if (stage.dataset.utilityId) {
+      void initializeUtility(stage.dataset.utilityId);
     }
-  }
-
-  const vmRoot = document.getElementById('retroVmApp');
-  if (vmRoot) {
-    try {
-      new RetroVmController(vmRoot).init();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Retro VM failed to initialize.';
-      const statusText = document.getElementById('retroVmStatusText');
-      if (statusText) {
-        statusText.textContent = message;
-      }
-      vmRoot.dataset.vmStatusMessage = message;
-    }
-  }
+  });
 });

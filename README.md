@@ -44,7 +44,7 @@ npm run optimize-images
 - `npm run quality`: lint, formatting check, local link validation, and smoke checks for the static site.
 - `npm run mobile:check`: Playwright regression for the dedicated mobile Home/Resume routes and mobile redirects from desktop-only pages.
 - `npm run quality:full`: site quality plus the game and utilities typecheck/test suites.
-- `npm run utilities:build`: rebuild the shipped utilities bundle into `pages/dashboard/assets/`.
+- `npm run utilities:build`: rebuild the shipped utilities bundle into `pages/utilities/assets/`.
 - `npm run utilities:check`: typecheck and test the editable utilities app source.
 - `npm run utilities:browser-check`: run the Playwright regression flow against the shipped utilities page.
 - `npm run utilities:perf`: capture utilities transform timing telemetry for representative image cases.
@@ -56,7 +56,7 @@ npm run optimize-images
 ## Source-of-truth rules
 
 - Edit `game-src/`; do not hand-edit `pages/game/` or `pages/game/assets/`.
-- Edit `utilities-src/`; do not hand-edit `pages/dashboard/assets/` or the hashed worker chunks nested under `pages/dashboard/assets/assets/`.
+- Edit `utilities-src/`; do not hand-edit `pages/utilities/assets/` or the hashed worker chunks nested under `pages/utilities/assets/assets/`.
 - Edit source files in the repo root, `pages/`, `js/`, `css/`, and `assets/`; `dist/` is deploy output.
 - Keep dedicated mobile work in `mobile/` and `css/mobile.css`. The mobile surface is intentionally limited to Home and Resume; do not add Gallery, Utilities, Game, or Archive mobile routes without changing that contract explicitly.
 - Keep build/test config changes in `config/` so the repo root stays limited to shipped site files and top-level package metadata.

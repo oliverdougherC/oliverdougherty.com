@@ -26,7 +26,7 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `utilities-src/src/main.ts`: editable utilities page controller and DOM orchestration.
 - `utilities-src/src/transformCore.ts`: utilities matching pipeline and donor assignment logic.
 - `utilities-src/src/workerRuntime.ts`: shared worker/main-thread execution runtime for utilities transforms.
-- `pages/dashboard/assets/*`: generated utilities app bundle, including nested worker chunks under `pages/dashboard/assets/assets/`.
+- `pages/utilities/assets/*`: generated utilities app bundle, including nested worker chunks under `pages/utilities/assets/assets/`.
 
 ## Shared styling
 
@@ -52,6 +52,6 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - Keep the hand-authored HTML model. Do not introduce a templating system unless the repo direction changes.
 - Shared page chrome lives in repeated markup plus shared JS/CSS. Prefer small, explicit cleanup over broad structural rewrites.
 - Treat `/mobile/` as a separate product surface, not as responsive overrides for the desktop site. It has exactly two pages, Home and Resume; unsupported full-site mobile routes should include `js/mobile-gate.js` and redirect to `/mobile/` unless `?full=1` is present.
-- `pages/dashboard/assets/` is part of the shipped site, but it is generated from `utilities-src/` and should be treated as build output.
+- `pages/utilities/assets/` is part of the shipped site, but it is generated from `utilities-src/` and should be treated as build output.
 - Utilities deployment readiness means more than type/tests: after utilities-source changes, rebuild the shipped bundle and rerun `utilities:browser-check` plus `utilities:perf`.
 - `pages/game/` is part of the shipped site, but it is generated from `game-src/` and should be treated as build output.

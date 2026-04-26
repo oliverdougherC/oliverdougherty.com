@@ -28,6 +28,7 @@
 
   let currentUtilityId = null;
   let isTransitioning = false;
+  let localAssistantScriptPromise = null;
 
   function getHashTarget() {
     const hash = window.location.hash.replace(/^#/, '').trim();
@@ -37,6 +38,48 @@
 
   function getStage(utilityId) {
     return document.querySelector('.utility-stage[data-utility-id="' + utilityId + '"]');
+  }
+
+  function setActiveUtility(utilityId) {
+    if (utilityId) {
+      document.documentElement.dataset.activeUtility = utilityId;
+    } else {
+      delete document.documentElement.dataset.activeUtility;
+    }
+  }
+
+  function loadLocalAssistantScript() {
+    if (localAssistantScriptPromise) return localAssistantScriptPromise;
+    localAssistantScriptPromise = new Promise(function(resolve, reject) {
+      var existing = document.querySelector('script[data-local-llm-chat]');
+      if (existing) {
+        resolve();
+        return;
+      }
+
+      var script = document.createElement('script');
+      script.type = 'module';
+      script.src = '../../js/local-llm-chat.js?v=utilities-2026-04-25b';
+      script.dataset.localLlmChat = 'true';
+      script.onload = function() { resolve(); };
+      script.onerror = function() { reject(new Error('Unable to load Local Assistant.')); };
+      document.body.appendChild(script);
+    });
+    return localAssistantScriptPromise;
+  }
+
+  function activateStage(stage, utilityId) {
+    stage.classList.add('is-active');
+    setActiveUtility(utilityId);
+    stage.dispatchEvent(new CustomEvent('utility-activate', { bubbles: true }));
+    if (utilityId === 'local-assistant') {
+      loadLocalAssistantScript().catch(function(error) {
+        var root = document.getElementById('localLlmUtilityApp');
+        if (root) {
+          root.textContent = error.message || 'Unable to load Local Assistant.';
+        }
+      });
+    }
   }
 
   function showTitleCard() {
@@ -53,6 +96,7 @@
     titleView.classList.add('utilities-view--active');
 
     currentUtilityId = null;
+    setActiveUtility(null);
 
     setTimeout(function () {
       isTransitioning = false;
@@ -77,10 +121,7 @@
       stages.forEach(function (s) {
         s.classList.remove('is-active', 'is-exiting');
       });
-      incoming.classList.add('is-active');
-
-      // Fire activate event for lazy-init listeners
-      incoming.dispatchEvent(new CustomEvent('utility-activate', { bubbles: true }));
+      activateStage(incoming, utilityId);
 
       titleView.classList.remove('utilities-view--active');
       utilityView.classList.add('utilities-view--active');
@@ -102,8 +143,7 @@
       outgoing.classList.add('is-exiting');
       outgoing.classList.remove('is-active');
 
-      incoming.classList.add('is-active');
-      incoming.dispatchEvent(new CustomEvent('utility-activate', { bubbles: true }));
+      activateStage(incoming, utilityId);
 
       currentUtilityId = utilityId;
 
