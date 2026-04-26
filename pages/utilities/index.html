@@ -96,24 +96,43 @@
                             <label class="utility-dropzone--minimal" id="sourceDropzone">
                               <input type="file" id="transformSourceInput" accept="image/*">
                               <div class="dropzone-preview" id="sourceDropzonePreview">
-                                <span class="dropzone-icon">⇡</span>
-                                <span class="dropzone-label">Source</span>
+                                <span class="dropzone-icon utility-dropzone-icon" aria-hidden="true">
+                                  <svg viewBox="0 0 24 24" focusable="false">
+                                    <path d="M12 16V4"></path>
+                                    <path d="m7 9 5-5 5 5"></path>
+                                    <path d="M5 20h14"></path>
+                                  </svg>
+                                </span>
+                                <span class="dropzone-label">Upload source</span>
                               </div>
-                              <span class="utility-dropzone-meta" id="transformSourceSelection" hidden></span>
+                              <span class="utility-dropzone-meta" id="transformSourceSelection"></span>
                             </label>
-          
-                            <button type="button" class="btn-swap-minimal" id="transformSwapBtn" aria-label="Swap images">⇄</button>
+
+                            <button type="button" class="btn-swap-minimal" id="transformSwapBtn" aria-label="Swap images">
+                              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                                <path d="M7 7h10"></path>
+                                <path d="m14 4 3 3-3 3"></path>
+                                <path d="M17 17H7"></path>
+                                <path d="m10 14-3 3 3 3"></path>
+                              </svg>
+                            </button>
 
                             <label class="utility-dropzone--minimal" id="targetDropzone">
                               <input type="file" id="transformTargetInput" accept="image/*">
                               <div class="dropzone-preview" id="targetDropzonePreview">
-                                <span class="dropzone-icon">⇡</span>
-                                <span class="dropzone-label">Target</span>
+                                <span class="dropzone-icon utility-dropzone-icon" aria-hidden="true">
+                                  <svg viewBox="0 0 24 24" focusable="false">
+                                    <path d="M12 16V4"></path>
+                                    <path d="m7 9 5-5 5 5"></path>
+                                    <path d="M5 20h14"></path>
+                                  </svg>
+                                </span>
+                                <span class="dropzone-label">Upload target</span>
                               </div>
-                              <span class="utility-dropzone-meta" id="transformTargetSelection" hidden></span>
+                              <span class="utility-dropzone-meta" id="transformTargetSelection"></span>
                             </label>
                           </div>
-          
+
                           <div class="utility-controls-minimal">
                             <div class="control-group-minimal">
                               <select id="transformPreset" class="control-select-minimal" aria-label="Quality preset">
@@ -122,33 +141,37 @@
                                 <option value="detailed">Detailed (512px)</option>
                               </select>
                             </div>
-          
+
                             <button type="button" class="btn-primary-minimal" id="transformGenerateBtn">Generate</button>
-                            
+
                             <div class="demo-strip-minimal" aria-label="Demo image pairs">
                               <span class="demo-label-minimal">Demos</span>
-                              <button type="button" class="demo-chip demo-chip-minimal active" data-demo-key="pattern-face" title="Pattern → Face">1</button>
-                              <button type="button" class="demo-chip demo-chip-minimal" data-demo-key="source-target" title="Pattern → Lucki">2</button>
-                              <button type="button" class="demo-chip demo-chip-minimal" data-demo-key="face-pattern" title="Pattern → Keef">3</button>
+                              <button type="button" class="demo-chip demo-chip-minimal active" data-demo-key="pattern-face" title="Pattern → Face"><span class="demo-prefix">Pattern → </span>Face</button>
+                              <button type="button" class="demo-chip demo-chip-minimal" data-demo-key="source-target" title="Pattern → Lucki"><span class="demo-prefix">Pattern → </span>Lucki</button>
+                              <button type="button" class="demo-chip demo-chip-minimal" data-demo-key="face-pattern" title="Pattern → Keef"><span class="demo-prefix">Pattern → </span>Keef</button>
                             </div>
                           </div>
                         </div>
                       </div>
-          
+
                       <div class="utility-view utility-view--minimal">
                         <div class="utility-progress-minimal" aria-live="polite">
-                          <p class="utility-progress-text-minimal" id="transformProgressText">Ready for input.</p>
+                          <div class="utility-progress-copy-minimal">
+                            <p class="utility-progress-text-minimal" id="transformProgressText">Ready for input.</p>
+                            <span class="utility-progress-meta-minimal" id="transformProgressMeta">Balanced preset · up to 384px working size</span>
+                          </div>
                           <div class="utility-progress-bar-minimal" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="transformProgressBar">
                             <span class="utility-progress-fill-minimal" id="transformProgressFill"></span>
                           </div>
                         </div>
-          
-                        <article class="canvas-panel-minimal">
-                          <div class="canvas-stage-minimal">
+
+                        <article class="canvas-panel-minimal canvas-panel--result">
+                          <div class="canvas-stage-minimal canvas-stage--result">
                             <canvas id="transformResultCanvas" width="384" height="384"></canvas>
                             <canvas id="transformOverlayCanvas" width="384" height="384" aria-hidden="true"></canvas>
                             <div class="canvas-placeholder-minimal" id="transformResultPlaceholder">Reconstruction will appear here</div>
-                            
+                            <p class="canvas-result-meta-minimal" id="transformResultMeta">Generate a transform to begin the animation.</p>
+
                             <div class="canvas-overlay-controls">
                               <button type="button" class="btn-overlay-icon" id="transformPlayBtn" disabled aria-label="Play">▶</button>
                               <button type="button" class="btn-overlay-icon" id="transformPauseBtn" disabled aria-label="Pause">⏸</button>
@@ -156,13 +179,13 @@
                             </div>
 
                             <div class="canvas-overlay-stats">
-                              <span id="transformOutputSize">—</span> • 
-                              <span id="transformPixelCount">—</span> • 
+                              <span id="transformOutputSize">—</span> •
+                              <span id="transformPixelCount">—</span> •
                               <span id="transformDuration">—</span>
                             </div>
                           </div>
                         </article>
-          
+
                         <div class="support-panels" hidden>
                           <!-- Hidden but kept for JS compatibility -->
                           <canvas id="transformSourceCanvas" width="384" height="384"></canvas>
@@ -180,7 +203,7 @@
           <section class="utility-shell utility-shell--audio" id="audioFourierApp" data-utility-root="audio-fourier" data-animate="fade-up" data-audio-state="idle" aria-label="Audio Fourier Reconstruction">
                     <span class="utility-status-chip utility-status-chip--idle" id="audioFourierStatusChip" hidden>Idle</span>
                     <p class="utility-status-copy" id="audioFourierStatusText" aria-live="polite" hidden>Choose a built-in song or upload an audio file.</p>
-          
+
                     <div class="utility-layout utility-layout--audio">
                       <div class="utility-rail utility-rail--minimal">
                         <div class="utility-toolbar">
@@ -188,13 +211,19 @@
                             <label class="utility-dropzone--minimal audio-dropzone" id="audioFourierDropzone">
                               <input type="file" id="audioFourierInput" accept="audio/*">
                               <div class="dropzone-preview" id="audioDropzonePreview">
-                                <span class="dropzone-icon">♫</span>
-                                <span class="dropzone-label">Source</span>
+                                <span class="dropzone-icon utility-dropzone-icon" aria-hidden="true">
+                                  <svg viewBox="0 0 24 24" focusable="false">
+                                    <path d="M12 16V4"></path>
+                                    <path d="m7 9 5-5 5 5"></path>
+                                    <path d="M5 20h14"></path>
+                                  </svg>
+                                </span>
+                                <span class="dropzone-label">Upload audio</span>
                               </div>
-                              <span class="utility-dropzone-meta" id="audioFourierSelection" hidden></span>
+                              <span class="utility-dropzone-meta" id="audioFourierSelection"></span>
                             </label>
                           </div>
-          
+
                           <div class="utility-controls-minimal">
                             <div class="control-group-minimal">
                               <select id="audioFourierQuality" class="control-select-minimal" aria-label="Analysis quality">
@@ -203,55 +232,63 @@
                                 <option value="detailed">Detailed</option>
                               </select>
                             </div>
-          
+
                             <button type="button" class="btn-primary-minimal" id="audioFourierGenerateBtn">Generate</button>
-                            <button type="button" class="btn-icon-utility" id="audioFourierResetBtn" aria-label="Reset" style="margin-top: 0.5rem;">↺</button>
-          
+                            <button type="button" class="btn-secondary-minimal" id="audioFourierResetBtn">Reset</button>
+
                             <div class="demo-strip-minimal audio-preset-strip" aria-label="Built-in song presets">
                               <span class="demo-label-minimal">Demos</span>
-                              <button type="button" class="demo-chip demo-chip-minimal active" data-audio-preset="best-friends" title="Best Friends">1</button>
-                              <button type="button" class="demo-chip demo-chip-minimal" data-audio-preset="i-cant-wait-to-get-there" title="I Can't Wait To Get There">2</button>
-                              <button type="button" class="demo-chip demo-chip-minimal" data-audio-preset="tell-your-friends" title="Tell Your Friends">3</button>
+                              <button type="button" class="demo-chip demo-chip-minimal active" data-audio-preset="best-friends" title="Best Friends">Best Friends</button>
+                              <button type="button" class="demo-chip demo-chip-minimal" data-audio-preset="i-cant-wait-to-get-there" title="I Can't Wait To Get There">Get There</button>
+                              <button type="button" class="demo-chip demo-chip-minimal" data-audio-preset="tell-your-friends" title="Tell Your Friends">Tell Friends</button>
                             </div>
                           </div>
                         </div>
                       </div>
-          
+
                       <div class="utility-view utility-view--minimal">
                         <div class="utility-progress-minimal" aria-live="polite">
-                          <p class="utility-progress-text-minimal" id="audioFourierProgressText">Ready for audio.</p>
+                          <div class="utility-progress-copy-minimal">
+                            <p class="utility-progress-text-minimal" id="audioFourierProgressText">Ready for audio.</p>
+                            <span class="utility-progress-meta-minimal" id="audioFourierProgressMeta">Balanced · full-song proxy at 22050 Hz</span>
+                          </div>
                           <div class="utility-progress-bar-minimal" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="audioFourierProgressBar">
                             <span class="utility-progress-fill-minimal audio-progress-fill" id="audioFourierProgressFill"></span>
                           </div>
                         </div>
-          
+
                         <article class="canvas-panel-minimal">
                           <div class="canvas-stage-minimal audio-wave-stage">
                             <canvas id="audioFourierWaveCanvas" width="1040" height="360"></canvas>
-                            
+                            <p class="canvas-result-meta-minimal audio-result-meta-minimal" id="audioFourierResultMeta">Generate a Fourier transform to begin the reconstruction.</p>
+
                             <div class="canvas-overlay-controls">
                               <button type="button" class="btn-overlay-icon" id="audioFourierPlayBtn" disabled aria-label="Play">▶</button>
                               <button type="button" class="btn-overlay-icon" id="audioFourierPauseBtn" disabled aria-label="Pause">⏸</button>
                             </div>
 
                             <div class="canvas-overlay-stats">
-                              <span id="audioFourierSampleRate">—</span> • 
-                              <span id="audioFourierComponentCount">—</span> • 
-                              <span id="audioFourierSourceDuration">—</span> • 
+                              <span id="audioFourierSampleRate">—</span> •
+                              <span id="audioFourierComponentCount">—</span> •
+                              <span id="audioFourierSourceDuration">—</span> •
                               <span id="audioFourierDuration">—</span>
                             </div>
                           </div>
-          
-                          <div class="audio-compact-controls" style="margin-top: 1rem;">
+
+                          <div class="audio-compact-controls">
                             <div class="audio-component-control--inline">
-                              <span class="audio-component-readout" id="audioFourierComponentReadout" style="min-width: 4rem; text-align: left;">0 signals</span>
+                              <span class="audio-component-readout" id="audioFourierComponentReadout">0 signals</span>
                               <div class="audio-slider-wrapper">
                                 <input id="audioFourierComponentSlider" class="audio-component-slider" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="Fourier signals added">
+                                <div class="audio-component-scale" aria-hidden="true">
+                                  <span id="audioFourierComponentMin">Sparse</span>
+                                  <span id="audioFourierComponentMax">Full proxy</span>
+                                </div>
                               </div>
                             </div>
                           </div>
                         </article>
-          
+
                         <div class="support-panels audio-support-panels" hidden>
                           <!-- Hidden to maintain minimal aesthetic, kept for JS compatibility -->
                           <canvas id="audioFourierSpectrumCanvas" width="640" height="260"></canvas>
@@ -273,7 +310,7 @@
                           <button type="button" class="btn-primary-utility death-begin-button" id="deathBeginBtn">Begin?</button>
                         </article>
                       </div>
-          
+
                       <div class="death-screen death-screen--survey" id="deathSurveyScreen" hidden>
                         <article class="death-card death-card--question-shell">
                           <div class="death-flow-head">
@@ -282,12 +319,12 @@
                                 <span class="death-progress-fill" id="deathProgressFill"></span>
                               </div>
                             </div>
-          
+
                             <div class="death-flow-copy" style="margin-top: 2rem;">
                               <h4 class="death-question-title" id="deathQuestionTitle">When were you born?</h4>
                             </div>
                           </div>
-          
+
                           <form id="deathSurveyForm" class="death-survey-form" novalidate>
                             <section class="death-question-card is-active" data-question-card="birthDate">
                               <label class="control-field" for="deathBirthDate">
@@ -295,7 +332,7 @@
                                 <input id="deathBirthDate" name="birthDate" class="control-input" type="date" required>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="sex" hidden>
                               <label class="control-field" for="deathSex">
                                 <span class="control-label">Actuarial sex baseline</span>
@@ -305,70 +342,70 @@
                                 </select>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="weight" hidden>
                               <label class="control-field" for="deathWeightPounds">
                                 <span class="control-label">Weight (lb)</span>
                                 <input id="deathWeightPounds" name="weightPounds" class="control-input" type="number" min="50" max="700" step="1" value="180" required>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="height" hidden>
                               <div class="death-card-grid death-card-grid--split">
                                 <label class="control-field" for="deathHeightFeet">
                                   <span class="control-label">Height (ft)</span>
                                   <input id="deathHeightFeet" name="heightFeet" class="control-input" type="number" min="3" max="8" step="1" value="5" required>
                                 </label>
-          
+
                                 <label class="control-field" for="deathHeightInchesPart">
                                   <span class="control-label">Extra inches</span>
                                   <input id="deathHeightInchesPart" name="heightInchesPart" class="control-input" type="number" min="0" max="11" step="1" value="10" required>
                                 </label>
                               </div>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="moderateMinutes" hidden>
                               <div class="death-card-grid death-card-grid--split">
                                 <label class="control-field" for="deathModerateDays">
                                   <span class="control-label">Days per week</span>
                                   <input id="deathModerateDays" name="moderateDaysPerWeek" class="control-input" type="number" min="0" max="7" step="1" value="4" required>
                                 </label>
-          
+
                                 <label class="control-field" for="deathModerateMinutesSession">
                                   <span class="control-label">Minutes per session</span>
                                   <input id="deathModerateMinutesSession" name="moderateMinutesSession" class="control-input" type="number" min="0" max="300" step="5" value="30" required>
                                 </label>
                               </div>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="vigorousMinutes" hidden>
                               <div class="death-card-grid death-card-grid--split">
                                 <label class="control-field" for="deathVigorousDays">
                                   <span class="control-label">Days per week</span>
                                   <input id="deathVigorousDays" name="vigorousDaysPerWeek" class="control-input" type="number" min="0" max="7" step="1" value="1" required>
                                 </label>
-          
+
                                 <label class="control-field" for="deathVigorousMinutesSession">
                                   <span class="control-label">Minutes per session</span>
                                   <input id="deathVigorousMinutesSession" name="vigorousMinutesSession" class="control-input" type="number" min="0" max="300" step="5" value="30" required>
                                 </label>
                               </div>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="strengthDays" hidden>
                               <label class="control-field" for="deathStrengthDays">
                                 <span class="control-label">Strength days per week</span>
                                 <input id="deathStrengthDays" name="strengthDaysPerWeek" class="control-input" type="number" min="0" max="7" step="1" value="2" required>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="sedentaryHours" hidden>
                               <label class="control-field" for="deathSedentaryHours">
                                 <span class="control-label">Sedentary hours per day</span>
                                 <input id="deathSedentaryHours" name="sedentaryHoursPerDay" class="control-input" type="number" min="0" max="18" step="0.5" value="8" required>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="smokingStatus" hidden>
                               <label class="control-field" for="deathSmokingStatus">
                                 <span class="control-label">Smoking status</span>
@@ -382,21 +419,21 @@
                                 </select>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="yearsSinceQuit" id="deathYearsSinceQuitField" hidden>
                               <label class="control-field" for="deathYearsSinceQuit">
                                 <span class="control-label">Years since quitting</span>
                                 <input id="deathYearsSinceQuit" name="yearsSinceQuit" class="control-input" type="number" min="0" max="80" step="1" value="5">
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="drinksPerWeek" hidden>
                               <label class="control-field" for="deathDrinksPerWeek">
                                 <span class="control-label">Alcoholic drinks per week</span>
                                 <input id="deathDrinksPerWeek" name="drinksPerWeek" class="control-input" type="number" min="0" max="70" step="1" value="3" required>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="bingeFrequency" hidden>
                               <label class="control-field" for="deathBingeFrequency">
                                 <span class="control-label">Binge frequency</span>
@@ -408,14 +445,14 @@
                                 </select>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="sleepHours" hidden>
                               <label class="control-field" for="deathSleepHours">
                                 <span class="control-label">Sleep hours per night</span>
                                 <input id="deathSleepHours" name="sleepHoursPerNight" class="control-input" type="number" min="3" max="14" step="0.5" value="7.5" required>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="upfShare" hidden>
                               <label class="control-field" for="deathUpfShare">
                                 <span class="control-label">Ultra-processed food share</span>
@@ -428,21 +465,21 @@
                                 </select>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="produceServings" hidden>
                               <label class="control-field" for="deathProduceServings">
                                 <span class="control-label">Fruit + vegetable servings per day</span>
                                 <input id="deathProduceServings" name="fruitVegetableServingsPerDay" class="control-input" type="number" min="0" max="20" step="1" value="4" required>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="hasHypertension" hidden>
                               <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathHasHypertension">
                                 <input id="deathHasHypertension" name="hasHypertension" type="checkbox">
                                 <span>Diagnosed hypertension</span>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="diabetesStatus" hidden>
                               <label class="control-field" for="deathDiabetesStatus">
                                 <span class="control-label">Diabetes status</span>
@@ -453,49 +490,49 @@
                                 </select>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="hasCardiovascularDisease" hidden>
                               <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathHasCardioDisease">
                                 <input id="deathHasCardioDisease" name="hasCardiovascularDisease" type="checkbox">
                                 <span>Heart disease or stroke history</span>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="hasCancerHistory" hidden>
                               <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathHasCancerHistory">
                                 <input id="deathHasCancerHistory" name="hasCancerHistory" type="checkbox">
                                 <span>Cancer history</span>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="hasCopdOrAsthma" hidden>
                               <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathHasCopdOrAsthma">
                                 <input id="deathHasCopdOrAsthma" name="hasCopdOrAsthma" type="checkbox">
                                 <span>COPD or chronic asthma</span>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="hasChronicKidneyDisease" hidden>
                               <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathHasKidneyDisease">
                                 <input id="deathHasKidneyDisease" name="hasChronicKidneyDisease" type="checkbox">
                                 <span>Chronic kidney disease</span>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="hasSleepApnea" hidden>
                               <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathHasSleepApnea">
                                 <input id="deathHasSleepApnea" name="hasSleepApnea" type="checkbox">
                                 <span>Sleep apnea</span>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="hasEarlyFamilyCardioHistory" hidden>
                               <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathEarlyFamilyCardio">
                                 <input id="deathEarlyFamilyCardio" name="hasEarlyFamilyCardioHistory" type="checkbox">
                                 <span>Parent or sibling had early heart disease or stroke</span>
                               </label>
                             </section>
-          
+
                             <section class="death-question-card" data-question-card="parentLongevityBand" hidden>
                               <label class="control-field" for="deathParentLongevityBand">
                                 <span class="control-label">Parent longevity pattern</span>
@@ -507,7 +544,7 @@
                                 </select>
                               </label>
                             </section>
-          
+
                             <div class="death-form-actions">
                               <button type="button" class="btn-secondary-utility" id="deathBackBtn" disabled>Back</button>
                               <button type="button" class="btn-primary-utility" id="deathNextBtn">Next</button>
@@ -516,7 +553,7 @@
                           </form>
                         </article>
                       </div>
-          
+
                       <div class="death-screen death-screen--result" id="deathResultScreen" hidden>
                         <article class="death-card death-card--result">
                           <span class="utility-kicker">Estimated Outcome</span>
@@ -524,18 +561,18 @@
                             <span class="death-result-label">Estimated death date</span>
                             <h4 class="death-result-date" id="deathMedianDate">Estimated date will appear here</h4>
                           </div>
-          
+
                           <div class="death-result-block">
                             <span class="death-result-label">Death timer</span>
                             <div class="death-countdown-display" id="deathCountdownDisplay">00:000:00:00:00</div>
                             <p class="death-countdown-legend">Years : Days : Hours : Minutes : Seconds</p>
                           </div>
-          
+
                           <p class="death-result-meta" id="deathResultMeta">Answer every card to reveal the estimate.</p>
                           <p class="death-result-disclaimer" id="deathDisclaimer">
                             This is a modeled estimate based on U.S. actuarial life tables and curated public-health evidence. It is not a medical diagnosis.
                           </p>
-          
+
                           <button type="button" class="btn-secondary-utility death-reset-button" id="deathResetBtn">Start over</button>
                         </article>
                       </div>
@@ -551,7 +588,7 @@
                             <div class="vm-toolbar">
                               <span class="vm-status-dot"></span>
                               <span class="vm-toolbar-title" id="retroVmProgressText">Idle</span>
-                              
+
                               <div class="vm-toolbar-actions" style="margin-left: auto; display: flex; gap: 0.5rem;">
                                 <button type="button" class="btn-secondary-utility btn-secondary-utility--compact" id="retroVmLaunchBtn">Launch</button>
                                 <button type="button" class="btn-secondary-utility btn-secondary-utility--compact" id="retroVmPasteBtn" disabled>Paste</button>
