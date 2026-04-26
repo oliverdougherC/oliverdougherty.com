@@ -15,7 +15,7 @@ let baseUrl = process.env.NAV_CHECK_URL || DEFAULT_BASE_URL;
 const PAGES = [
   { label: 'home', route: '/' },
   { label: 'archive', route: '/pages/archive/index.html' },
-  { label: 'dashboard', route: '/pages/dashboard/index.html' },
+  { label: 'utilities', route: '/pages/utilities/index.html' },
   { label: 'resume', route: '/pages/resume/index.html' }
 ];
 

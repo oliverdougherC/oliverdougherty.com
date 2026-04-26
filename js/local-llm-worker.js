@@ -1,5 +1,14 @@
 const MODEL_ID = 'onnx-community/Qwen3-0.6B-ONNX';
-const TRANSFORMERS_CDN = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1';
+const TRANSFORMERS_RUNTIMES = [
+  {
+    name: 'Transformers.js 4.2.0',
+    url: 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0'
+  },
+  {
+    name: 'Transformers.js 3.8.1',
+    url: 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1'
+  }
+];
 const SYSTEM_PROMPT = 'You are a tiny local AI assistant. You run entirely in the visitor\'s browser. Be concise, friendly, and honest about limitations. You can answer general questions. Do not claim to have internet access, private data, or server-side tools. If unsure, say so.';
 const GENERATION_DEFAULTS = {
   max_new_tokens: 192,
@@ -10,6 +19,7 @@ const GENERATION_DEFAULTS = {
 };
 
 let transformersModule = null;
+let selectedRuntime = null;
 let generator = null;
 let loadPromise = null;
 let backend = null;
@@ -37,21 +47,9 @@ self.addEventListener('message', (event) => {
   }
 });
 
-async function getTransformers() {
-  if (!transformersModule) {
-    transformersModule = await import(TRANSFORMERS_CDN);
-    const { env } = transformersModule;
-    env.allowLocalModels = false;
-    env.allowRemoteModels = true;
-    env.useBrowserCache = true;
-  }
-
-  return transformersModule;
-}
-
 async function loadModel() {
   if (generator) {
-    postMessage({ type: 'ready', backend, model: MODEL_ID });
+    postMessage({ type: 'ready', backend, model: MODEL_ID, runtime: selectedRuntime?.name || '' });
     return;
   }
 
@@ -62,11 +60,7 @@ async function loadModel() {
 
   loadPromise = loadModelInternal()
     .catch((error) => {
-      postMessage({
-        type: 'error',
-        status: 'unsupported',
-        message: 'This browser could not load the local model. Try a recent Chrome, Edge, or Safari build with enough available memory.'
-      });
+      postMessage(buildLoadError(error));
       throw error;
     })
     .finally(() => {
@@ -76,62 +70,159 @@ async function loadModel() {
   try {
     await loadPromise;
   } catch {
-    // The UI receives the friendly error above; avoid noisy worker logging.
+    // The UI receives a structured error; keep the worker quiet.
   }
 }
 
 async function loadModelInternal() {
-  const { pipeline } = await getTransformers();
-  const supportsWebGpu = Boolean(self.navigator?.gpu);
+  postCapabilities();
+  const runtimeFailures = [];
 
-  postMessage({ type: 'status', status: supportsWebGpu ? 'loading-webgpu' : 'loading-wasm' });
+  for (const runtime of TRANSFORMERS_RUNTIMES) {
+    selectedRuntime = runtime;
+    postMessage({ type: 'status', status: 'runtime-import', runtime: runtime.name });
 
-  if (supportsWebGpu) {
+    try {
+      transformersModule = await import(runtime.url);
+      configureTransformers(transformersModule);
+    } catch (error) {
+      runtimeFailures.push({ runtime: runtime.name, category: 'runtime-import', message: normalizeError(error) });
+      transformersModule = null;
+      selectedRuntime = null;
+      continue;
+    }
+
+    const result = await tryLoadWithRuntime(runtime, runtimeFailures);
+    if (result) return;
+
+    await safeDispose();
+    transformersModule = null;
+    selectedRuntime = null;
+  }
+
+  const finalError = new Error('All local runtime paths failed.');
+  finalError.failures = runtimeFailures;
+  finalError.category = runtimeFailures.at(-1)?.category || 'unsupported';
+  throw finalError;
+}
+
+function configureTransformers(module) {
+  const { env } = module;
+  if (!env) return;
+
+  env.allowLocalModels = false;
+  env.allowRemoteModels = true;
+  env.useBrowserCache = true;
+}
+
+async function tryLoadWithRuntime(runtime, runtimeFailures) {
+  const { pipeline } = transformersModule;
+  const webGpuProbe = await probeWebGpu();
+
+  if (webGpuProbe.available) {
+    postMessage({ type: 'status', status: 'loading-webgpu', runtime: runtime.name });
+
     try {
       generator = await pipeline('text-generation', MODEL_ID, {
         device: 'webgpu',
         dtype: 'q4',
-        progress_callback: (progress) => postProgress(progress, 'webgpu')
+        progress_callback: (progress) => postProgress(progress, 'webgpu', runtime.name)
       });
       backend = 'webgpu';
-      postMessage({ type: 'ready', backend, model: MODEL_ID });
-      return;
-    } catch {
+      postMessage({ type: 'ready', backend, model: MODEL_ID, runtime: runtime.name });
+      return true;
+    } catch (error) {
+      runtimeFailures.push({
+        runtime: runtime.name,
+        backend: 'webgpu',
+        category: 'webgpu-failed',
+        message: normalizeError(error)
+      });
       await safeDispose();
       postMessage({
         type: 'status',
-        status: 'loading-wasm',
-        message: 'WebGPU was unavailable for this model, so I am trying the local CPU path.'
+        status: 'backend-fallback',
+        runtime: runtime.name,
+        message: 'WebGPU could not initialize this model, so I am trying the local CPU path.'
       });
     }
+  } else {
+    runtimeFailures.push({
+      runtime: runtime.name,
+      backend: 'webgpu',
+      category: 'webgpu-unavailable',
+      message: webGpuProbe.reason
+    });
   }
+
+  postMessage({
+    type: 'status',
+    status: 'loading-wasm',
+    runtime: runtime.name,
+    message: 'Loading local model with WASM/CPU.'
+  });
 
   try {
     // Omitting `device` intentionally selects Transformers.js' browser WASM/CPU backend.
     generator = await pipeline('text-generation', MODEL_ID, {
       dtype: 'q4',
-      progress_callback: (progress) => postProgress(progress, 'wasm')
+      progress_callback: (progress) => postProgress(progress, 'wasm', runtime.name)
     });
     backend = 'wasm';
-    postMessage({ type: 'ready', backend, model: MODEL_ID });
+    postMessage({ type: 'ready', backend, model: MODEL_ID, runtime: runtime.name });
+    return true;
   } catch (error) {
-    await safeDispose();
-    postMessage({
-      type: 'error',
-      status: 'unsupported',
-      message: 'Your browser could not run this local model. A newer browser, WebGPU support, or more available memory may be needed.'
+    runtimeFailures.push({
+      runtime: runtime.name,
+      backend: 'wasm',
+      category: 'wasm-failed',
+      message: normalizeError(error)
     });
-    throw error;
+    return false;
   }
 }
 
-function postProgress(progress, attemptedBackend) {
+async function probeWebGpu() {
+  if (!self.navigator?.gpu) {
+    return { available: false, reason: 'navigator.gpu is unavailable in this worker.' };
+  }
+
+  if (typeof self.navigator.gpu.requestAdapter !== 'function') {
+    return { available: true, reason: 'navigator.gpu exists but requestAdapter is unavailable.' };
+  }
+
+  try {
+    const adapter = await self.navigator.gpu.requestAdapter();
+    return adapter
+      ? { available: true, reason: 'WebGPU adapter available.' }
+      : { available: false, reason: 'WebGPU did not return an adapter.' };
+  } catch (error) {
+    return { available: false, reason: normalizeError(error) || 'WebGPU adapter request failed.' };
+  }
+}
+
+function postCapabilities() {
+  postMessage({
+    type: 'capabilities',
+    capabilities: {
+      secureContext: typeof self.isSecureContext === 'boolean' ? self.isSecureContext : null,
+      workerGpu: Boolean(self.navigator?.gpu),
+      moduleWorker: true,
+      cacheApi: Boolean(self.caches?.open),
+      crossOriginIsolated: Boolean(self.crossOriginIsolated),
+      userAgent: self.navigator?.userAgent || ''
+    }
+  });
+}
+
+function postProgress(progress, attemptedBackend, runtimeName) {
   const percent = Number.isFinite(progress?.progress) ? Math.max(0, Math.min(100, progress.progress)) : null;
   const status = normalizeProgressStatus(progress?.status);
 
   postMessage({
     type: 'progress',
     backend: attemptedBackend,
+    runtime: runtimeName,
     status,
     file: typeof progress?.file === 'string' ? progress.file : '',
     progress: percent,
@@ -183,10 +274,21 @@ async function generateReply(messages) {
       postMessage({
         type: 'error',
         status: 'error',
-        message: 'The local model stopped unexpectedly. Reset the chat and try a shorter prompt.'
+        category: 'generation-failed',
+        message: 'The local model stopped unexpectedly.',
+        detail: 'The worker stayed alive, but generation failed. This can happen with low memory or very long prompts.',
+        likelyFix: 'Reset the chat and try a shorter prompt.'
       });
     }
   }
+}
+
+async function getTransformers() {
+  if (transformersModule) return transformersModule;
+  selectedRuntime = TRANSFORMERS_RUNTIMES[0];
+  transformersModule = await import(selectedRuntime.url);
+  configureTransformers(transformersModule);
+  return transformersModule;
 }
 
 function compactMessages(messages) {
@@ -222,13 +324,7 @@ async function disposeModel(clearCache) {
   await safeDispose();
   backend = null;
 
-  if (clearCache && self.caches?.delete) {
-    try {
-      await self.caches.delete('transformers-cache');
-    } catch {
-      // Cache deletion is best-effort and should never break the host page.
-    }
-  }
+  if (clearCache) await deleteTransformersCaches();
 
   postMessage({ type: 'disposed' });
 }
@@ -243,4 +339,75 @@ async function safeDispose() {
   } finally {
     generator = null;
   }
+}
+
+async function deleteTransformersCaches() {
+  if (!self.caches?.keys || !self.caches?.delete) return false;
+
+  try {
+    const cacheNames = await self.caches.keys();
+    const targets = cacheNames.filter((name) => /transformers|huggingface/i.test(name));
+    await Promise.all(targets.map((name) => self.caches.delete(name)));
+    await self.caches.delete('transformers-cache');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function buildLoadError(error) {
+  const failures = Array.isArray(error?.failures) ? error.failures : [];
+  const lastFailure = failures.at(-1) || {};
+  const category = error?.category || lastFailure.category || 'unsupported';
+  const message = category === 'runtime-import'
+    ? 'The local AI runtime could not be loaded.'
+    : 'Your browser could not run this local model.';
+
+  return {
+    type: 'error',
+    status: 'unsupported',
+    category,
+    message,
+    detail: summarizeFailures(failures),
+    likelyFix: likelyFixForCategory(category, failures)
+  };
+}
+
+function summarizeFailures(failures) {
+  if (!failures.length) {
+    return 'Both WebGPU and WASM/CPU failed before the model became ready.';
+  }
+
+  return failures
+    .slice(-4)
+    .map((failure) => {
+      const backendLabel = failure.backend ? ` ${failure.backend}` : '';
+      return `${failure.runtime || 'Runtime'}${backendLabel}: ${failure.message || failure.category}`;
+    })
+    .join(' | ');
+}
+
+function likelyFixForCategory(category, failures) {
+  const hasOnlyNoWebGpu = failures.some((failure) => failure.category === 'webgpu-unavailable')
+    && failures.some((failure) => failure.category === 'wasm-failed');
+
+  if (category === 'runtime-import') {
+    return 'Check the WebStorm server, CDN/network access, and content blockers, then retry.';
+  }
+
+  if (hasOnlyNoWebGpu) {
+    return 'Firefox may need WebGPU support enabled, but the page should still try WASM/CPU. If WASM also fails, try a current Chrome, Edge, or Safari build.';
+  }
+
+  if (category === 'wasm-failed') {
+    return 'Close memory-heavy tabs and retry, or use a browser with WebGPU available.';
+  }
+
+  return 'Retry from localhost or HTTPS in a current desktop browser with enough available memory.';
+}
+
+function normalizeError(error) {
+  if (typeof error?.message === 'string' && error.message.trim()) return error.message.slice(0, 220);
+  if (typeof error === 'string') return error.slice(0, 220);
+  return 'Unknown error';
 }

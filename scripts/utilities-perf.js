@@ -228,12 +228,12 @@ async function main() {
   const browser = await chromium.launch({ headless: true });
 
   try {
-    await waitForServer(`${baseUrl}/pages/dashboard/index.html`);
+    await waitForServer(`${baseUrl}/pages/utilities/index.html`);
 
     const page = await browser.newPage({
       viewport: { width: 1440, height: 1100 }
     });
-    await page.goto(`${baseUrl}/pages/dashboard/index.html`, { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/pages/utilities/index.html`, { waitUntil: 'networkidle' });
 
     const benchmarkCases = [
       {

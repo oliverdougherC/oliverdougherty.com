@@ -40,7 +40,7 @@ const SKIP_PREFIXES = [
   'assets/photos/thumbs',
   'assets/photos/medium',
   'assets/photos/large',
-  'pages/dashboard/assets',
+  'pages/utilities/assets',
   'pages/game/assets',
   'image-transform',
   'image-transform/target'

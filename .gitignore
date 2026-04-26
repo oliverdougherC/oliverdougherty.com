@@ -10,6 +10,8 @@ output/
 .omx/
 .playwright-mcp/
 .openclaude/
+.kilo/
+.openclaude-profile.json
 
 server.log
 server.pid

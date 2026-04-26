@@ -29,8 +29,13 @@ function setCurrentYear() {
 
 function getInitialColorMode() {
   if (COLOR_MODE_DISABLED) {
-    return COLOR_MODE_LIGHT;
+    return COLOR_MODE_DARK;
   }
+
+  const storedColorMode = readStoredColorMode();
+  if (storedColorMode) return storedColorMode;
+  return COLOR_MODE_DARK;
+}
 
   const storedColorMode = readStoredColorMode();
   if (storedColorMode) return storedColorMode;
@@ -60,10 +65,15 @@ function persistColorMode(mode) {
 
 function applyColorMode(mode) {
   if (COLOR_MODE_DISABLED) {
-    document.documentElement.setAttribute('data-color-mode', COLOR_MODE_LIGHT);
-    document.documentElement.style.colorScheme = COLOR_MODE_LIGHT;
+    document.documentElement.setAttribute('data-color-mode', COLOR_MODE_DARK);
+    document.documentElement.style.colorScheme = COLOR_MODE_DARK;
     return;
   }
+
+  const normalizedMode = mode === COLOR_MODE_LIGHT ? COLOR_MODE_LIGHT : COLOR_MODE_DARK;
+  document.documentElement.setAttribute('data-color-mode', normalizedMode);
+  document.documentElement.style.colorScheme = normalizedMode;
+}
 
   const normalizedMode = mode === COLOR_MODE_LIGHT ? COLOR_MODE_LIGHT : COLOR_MODE_DARK;
   document.documentElement.setAttribute('data-color-mode', normalizedMode);

@@ -16,7 +16,7 @@ const REQUIRED_PAGES = [
   'pages/resume/index.html',
   'pages/gallery/index.html',
   'pages/archive/index.html',
-  'pages/dashboard/index.html'
+  'pages/utilities/index.html'
 ];
 
 const VARIANT_CONFIG = {
@@ -92,7 +92,7 @@ function validatePages() {
   assert(!galleryHtml.includes('id="galleryModeSwitch"'), 'Gallery should not include legacy WebGL mode switch');
   assert(!galleryHtml.includes('data-disable-color-mode="true"'), 'Gallery should participate in shared color mode');
 
-  const dashboardHtml = fs.readFileSync(path.join(ROOT, 'pages/dashboard/index.html'), 'utf8');
+  const dashboardHtml = fs.readFileSync(path.join(ROOT, 'pages/utilities/index.html'), 'utf8');
   assert(dashboardHtml.includes('Utilities - Oliver Dougherty'), 'Utilities page title missing');
   assert(dashboardHtml.includes('id="utilitiesApp"'), 'Utilities app shell missing');
   assert(dashboardHtml.includes('id="transformGenerateBtn"'), 'Utilities generate button missing');
@@ -108,8 +108,8 @@ function validatePages() {
   assert(!dashboardHtml.includes('servicesRefreshBtn'), 'Legacy services refresh UI should not ship');
   assert(!dashboardHtml.includes('data-health-url='), 'Legacy service health attributes should not ship');
 
-  const utilitiesBundlePath = path.join(ROOT, 'pages', 'dashboard', 'assets', 'utilities-app.js');
-  assert(fs.existsSync(utilitiesBundlePath), 'Utilities bundle missing: pages/dashboard/assets/utilities-app.js');
+  const utilitiesBundlePath = path.join(ROOT, 'pages', 'utilities', 'assets', 'utilities-app.js');
+  assert(fs.existsSync(utilitiesBundlePath), 'Utilities bundle missing: pages/utilities/assets/utilities-app.js');
 
   const homeHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   assert(homeHtml.includes('id="boredVoid"'), 'Homepage bored-void section missing');
@@ -122,7 +122,7 @@ function validatePages() {
   const surfacedPages = [
     'pages/resume/index.html',
     'pages/gallery/index.html',
-    'pages/dashboard/index.html'
+    'pages/utilities/index.html'
   ];
   for (const page of surfacedPages) {
     const html = fs.readFileSync(path.join(ROOT, page), 'utf8');

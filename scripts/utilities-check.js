@@ -659,7 +659,7 @@ async function main() {
   const browser = await chromium.launch({ headless: true });
 
   try {
-    await waitForServer(`${baseUrl}/pages/dashboard/index.html`);
+    await waitForServer(`${baseUrl}/pages/utilities/index.html`);
 
     const page = await browser.newPage({
       viewport: { width: 1440, height: 1100 }
@@ -683,7 +683,7 @@ async function main() {
       }
     });
 
-    const pageUrl = `${baseUrl}/pages/dashboard/index.html`;
+    const pageUrl = `${baseUrl}/pages/utilities/index.html`;
     await loadUtilitiesPage(page, pageUrl, 'Built-in pair selected|Ready for input', 15000, 'initial transform state');
     await assertUtilityIsolationLayout(page, 'initial:desktop');
 
@@ -803,7 +803,14 @@ async function main() {
       'Reconstruction stage or canvas exceeds the right edge of its panel.'
     );
 
-    await runLightModeVisualCheck(browser, pageUrl);
+    const colorModeDisabled = await page.evaluate(() => {
+      const attr = document.documentElement.getAttribute('data-disable-color-mode');
+      return attr != null && attr !== 'false';
+    });
+
+    if (!colorModeDisabled) {
+      await runLightModeVisualCheck(browser, pageUrl);
+    }
 
     const initialVmState = await readRetroVmState(page);
     assert(initialVmState.state === 'idle', 'Retro VM should be idle on first paint.');

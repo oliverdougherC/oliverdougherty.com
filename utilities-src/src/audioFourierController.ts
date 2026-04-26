@@ -124,6 +124,10 @@ export class AudioFourierController {
   private animationFrameId = 0;
   private viewportScratch = new Float32Array(0);
   private state: AudioFourierState = 'idle';
+  private sliderRafPending = false;
+  private readonly waveBackgroundCanvas: HTMLCanvasElement;
+  private readonly spectrumBackgroundCanvas: HTMLCanvasElement;
+  private readonly componentBackgroundCanvas: HTMLCanvasElement;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -157,6 +161,9 @@ export class AudioFourierController {
     this.waveContext = this.getContext(this.waveCanvas);
     this.spectrumContext = this.getContext(this.spectrumCanvas);
     this.componentContext = this.getContext(this.componentCanvas);
+    this.waveBackgroundCanvas = this.buildBackgroundCanvas(this.waveCanvas);
+    this.spectrumBackgroundCanvas = this.buildBackgroundCanvas(this.spectrumCanvas);
+    this.componentBackgroundCanvas = this.buildBackgroundCanvas(this.componentCanvas);
   }
 
   init() {
@@ -238,6 +245,33 @@ export class AudioFourierController {
       throw new Error('Unable to acquire audio canvas context.');
     }
     return context;
+  }
+
+  private buildBackgroundCanvas(sourceCanvas: HTMLCanvasElement): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.width = sourceCanvas.width;
+    canvas.height = sourceCanvas.height;
+    const context = canvas.getContext('2d')!;
+    const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
+    gradient.addColorStop(0, 'rgba(7, 16, 19, 0.96)');
+    gradient.addColorStop(1, 'rgba(18, 11, 22, 0.98)');
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.strokeStyle = 'rgba(235, 228, 179, 0.12)';
+    context.lineWidth = 1;
+    for (let x = 0; x <= canvas.width; x += canvas.width / 12) {
+      context.beginPath();
+      context.moveTo(x, 0);
+      context.lineTo(x, canvas.height);
+      context.stroke();
+    }
+    for (let y = 0; y <= canvas.height; y += canvas.height / 6) {
+      context.beginPath();
+      context.moveTo(0, y);
+      context.lineTo(canvas.width, y);
+      context.stroke();
+    }
+    return canvas;
   }
 
   private getAudioContext() {
@@ -613,8 +647,15 @@ export class AudioFourierController {
     );
     this.activeResult.bandGains = resolveEnergyBandGains(this.activeResult.energyPercent, this.activeResult.bandEnergyFractions);
     this.updateLiveBandGains();
-    this.renderCurrentViewport();
     this.syncEnergyReadout();
+
+    if (!this.sliderRafPending) {
+      this.sliderRafPending = true;
+      window.requestAnimationFrame(() => {
+        this.sliderRafPending = false;
+        this.renderCurrentViewport();
+      });
+    }
   }
 
   private syncEnergyReadout() {
@@ -794,7 +835,7 @@ export class AudioFourierController {
 
       const context = this.getAudioContext();
       this.playbackElapsedSeconds = clamp(context.currentTime - this.playbackStartedAt, 0, this.activeResult.metadata.proxyDurationSeconds);
-      this.renderCurrentViewport();
+      this.renderWaveViewport();
       this.progressMeta.textContent = `${formatSeconds(this.playbackElapsedSeconds)} / ${formatSeconds(this.activeResult.metadata.proxyDurationSeconds)}`;
       this.animationFrameId = window.requestAnimationFrame(step);
     };
@@ -824,6 +865,17 @@ export class AudioFourierController {
   }
 
   private clearCanvas(canvas: HTMLCanvasElement, context: CanvasRenderingContext2D) {
+    const background =
+      canvas === this.waveCanvas ? this.waveBackgroundCanvas :
+      canvas === this.spectrumCanvas ? this.spectrumBackgroundCanvas :
+      canvas === this.componentCanvas ? this.componentBackgroundCanvas :
+      null;
+
+    if (background) {
+      context.drawImage(background, 0, 0);
+      return;
+    }
+
     context.clearRect(0, 0, canvas.width, canvas.height);
     const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
     gradient.addColorStop(0, 'rgba(7, 16, 19, 0.96)');
@@ -856,7 +908,7 @@ export class AudioFourierController {
     context.restore();
   }
 
-  private renderCurrentViewport() {
+  private renderWaveViewport() {
     if (!this.activeResult) {
       return;
     }
@@ -894,6 +946,10 @@ export class AudioFourierController {
       range.startSample / this.activeResult.metadata.proxySampleRate,
       range.endSample / this.activeResult.metadata.proxySampleRate
     );
+  }
+
+  private renderCurrentViewport() {
+    this.renderWaveViewport();
     this.drawSpectrumFrame();
     this.drawComponentFrame();
   }
