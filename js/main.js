@@ -93,6 +93,22 @@ function initBlueprintWordmark() {
       return;
     }
 
+    // Diagnostic logging
+    console.groupCollapsed('[Blueprint] Render overlay — ' + word);
+    console.log('  width:', width, 'height:', height);
+    console.log('  fontSize:', wordStyle.fontSize, 'letterSpacing:', wordStyle.letterSpacing);
+    console.log('  cellWidth:', width / word.length, 'chars:', word.length);
+    console.log('  title box:', title.getBoundingClientRect());
+    console.log('  finalWord box:', box);
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(finalWord);
+      const textRect = range.getBoundingClientRect();
+      console.log('  textRange box:', { top: textRect.top - box.top, height: textRect.height, width: textRect.width });
+    } catch (e) {}
+    console.log('  To visualize alignment, run: document.querySelector(\'.blueprint-title\').classList.toggle(\'debug-alignment\')');
+    console.groupEnd();
+
     lastSignature = signature;
     title.classList.remove('is-blueprint-complete');
     title.classList.add('is-blueprint-ready');

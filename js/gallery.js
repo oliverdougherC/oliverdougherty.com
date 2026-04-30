@@ -644,16 +644,7 @@ function renderLightboxEntry(entry) {
 }
 
 function buildNarrativeCopy(entry) {
-  const parts = [entry.description];
-  const note = [entry.hero?.teaser, entry.notes]
-    .map((value) => String(value || '').trim())
-    .find((value) => value && value !== entry.description);
-
-  if (note) {
-    parts.push(note);
-  }
-
-  return parts.filter(Boolean).join(' ');
+  return '';
 }
 
 function buildLightboxMeta(entry) {

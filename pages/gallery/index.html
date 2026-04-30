@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="gallery" data-disable-color-mode>
+<html lang="en" data-disable-color-mode>
 
 <head>
   <meta charset="utf-8">
@@ -12,9 +12,7 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link
-    href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
-    rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=JetBrains+Mono:wght@200;800&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="../../css/design-system.css?v=20260315">
   <link rel="stylesheet" href="../../css/gallery.css?v=20260318">
@@ -22,34 +20,21 @@
 </head>
 
 <body>
-  <div class="noise-overlay"></div>
 
-  <nav class="nav" id="nav">
-    <div class="nav-inner container">
-      <div class="nav-controls">
-        <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false"
-          data-cursor="hover">
-          <span></span>
-          <span></span>
-        </button>
-      </div>
-    </div>
-  </nav>
+  <button class="nav-dot" id="navToggle" aria-label="Open menu" aria-expanded="false" type="button"></button>
 
   <div class="nav-overlay" id="navOverlay">
-    <div class="nav-overlay-bg"></div>
+    <div class="nav-overlay-bg" style="background-color: #FFFFFF;"></div>
     <div class="nav-links container" id="navLinks">
       <div class="nav-menu-header">Menu</div>
-      <a href="../../index.html" class="nav-link nav-link--home" data-cursor="hover">Home</a>
-      <a href="../resume/index.html" class="nav-link nav-link--resume" data-cursor="hover">Resume</a>
-      <a href="../gallery/index.html" class="nav-link nav-link--gallery active" aria-current="page"
-        data-cursor="hover">Gallery</a>
-      <a href="../utilities/index.html" class="nav-link nav-link--utilities" data-cursor="hover">Utilities</a>
+      <a href="../../index.html" class="nav-link nav-link--home">Home</a>
+      <a href="../resume/index.html" class="nav-link nav-link--resume">Resume</a>
+      <a href="../gallery/index.html" class="nav-link nav-link--gallery active" aria-current="page">Gallery</a>
+      <a href="../utilities/index.html" class="nav-link nav-link--utilities">Utilities</a>
 
       <div class="nav-menu-footer">
-        <a href="mailto:oliverfdougherty@gmail.com" class="footer-link" data-cursor="hover">Contact</a>
-        <a href="https://github.com/oliverdougherC" class="footer-link" target="_blank" rel="noopener noreferrer"
-          data-cursor="hover">Github</a>
+        <a href="mailto:oliverfdougherty@gmail.com" class="footer-link">Contact</a>
+        <a href="https://github.com/oliverdougherC" class="footer-link" target="_blank" rel="noopener noreferrer">Github</a>
       </div>
     </div>
   </div>
@@ -60,10 +45,7 @@
       <div class="hero-aurora hero-aurora--two"></div>
       <div class="container gallery-hero-layout">
         <div class="hero-copy">
-          <h1 class="hero-title text-display">
-            Photo<br>
-            <em>Gallery</em>
-          </h1>
+          <h1 class="hero-title text-display">Gallery</h1>
         </div>
 
         <aside class="hero-feature-card" id="galleryHeroFeature">
