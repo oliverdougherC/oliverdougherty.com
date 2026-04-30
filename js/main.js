@@ -7,12 +7,15 @@
 document.addEventListener('DOMContentLoaded', () => {
   initMotionPreference();
   initNavigation();
+  initBlueprintWordmark();
   initHeroNavReveal();
   initDeferredImages();
   initScrollAnimations();
   initSmoothScroll();
   initPortalGlow();
 });
+
+const DOUGHERTY_BLUEPRINT_SEQUENCE_MS = 6600;
 
 /**
  * Honor reduced-motion preference globally.
@@ -25,6 +28,156 @@ function initMotionPreference() {
 
 function prefersReducedMotion() {
   return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function initBlueprintWordmark() {
+  const title = document.querySelector('.blueprint-title');
+  const finalWord = title?.querySelector('.blueprint-final-word');
+  const svg = title?.querySelector('.blueprint-svg');
+
+  if (!title || !finalWord || !svg) return;
+
+  if (prefersReducedMotion()) {
+    title.classList.add('is-blueprint-ready', 'is-blueprint-complete');
+    return;
+  }
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const word = finalWord.textContent?.trim() || 'DOUGHERTY.';
+  let completionTimer = null;
+  let lastSignature = '';
+
+  const createSvgElement = (tagName, attributes = {}) => {
+    const element = document.createElementNS(SVG_NS, tagName);
+    for (const [name, value] of Object.entries(attributes)) {
+      element.setAttribute(name, String(value));
+    }
+    return element;
+  };
+
+  const setLineMetrics = (line, x1, y1, x2, y2, delayMs) => {
+    const length = Math.hypot(x2 - x1, y2 - y1);
+    line.style.setProperty('--line-length', `${length}px`);
+    line.style.setProperty('--line-delay', `${delayMs}ms`);
+  };
+
+  const addLine = (group, className, x1, y1, x2, y2, delayMs) => {
+    const line = createSvgElement('line', {
+      class: `blueprint-grid-line ${className}`,
+      x1,
+      y1,
+      x2,
+      y2
+    });
+    setLineMetrics(line, x1, y1, x2, y2, delayMs);
+    group.appendChild(line);
+  };
+
+  const renderOverlay = () => {
+    if (title.classList.contains('is-blueprint-complete')) return;
+
+    const box = finalWord.getBoundingClientRect();
+    const width = Math.round(box.width * 100) / 100;
+    const height = Math.round(box.height * 100) / 100;
+    if (width <= 0 || height <= 0) return;
+
+    const wordStyle = window.getComputedStyle(finalWord);
+    const signature = [
+      width,
+      height,
+      wordStyle.fontSize,
+      wordStyle.letterSpacing
+    ].join('|');
+
+    if (signature === lastSignature && title.classList.contains('is-blueprint-ready')) {
+      return;
+    }
+
+    lastSignature = signature;
+    title.classList.remove('is-blueprint-complete');
+    title.classList.add('is-blueprint-ready');
+    title.style.setProperty('--blueprint-font-size', wordStyle.fontSize);
+    title.style.setProperty('--blueprint-letter-spacing', wordStyle.letterSpacing);
+
+    svg.replaceChildren();
+    svg.removeAttribute('viewBox');
+    svg.setAttribute('width', width);
+    svg.setAttribute('height', height);
+
+    const clipId = `blueprint-word-reveal-${Math.round(width)}-${Math.round(height)}`;
+    const defs = createSvgElement('defs');
+    const clipPath = createSvgElement('clipPath', { id: clipId, clipPathUnits: 'userSpaceOnUse' });
+    const revealRect = createSvgElement('rect', {
+      class: 'blueprint-reveal-rect',
+      x: 0,
+      y: 0,
+      width,
+      height
+    });
+    clipPath.appendChild(revealRect);
+    defs.appendChild(clipPath);
+    svg.appendChild(defs);
+
+    const layer = createSvgElement('g', { class: 'blueprint-drafting-layer' });
+    const grid = createSvgElement('g', { class: 'blueprint-grid' });
+    const outline = createSvgElement('g', { class: 'blueprint-outline' });
+
+    const top = height * 0.04;
+    const cap = height * 0.18;
+    const center = height * 0.55;
+    const baseline = height * 0.86;
+    const bottom = height * 0.96;
+    const cellWidth = width / word.length;
+
+    for (let index = 0; index <= word.length; index += 1) {
+      const x = cellWidth * index;
+      addLine(grid, 'blueprint-grid-line--major', x, top, x, bottom, index * 26);
+      if (index < word.length) {
+        addLine(grid, 'blueprint-grid-line--minor', x + cellWidth / 2, cap, x + cellWidth / 2, baseline, 130 + index * 20);
+      }
+    }
+
+    addLine(grid, 'blueprint-grid-line--rail', 0, top, width, top, 40);
+    addLine(grid, 'blueprint-grid-line--rail', 0, baseline, width, baseline, 120);
+    addLine(grid, 'blueprint-grid-line--center', 0, center, width, center, 240);
+    addLine(grid, 'blueprint-grid-line--minor', 0, cap, width, cap, 300);
+    addLine(grid, 'blueprint-grid-line--minor', 0, bottom, width, bottom, 360);
+
+    const outlineText = createSvgElement('text', {
+      class: 'blueprint-outline-text',
+      x: 0,
+      y: -height * 0.3,
+      'clip-path': `url(#${clipId})`
+    });
+    outlineText.textContent = word;
+
+    outline.appendChild(outlineText);
+    layer.appendChild(grid);
+    layer.appendChild(outline);
+    svg.appendChild(layer);
+
+    if (completionTimer !== null) {
+      window.clearTimeout(completionTimer);
+    }
+    completionTimer = window.setTimeout(() => {
+      title.classList.add('is-blueprint-complete');
+      completionTimer = null;
+    }, DOUGHERTY_BLUEPRINT_SEQUENCE_MS);
+  };
+
+  renderOverlay();
+  if (document.fonts?.ready) {
+    document.fonts.ready.then(renderOverlay).catch(() => {});
+  }
+
+  if ('ResizeObserver' in window) {
+    const observer = new ResizeObserver(() => {
+      window.requestAnimationFrame(renderOverlay);
+    });
+    observer.observe(finalWord);
+  } else {
+    window.addEventListener('resize', debounce(renderOverlay, 120));
+  }
 }
 
 /**
@@ -196,7 +349,7 @@ function initHeroNavReveal() {
 
   let revealTimer = null;
   let revealed = false;
-  const DOUGHERTY_SEQUENCE_MS = 7500;
+  const DOUGHERTY_SEQUENCE_MS = DOUGHERTY_BLUEPRINT_SEQUENCE_MS;
 
   const finishBlueprintAnimations = () => {
     if (typeof Element === 'undefined' || !Element.prototype.getAnimations) return;
@@ -211,6 +364,7 @@ function initHeroNavReveal() {
         // Ignore unsupported or non-finite animations
       }
     }
+    root.classList.add('is-blueprint-complete');
   };
 
   const reveal = () => {

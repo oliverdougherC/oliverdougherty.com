@@ -1,6 +1,10 @@
 /*
  * Oliver Unified design system
  * A bespoke, elegant design language with contextual variations
+ *
+ * NOTE: When editing design tokens (colors, typography, spacing), refer to
+ * the project root Design.md for the canonical industrialist aesthetic,
+ * base colors, and per-page flare-color assignments.
  */
 
 /* ========================================

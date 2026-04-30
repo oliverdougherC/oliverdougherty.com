@@ -2,7 +2,7 @@
   "name": "oliver-unified",
   "version": "1.0.0",
   "private": true,
-  "description": "Oliver Unified static portfolio site",
+  "description": "Oliver Unified static site",
   "scripts": {
     "optimize-images": "node scripts/optimize-images.js",
     "build:deploy": "node scripts/build-deploy.js",

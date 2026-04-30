@@ -7,17 +7,21 @@
   <meta name="description" content="Electrical Engineer. Building at the intersection of logic & art.">
   <meta name="theme-color" content="#FFFFFF">
   <link rel="alternate" media="only screen and (max-width: 760px)" href="mobile/">
-  <link rel="icon" type="image/svg+xml" href="favicon-happy.svg">
-  
+  <link rel="icon" type="image/svg+xml" href="favicon-happy.svg" id="favicon">
+  <link rel="alternate icon" href="favicon-happy.ico" id="favicon-fallback">
+  <script>document.addEventListener('visibilitychange',function(){var hidden=document.hidden;var f=document.getElementById('favicon');var i=document.getElementById('favicon-fallback');if(f)f.href=hidden?'favicon-sad.svg?v=face-5':'favicon-happy.svg?v=face-5';if(i)i.href=hidden?'favicon-sad.ico?v=face-5':'favicon-happy.ico?v=face-5'})</script>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
-  
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=JetBrains+Mono:wght@200;400;800&display=swap" rel="stylesheet">
+
+  <!-- Design system reference: Design.md (industrialist aesthetic, #FFFFFF/#000000 base, #FF6700 flare) -->
   <!-- Keeping base styles for layout -->
   <link rel="stylesheet" href="css/design-system.css">
-  
+
   <!-- Schematic overrides -->
   <link rel="stylesheet" href="css/schematic.css">
+  <link rel="stylesheet" href="css/cursor.css">
 </head>
 <body class="page-home schematic-mode">
 
@@ -51,23 +55,25 @@
         <div class="grid-cell"></div>
         <div class="grid-cell">
           <div class="meta-tiny bottom-right-pos">
-            44.5646° N, 123.2620° W<br>
             <a href="#about" class="accent-hover" aria-label="Scroll down">[SCROLL_DOWN]</a>
           </div>
         </div>
       </div>
-      
+
       <div class="hero-overlay">
-        <h1 class="hero-text">
-          OLIVER<br>
-          DOUGHERTY.
+        <h1 class="hero-text" aria-label="OLIVER DOUGHERTY.">
+          <span class="hero-name-line">OLIVER</span>
+          <span class="blueprint-title" aria-hidden="true">
+            <span class="blueprint-final-word">DOUGHERTY.</span>
+            <svg class="blueprint-svg" role="presentation" focusable="false" aria-hidden="true"></svg>
+          </span>
         </h1>
         <p class="hero-subtext">Building at the intersection of logic &amp; art.</p>
       </div>
     </header>
 
     <!-- Marquee Band -->
-    <div class="marquee-band schematic-border-bottom" aria-hidden="true" style="border-top: 1px solid #111;">
+    <div class="marquee-band schematic-border-bottom" aria-hidden="true" style="border-top: 1px solid #000000;">
       <div class="marquee-track">
         <span class="marquee-inner schematic-mono">Electrical Engineering · Photography · Web Design · Signal Processing · Computer Architecture · Open Source · Film · Literature · Mathematics · Audio Engineering ·&nbsp;</span>
         <span class="marquee-inner schematic-mono" aria-hidden="true">Electrical Engineering · Photography · Web Design · Signal Processing · Computer Architecture · Open Source · Film · Literature · Mathematics · Audio Engineering ·&nbsp;</span>
@@ -79,7 +85,6 @@
       <div class="container">
         <div class="about-grid">
           <div class="about-content">
-            <span class="section-tag schematic-mono-accent">About</span>
             <h2 class="section-title text-display schematic-text">The intersection of engineering and design</h2>
             <p class="about-text schematic-text">
               While my background in Electrical Engineering is built on mathematics and logic, my perspective is defined
@@ -119,7 +124,6 @@
     <section class="projects section schematic-section schematic-border-top" id="projects">
       <div class="container">
         <div class="section-header">
-          <span class="section-tag schematic-mono-accent">Featured</span>
           <h2 class="section-title text-display schematic-text">Recent Projects</h2>
         </div>
 
@@ -191,7 +195,6 @@
     <section class="contact section schematic-section schematic-border-top" id="contact">
       <div class="container">
         <div class="contact-inner">
-          <span class="section-tag schematic-mono-accent">Connect</span>
           <h2 class="contact-title text-display schematic-text">Let's build something together</h2>
           <div class="contact-links" style="margin-top: 2rem; display: flex; gap: 2rem;">
             <a href="mailto:oliverfdougherty@gmail.com" class="contact-link schematic-border accent-hover" style="padding: 1rem; display: block; text-decoration: none;">

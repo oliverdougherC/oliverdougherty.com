@@ -21,7 +21,7 @@
 html[data-color-mode="light"][data-theme="gallery"] {
   --gallery-panel: rgba(255, 255, 255, 0.95);
   --gallery-panel-strong: rgba(255, 255, 255, 0.98);
-  --gallery-line: rgba(90, 88, 132, 0.1);
+  --gallery-line: rgba(150, 147, 204, 0.1);
   --gallery-shadow: none;
   --gallery-soft-shadow: none;
   --gallery-hero-surface: transparent;
@@ -72,7 +72,7 @@ body.gallery-lightbox-open {
   height: min(26vw, 18rem);
   background:
     radial-gradient(circle at 35% 45%, rgba(255, 214, 138, 0.14), transparent 58%),
-    radial-gradient(circle at 65% 50%, rgba(150, 147, 204, 0.16), transparent 64%);
+    radial-gradient(circle at 65% 50%, rgba(0, 75, 168, 0.16), transparent 64%);
 }
 
 html[data-color-mode="light"] .hero-aurora {
@@ -295,9 +295,9 @@ html[data-color-mode="light"] .hero-aurora {
   border-radius: var(--radius-lg);
   background:
     linear-gradient(115deg,
-      rgba(150, 147, 204, 0.08) 12%,
+      rgba(0, 75, 168, 0.08) 12%,
       rgba(184, 182, 228, 0.18) 38%,
-      rgba(150, 147, 204, 0.08) 62%);
+      rgba(0, 75, 168, 0.08) 62%);
   background-size: 220% 100%;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
   transition: box-shadow var(--duration-slow) var(--ease-smooth);
@@ -306,9 +306,9 @@ html[data-color-mode="light"] .hero-aurora {
 .photo-card:hover .photo-media,
 .photo-card:focus-within .photo-media {
   box-shadow:
-    0 0 0 1px rgba(150, 147, 204, 0.08),
+    0 0 0 1px rgba(0, 75, 168, 0.08),
     0 20px 40px -12px rgba(0, 0, 0, 0.5),
-    0 0 24px rgba(150, 147, 204, 0.06);
+    0 0 24px rgba(0, 75, 168, 0.06);
 }
 
 html[data-color-mode="light"] .photo-media {
@@ -318,7 +318,7 @@ html[data-color-mode="light"] .photo-media {
 html[data-color-mode="light"] .photo-card:hover .photo-media,
 html[data-color-mode="light"] .photo-card:focus-within .photo-media {
   box-shadow:
-    0 0 0 1px rgba(90, 88, 132, 0.1),
+    0 0 0 1px rgba(0, 75, 168, 0.1),
     0 20px 40px -12px rgba(0, 0, 0, 0.15),
     0 0 24px rgba(90, 88, 132, 0.06);
 }

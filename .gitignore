@@ -1,7 +1,6 @@
 node_modules/
 dist/
 output/
-
 .DS_Store
 .idea/
 .vscode/
@@ -13,7 +12,10 @@ output/
 .kilo/
 .openclaude-profile.json
 inspection_reports/
-
+.pi/
+.pi-lens/
+.cursor/
+/*.png
 server.log
 server.pid
 *.log
