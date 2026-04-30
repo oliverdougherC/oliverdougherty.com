@@ -83,6 +83,10 @@ body.nav-open .nav-dot {
   color: var(--resume-accent);
 }
 
+.nav-overlay .nav-link--resume.active {
+  color: #000000;
+}
+
 /* ========================================
    Scroll Animations
    ======================================== */
@@ -132,6 +136,14 @@ body.nav-open .nav-dot {
   margin-bottom: var(--space-2);
   letter-spacing: -0.05em;
   color: #000000;
+}
+
+.hero-title span {
+  display: block;
+}
+
+.name-flair {
+  color: var(--resume-accent);
 }
 
 .hero-subtitle {

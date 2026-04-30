@@ -143,15 +143,19 @@ function initBlueprintWordmark() {
     addLine(grid, 'blueprint-grid-line--minor', 0, cap, width, cap, 300);
     addLine(grid, 'blueprint-grid-line--minor', 0, bottom, width, bottom, 360);
 
-    const outlineText = createSvgElement('text', {
-      class: 'blueprint-outline-text',
-      x: 0,
-      y: -height * 0.3,
-      'clip-path': `url(#${clipId})`
-    });
-    outlineText.textContent = word;
-
-    outline.appendChild(outlineText);
+    for (let index = 0; index < word.length; index += 1) {
+      const char = word[index];
+      const outlineText = createSvgElement('text', {
+        class: 'blueprint-outline-text',
+        x: cellWidth * index,
+        y: 0, // Will be aligned via dominant-baseline: text-before-edge and CSS
+        'clip-path': `url(#${clipId})`
+      });
+      // Stagger letter sketching
+      outlineText.style.setProperty('--letter-step', `${index * 160}ms`);
+      outlineText.textContent = char;
+      outline.appendChild(outlineText);
+    }
     layer.appendChild(grid);
     layer.appendChild(outline);
     svg.appendChild(layer);
