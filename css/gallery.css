@@ -58,8 +58,8 @@ body.gallery-lightbox-open {
 .gallery-hero-layout {
   position: relative;
   display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--space-10);
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 45vw);
+  gap: clamp(var(--space-8), 8vw, var(--space-24));
   align-items: center;
 }
 

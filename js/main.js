@@ -77,12 +77,28 @@ function initBlueprintWordmark() {
     if (title.classList.contains('is-blueprint-complete')) return;
 
     const box = finalWord.getBoundingClientRect();
+    let textBox = box;
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(finalWord);
+      textBox = range.getBoundingClientRect();
+      range.detach();
+    } catch (error) {
+      textBox = box;
+    }
+
+    const textOffsetX = Math.round((textBox.left - box.left) * 100) / 100;
+    const textOffsetY = Math.round((textBox.top - box.top) * 100) / 100;
+    const textHeight = Math.round(textBox.height * 100) / 100;
     const width = Math.round(box.width * 100) / 100;
     const height = Math.round(box.height * 100) / 100;
     if (width <= 0 || height <= 0) return;
 
     const wordStyle = window.getComputedStyle(finalWord);
     const signature = [
+      textOffsetX,
+      textOffsetY,
+      textHeight,
       width,
       height,
       wordStyle.fontSize,
@@ -93,22 +109,6 @@ function initBlueprintWordmark() {
       return;
     }
 
-    // Diagnostic logging
-    console.groupCollapsed('[Blueprint] Render overlay — ' + word);
-    console.log('  width:', width, 'height:', height);
-    console.log('  fontSize:', wordStyle.fontSize, 'letterSpacing:', wordStyle.letterSpacing);
-    console.log('  cellWidth:', width / word.length, 'chars:', word.length);
-    console.log('  title box:', title.getBoundingClientRect());
-    console.log('  finalWord box:', box);
-    try {
-      const range = document.createRange();
-      range.selectNodeContents(finalWord);
-      const textRect = range.getBoundingClientRect();
-      console.log('  textRange box:', { top: textRect.top - box.top, height: textRect.height, width: textRect.width });
-    } catch (e) {}
-    console.log('  To visualize alignment, run: document.querySelector(\'.blueprint-title\').classList.toggle(\'debug-alignment\')');
-    console.groupEnd();
-
     lastSignature = signature;
     title.classList.remove('is-blueprint-complete');
     title.classList.add('is-blueprint-ready');
@@ -116,9 +116,13 @@ function initBlueprintWordmark() {
     title.style.setProperty('--blueprint-letter-spacing', wordStyle.letterSpacing);
 
     svg.replaceChildren();
-    svg.removeAttribute('viewBox');
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
     svg.setAttribute('width', width);
     svg.setAttribute('height', height);
+    svg.style.left = '0';
+    svg.style.top = '0';
+    svg.style.width = `${width}px`;
+    svg.style.height = `${height}px`;
 
     const clipId = `blueprint-word-reveal-${Math.round(width)}-${Math.round(height)}`;
     const defs = createSvgElement('defs');
@@ -126,9 +130,9 @@ function initBlueprintWordmark() {
     const revealRect = createSvgElement('rect', {
       class: 'blueprint-reveal-rect',
       x: 0,
-      y: 0,
+      y: textOffsetY,
       width,
-      height
+      height: textHeight
     });
     clipPath.appendChild(revealRect);
     defs.appendChild(clipPath);
@@ -138,40 +142,36 @@ function initBlueprintWordmark() {
     const grid = createSvgElement('g', { class: 'blueprint-grid' });
     const outline = createSvgElement('g', { class: 'blueprint-outline' });
 
-    const top = height * 0.04;
-    const cap = height * 0.18;
+    const railInset = 0.75;
+    const top = railInset;
+    const cap = height * 0.26;
     const center = height * 0.55;
-    const baseline = height * 0.86;
-    const bottom = height * 0.96;
+    const lowerGuide = height * 0.82;
+    const bottom = height - railInset;
     const cellWidth = width / word.length;
 
     for (let index = 0; index <= word.length; index += 1) {
       const x = cellWidth * index;
       addLine(grid, 'blueprint-grid-line--major', x, top, x, bottom, index * 26);
       if (index < word.length) {
-        addLine(grid, 'blueprint-grid-line--minor', x + cellWidth / 2, cap, x + cellWidth / 2, baseline, 130 + index * 20);
+        addLine(grid, 'blueprint-grid-line--minor', x + cellWidth / 2, cap, x + cellWidth / 2, lowerGuide, 130 + index * 20);
       }
     }
 
     addLine(grid, 'blueprint-grid-line--rail', 0, top, width, top, 40);
-    addLine(grid, 'blueprint-grid-line--rail', 0, baseline, width, baseline, 120);
+    addLine(grid, 'blueprint-grid-line--rail', 0, bottom, width, bottom, 120);
     addLine(grid, 'blueprint-grid-line--center', 0, center, width, center, 240);
     addLine(grid, 'blueprint-grid-line--minor', 0, cap, width, cap, 300);
-    addLine(grid, 'blueprint-grid-line--minor', 0, bottom, width, bottom, 360);
+    addLine(grid, 'blueprint-grid-line--minor', 0, lowerGuide, width, lowerGuide, 360);
 
-    for (let index = 0; index < word.length; index += 1) {
-      const char = word[index];
-      const outlineText = createSvgElement('text', {
-        class: 'blueprint-outline-text',
-        x: cellWidth * index,
-        y: 0, // Will be aligned via dominant-baseline: text-before-edge and CSS
-        'clip-path': `url(#${clipId})`
-      });
-      // Stagger letter sketching
-      outlineText.style.setProperty('--letter-step', `${index * 160}ms`);
-      outlineText.textContent = char;
-      outline.appendChild(outlineText);
-    }
+    const outlineText = createSvgElement('text', {
+      class: 'blueprint-outline-text',
+      x: textOffsetX,
+      y: textOffsetY,
+      'clip-path': `url(#${clipId})`
+    });
+    outlineText.textContent = word;
+    outline.appendChild(outlineText);
     layer.appendChild(grid);
     layer.appendChild(outline);
     svg.appendChild(layer);
