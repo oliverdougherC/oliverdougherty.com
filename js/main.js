@@ -113,9 +113,7 @@ function initBlueprintWordmark() {
       textBox = box;
     }
 
-    const textOffsetX = Math.round((textBox.left - box.left) * 100) / 100;
     const textOffsetY = Math.round((textBox.top - box.top) * 100) / 100;
-    const textHeight = Math.round(textBox.height * 100) / 100;
     const width = Math.round(box.width * 100) / 100;
     const height = Math.round(box.height * 100) / 100;
     if (width <= 0 || height <= 0) return;
@@ -123,9 +121,7 @@ function initBlueprintWordmark() {
     const wordStyle = window.getComputedStyle(finalWord);
     const characters = measureCharacters(word, box);
     const signature = [
-      textOffsetX,
       textOffsetY,
-      textHeight,
       width,
       height,
       wordStyle.fontSize,
@@ -151,9 +147,6 @@ function initBlueprintWordmark() {
     svg.style.top = '0';
     svg.style.width = `${width}px`;
     svg.style.height = `${height}px`;
-
-    const defs = createSvgElement('defs');
-    svg.appendChild(defs);
 
     const layer = createSvgElement('g', { class: 'blueprint-drafting-layer' });
     const grid = createSvgElement('g', { class: 'blueprint-grid' });
@@ -181,27 +174,30 @@ function initBlueprintWordmark() {
     addLine(grid, 'blueprint-grid-line--minor', 0, cap, width, cap, 300);
     addLine(grid, 'blueprint-grid-line--minor', 0, lowerGuide, width, lowerGuide, 360);
 
-    characters.forEach(({ char, x, width: characterWidth }, index) => {
-      const clipId = `blueprint-letter-reveal-${index}-${Math.round(width)}-${Math.round(height)}`;
-      const clipPath = createSvgElement('clipPath', { id: clipId, clipPathUnits: 'userSpaceOnUse' });
-      const revealRect = createSvgElement('rect', {
-        class: 'blueprint-letter-reveal-rect',
-        x: x - 2,
-        y: textOffsetY,
-        width: characterWidth + 4,
-        height: textHeight
-      });
-      revealRect.style.setProperty('--letter-step', `${index * 240}ms`);
-      clipPath.appendChild(revealRect);
-      defs.appendChild(clipPath);
+    const letterTiming = [
+      { delay: 0, duration: 2500, dash: 4.8 },
+      { delay: 430, duration: 2300, dash: 4.4 },
+      { delay: 850, duration: 2200, dash: 4.2 },
+      { delay: 1220, duration: 2400, dash: 4.8 },
+      { delay: 1650, duration: 2100, dash: 4.2 },
+      { delay: 2010, duration: 2050, dash: 4.0 },
+      { delay: 2350, duration: 2200, dash: 4.3 },
+      { delay: 2760, duration: 1800, dash: 3.6 },
+      { delay: 3100, duration: 1900, dash: 3.8 },
+      { delay: 3520, duration: 1150, dash: 2.2 }
+    ];
 
+    characters.forEach(({ char, x, width: characterWidth }, index) => {
+      const timing = letterTiming[index] || letterTiming[letterTiming.length - 1];
       const outlineText = createSvgElement('text', {
         class: 'blueprint-outline-text',
         x,
-        y: textOffsetY,
-        'clip-path': `url(#${clipId})`
+        y: textOffsetY
       });
-      outlineText.style.setProperty('--letter-step', `${index * 240}ms`);
+      outlineText.style.setProperty('--letter-step', `${timing.delay}ms`);
+      outlineText.style.setProperty('--letter-duration', `${timing.duration}ms`);
+      outlineText.style.setProperty('--letter-dash', `${timing.dash}em`);
+      outlineText.style.setProperty('--letter-nearly-complete', `${timing.dash * 0.13}em`);
       outlineText.textContent = char;
       outline.appendChild(outlineText);
     });
