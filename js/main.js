@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initPortalGlow();
 });
 
-const DOUGHERTY_BLUEPRINT_SEQUENCE_MS = 6600;
+const DOUGHERTY_BLUEPRINT_SEQUENCE_MS = 7400;
 
 /**
  * Honor reduced-motion preference globally.
@@ -73,6 +73,32 @@ function initBlueprintWordmark() {
     group.appendChild(line);
   };
 
+  const measureCharacters = (wordText, box) => {
+    const textNode = Array.from(finalWord.childNodes).find((node) => node.nodeType === Node.TEXT_NODE);
+    if (!textNode || textNode.textContent.length < wordText.length) {
+      const fallbackWidth = box.width / wordText.length;
+      return Array.from(wordText, (char, index) => ({
+        char,
+        x: fallbackWidth * index,
+        width: fallbackWidth
+      }));
+    }
+
+    return Array.from(wordText, (char, index) => {
+      const range = document.createRange();
+      range.setStart(textNode, index);
+      range.setEnd(textNode, index + 1);
+      const rect = range.getBoundingClientRect();
+      range.detach();
+
+      return {
+        char,
+        x: Math.round((rect.left - box.left) * 100) / 100,
+        width: Math.round(rect.width * 100) / 100
+      };
+    });
+  };
+
   const renderOverlay = () => {
     if (title.classList.contains('is-blueprint-complete')) return;
 
@@ -95,6 +121,7 @@ function initBlueprintWordmark() {
     if (width <= 0 || height <= 0) return;
 
     const wordStyle = window.getComputedStyle(finalWord);
+    const characters = measureCharacters(word, box);
     const signature = [
       textOffsetX,
       textOffsetY,
@@ -102,7 +129,8 @@ function initBlueprintWordmark() {
       width,
       height,
       wordStyle.fontSize,
-      wordStyle.letterSpacing
+      wordStyle.letterSpacing,
+      characters.map(({ x, width: characterWidth }) => `${x}:${characterWidth}`).join(',')
     ].join('|');
 
     if (signature === lastSignature && title.classList.contains('is-blueprint-ready')) {
@@ -124,18 +152,7 @@ function initBlueprintWordmark() {
     svg.style.width = `${width}px`;
     svg.style.height = `${height}px`;
 
-    const clipId = `blueprint-word-reveal-${Math.round(width)}-${Math.round(height)}`;
     const defs = createSvgElement('defs');
-    const clipPath = createSvgElement('clipPath', { id: clipId, clipPathUnits: 'userSpaceOnUse' });
-    const revealRect = createSvgElement('rect', {
-      class: 'blueprint-reveal-rect',
-      x: 0,
-      y: textOffsetY,
-      width,
-      height: textHeight
-    });
-    clipPath.appendChild(revealRect);
-    defs.appendChild(clipPath);
     svg.appendChild(defs);
 
     const layer = createSvgElement('g', { class: 'blueprint-drafting-layer' });
@@ -164,14 +181,31 @@ function initBlueprintWordmark() {
     addLine(grid, 'blueprint-grid-line--minor', 0, cap, width, cap, 300);
     addLine(grid, 'blueprint-grid-line--minor', 0, lowerGuide, width, lowerGuide, 360);
 
-    const outlineText = createSvgElement('text', {
-      class: 'blueprint-outline-text',
-      x: textOffsetX,
-      y: textOffsetY,
-      'clip-path': `url(#${clipId})`
+    characters.forEach(({ char, x, width: characterWidth }, index) => {
+      const clipId = `blueprint-letter-reveal-${index}-${Math.round(width)}-${Math.round(height)}`;
+      const clipPath = createSvgElement('clipPath', { id: clipId, clipPathUnits: 'userSpaceOnUse' });
+      const revealRect = createSvgElement('rect', {
+        class: 'blueprint-letter-reveal-rect',
+        x: x - 2,
+        y: textOffsetY,
+        width: characterWidth + 4,
+        height: textHeight
+      });
+      revealRect.style.setProperty('--letter-step', `${index * 240}ms`);
+      clipPath.appendChild(revealRect);
+      defs.appendChild(clipPath);
+
+      const outlineText = createSvgElement('text', {
+        class: 'blueprint-outline-text',
+        x,
+        y: textOffsetY,
+        'clip-path': `url(#${clipId})`
+      });
+      outlineText.style.setProperty('--letter-step', `${index * 240}ms`);
+      outlineText.textContent = char;
+      outline.appendChild(outlineText);
     });
-    outlineText.textContent = word;
-    outline.appendChild(outlineText);
+
     layer.appendChild(grid);
     layer.appendChild(outline);
     svg.appendChild(layer);
