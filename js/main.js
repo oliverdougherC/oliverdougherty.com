@@ -13,9 +13,11 @@ document.addEventListener('DOMContentLoaded', () => {
   initScrollAnimations();
   initSmoothScroll();
   initPortalGlow();
+  initOsuConfetti();
 });
 
 const DOUGHERTY_BLUEPRINT_SEQUENCE_MS = 7400;
+let confettiFired = false;
 
 /**
  * Honor reduced-motion preference globally.
@@ -609,4 +611,102 @@ function initPortalGlow() {
       }
     });
   });
+}
+
+/**
+ * OSU stat hover: orange confetti emanates from the OSU text once per page load.
+ */
+function initOsuConfetti() {
+  if (prefersReducedMotion()) return;
+
+  const osuText = document.querySelector('.osu-text');
+  if (!osuText) return;
+
+  const trigger = osuText.closest('.stat-value');
+  if (!trigger) return;
+
+  const colors = ['#d73f09', '#FF6700', '#ff8c42', '#000000'];
+
+  const createCanvas = () => {
+    const canvas = document.createElement('canvas');
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+    canvas.style.position = 'fixed';
+    canvas.style.top = '0';
+    canvas.style.left = '0';
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.pointerEvents = 'none';
+    canvas.style.zIndex = '100';
+    document.body.appendChild(canvas);
+    return { canvas, ctx: canvas.getContext('2d'), dpr };
+  };
+
+  const createParticles = (originX, originY) => {
+    const count = 100 + Math.floor(Math.random() * 41); // 100–140
+    const particles = [];
+    for (let i = 0; i < count; i++) {
+      const angle = -Math.PI / 6 - Math.random() * (2 * Math.PI / 3); // -30° to -150°
+      const velocity = 3 + Math.random() * 9;
+      particles.push({
+        x: originX,
+        y: originY,
+        vx: Math.cos(angle) * velocity,
+        vy: Math.sin(angle) * velocity,
+        size: 4 + Math.random() * 6,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        alpha: 1,
+        decay: 0.008 + Math.random() * 0.018,
+        gravity: 0.12 + Math.random() * 0.12
+      });
+    }
+    return particles;
+  };
+
+  const fireConfetti = () => {
+    if (confettiFired) return;
+    confettiFired = true;
+
+    const rect = trigger.getBoundingClientRect();
+    const originX = rect.left + rect.width / 2;
+    const originY = rect.top + rect.height / 2;
+
+    const { canvas, ctx, dpr } = createCanvas();
+    const particles = createParticles(originX * dpr, originY * dpr);
+
+    let animationId;
+
+    const render = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let alive = false;
+
+      for (const p of particles) {
+        if (p.alpha <= 0) continue;
+        alive = true;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += p.gravity;
+        p.alpha -= p.decay;
+
+        ctx.globalAlpha = Math.max(0, p.alpha);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, p.size * dpr, p.size * dpr);
+      }
+
+      ctx.globalAlpha = 1;
+
+      if (alive) {
+        animationId = requestAnimationFrame(render);
+      } else {
+        cancelAnimationFrame(animationId);
+        canvas.remove();
+      }
+    };
+
+    animationId = requestAnimationFrame(render);
+    trigger.removeEventListener('mouseenter', fireConfetti);
+  };
+
+  trigger.addEventListener('mouseenter', fireConfetti);
 }
