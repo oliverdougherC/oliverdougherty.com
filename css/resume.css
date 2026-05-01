@@ -107,7 +107,7 @@ body.nav-open .nav-dot {
    ======================================== */
 
 .resume-hero {
-  padding: calc(var(--nav-height) + var(--space-32)) 0 var(--space-16);
+  padding: var(--space-16) 0 var(--space-16);
   background: #FFFFFF;
   border-bottom: 1px solid #000000;
 }
@@ -353,6 +353,15 @@ a.contact-item:hover {
   border: 1px solid #000000;
   background: transparent;
   border-radius: 0;
+  transition: border-color 150ms ease;
+}
+
+.coursework-list li:hover {
+  border-color: var(--resume-accent);
+}
+
+.coursework-list li:hover {
+  border-color: var(--resume-accent);
 }
 
 /* ========================================
@@ -443,12 +452,11 @@ a.contact-item:hover {
   border: 1px solid #000000;
   background: transparent;
   border-radius: 0;
-  transition: border-color 150ms ease, color 150ms ease;
+  transition: border-color 150ms ease;
 }
 
 .tech-tag:hover {
   border-color: var(--resume-accent);
-  color: var(--resume-accent);
 }
 
 /* ========================================
@@ -548,7 +556,7 @@ a.contact-item:hover {
   background: transparent;
   border-radius: 0;
   text-decoration: none;
-  transition: border-color 150ms ease, color 150ms ease;
+  transition: border-color 150ms ease;
 }
 
 a.skill-tag {
@@ -558,7 +566,6 @@ a.skill-tag {
 .skill-tag:hover,
 a.skill-tag:hover {
   border-color: var(--resume-accent);
-  color: var(--resume-accent);
 }
 
 /* Involvement */
