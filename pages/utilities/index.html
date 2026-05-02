@@ -717,6 +717,12 @@
           btn.classList.add('is-visible');
         }, Math.max(0, delay));
       });
+      setTimeout(function() {
+        var titleView = document.getElementById('utilitiesTitleView');
+        if (titleView) {
+          titleView.classList.add('is-settled');
+        }
+      }, 13200);
 
       var homeBtn = document.querySelector('.nav-home-btn');
       if (homeBtn) {

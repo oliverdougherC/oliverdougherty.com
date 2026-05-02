@@ -24,7 +24,6 @@
   const BASE_STAR_COUNT = 500;
   const BASE_SPEED = 9; // px/sec at shallow depth
   const MAX_DPR = 1.5;
-  const HEAVY_MAX_DPR = 1;
   const STAR_COLORS = [
     '#ffffff', // White
     '#e0f7fa', // Light blue
@@ -49,8 +48,8 @@
   }
 
   function resolveDpr() {
-    if (reducedMotion || heavyUtilityActive) {
-      return Math.min(window.devicePixelRatio || 1, HEAVY_MAX_DPR);
+    if (reducedMotion) {
+      return 1;
     }
     return Math.min(window.devicePixelRatio || 1, MAX_DPR);
   }
@@ -62,8 +61,7 @@
 
     const areaScale = Math.max(0.45, Math.min(1.15, width * height / (1440 * 900)));
     const coreScale = (navigator.hardwareConcurrency || 4) <= 4 ? 0.72 : 1;
-    const loadScale = heavyUtilityActive ? 0.5 : 1;
-    return Math.round(BASE_STAR_COUNT * areaScale * coreScale * loadScale);
+    return Math.round(BASE_STAR_COUNT * areaScale * coreScale);
   }
 
   function reconcileSpace() {
@@ -74,7 +72,7 @@
     if (stars.length > targetCount) {
       stars.length = targetCount;
     }
-    if (heavyUtilityActive || reducedMotion) {
+    if (reducedMotion) {
       comets = [];
     }
   }
@@ -108,16 +106,12 @@
   }
 
   function update(deltaSeconds) {
-    const timeScale = heavyUtilityActive ? 0.75 : 1;
-
     // Update Stars
     for (let i = 0; i < stars.length; i++) {
       const star = stars[i];
-      star.y -= star.speed * deltaSeconds * timeScale;
-      star.x += star.drift * deltaSeconds * timeScale;
-      if (!heavyUtilityActive) {
-        star.twinklePhase += star.twinkleSpeed * deltaSeconds;
-      }
+      star.y -= star.speed * deltaSeconds;
+      star.x += star.drift * deltaSeconds;
+      star.twinklePhase += star.twinkleSpeed * deltaSeconds;
       
       if (star.y < -10) {
         star.y = height + 10;
@@ -130,7 +124,7 @@
       }
     }
 
-    if (!heavyUtilityActive && comets.length === 0 && Math.random() < 0.06 * deltaSeconds) {
+    if (comets.length === 0 && Math.random() < 0.06 * deltaSeconds) {
       comets.push(spawnComet());
     }
 
@@ -170,7 +164,7 @@
     // Draw Stars
     for (let i = 0; i < stars.length; i++) {
       const star = stars[i];
-      const twinkle = heavyUtilityActive ? 0 : Math.sin(star.twinklePhase) * 0.3;
+      const twinkle = Math.sin(star.twinklePhase) * 0.3;
       const currentOpacity = Math.max(0.1, Math.min(1, star.baseOpacity + twinkle));
       
       ctx.beginPath();
@@ -239,6 +233,12 @@
     }
   }
 
+  function syncDiagnostics(mode) {
+    canvas.dataset.starCount = String(stars.length);
+    canvas.dataset.starfieldMode = mode;
+    canvas.dataset.starfieldFrameCount = String(Number(canvas.dataset.starfieldFrameCount || '0') + 1);
+  }
+
   function loop(timestamp) {
     if (isHidden) {
       animationFrameId = 0;
@@ -249,6 +249,7 @@
     lastTimestamp = timestamp;
     update(deltaSeconds);
     draw();
+    syncDiagnostics(heavyUtilityActive ? 'load-full-motion' : 'full-motion');
     animationFrameId = requestAnimationFrame(loop);
   }
 
@@ -299,6 +300,7 @@
   resize();
   if (reducedMotion) {
     draw();
+    syncDiagnostics('reduced-motion');
   } else {
     startLoop();
   }

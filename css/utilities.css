@@ -1520,6 +1520,7 @@
 }
 
 .stress-visual-panel {
+  position: relative;
   overflow: hidden;
   padding: clamp(0.6rem, 1.3vw, 0.9rem);
 }
@@ -1530,12 +1531,30 @@
   height: 100%;
   min-height: 20rem;
   border-radius: var(--radius-xl);
-  background: #050507;
+  background: linear-gradient(135deg, #12141f 0%, #24111a 52%, #071b1f 100%);
+}
+
+.stress-visual-panel::after {
+  content: "GPU output appears here while running";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  color: rgba(255, 255, 255, 0.72);
+  font-family: var(--font-body);
+  font-size: clamp(0.9rem, 1.3vw, 1.1rem);
+  text-align: center;
+  pointer-events: none;
 }
 
 .utility-shell--stress[data-stress-state='running'] .stress-visual-panel {
   border-color: rgba(255, 128, 96, 0.32);
   box-shadow: 0 0 22px rgba(255, 128, 96, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.utility-shell--stress[data-stress-state='running'] .stress-visual-panel::after {
+  content: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

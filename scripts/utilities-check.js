@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { chromium } = require('playwright');
+const { chromium, firefox } = require('playwright');
 const {
   startLocalStaticServer,
   waitForServer
@@ -12,6 +12,8 @@ const {
 const ROOT = path.resolve(__dirname, '..');
 const DEFAULT_BASE_URL = 'http://127.0.0.1:4175';
 const BASE_URL = process.env.UTILITIES_CHECK_URL || DEFAULT_BASE_URL;
+const BROWSER_NAME = process.env.UTILITIES_BROWSER === 'firefox' ? 'firefox' : 'chromium';
+const CHROMIUM_WEBGL_ARGS = ['--enable-webgl', '--ignore-gpu-blocklist', '--use-angle=swiftshader'];
 
 function assert(condition, message) {
   if (!condition) {
@@ -249,6 +251,60 @@ async function readOverlayAlphaPixels(page) {
     }
     return alphaPixels;
   });
+}
+
+async function readStarfieldState(page) {
+  await page.waitForFunction(() => {
+    const canvas = document.getElementById('starfield');
+    return canvas instanceof HTMLCanvasElement && Number(canvas.dataset.starCount || '0') > 0;
+  }, { timeout: 10000 });
+
+  return page.evaluate(() => {
+    const canvas = document.getElementById('starfield');
+    return {
+      count: Number(canvas?.dataset.starCount || '0'),
+      mode: canvas?.dataset.starfieldMode || '',
+      frames: Number(canvas?.dataset.starfieldFrameCount || '0')
+    };
+  });
+}
+
+async function runTitleIdleCheck(browser, baseUrl) {
+  const titlePage = await browser.newPage({
+    viewport: { width: 1440, height: 1100 }
+  });
+  try {
+    await titlePage.goto(`${baseUrl}/pages/utilities/index.html`, { waitUntil: 'networkidle' });
+    await titlePage.waitForSelector('#utilitiesTitleView.is-settled', { timeout: 16000 });
+    const idleState = await titlePage.evaluate(() => {
+      const titleView = document.getElementById('utilitiesTitleView');
+      const animations = titleView?.getAnimations({ subtree: true }) ?? [];
+      const infiniteAnimations = animations
+        .map((animation) => {
+          const effect = animation.effect;
+          const timing = effect && typeof effect.getTiming === 'function' ? effect.getTiming() : null;
+          return {
+            playState: animation.playState,
+            iterations: timing?.iterations ?? 1,
+            animationName: animation.animationName ?? ''
+          };
+        })
+        .filter((animation) => animation.playState !== 'finished' && animation.iterations === Infinity);
+      return {
+        settled: titleView?.classList.contains('is-settled') ?? false,
+        infiniteAnimationCount: infiniteAnimations.length,
+        infiniteAnimations
+      };
+    });
+
+    assert(idleState.settled === true, 'Utilities title view should enter the settled idle state.');
+    assert(
+      idleState.infiniteAnimationCount === 0,
+      `Utilities title view should not keep infinite CSS animations running after settle: ${JSON.stringify(idleState.infiniteAnimations)}`
+    );
+  } finally {
+    await titlePage.close();
+  }
 }
 
 function countActiveCanvasPixels(pixels) {
@@ -678,10 +734,15 @@ async function main() {
   });
   const baseUrl = server?.url || BASE_URL;
 
-  const browser = await chromium.launch({ headless: true });
+  const browserType = BROWSER_NAME === 'firefox' ? firefox : chromium;
+  const browser = await browserType.launch({
+    headless: true,
+    args: BROWSER_NAME === 'chromium' ? CHROMIUM_WEBGL_ARGS : undefined
+  });
 
   try {
     await waitForServer(`${baseUrl}/pages/utilities/index.html`);
+    await runTitleIdleCheck(browser, baseUrl);
 
     const page = await browser.newPage({
       viewport: { width: 1440, height: 1100 }
@@ -709,6 +770,7 @@ async function main() {
     const pageUrl = `${baseUrl}/pages/utilities/index.html#image-transform`;
     await loadUtilitiesPage(page, pageUrl, 'Built-in pair selected|Ready for input', 15000, 'initial transform state');
     await assertUtilityIsolationLayout(page, 'initial:desktop');
+    const initialStarfield = await readStarfieldState(page);
 
     const initialTransformState = await page.evaluate(() => ({
       status: (() => {
@@ -768,8 +830,16 @@ async function main() {
     await page.click('[data-demo-key="pattern-face"]');
     await page.click('#transformGenerateBtn');
     await waitForStatusMatch(page, 'Loading precomputed|Preparing|Analyzing|Assigning|Animating', 7000);
+    const activeTransformStarfield = await readStarfieldState(page);
     await waitForStatusMatch(page, 'Transform ready|Animation complete|Reduced motion', 30000);
     await waitForProgressFill(page, 90, 20000);
+    const completedTransformStarfield = await readStarfieldState(page);
+
+    assert(
+      activeTransformStarfield.count === initialStarfield.count &&
+        completedTransformStarfield.count === initialStarfield.count,
+      'Starfield density should remain stable before, during, and after image transform animation.'
+    );
 
     const afterDemo = await page.evaluate(() => ({
       status: (() => {
@@ -1213,6 +1283,84 @@ async function main() {
     assert(stressStoppedState.workers === '0', 'Stress Test should clear workers after Stop.');
     assert(stressStoppedState.backend === 'none', 'Stress Test should clear GPU backend after Stop.');
 
+    await page.click('[data-stress-mode-option="gpu"]');
+    await page.click('#stressStartBtn');
+    await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'running', {
+      timeout: 10000
+    });
+    await page.waitForFunction(() => {
+      const app = document.getElementById('stressTestApp');
+      return (
+        app &&
+        app.dataset.stressGpuBackend &&
+        app.dataset.stressGpuBackend !== 'none' &&
+        Number(app.dataset.stressGpuFrameCount ?? '0') >= 2 &&
+        Number(app.dataset.stressGpuWorkloadLevel ?? '0') >= 1 &&
+        app.dataset.stressGpuCanvasActive === 'true'
+      );
+    }, { timeout: 12000 });
+    const stressGpuState = await page.evaluate(() => ({
+      state: document.getElementById('stressTestApp')?.dataset.stressState ?? '',
+      backend: document.getElementById('stressTestApp')?.dataset.stressGpuBackend ?? '',
+      frames: Number(document.getElementById('stressTestApp')?.dataset.stressGpuFrameCount ?? '0'),
+      workload: Number(document.getElementById('stressTestApp')?.dataset.stressGpuWorkloadLevel ?? '0'),
+      activeCanvas: document.getElementById('stressTestApp')?.dataset.stressGpuCanvasActive ?? ''
+    }));
+
+    assert(stressGpuState.state === 'running', 'GPU Stress Test should enter running state.');
+    assert(
+      /^(webgpu-compute|webgl2-fragment|webgl1-fragment)$/.test(stressGpuState.backend),
+      `GPU Stress Test should select a browser GPU backend, got ${stressGpuState.backend}.`
+    );
+    assert(stressGpuState.frames >= 2, 'GPU Stress Test should render multiple GPU frames.');
+    assert(stressGpuState.workload >= 1, 'GPU Stress Test should expose a positive workload level.');
+    assert(stressGpuState.activeCanvas === 'true', 'GPU Stress Test should report active GPU canvas output.');
+
+    await page.click('#stressStopBtn');
+    await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'idle', {
+      timeout: 10000
+    });
+
+    const webGl1Page = await browser.newPage({
+      viewport: { width: 1440, height: 1100 }
+    });
+    await webGl1Page.addInitScript(() => {
+      window.__OD_STRESS_TEST_MAX_WORKERS__ = 1;
+      Object.defineProperty(navigator, 'gpu', {
+        configurable: true,
+        value: undefined
+      });
+      const originalGetContext = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function patchedGetContext(type, ...args) {
+        if (type === 'webgl2') {
+          return null;
+        }
+        return originalGetContext.call(this, type, ...args);
+      };
+    });
+    await webGl1Page.goto(`${baseUrl}/pages/utilities/index.html#stress-test`, { waitUntil: 'networkidle' });
+    await webGl1Page.waitForFunction(
+      () => document.querySelector('.utility-stage[data-utility-id="stress-test"]')?.classList.contains('is-active'),
+      { timeout: 10000 }
+    );
+    await webGl1Page.waitForSelector('#stressTestApp[data-stress-state="idle"]', { timeout: 10000 });
+    await webGl1Page.click('[data-stress-mode-option="gpu"]');
+    await webGl1Page.click('#stressStartBtn');
+    await webGl1Page.waitForFunction(() => {
+      const app = document.getElementById('stressTestApp');
+      return (
+        app?.dataset.stressState === 'running' &&
+        app.dataset.stressGpuBackend === 'webgl1-fragment' &&
+        Number(app.dataset.stressGpuFrameCount ?? '0') >= 2 &&
+        app.dataset.stressGpuCanvasActive === 'true'
+      );
+    }, { timeout: 12000 });
+    await webGl1Page.click('#stressStopBtn');
+    await webGl1Page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'idle', {
+      timeout: 10000
+    });
+    await webGl1Page.close();
+
     const noGpuPage = await browser.newPage({
       viewport: { width: 1440, height: 1100 }
     });
@@ -1248,10 +1396,10 @@ async function main() {
       status: document.getElementById('stressStatusText')?.textContent?.trim() ?? ''
     }));
 
-    assert(noGpuStressState.state === 'unsupported', 'GPU-only Stress Test should report unsupported without WebGPU/WebGL2.');
+    assert(noGpuStressState.state === 'unsupported', 'GPU-only Stress Test should report unsupported without WebGPU/WebGL.');
     assert(noGpuStressState.workers === '0', 'Unsupported GPU Stress Test should not start CPU workers.');
     assert(noGpuStressState.backend === 'none', 'Unsupported GPU Stress Test should keep GPU backend none.');
-    assert(/webgpu|webgl2|gpu/i.test(noGpuStressState.status), 'Unsupported GPU Stress Test should surface readable fallback copy.');
+    assert(/webgpu|webgl|gpu/i.test(noGpuStressState.status), 'Unsupported GPU Stress Test should surface readable fallback copy.');
     await noGpuPage.close();
 
     await navigateUtility(page, 'death-calculator');
@@ -1621,6 +1769,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error('Utilities Playwright check failed:', error.message);
+  console.error('Utilities Playwright check failed:', error.stack || error.message);
   process.exit(1);
 });
