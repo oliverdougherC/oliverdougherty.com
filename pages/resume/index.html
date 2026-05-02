@@ -124,9 +124,11 @@
 
       <div class="resume-hero-overlay">
         <div class="container">
-          <div class="hero-content" data-animate="fade-up">
-            <h1 class="hero-title text-display"><span>Oliver</span> <span class="name-flair">Dougherty</span></h1>
-            <p class="hero-subtitle">Electrical Engineering Student</p>
+          <div class="hero-content" id="officeSpaceMemo">
+            <h1 class="hero-title text-display">
+              <span id="typeTargetName1">Oliver</span> <span class="name-flair" id="typeTargetName2" style="white-space: nowrap;">Dougherty<span class="typewriter-cursor" id="typeCursor" style="display: none;"></span></span>
+            </h1>
+            <p class="hero-subtitle" id="typeTargetSubtitle">Electrical Engineering Student</p>
             <div class="hero-contact">
               <a href="mailto:oliverfdougherty@gmail.com" class="contact-item">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
@@ -346,6 +348,105 @@
 
   <script src="../../js/year.js" defer></script>
   <script src="../../js/main.js" defer></script>
+  <script>
+    // Bespoke Human Typing Animation Sequence
+    document.addEventListener('DOMContentLoaded', () => {
+      const name1 = document.getElementById('typeTargetName1');
+      const name2 = document.getElementById('typeTargetName2');
+      const subtitle = document.getElementById('typeTargetSubtitle');
+      const cursor = document.getElementById('typeCursor');
+      
+      const targetText1 = "Oliver";
+      const targetText2 = "Dougherty";
+      
+      // Helper for typing effect
+      const typeText = async (element, text) => {
+        const hasCursor = element.contains(cursor);
+        
+        element.textContent = '';
+        const textNode = document.createTextNode('');
+        element.appendChild(textNode);
+        
+        if (hasCursor) {
+          element.appendChild(cursor);
+        }
+        
+        for (let i = 0; i < text.length; i++) {
+          textNode.textContent += text.charAt(i);
+          
+          // Slower, bursty human typing cadence
+          // Base typing speed (60 - 120ms)
+          let delay = 60 + Math.random() * 60; 
+          // 25% chance of a hesitation/pause between bursts (150 - 350ms)
+          if (Math.random() < 0.25) delay += 150 + Math.random() * 200;
+          
+          await new Promise(r => setTimeout(r, delay));
+        }
+      };
+
+      const runSequence = async () => {
+        // Initial state
+        name1.textContent = '';
+        name2.textContent = '';
+        subtitle.style.opacity = '0';
+        
+        // Put cursor in the first word so it tracks from the beginning
+        name1.appendChild(cursor);
+        cursor.style.display = 'inline-block';
+        
+        // Small initial pause before typing starts
+        await new Promise(r => setTimeout(r, 800));
+
+        // Type first name
+        await typeText(name1, targetText1);
+        
+        // Pause to simulate reaching for the Return key
+        await new Promise(r => setTimeout(r, 400 + Math.random() * 200));
+        
+        // Hit Return: Move cursor to the second line
+        name1.removeChild(cursor);
+        name2.appendChild(cursor);
+        
+        // Pause to simulate the carriage returning/focusing on the new line
+        await new Promise(r => setTimeout(r, 350 + Math.random() * 150));
+        
+        // Type second name
+        await typeText(name2, targetText2);
+        
+        // Pause after finishing typing
+        await new Promise(r => setTimeout(r, 300));
+        subtitle.style.transition = 'opacity 0.8s ease';
+        subtitle.style.opacity = '1';
+        
+        // Blink cursor a few times then cleanly hide when it is in the "off" state
+        // Reset the animation to ensure predictable timing
+        cursor.style.animation = 'none';
+        cursor.offsetHeight; // trigger reflow
+        cursor.style.animation = 'blink 1s step-end infinite';
+        
+        // Wait exactly 1.6 seconds (On: 0-0.5s, Off: 0.5s-1s, On: 1s-1.5s, Off: 1.5s-2s)
+        await new Promise(r => setTimeout(r, 1600));
+        cursor.style.display = 'none';
+
+        // Phase 4: Reveal Content
+        document.querySelectorAll('.resume-main [data-animate]').forEach(el => {
+          el.classList.add('visible');
+        });
+      };
+
+      // Respect reduced motion preference
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        name1.textContent = targetText1;
+        name2.textContent = targetText2;
+        subtitle.style.opacity = '1';
+        document.querySelectorAll('.resume-main [data-animate]').forEach(el => {
+          el.classList.add('visible');
+        });
+      } else {
+        runSequence();
+      }
+    });
+  </script>
   <script>
     // Autonomous Fox AI V2.1
     (function() {

@@ -2424,9 +2424,9 @@
   background: rgba(0, 0, 0, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  font-family: var(--font-display), serif;
+  font-family: var(--font-display);
   font-size: clamp(4rem, 12vw, 8rem);
-  font-weight: 400;
+  font-weight: 800;
   line-height: 0.94;
   letter-spacing: var(--tracking-tighter);
   color: #ffffff;
@@ -2456,7 +2456,7 @@
   position: relative;
   font: inherit;
   font-size: var(--text-base);
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-normal);
   padding: 1rem 2rem;
   border-radius: var(--radius-full);
   border: 1px solid rgba(255, 255, 255, 0.12);

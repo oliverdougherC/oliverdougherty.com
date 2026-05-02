@@ -226,6 +226,7 @@
 
 /* Utilities Theme - Pure-black technical palette */
 [data-theme="utilities"] {
+  --font-display: 'JetBrains Mono', 'Fira Code', monospace;
   --color-bg-primary: #000000;
   --color-bg-secondary: #050505;
   --color-bg-tertiary: #0a0a0a;

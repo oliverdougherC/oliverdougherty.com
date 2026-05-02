@@ -241,6 +241,24 @@ a.contact-item:hover {
 }
 
 /* ========================================
+   Resume Hero Animation (Typewriter Vibe)
+   ======================================== */
+.typewriter-cursor {
+  display: inline-block;
+  width: 0.55em;
+  height: 0.82em;
+  background-color: var(--resume-accent);
+  vertical-align: baseline;
+  animation: blink 1s step-end infinite;
+  margin-left: 0.05em;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ========================================
    Resume Content Grid
    ======================================== */
 
