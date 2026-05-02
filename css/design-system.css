@@ -1045,32 +1045,32 @@ body.nav-open .nav.scrolled {
   opacity: 0;
   transform: translate3d(var(--nav-link-shift-x), 40px, 0) rotate(2deg);
   transform-origin: left center;
-  transition: opacity 0.24s ease, transform 0.16s ease, color 0.14s ease;
+  transition: opacity 0.24s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s ease, text-shadow 0.2s ease;
 }
 
 .nav-overlay .nav-link:is(:hover, :focus-visible) {
-  --nav-link-shift-x: 12px;
+  --nav-link-shift-x: 24px;
 }
 
 /* Per-destination nav link hover colors */
 .nav-overlay .nav-link--home:is(:hover, :focus-visible) {
-  color: #2A6356;
+  text-shadow: 0 0 20px rgba(255, 103, 0, 0.8), 0 0 40px rgba(255, 103, 0, 0.4), 0.012em 0 currentColor, -0.012em 0 currentColor;
 }
 
 .nav-overlay .nav-link--gallery:is(:hover, :focus-visible) {
-  color: #9693CC;
+  text-shadow: 0 0 20px rgba(0, 75, 168, 0.8), 0 0 40px rgba(0, 75, 168, 0.4), 0.012em 0 currentColor, -0.012em 0 currentColor;
 }
 
 .nav-overlay .nav-link--archive:is(:hover, :focus-visible) {
-  color: #CDDBCD;
+  text-shadow: 0 0 20px rgba(205, 219, 205, 0.8), 0 0 40px rgba(205, 219, 205, 0.4), 0.012em 0 currentColor, -0.012em 0 currentColor;
 }
 
 .nav-overlay .nav-link--resume:is(:hover, :focus-visible) {
-  color: #6C8FD5;
+  text-shadow: 0 0 20px rgba(43, 168, 74, 0.8), 0 0 40px rgba(43, 168, 74, 0.4), 0.012em 0 currentColor, -0.012em 0 currentColor;
 }
 
 .nav-overlay .nav-link--utilities:is(:hover, :focus-visible) {
-  color: #ffffff;
+  text-shadow: 0 0 20px rgba(93, 63, 211, 0.8), 0 0 40px rgba(93, 63, 211, 0.4), 0.012em 0 currentColor, -0.012em 0 currentColor;
 }
 
 /* Entrance animations */

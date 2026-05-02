@@ -77,7 +77,6 @@ body.nav-open .nav-dot {
   color: #000000;
 }
 
-.nav-overlay .nav-link:hover,
 .nav-overlay .nav-link.active,
 .nav-overlay .footer-link:hover {
   color: var(--resume-accent);

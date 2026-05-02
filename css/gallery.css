@@ -804,10 +804,6 @@ body.nav-open .nav-dot {
   color: #000000;
 }
 
-.nav-overlay .nav-link.nav-link--resume:hover {
-  color: #004BA8;
-}
-
 @media (max-width: 1280px) {
   .gallery-hero-layout {
     grid-template-columns: minmax(0, 1fr) minmax(240px, 34vw);
