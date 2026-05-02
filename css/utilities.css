@@ -2568,7 +2568,7 @@ html[data-active-utility] .utilities-buttons button {
 .utility-top-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: var(--space-3);
   padding: 0 clamp(1rem, 2.2vw, 2rem);
   margin-bottom: clamp(0.55rem, 1.1vh, 0.8rem);

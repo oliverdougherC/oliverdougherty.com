@@ -41,7 +41,42 @@
     }
     @keyframes fade-in-home {
       from { opacity: 0; transform: translateY(-10px); }
-      to { opacity: 1; transform: translateY(0); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .nav-btn-wrapper {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      height: 2rem;
+    }
+    .nav-back-btn {
+      position: absolute;
+      inset: 0;
+      display: inline-flex;
+      align-items: center;
+      font-family: 'Inter', sans-serif;
+      font-weight: 400;
+      font-size: 1rem;
+      padding: 0.5rem 0;
+      background: none;
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+      white-space: nowrap;
+    }
+    .nav-back-btn:hover {
+      opacity: 0.7 !important;
+    }
+    html[data-active-utility] .nav-home-btn {
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+    html[data-active-utility] .nav-back-btn {
+      opacity: 1;
+      pointer-events: auto;
     }
   </style>
 </head>
@@ -51,7 +86,10 @@
 
   <nav class="nav" id="nav">
     <div class="nav-inner container">
-      <a href="../../index.html" class="nav-home-btn" data-cursor="hover">Home</a>
+      <div class="nav-btn-wrapper">
+        <a href="../../index.html" class="nav-home-btn" data-cursor="hover">Home</a>
+        <button class="nav-back-btn" data-cursor="hover">← Back</button>
+      </div>
     </div>
   </nav>
 
@@ -74,7 +112,6 @@
     <!-- View: Utility Container -->
     <section id="utilitiesUtilityView" class="utilities-view">
       <div class="utility-top-bar">
-        <button class="utility-back-btn">← Back</button>
         <div class="utility-switcher">
           <button class="utility-switcher-trigger">Switch utility ▾</button>
           <div class="utility-switcher-dropdown">

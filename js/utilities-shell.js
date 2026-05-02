@@ -19,7 +19,7 @@
 
   const titleView = document.getElementById(TITLE_VIEW_ID);
   const utilityView = document.getElementById(UTILITY_VIEW_ID);
-  const backBtn = document.querySelector('.utility-back-btn');
+  const backBtn = document.querySelector('.nav-back-btn');
   const switcherTrigger = document.querySelector('.utility-switcher-trigger');
   const switcherDropdown = document.querySelector('.utility-switcher-dropdown');
   const titleButtons = document.querySelectorAll('.utilities-buttons button[data-utility]');
