@@ -15,6 +15,7 @@
     'local-assistant': 'local-assistant',
     'death-calculator': 'death-calculator',
     'virtual-machine': 'virtual-machine',
+    'stress-test': 'stress-test',
   };
 
   const titleView = document.getElementById(TITLE_VIEW_ID);
@@ -82,12 +83,19 @@
     }
   }
 
+  function deactivateStage(stage) {
+    stage.dispatchEvent(new CustomEvent('utility-deactivate', { bubbles: true }));
+  }
+
   function showTitleCard() {
     if (isTransitioning) return;
     isTransitioning = true;
 
     // Hide all stages
     stages.forEach(function (stage) {
+      if (stage.classList.contains('is-active')) {
+        deactivateStage(stage);
+      }
       stage.classList.remove('is-active', 'is-exiting');
     });
 
@@ -119,6 +127,9 @@
     if (opts.fromTitle || !outgoing) {
       // Title → Utility: depth fade
       stages.forEach(function (s) {
+        if (s.classList.contains('is-active')) {
+          deactivateStage(s);
+        }
         s.classList.remove('is-active', 'is-exiting');
       });
       activateStage(incoming, utilityId);
@@ -142,6 +153,7 @@
 
       outgoing.classList.add('is-exiting');
       outgoing.classList.remove('is-active');
+      deactivateStage(outgoing);
 
       activateStage(incoming, utilityId);
 

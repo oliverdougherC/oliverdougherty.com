@@ -688,6 +688,7 @@ async function main() {
     });
     await page.addInitScript(() => {
       window.__OD_RETRO_VM_TEST_MODE__ = true;
+      window.__OD_STRESS_TEST_MAX_WORKERS__ = 2;
     });
 
     const retroVmRequests = [];
@@ -1153,6 +1154,105 @@ async function main() {
 
     assert(audioErrorState.chip === 'Error', 'Invalid audio upload should set the Audio Fourier error chip.');
     assert(/audio|decode|unable|supported/i.test(audioErrorState.text), 'Invalid audio upload should surface a readable error.');
+
+    await navigateUtility(page, 'stress-test');
+
+    const stressInitialState = await page.evaluate(() => ({
+      state: document.getElementById('stressTestApp')?.dataset.stressState ?? '',
+      mode: document.getElementById('stressTestApp')?.dataset.stressMode ?? '',
+      workerCount: document.getElementById('stressTestApp')?.dataset.stressWorkerCount ?? '',
+      backend: document.getElementById('stressTestApp')?.dataset.stressGpuBackend ?? '',
+      startDisabled: document.getElementById('stressStartBtn')?.hasAttribute('disabled') ?? true,
+      stopDisabled: document.getElementById('stressStopBtn')?.hasAttribute('disabled') ?? false,
+      status: document.getElementById('stressStatusText')?.textContent?.trim() ?? ''
+    }));
+
+    assert(stressInitialState.state === 'idle', 'Stress Test should start idle.');
+    assert(stressInitialState.mode === 'both', 'Stress Test should default to Both mode.');
+    assert(stressInitialState.workerCount === '0', 'Stress Test should not start CPU workers on activation.');
+    assert(stressInitialState.backend === 'none', 'Stress Test should not start GPU work on activation.');
+    assert(stressInitialState.startDisabled === false, 'Stress Test start should be available when idle.');
+    assert(stressInitialState.stopDisabled === true, 'Stress Test stop should stay disabled when idle.');
+    assert(/hot|loud|slow|power/i.test(stressInitialState.status), 'Stress Test warning copy should be visible before start.');
+
+    await page.click('[data-stress-mode-option="cpu"]');
+    const stressCpuMode = await page.evaluate(() => document.getElementById('stressTestApp')?.dataset.stressMode ?? '');
+    assert(stressCpuMode === 'cpu', 'Stress Test mode selector should update data-stress-mode.');
+
+    await page.click('#stressStartBtn');
+    await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'running', {
+      timeout: 10000
+    });
+    await page.waitForFunction(() => Number(document.getElementById('stressTestApp')?.dataset.stressWorkerCount ?? '0') > 0, {
+      timeout: 10000
+    });
+
+    const stressRunningState = await page.evaluate(() => ({
+      state: document.getElementById('stressTestApp')?.dataset.stressState ?? '',
+      workers: document.getElementById('stressTestApp')?.dataset.stressWorkerCount ?? '',
+      backend: document.getElementById('stressTestApp')?.dataset.stressGpuBackend ?? '',
+      stopDisabled: document.getElementById('stressStopBtn')?.hasAttribute('disabled') ?? true
+    }));
+
+    assert(stressRunningState.state === 'running', 'Stress Test should enter running state after Start.');
+    assert(stressRunningState.workers === '2', 'Stress Test browser check should honor the worker-count test cap.');
+    assert(stressRunningState.backend === 'none', 'CPU-only Stress Test should not start GPU work.');
+    assert(stressRunningState.stopDisabled === false, 'Stress Test stop should enable while running.');
+
+    await page.click('#stressStopBtn');
+    await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'idle', {
+      timeout: 10000
+    });
+    const stressStoppedState = await page.evaluate(() => ({
+      state: document.getElementById('stressTestApp')?.dataset.stressState ?? '',
+      workers: document.getElementById('stressTestApp')?.dataset.stressWorkerCount ?? '',
+      backend: document.getElementById('stressTestApp')?.dataset.stressGpuBackend ?? ''
+    }));
+
+    assert(stressStoppedState.state === 'idle', 'Stress Test should return to idle after Stop.');
+    assert(stressStoppedState.workers === '0', 'Stress Test should clear workers after Stop.');
+    assert(stressStoppedState.backend === 'none', 'Stress Test should clear GPU backend after Stop.');
+
+    const noGpuPage = await browser.newPage({
+      viewport: { width: 1440, height: 1100 }
+    });
+    await noGpuPage.addInitScript(() => {
+      window.__OD_STRESS_TEST_MAX_WORKERS__ = 1;
+      Object.defineProperty(navigator, 'gpu', {
+        configurable: true,
+        value: undefined
+      });
+      const originalGetContext = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function patchedGetContext(type, ...args) {
+        if (type === 'webgl2' || type === 'webgl' || type === 'experimental-webgl') {
+          return null;
+        }
+        return originalGetContext.call(this, type, ...args);
+      };
+    });
+    await noGpuPage.goto(`${baseUrl}/pages/utilities/index.html#stress-test`, { waitUntil: 'networkidle' });
+    await noGpuPage.waitForFunction(
+      () => document.querySelector('.utility-stage[data-utility-id="stress-test"]')?.classList.contains('is-active'),
+      { timeout: 10000 }
+    );
+    await noGpuPage.waitForSelector('#stressTestApp[data-stress-state="idle"]', { timeout: 10000 });
+    await noGpuPage.click('[data-stress-mode-option="gpu"]');
+    await noGpuPage.click('#stressStartBtn');
+    await noGpuPage.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'unsupported', {
+      timeout: 10000
+    });
+    const noGpuStressState = await noGpuPage.evaluate(() => ({
+      state: document.getElementById('stressTestApp')?.dataset.stressState ?? '',
+      workers: document.getElementById('stressTestApp')?.dataset.stressWorkerCount ?? '',
+      backend: document.getElementById('stressTestApp')?.dataset.stressGpuBackend ?? '',
+      status: document.getElementById('stressStatusText')?.textContent?.trim() ?? ''
+    }));
+
+    assert(noGpuStressState.state === 'unsupported', 'GPU-only Stress Test should report unsupported without WebGPU/WebGL2.');
+    assert(noGpuStressState.workers === '0', 'Unsupported GPU Stress Test should not start CPU workers.');
+    assert(noGpuStressState.backend === 'none', 'Unsupported GPU Stress Test should keep GPU backend none.');
+    assert(/webgpu|webgl2|gpu/i.test(noGpuStressState.status), 'Unsupported GPU Stress Test should surface readable fallback copy.');
+    await noGpuPage.close();
 
     await navigateUtility(page, 'death-calculator');
 

@@ -1409,6 +1409,27 @@ document.addEventListener('DOMContentLoaded', () => {
           }
           vmRoot.dataset.vmStatusMessage = message;
         }
+        return;
+      }
+
+      if (utilityId === 'stress-test') {
+        const stressRoot = document.getElementById('stressTestApp');
+        if (!stressRoot) {
+          return;
+        }
+        try {
+          const { StressTestController } = await import('./stressTestController');
+          new StressTestController(stressRoot).init();
+          initializedUtilities.add(utilityId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Stress Test failed to initialize.';
+          const statusText = document.getElementById('stressStatusText');
+          if (statusText) {
+            statusText.textContent = message;
+          }
+          stressRoot.dataset.stressStatusMessage = message;
+          stressRoot.dataset.stressState = 'error';
+        }
       }
     })().finally(() => {
       initializationPromises.delete(utilityId);

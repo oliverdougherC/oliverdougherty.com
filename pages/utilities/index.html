@@ -98,6 +98,7 @@
           <button data-utility="local-assistant">Local Assistant</button>
           <button data-utility="death-calculator">Death Calculator</button>
           <button data-utility="virtual-machine">Virtual Machine</button>
+          <button data-utility="stress-test">Stress Test</button>
         </div>
       </div>
     </div>
@@ -116,6 +117,7 @@
         <button data-utility="local-assistant" data-color="mint">Local Assistant</button>
         <button data-utility="death-calculator" data-color="coral">Death Calculator</button>
         <button data-utility="virtual-machine" data-color="sky">Virtual Machine</button>
+        <button data-utility="stress-test" data-color="ember">Stress Test</button>
       </div>
     </section>
 
@@ -642,6 +644,58 @@
                             </div>
                           </div>
                         </article>
+                      </div>
+                    </div>
+                  </section>
+        </div>
+        <div class="utility-stage" data-utility-id="stress-test">
+          <section class="utility-shell utility-shell--stress" id="stressTestApp" data-utility-root="stress-test" data-animate="fade-up" aria-label="Stress Test" data-stress-state="idle" data-stress-mode="both" data-stress-worker-count="0" data-stress-gpu-backend="none">
+                    <div class="stress-layout">
+                      <div class="stress-control-panel">
+                        <span class="utility-kicker">Browser Stress Test</span>
+                        <p class="stress-warning" id="stressStatusText" aria-live="polite">Ready. Starting this will make your browser hot, loud, slow, and power hungry.</p>
+
+                        <div class="stress-mode-group" role="group" aria-label="Stress mode">
+                          <button type="button" class="stress-mode-button" data-stress-mode-option="cpu" aria-pressed="false">CPU</button>
+                          <button type="button" class="stress-mode-button" data-stress-mode-option="gpu" aria-pressed="false">GPU</button>
+                          <button type="button" class="stress-mode-button is-active" data-stress-mode-option="both" aria-pressed="true">Both</button>
+                        </div>
+
+                        <div class="stress-actions">
+                          <button type="button" class="btn-primary-utility stress-start-button" id="stressStartBtn">Start</button>
+                          <button type="button" class="btn-secondary-utility stress-stop-button" id="stressStopBtn" disabled>Stop</button>
+                        </div>
+
+                        <dl class="stress-metrics">
+                          <div>
+                            <dt>Elapsed</dt>
+                            <dd id="stressElapsed">0:00</dd>
+                          </div>
+                          <div>
+                            <dt>Workers</dt>
+                            <dd id="stressWorkerCount">0</dd>
+                          </div>
+                          <div>
+                            <dt>GPU</dt>
+                            <dd id="stressGpuBackend">none</dd>
+                          </div>
+                          <div>
+                            <dt>FPS</dt>
+                            <dd id="stressFrameRate">0.0</dd>
+                          </div>
+                          <div>
+                            <dt>Dropped</dt>
+                            <dd id="stressDroppedFrames">0</dd>
+                          </div>
+                          <div>
+                            <dt>CPU iterations</dt>
+                            <dd id="stressIterations">0</dd>
+                          </div>
+                        </dl>
+                      </div>
+
+                      <div class="stress-visual-panel">
+                        <canvas id="stressCanvas" width="960" height="540" aria-label="Stress test GPU output"></canvas>
                       </div>
                     </div>
                   </section>

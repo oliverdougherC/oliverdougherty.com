@@ -1398,6 +1398,154 @@
 }
 
 /* ========================================
+   Stress Test Utility
+   ======================================== */
+
+.utility-shell--stress {
+  margin-top: 0;
+  box-shadow: 0 0 15px rgba(255,128,96,0.15), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.stress-layout {
+  display: grid;
+  grid-template-columns: minmax(18rem, 0.55fr) minmax(0, 1fr);
+  gap: clamp(0.9rem, 1.8vw, 1.5rem);
+  height: 100%;
+  min-height: 0;
+}
+
+.stress-control-panel,
+.stress-visual-panel {
+  min-height: 0;
+  border: 1px solid var(--utilities-border-soft);
+  border-radius: var(--radius-2xl);
+  background: rgba(255, 255, 255, 0.035);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.stress-control-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: clamp(1rem, 2vw, 1.4rem);
+}
+
+.stress-warning {
+  margin: 0;
+  color: var(--color-text-secondary);
+  line-height: var(--leading-relaxed);
+}
+
+.stress-mode-group {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.stress-mode-button {
+  min-height: 2.75rem;
+  font: inherit;
+  color: var(--color-text-primary);
+  border: 1px solid var(--utilities-border-soft);
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.035);
+  cursor: pointer;
+  transition:
+    transform var(--duration-fast) var(--ease-smooth),
+    border-color var(--duration-fast) var(--ease-smooth),
+    background var(--duration-fast) var(--ease-smooth);
+}
+
+.stress-mode-button:hover,
+.stress-mode-button:focus-visible,
+.stress-mode-button.is-active {
+  outline: none;
+  transform: translateY(-1px);
+  border-color: rgba(255, 128, 96, 0.45);
+  background: rgba(255, 128, 96, 0.12);
+}
+
+.stress-mode-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.stress-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+}
+
+.stress-start-button,
+.stress-stop-button {
+  min-height: 3.2rem;
+  font-weight: var(--weight-semibold);
+}
+
+.stress-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: auto 0 0;
+}
+
+.stress-metrics div {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-xl);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.stress-metrics dt {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+}
+
+.stress-metrics dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-family: var(--font-mono), monospace;
+  font-size: clamp(1rem, 1.7vw, 1.35rem);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stress-visual-panel {
+  overflow: hidden;
+  padding: clamp(0.6rem, 1.3vw, 0.9rem);
+}
+
+.stress-visual-panel canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 20rem;
+  border-radius: var(--radius-xl);
+  background: #050507;
+}
+
+.utility-shell--stress[data-stress-state='running'] .stress-visual-panel {
+  border-color: rgba(255, 128, 96, 0.32);
+  box-shadow: 0 0 22px rgba(255, 128, 96, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stress-mode-button,
+  .stress-visual-panel {
+    transition: none;
+  }
+}
+
+/* ========================================
    Local Assistant Utility
    ======================================== */
 
@@ -2439,14 +2587,14 @@
 }
 
 @keyframes title-space-reveal {
-  0% { 
-    opacity: 0; 
-    filter: blur(12px); 
+  0% {
+    opacity: 0;
+    filter: blur(12px);
     letter-spacing: 0.3em;
   }
-  100% { 
-    opacity: 1; 
-    filter: blur(0); 
+  100% {
+    opacity: 1;
+    filter: blur(0);
     letter-spacing: var(--tracking-widest);
   }
 }
@@ -2519,6 +2667,10 @@
   animation: float-sky 9.5s ease-in-out infinite;
   animation-delay: -3s;
 }
+.utilities-buttons button[data-color="ember"] {
+  animation: float-ember 8.8s ease-in-out infinite;
+  animation-delay: -5s;
+}
 
 html[data-active-utility] .utilities-title-wrapper,
 html[data-active-utility] .utilities-buttons button {
@@ -2548,6 +2700,11 @@ html[data-active-utility] .utilities-buttons button {
 @keyframes float-sky {
   0%, 100% { transform: translateY(0) rotate(0deg); box-shadow: 0 0 20px -5px rgba(168,216,240,0.1), inset 0 0 10px rgba(168,216,240,0.05); }
   50% { transform: translateY(-7px) rotate(0.5deg); box-shadow: 0 15px 30px -5px rgba(168,216,240,0.3), inset 0 0 20px rgba(168,216,240,0.15); }
+}
+
+@keyframes float-ember {
+  0%, 100% { transform: translateY(0) rotate(0deg); box-shadow: 0 0 20px -5px rgba(255,128,96,0.1), inset 0 0 10px rgba(255,128,96,0.05); }
+  50% { transform: translateY(-8px) rotate(-0.75deg); box-shadow: 0 15px 30px -5px rgba(255,128,96,0.3), inset 0 0 20px rgba(255,128,96,0.15); }
 }
 
 /* Utility View */
@@ -2708,5 +2865,20 @@ html[data-active-utility] .utility-switcher {
   .utilities-buttons button {
     padding: 0.85rem 1.4rem;
     font-size: var(--text-sm);
+  }
+
+  .stress-layout {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .stress-visual-panel canvas {
+    aspect-ratio: 16 / 9;
+    height: auto;
+    min-height: 14rem;
+  }
+
+  .stress-metrics {
+    grid-template-columns: 1fr;
   }
 }
