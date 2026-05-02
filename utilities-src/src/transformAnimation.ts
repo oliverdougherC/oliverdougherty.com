@@ -25,6 +25,10 @@ export interface TransformAnimationState {
   cheatedTargetPixels: Uint8Array;
   accentParticles: MotionAccentParticle[];
   positionPriorityScratch: Float32Array;
+  sourceXBySource: Uint16Array;
+  sourceYBySource: Uint16Array;
+  targetXBySource: Uint16Array;
+  targetYBySource: Uint16Array;
 }
 
 export interface AccentParticleFrame {
@@ -78,6 +82,18 @@ function mixChannel(sourceValue: number, finalValue: number, tintPhase: number) 
 
 export function createTransformAnimationState(input: TransformAnimationInput): TransformAnimationState {
   const targetIndexBySource = buildTargetIndexBySource(input.assignment);
+  const sourceXBySource = new Uint16Array(targetIndexBySource.length);
+  const sourceYBySource = new Uint16Array(targetIndexBySource.length);
+  const targetXBySource = new Uint16Array(targetIndexBySource.length);
+  const targetYBySource = new Uint16Array(targetIndexBySource.length);
+
+  for (let sourceIndex = 0; sourceIndex < targetIndexBySource.length; sourceIndex += 1) {
+    const targetIndex = targetIndexBySource[sourceIndex];
+    sourceXBySource[sourceIndex] = sourceIndex % input.width;
+    sourceYBySource[sourceIndex] = Math.floor(sourceIndex / input.width);
+    targetXBySource[sourceIndex] = targetIndex % input.width;
+    targetYBySource[sourceIndex] = Math.floor(targetIndex / input.width);
+  }
 
   return {
     width: input.width,
@@ -88,7 +104,11 @@ export function createTransformAnimationState(input: TransformAnimationInput): T
     tintStrengthBySource: buildTintStrengthBySource(targetIndexBySource, input.tintStrengthByTarget),
     cheatedTargetPixels: input.cheatedTargetPixels,
     accentParticles: [],
-    positionPriorityScratch: new Float32Array(input.assignment.length)
+    positionPriorityScratch: new Float32Array(input.assignment.length),
+    sourceXBySource,
+    sourceYBySource,
+    targetXBySource,
+    targetYBySource
   };
 }
 
@@ -117,10 +137,10 @@ export function renderTransformAnimationPixels(
 
   for (let sourceIndex = 0; sourceIndex < state.targetIndexBySource.length; sourceIndex += 1) {
     const targetIndex = state.targetIndexBySource[sourceIndex];
-    const sourceX = sourceIndex % state.width;
-    const sourceY = Math.floor(sourceIndex / state.width);
-    const targetX = targetIndex % state.width;
-    const targetY = Math.floor(targetIndex / state.width);
+    const sourceX = state.sourceXBySource[sourceIndex];
+    const sourceY = state.sourceYBySource[sourceIndex];
+    const targetX = state.targetXBySource[sourceIndex];
+    const targetY = state.targetYBySource[sourceIndex];
     const currentX = Math.round(sourceX + (targetX - sourceX) * easedPhase);
     const currentY = Math.round(sourceY + (targetY - sourceY) * easedPhase);
     const boundedX = clamp(currentX, 0, state.width - 1);

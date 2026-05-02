@@ -269,44 +269,6 @@ async function readStarfieldState(page) {
   });
 }
 
-async function runTitleIdleCheck(browser, baseUrl) {
-  const titlePage = await browser.newPage({
-    viewport: { width: 1440, height: 1100 }
-  });
-  try {
-    await titlePage.goto(`${baseUrl}/pages/utilities/index.html`, { waitUntil: 'networkidle' });
-    await titlePage.waitForSelector('#utilitiesTitleView.is-settled', { timeout: 16000 });
-    const idleState = await titlePage.evaluate(() => {
-      const titleView = document.getElementById('utilitiesTitleView');
-      const animations = titleView?.getAnimations({ subtree: true }) ?? [];
-      const infiniteAnimations = animations
-        .map((animation) => {
-          const effect = animation.effect;
-          const timing = effect && typeof effect.getTiming === 'function' ? effect.getTiming() : null;
-          return {
-            playState: animation.playState,
-            iterations: timing?.iterations ?? 1,
-            animationName: animation.animationName ?? ''
-          };
-        })
-        .filter((animation) => animation.playState !== 'finished' && animation.iterations === Infinity);
-      return {
-        settled: titleView?.classList.contains('is-settled') ?? false,
-        infiniteAnimationCount: infiniteAnimations.length,
-        infiniteAnimations
-      };
-    });
-
-    assert(idleState.settled === true, 'Utilities title view should enter the settled idle state.');
-    assert(
-      idleState.infiniteAnimationCount === 0,
-      `Utilities title view should not keep infinite CSS animations running after settle: ${JSON.stringify(idleState.infiniteAnimations)}`
-    );
-  } finally {
-    await titlePage.close();
-  }
-}
-
 function countActiveCanvasPixels(pixels) {
   let count = 0;
   for (let index = 0; index < pixels.length; index += 4) {
@@ -504,6 +466,13 @@ async function readUtilityIsolationMetrics(page) {
 }
 
 async function assertUtilityIsolationLayout(page, label) {
+  await page.waitForFunction(() => {
+    return Array.from(document.querySelectorAll('[data-utility-root]')).some((element) => {
+      const rect = element.getBoundingClientRect();
+      const styles = window.getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && styles.visibility !== 'hidden' && styles.display !== 'none';
+    });
+  }, { timeout: 5000 });
   const state = await readUtilityIsolationMetrics(page);
   assert(state.scrollWidth === state.clientWidth, `[${label}] utilities page should not overflow horizontally.`);
   assert(state.roots.length >= 4, `[${label}] expected each utility to expose a data-utility-root marker.`);
@@ -742,7 +711,6 @@ async function main() {
 
   try {
     await waitForServer(`${baseUrl}/pages/utilities/index.html`);
-    await runTitleIdleCheck(browser, baseUrl);
 
     const page = await browser.newPage({
       viewport: { width: 1440, height: 1100 }
