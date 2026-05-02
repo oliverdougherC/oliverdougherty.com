@@ -2399,20 +2399,20 @@
 .utilities-title-wrapper {
   position: relative;
   display: inline-block;
-  padding: 2px;
+  padding: 4px;
   border-radius: 24px;
   background: linear-gradient(90deg,
-    #050510,
-    #1e2a5c,
-    #00e5ff,
-    #ffffff,
-    #1e2a5c,
-    #050510
+    #ff2a5f, /* Hot Pink */
+    #ff7b00, /* Vibrant Orange */
+    #ffea00, /* Bright Yellow */
+    #00ffcc, /* Cyan/Aqua */
+    #6a00ff, /* Deep Purple */
+    #ff2a5f  /* Back to Hot Pink */
   );
   background-size: 200% 100%;
   animation: wrapper-reveal 3s cubic-bezier(0.2, 0.8, 0.2, 1) both, nebula-shift 15s linear infinite 3s;
   animation-delay: 1.5s, 4.5s; /* Wait for stars to fade in */
-  box-shadow: 0 0 30px rgba(0, 229, 255, 0.15), inset 0 0 15px rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 40px rgba(106, 0, 255, 0.3), inset 0 0 20px rgba(255, 255, 255, 0.1);
   opacity: 0; /* Start hidden */
 }
 
