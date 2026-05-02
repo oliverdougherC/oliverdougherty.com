@@ -2399,44 +2399,60 @@
 .utilities-title-wrapper {
   position: relative;
   display: inline-block;
-  padding: 4px;
+  padding: 2px;
   border-radius: 24px;
   background: linear-gradient(90deg,
-    #ff2a5f, /* Hot Pink */
-    #ff7b00, /* Vibrant Orange */
-    #ffea00, /* Bright Yellow */
-    #00ffcc, /* Cyan/Aqua */
-    #6a00ff, /* Deep Purple */
-    #ff2a5f  /* Back to Hot Pink */
+    #050510,
+    #1e2a5c,
+    #00e5ff,
+    #ffffff,
+    #1e2a5c,
+    #050510
   );
   background-size: 200% 100%;
-  animation: title-enter 2.5s ease-out both, nebula-shift 12s linear infinite 2.5s;
-  animation-delay: 1.5s, 4s; /* Wait for stars to fade in */
-  box-shadow: 0 0 40px rgba(106, 0, 255, 0.3), inset 0 0 20px rgba(255,255,255,0.1);
+  animation: wrapper-reveal 3s cubic-bezier(0.2, 0.8, 0.2, 1) both, nebula-shift 15s linear infinite 3s;
+  animation-delay: 1.5s, 4.5s; /* Wait for stars to fade in */
+  box-shadow: 0 0 30px rgba(0, 229, 255, 0.15), inset 0 0 15px rgba(255, 255, 255, 0.1);
   opacity: 0; /* Start hidden */
 }
 
 .utilities-title {
   display: block;
   margin: 0;
-  padding: 0.15em 0.4em;
-  border-radius: 20px;
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  font-family: var(--font-display);
-  font-size: clamp(4rem, 12vw, 8rem);
-  font-weight: 800;
+  padding: 0.2em 0.5em;
+  border-radius: 22px;
+  background: rgba(5, 5, 10, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  font-family: var(--font-body);
+  font-size: clamp(3rem, 10vw, 6rem);
+  font-weight: 300;
+  text-transform: uppercase;
   line-height: 0.94;
-  letter-spacing: var(--tracking-tighter);
+  letter-spacing: var(--tracking-widest);
   color: #ffffff;
   text-align: center;
-  text-shadow: 0 0 20px rgba(255,255,255,0.2);
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.4);
+  animation: title-space-reveal 3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: 1.5s;
 }
 
-@keyframes title-enter {
-  0% { opacity: 0; transform: perspective(800px) translateZ(-300px) translateY(20px); }
-  100% { opacity: 1; transform: perspective(800px) translateZ(0) translateY(0); }
+@keyframes wrapper-reveal {
+  0% { opacity: 0; transform: scale(0.9) translateY(10px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes title-space-reveal {
+  0% { 
+    opacity: 0; 
+    filter: blur(12px); 
+    letter-spacing: 0.3em;
+  }
+  100% { 
+    opacity: 1; 
+    filter: blur(0); 
+    letter-spacing: var(--tracking-widest);
+  }
 }
 
 @keyframes nebula-shift {
