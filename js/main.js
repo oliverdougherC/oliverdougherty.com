@@ -59,8 +59,9 @@ function initBlueprintWordmark() {
 
   const setLineMetrics = (line, x1, y1, x2, y2, delayMs) => {
     const length = Math.hypot(x2 - x1, y2 - y1);
-    line.style.setProperty('--line-length', `${length}px`);
-    line.style.setProperty('--line-delay', `${delayMs}ms`);
+    const lengthJitter = Math.random() * 8 - 2; // slightly overshoot or undershoot lines
+    line.style.setProperty('--line-length', `${length + lengthJitter}px`);
+    line.style.setProperty('--line-delay', `${Math.max(0, delayMs)}ms`);
   };
 
   const addLine = (group, className, x1, y1, x2, y2, delayMs) => {
@@ -164,17 +165,17 @@ function initBlueprintWordmark() {
 
     for (let index = 0; index <= word.length; index += 1) {
       const x = cellWidth * index;
-      addLine(grid, 'blueprint-grid-line--major', x, top, x, bottom, index * 26);
+      addLine(grid, 'blueprint-grid-line--major', x, top, x, bottom, index * 26 + (Math.random() * 40 - 20));
       if (index < word.length) {
-        addLine(grid, 'blueprint-grid-line--minor', x + cellWidth / 2, cap, x + cellWidth / 2, lowerGuide, 130 + index * 20);
+        addLine(grid, 'blueprint-grid-line--minor', x + cellWidth / 2, cap, x + cellWidth / 2, lowerGuide, 130 + index * 20 + (Math.random() * 40 - 20));
       }
     }
 
-    addLine(grid, 'blueprint-grid-line--rail', 0, top, width, top, 40);
-    addLine(grid, 'blueprint-grid-line--rail', 0, bottom, width, bottom, 120);
-    addLine(grid, 'blueprint-grid-line--center', 0, center, width, center, 240);
-    addLine(grid, 'blueprint-grid-line--minor', 0, cap, width, cap, 300);
-    addLine(grid, 'blueprint-grid-line--minor', 0, lowerGuide, width, lowerGuide, 360);
+    addLine(grid, 'blueprint-grid-line--rail', 0, top, width, top, 40 + (Math.random() * 30 - 15));
+    addLine(grid, 'blueprint-grid-line--rail', 0, bottom, width, bottom, 120 + (Math.random() * 30 - 15));
+    addLine(grid, 'blueprint-grid-line--center', 0, center, width, center, 240 + (Math.random() * 30 - 15));
+    addLine(grid, 'blueprint-grid-line--minor', 0, cap, width, cap, 300 + (Math.random() * 30 - 15));
+    addLine(grid, 'blueprint-grid-line--minor', 0, lowerGuide, width, lowerGuide, 360 + (Math.random() * 30 - 15));
 
     const letterTiming = [
       { delay: 0, duration: 2500, dash: 4.8 },
@@ -191,13 +192,16 @@ function initBlueprintWordmark() {
 
     characters.forEach(({ char, x, width: characterWidth }, index) => {
       const timing = letterTiming[index] || letterTiming[letterTiming.length - 1];
+      const randomizedDelay = Math.max(0, timing.delay + (Math.random() * 80 - 40));
+      const randomizedDuration = timing.duration + (Math.random() * 400 - 200);
+
       const outlineText = createSvgElement('text', {
         class: 'blueprint-outline-text',
         x,
         y: textOffsetY
       });
-      outlineText.style.setProperty('--letter-step', `${timing.delay}ms`);
-      outlineText.style.setProperty('--letter-duration', `${timing.duration}ms`);
+      outlineText.style.setProperty('--letter-step', `${randomizedDelay}ms`);
+      outlineText.style.setProperty('--letter-duration', `${randomizedDuration}ms`);
       outlineText.style.setProperty('--letter-dash', `${timing.dash}em`);
       outlineText.style.setProperty('--letter-nearly-complete', `${timing.dash * 0.13}em`);
       outlineText.textContent = char;
