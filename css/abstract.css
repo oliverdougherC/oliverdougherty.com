@@ -117,23 +117,13 @@ body {
   color: white;
 }
 
-/* Scrollbar */
+/* Scrollbar removed globally */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  display: none;
 }
 
-::-webkit-scrollbar-track {
-  background: var(--color-bg-secondary);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--color-border-emphasis);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-muted);
+html {
+  scrollbar-width: none;
 }
 
 /* ========================================

@@ -87,6 +87,66 @@ body.nav-open .nav-dot {
 }
 
 /* ========================================
+   Schematic Wrapper
+   ======================================== */
+
+.meta-tiny {
+  position: absolute;
+  font-size: 0.85rem;
+  color: #000000;
+  line-height: 1.6;
+  white-space: nowrap;
+  letter-spacing: 0.05em;
+  font-family: var(--font-interface);
+}
+
+.top-left-pos {
+  top: 1.5rem;
+  left: 1.5rem;
+}
+
+.schematic-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  width: 100%;
+  height: 100%;
+  background: #FFFFFF;
+}
+
+.grid-cell {
+  position: relative;
+  background: #FFFFFF;
+}
+
+.resume-hero.schematic-wrapper {
+  position: relative;
+  width: 100%;
+  min-height: clamp(34rem, 78vh, 44rem);
+  padding: 0;
+  background: #FFFFFF;
+  border-bottom: 1px solid #000000;
+  overflow: hidden;
+}
+
+.resume-hero-overlay {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  min-height: clamp(34rem, 78vh, 44rem);
+  padding: calc(var(--nav-height) + var(--space-8)) 0 var(--space-8);
+}
+
+.resume-hero-overlay .container {
+  max-width: none;
+  padding: 0 clamp(2rem, 4vw, 4.5rem);
+}
+
+/* ========================================
    Scroll Animations
    ======================================== */
 
@@ -131,7 +191,7 @@ body.nav-open .nav-dot {
   font-weight: 800;
   line-height: 0.85;
   text-transform: uppercase;
-  font-size: clamp(3rem, 7vw, 7rem);
+  font-size: clamp(3.75rem, 9.4vw, 8.5rem);
   margin-bottom: var(--space-2);
   letter-spacing: -0.05em;
   color: #000000;
@@ -668,12 +728,14 @@ a.skill-tag:hover {
 }
 
 @media (max-width: 768px) {
-  .resume-hero {
-    padding: calc(var(--nav-height) + var(--space-24)) 0 var(--space-12);
+  .resume-hero.schematic-wrapper,
+  .resume-hero-overlay {
+    min-height: 78svh;
   }
 
   .hero-title {
-    font-size: var(--text-4xl);
+    font-size: clamp(2.85rem, 14.5vw, 5rem);
+    line-height: 0.9;
   }
 
   .hero-contact {
@@ -694,12 +756,13 @@ a.skill-tag:hover {
 }
 
 @media (max-width: 480px) {
-  .resume-hero {
-    padding: calc(var(--nav-height) + var(--space-20)) 0 var(--space-8);
+  .top-left-pos {
+    top: 1rem;
+    left: 1rem;
   }
 
   .hero-title {
-    font-size: var(--text-3xl);
+    font-size: clamp(2.75rem, 14.5vw, 4.5rem);
   }
 
   .hero-subtitle {
