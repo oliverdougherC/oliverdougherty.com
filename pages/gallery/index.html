@@ -15,11 +15,12 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=JetBrains+Mono:wght@200;800&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="../../css/design-system.css?v=20260315">
+  <link rel="stylesheet" href="../../css/schematic.css">
   <link rel="stylesheet" href="../../css/gallery.css?v=20260318">
   <link rel="stylesheet" href="../../css/cursor.css?v=20260315">
 </head>
 
-<body>
+<body class="page-gallery schematic-mode">
 
   <button class="nav-dot" id="navToggle" aria-label="Open menu" aria-expanded="false" type="button"></button>
 
@@ -40,24 +41,37 @@
   </div>
 
   <main class="gallery-main">
-    <header class="gallery-hero">
-      <div class="hero-aurora hero-aurora--one"></div>
-      <div class="hero-aurora hero-aurora--two"></div>
-      <div class="container gallery-hero-layout">
-        <div class="hero-copy">
-          <h1 class="hero-title text-display">Gallery</h1>
+    <header class="schematic-wrapper gallery-hero">
+      <div class="schematic-grid">
+        <div class="grid-cell">
+          <div class="meta-tiny top-left-pos">ARCHIVE // GALLERY</div>
         </div>
+        <div class="grid-cell"></div>
+        <div class="grid-cell"></div>
+        <div class="grid-cell">
+          <div class="meta-tiny bottom-right-pos">
+            <a href="#galleryArchiveSection" class="accent-hover" aria-label="Scroll down">[VIEW_ARCHIVE]</a>
+          </div>
+        </div>
+      </div>
 
-        <aside class="hero-feature-card" id="galleryHeroFeature">
-          <button class="hero-feature-media" id="galleryHeroOpen" type="button" data-cursor="hover"
-            aria-label="Open featured photo">
-            <picture id="galleryHeroPicture">
-              <source id="galleryHeroSourceAvif" type="image/avif">
-              <source id="galleryHeroSourceWebp" type="image/webp">
-              <img id="galleryHeroImage" src="" alt="" class="hero-feature-image">
-            </picture>
-          </button>
-        </aside>
+      <div class="hero-overlay gallery-hero-overlay">
+        <div class="container gallery-hero-layout">
+          <div class="hero-copy">
+            <h1 class="hero-title text-display calibrate-text">GALLERY.</h1>
+          </div>
+
+          <aside class="hero-feature-card scanner-card" id="galleryHeroFeature">
+            <button class="hero-feature-media schematic-border" id="galleryHeroOpen" type="button" data-cursor="hover"
+              aria-label="Open featured photo">
+              <picture id="galleryHeroPicture">
+                <source id="galleryHeroSourceAvif" type="image/avif">
+                <source id="galleryHeroSourceWebp" type="image/webp">
+                <img id="galleryHeroImage" src="" alt="" class="hero-feature-image scanned-image">
+              </picture>
+            </button>
+          </aside>
+        </div>
       </div>
     </header>
 

@@ -61,6 +61,33 @@ body.gallery-lightbox-open {
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 45vw);
   gap: clamp(var(--space-8), 8vw, var(--space-24));
   align-items: center;
+  width: 100%;
+}
+
+.gallery-hero-overlay {
+  position: relative;
+  top: 0;
+  left: 0;
+  transform: none;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  padding: calc(var(--nav-height) + var(--space-10)) 0 var(--space-10);
+}
+
+.gallery-hero.schematic-wrapper {
+  padding: 0;
+}
+
+.gallery-hero .schematic-grid {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
 }
 
 .hero-copy {
@@ -79,7 +106,7 @@ body.gallery-lightbox-open {
   line-height: 1.0;
   letter-spacing: -0.02em;
   overflow: visible;
-  text-align: center;
+  text-align: left;
 }
 
 .hero-feature-card {
@@ -107,6 +134,12 @@ body.gallery-lightbox-open {
   width: 100%;
 }
 
+.hero-feature-media.schematic-border {
+  border-radius: 0;
+  border: 1px solid #000000 !important;
+  box-shadow: none;
+}
+
 .hero-feature-media:hover .hero-feature-image,
 .hero-feature-media:focus-visible .hero-feature-image {
   transform: scale(1.02);
@@ -125,6 +158,60 @@ body.gallery-lightbox-open {
 .hero-feature-image {
   display: block;
   object-fit: cover;
+}
+
+/* Bespoke Optical Calibration Animation */
+.calibrate-text {
+  animation: textCalibrate 3.8s cubic-bezier(0.25, 1, 0.35, 1) 0.3s forwards;
+  will-change: filter, letter-spacing, opacity, transform;
+  opacity: 0;
+}
+
+@keyframes textCalibrate {
+  0% {
+    opacity: 0;
+    filter: blur(20px);
+    letter-spacing: 0.5em;
+    transform: scale(1.05) translateX(-20px);
+  }
+  30% {
+    opacity: 1;
+    filter: blur(10px);
+    letter-spacing: 0.15em;
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    letter-spacing: -0.02em;
+    transform: scale(1) translateX(0);
+  }
+}
+
+.hero-subtext {
+  display: none; /* Removed from HTML, keeping class here for safety if added back */
+}
+
+/* Scanner Image Animation */
+.scanner-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.scanned-image {
+  filter: grayscale(100%) contrast(1.2) brightness(0.8);
+  animation: colorReveal 3.4s cubic-bezier(0.25, 1, 0.35, 1) 0.6s forwards;
+}
+
+@keyframes colorReveal {
+  0% {
+    filter: grayscale(100%) contrast(1.2) brightness(0.8);
+  }
+  50% {
+    filter: grayscale(50%) contrast(1.1) brightness(0.9);
+  }
+  100% {
+    filter: grayscale(0%) contrast(1) brightness(1);
+  }
 }
 
 .gallery-status-section {
@@ -892,7 +979,7 @@ body.nav-open .nav-dot {
 }
 
 @media (max-width: 768px) {
-  .gallery-hero {
+  .gallery-hero-overlay {
     padding-top: calc(var(--nav-height) + var(--space-12));
   }
 
@@ -910,7 +997,7 @@ body.nav-open .nav-dot {
 }
 
 @media (max-width: 560px) {
-  .gallery-hero {
+  .gallery-hero-overlay {
     padding-bottom: var(--space-10);
   }
 
