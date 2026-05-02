@@ -2098,10 +2098,6 @@
     padding-bottom: 1rem;
   }
 
-  .utility-top-bar {
-    margin-bottom: 0.75rem;
-  }
-
   #utilitiesApp.utility-shell,
   #audioFourierApp.utility-shell {
     padding: 1rem;
@@ -2555,47 +2551,28 @@ html[data-active-utility] .utilities-buttons button {
 }
 
 /* Utility View */
+.utility-switcher {
+  position: relative;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+html[data-active-utility] .utility-switcher {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+}
+
 #utilitiesUtilityView {
   align-items: stretch;
   justify-content: flex-start;
   padding:
-    calc(var(--nav-height) + clamp(0.45rem, 1.1vh, 0.8rem))
+    calc(var(--nav-height) + 0.25rem)
     0
     clamp(0.75rem, 1.4vh, 1rem);
   height: 100%;
-}
-
-.utility-top-bar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-3);
-  padding: 0 clamp(1rem, 2.2vw, 2rem);
-  margin-bottom: clamp(0.55rem, 1.1vh, 0.8rem);
-  flex-shrink: 0;
-}
-
-.utility-back-btn {
-  font: inherit;
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  color: var(--color-text-secondary);
-  background: transparent;
-  border: 1px solid var(--utilities-border-soft);
-  border-radius: var(--radius-full);
-  padding: 0.5rem 1rem;
-  cursor: pointer;
-  transition: color var(--duration-fast) ease, border-color var(--duration-fast) ease, transform var(--duration-fast) ease;
-}
-
-.utility-back-btn:hover {
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.25);
-  transform: translateX(-2px);
-}
-
-.utility-switcher {
-  position: relative;
 }
 
 .utility-switcher-trigger {
@@ -2731,9 +2708,5 @@ html[data-active-utility] .utilities-buttons button {
   .utilities-buttons button {
     padding: 0.85rem 1.4rem;
     font-size: var(--text-sm);
-  }
-
-  .utility-top-bar {
-    padding: 0 var(--space-4);
   }
 }

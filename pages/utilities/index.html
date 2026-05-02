@@ -90,6 +90,16 @@
         <a href="../../index.html" class="nav-home-btn" data-cursor="hover">Home</a>
         <button class="nav-back-btn" data-cursor="hover">← Back</button>
       </div>
+      <div class="utility-switcher">
+        <button class="utility-switcher-trigger">Switch utility ▾</button>
+        <div class="utility-switcher-dropdown">
+          <button data-utility="image-transform">Image Transform</button>
+          <button data-utility="audio-fourier">Fourier Reconstruction</button>
+          <button data-utility="local-assistant">Local Assistant</button>
+          <button data-utility="death-calculator">Death Calculator</button>
+          <button data-utility="virtual-machine">Virtual Machine</button>
+        </div>
+      </div>
     </div>
   </nav>
 
@@ -111,18 +121,6 @@
 
     <!-- View: Utility Container -->
     <section id="utilitiesUtilityView" class="utilities-view">
-      <div class="utility-top-bar">
-        <div class="utility-switcher">
-          <button class="utility-switcher-trigger">Switch utility ▾</button>
-          <div class="utility-switcher-dropdown">
-            <button data-utility="image-transform">Image Transform</button>
-            <button data-utility="audio-fourier">Fourier Reconstruction</button>
-            <button data-utility="local-assistant">Local Assistant</button>
-            <button data-utility="death-calculator">Death Calculator</button>
-            <button data-utility="virtual-machine">Virtual Machine</button>
-          </div>
-        </div>
-      </div>
       <div class="utility-stage-wrapper container">
         <div class="utility-stage" data-utility-id="image-transform">
           <section class="utility-shell" id="utilitiesApp" data-utility-root="image-transform" data-animate="fade-up" aria-label="Image Transform">
