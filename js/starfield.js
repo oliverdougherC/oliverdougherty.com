@@ -138,9 +138,25 @@
       const comet = comets[i];
       comet.x += comet.speedX * deltaSeconds;
       comet.y += comet.speedY * deltaSeconds;
-      
-      // Remove if off screen
-      if (comet.x > width + 200 || comet.x < -200 || comet.y > height + 200) {
+
+      // Graceful edge fade
+      const fadeMargin = 150;
+      let fade = 1;
+
+      if (comet.speedX > 0) {
+        if (comet.x > width - fadeMargin) fade = Math.max(0, 1 - (comet.x - (width - fadeMargin)) / fadeMargin);
+      } else {
+        if (comet.x < fadeMargin) fade = Math.max(0, 1 - (fadeMargin - comet.x) / fadeMargin);
+      }
+
+      if (comet.y > height - fadeMargin) {
+        fade = Math.min(fade, Math.max(0, 1 - (comet.y - (height - fadeMargin)) / fadeMargin));
+      }
+
+      comet.opacity = 0.8 * fade;
+
+      // Remove only when fully faded or well off-screen
+      if (comet.opacity < 0.01 || comet.x > width + 200 || comet.x < -200 || comet.y > height + 200) {
         comets.splice(i, 1);
       }
     }
@@ -169,13 +185,17 @@
     for (let i = 0; i < comets.length; i++) {
       const comet = comets[i];
       
-      // Calculate tail end point
-      const tailX = comet.x - (comet.speedX * comet.length * 0.1);
-      const tailY = comet.y - (comet.speedY * comet.length * 0.1);
-      
+      // Calculate tail: fixed length along direction of travel
+      const speed = Math.sqrt(comet.speedX * comet.speedX + comet.speedY * comet.speedY);
+      const dirX = speed > 0.001 ? comet.speedX / speed : 0;
+      const dirY = speed > 0.001 ? comet.speedY / speed : 0;
+      const tailX = comet.x - dirX * comet.length;
+      const tailY = comet.y - dirY * comet.length;
+
       const gradient = ctx.createLinearGradient(comet.x, comet.y, tailX, tailY);
       gradient.addColorStop(0, `rgba(255, 255, 255, ${comet.opacity})`);
-      gradient.addColorStop(0.2, `rgba(200, 220, 255, ${comet.opacity * 0.5})`);
+      gradient.addColorStop(0.3, `rgba(200, 220, 255, ${comet.opacity * 0.5})`);
+      gradient.addColorStop(0.7, `rgba(100, 150, 255, ${comet.opacity * 0.15})`);
       gradient.addColorStop(1, 'rgba(100, 150, 255, 0)');
       
       ctx.beginPath();
