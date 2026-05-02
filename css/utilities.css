@@ -1646,7 +1646,7 @@
   padding: clamp(1.8rem, 3.5vw, 2.6rem);
   border-radius: calc(var(--radius-2xl) + 0.5rem);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  background: #000000;
+  background: transparent;
   box-shadow: 0 0 15px rgba(240,184,168,0.15), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
@@ -1656,11 +1656,11 @@
   place-content: center;
   justify-items: center;
   text-align: center;
-  background: #000000;
+  background: transparent;
 }
 
 .death-card--intro {
-  background: #000000;
+  background: transparent;
 }
 
 .death-intro-title {
@@ -2819,8 +2819,8 @@ html[data-active-utility] .utility-switcher {
 
 /* Stage wrapper */
 .utility-stage-wrapper {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template: 1fr / 1fr;
   flex: 1;
   min-height: 0; /* Important for flex children to shrink */
   overflow: hidden;
@@ -2837,6 +2837,7 @@ html[data-active-utility] .utility-switcher {
   flex: 1;
   min-height: 0;
   height: 100%;
+  grid-area: 1 / 1 / 2 / 2;
   contain: layout paint style;
 }
 

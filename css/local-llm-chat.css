@@ -1,6 +1,4 @@
 .utility-shell--local-llm {
-  max-width: min(78rem, calc(100vw - 2rem));
-  margin-inline: auto;
   padding: 0;
   overflow: hidden;
 }

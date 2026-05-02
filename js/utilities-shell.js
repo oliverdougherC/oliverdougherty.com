@@ -147,10 +147,6 @@
       isTransitioning = false;
     } else {
       // Utility → Utility: cross-fade stages
-      var wrapper = outgoing.parentElement;
-      var currentHeight = wrapper.scrollHeight;
-      wrapper.style.minHeight = currentHeight + 'px';
-
       outgoing.classList.add('is-exiting');
       outgoing.classList.remove('is-active');
       deactivateStage(outgoing);
@@ -161,7 +157,6 @@
 
       setTimeout(function () {
         outgoing.classList.remove('is-exiting');
-        wrapper.style.minHeight = '';
         isTransitioning = false;
       }, 500);
     }

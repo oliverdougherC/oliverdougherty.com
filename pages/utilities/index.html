@@ -352,14 +352,20 @@
                         <article class="death-card death-card--question-shell">
                           <div class="death-flow-head">
                             <div class="death-flow-meta death-progress-stack" aria-live="polite">
-                              <div class="death-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
-                                <span class="death-progress-fill" id="deathProgressFill"></span>
-                              </div>
+                            <div class="death-progress-header" style="display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 0.78rem; color: rgba(255,255,255,0.5);">
+                              <span id="deathProgressText"></span>
+                              <span id="deathProgressMeta"></span>
                             </div>
+                            <div class="death-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+                              <span class="death-progress-fill" id="deathProgressFill"></span>
+                            </div>
+                          </div>
 
-                            <div class="death-flow-copy" style="margin-top: 2rem;">
-                              <h4 class="death-question-title" id="deathQuestionTitle">When were you born?</h4>
-                            </div>
+                          <div class="death-flow-copy" style="margin-top: 2rem;">
+                            <span class="utility-kicker" id="deathQuestionEyebrow" style="display: block; margin-bottom: 0.35rem;"></span>
+                            <h4 class="death-question-title" id="deathQuestionTitle">When were you born?</h4>
+                            <p class="death-question-description" id="deathQuestionDescription" style="margin-top: 0.5rem; color: var(--color-text-secondary); font-size: 0.9rem;"></p>
+                          </div>
                           </div>
 
                           <form id="deathSurveyForm" class="death-survey-form" novalidate>
@@ -625,8 +631,11 @@
                             <div class="vm-toolbar">
                               <span class="vm-status-dot"></span>
                               <span class="vm-toolbar-title" id="retroVmProgressText">Idle</span>
+                              <span class="vm-toolbar-meta" id="retroVmProgressMeta" style="font-size: 0.7rem; color: rgba(255,255,255,0.4); margin-left: 0.5rem;">Tiny Core Linux 11</span>
+                              <span class="vm-capture-badge" id="retroVmCaptureBadge" style="margin-left: auto; padding: 0.22rem 0.55rem; border-radius: var(--radius-full); border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: var(--color-text-secondary); font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: var(--tracking-wide); text-transform: uppercase;">Click desktop to capture mouse</span>
+                              <span class="vm-screen-badge" id="retroVmScreenBadge" style="padding: 0.22rem 0.55rem; border-radius: var(--radius-full); border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: var(--color-text-muted); font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: var(--tracking-wide); text-transform: uppercase;">Local only</span>
 
-                              <div class="vm-toolbar-actions" style="margin-left: auto; display: flex; gap: 0.5rem;">
+                              <div class="vm-toolbar-actions" style="display: flex; gap: 0.5rem;">
                                 <button type="button" class="btn-secondary-utility btn-secondary-utility--compact" id="retroVmLaunchBtn">Launch</button>
                                 <button type="button" class="btn-secondary-utility btn-secondary-utility--compact" id="retroVmPasteBtn" disabled>Paste</button>
                                 <button type="button" class="btn-secondary-utility btn-secondary-utility--compact" id="retroVmFullscreenBtn" disabled>Fullscreen</button>
@@ -634,7 +643,7 @@
                               </div>
                             </div>
                             <div class="vm-viewport">
-                              <div class="vm-screen" id="retroVmScreen"></div>
+                              <div class="vm-screen" id="retroVmScreen" tabindex="0"></div>
                               <div class="canvas-placeholder vm-placeholder" id="retroVmPlaceholder">
                                 <div class="vm-placeholder-stack">
                                   <strong>Tiny Core Linux 11</strong>
@@ -642,6 +651,7 @@
                                 </div>
                               </div>
                             </div>
+                            <p class="vm-support-note" id="retroVmSupportNote" style="padding: 0.55rem 0.85rem; margin: 0; color: var(--color-text-secondary); font-size: 0.78rem; line-height: var(--leading-relaxed); border-top: 1px solid var(--utilities-border-soft);">Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first.</p>
                           </div>
                         </article>
                       </div>
