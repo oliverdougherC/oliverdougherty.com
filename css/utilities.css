@@ -1152,19 +1152,19 @@
 .utility-shell--audio {
   position: relative;
   margin-top: 0;
-  box-shadow: 0 0 15px rgba(240,168,200,0.15), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --audio-accent: #ff2d95;
-  --audio-gold: #ff2d95;
-  --audio-highlight: #ff88cc;
+  box-shadow: 0 0 15px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --audio-accent: #ffffff;
+  --audio-gold: #ffffff;
+  --audio-highlight: #ffffff;
   --audio-stage-border: rgba(255, 255, 255, 0.08);
   --audio-stage-bg: #000000;
   --audio-control-bg: rgba(255, 255, 255, 0.03);
   --audio-hover-border: rgba(255, 255, 255, 0.25);
-  --audio-hover-shadow: 0 16px 34px -26px rgba(255, 45, 149, 0.25);
+  --audio-hover-shadow: 0 16px 34px -26px rgba(255, 255, 255, 0.12);
   --audio-active-chip-text: #000000;
-  --audio-active-chip-border: rgba(255, 136, 204, 0.62);
-  --audio-active-chip-bg: linear-gradient(135deg, rgba(255, 136, 204, 0.94), rgba(255, 45, 149, 0.9));
-  --audio-progress-glow: 0 0 14px rgba(255, 45, 149, 0.45);
+  --audio-active-chip-border: rgba(255, 255, 255, 0.5);
+  --audio-active-chip-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.7));
+  --audio-progress-glow: 0 0 14px rgba(255, 255, 255, 0.35);
 }
 
 .utility-shell--audio [hidden] {
@@ -1191,8 +1191,8 @@
 
 .utility-shell--audio .demo-chip.active {
   color: #ffffff;
-  border-color: rgba(255, 136, 204, 0.46);
-  background: rgba(255, 45, 149, 0.22);
+  border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.18);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
@@ -1287,9 +1287,9 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: var(--audio-accent);
+  background: #ffffff;
   cursor: pointer;
-  box-shadow: 0 0 10px var(--audio-accent);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.45);
 }
 
 .audio-component-readout {

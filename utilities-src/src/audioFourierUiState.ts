@@ -4,11 +4,16 @@ export function resolveAudioPlaybackButtonLabel(options: {
   isPlaying: boolean;
   reducedMotion: boolean;
   elapsedSeconds: number;
+  isComplete: boolean;
 }) {
-  if (!options.hasResult || options.isProcessing || options.isPlaying || options.reducedMotion || options.elapsedSeconds <= 0) {
+  if (!options.hasResult || options.isProcessing || options.isPlaying || options.reducedMotion) {
     return 'Play';
   }
 
-  return 'Replay';
+  if (options.isComplete) {
+    return 'Replay';
+  }
+
+  return 'Play';
 }
 

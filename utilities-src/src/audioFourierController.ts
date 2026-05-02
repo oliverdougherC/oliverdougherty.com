@@ -77,9 +77,9 @@ const PLAYBACK_START_DELAY_SECONDS = 0.035;
 const PLAYBACK_PROGRESS_UPDATE_MS = 100;
 const MAX_VISUAL_POINTS = 1024;
 const MIN_VISUAL_POINTS = 768;
-const LIVE_MAX_VISUAL_POINTS = 512;
-const LIVE_MIN_VISUAL_POINTS = 384;
-const LIVE_ENVELOPE_SAMPLES_PER_POINT = 3;
+const LIVE_MAX_VISUAL_POINTS = 384;
+const LIVE_MIN_VISUAL_POINTS = 256;
+const LIVE_ENVELOPE_SAMPLES_PER_POINT = 4;
 const STATIC_ENVELOPE_SAMPLES_PER_POINT = 16;
 
 export class AudioFourierController {
@@ -130,11 +130,12 @@ export class AudioFourierController {
   private playbackStartedAt = 0;
   private playbackElapsedSeconds = 0;
   private animationFrameId = 0;
-  private visualOriginalMinScratch = new Float32Array(0);
-  private visualOriginalMaxScratch = new Float32Array(0);
-  private visualMixMinScratch = new Float32Array(0);
-  private visualMixMaxScratch = new Float32Array(0);
+  private visualOriginalMinScratch = new Float32Array(MAX_VISUAL_POINTS);
+  private visualOriginalMaxScratch = new Float32Array(MAX_VISUAL_POINTS);
+  private visualMixMinScratch = new Float32Array(MAX_VISUAL_POINTS);
+  private visualMixMaxScratch = new Float32Array(MAX_VISUAL_POINTS);
   private lastPlaybackProgressAt = 0;
+  private lastLiveRenderAt = 0;
   private state: AudioFourierState = 'idle';
   private sliderRafPending = false;
   private readonly waveBackgroundCanvas: HTMLCanvasElement;
@@ -264,12 +265,9 @@ export class AudioFourierController {
     canvas.width = sourceCanvas.width;
     canvas.height = sourceCanvas.height;
     const context = canvas.getContext('2d')!;
-    const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
-    gradient.addColorStop(0, 'rgba(7, 16, 19, 0.96)');
-    gradient.addColorStop(1, 'rgba(18, 11, 22, 0.98)');
-    context.fillStyle = gradient;
+    context.fillStyle = '#000000';
     context.fillRect(0, 0, canvas.width, canvas.height);
-    context.strokeStyle = 'rgba(235, 228, 179, 0.12)';
+    context.strokeStyle = 'rgba(255, 255, 255, 0.08)';
     context.lineWidth = 1;
     for (let x = 0; x <= canvas.width; x += canvas.width / 12) {
       context.beginPath();
@@ -350,7 +348,8 @@ export class AudioFourierController {
       isProcessing,
       isPlaying,
       reducedMotion: this.reducedMotion,
-      elapsedSeconds: this.playbackElapsedSeconds
+      elapsedSeconds: this.playbackElapsedSeconds,
+      isComplete: this.state === 'complete'
     });
   }
 
@@ -640,6 +639,7 @@ export class AudioFourierController {
     this.setState('ready', 'Fourier proxy ready. Playing at the auditory midpoint.');
     this.syncEnergyReadout();
     this.resultMeta.textContent = 'The viewport follows playback and shows the original trace against the reconstructed signal.';
+    this.setProgress(1, 'Fourier proxy ready.');
     void this.playFromBeginning().catch(() => {
       this.setState('ready', 'Fourier proxy ready. Press Play to start audio.');
     });
@@ -692,11 +692,6 @@ export class AudioFourierController {
     const activeComponents = this.resolveApproximateActiveComponents();
     const total = this.activeResult.metadata.componentCount;
     this.componentReadout.textContent = `${energyPercent}% signal energy · ${activeComponents.toLocaleString()} / ${total.toLocaleString()} components`;
-    this.setProgress(
-      this.activeResult.energyPercent,
-      `Showing ${energyPercent}% signal energy.`,
-      `${formatSeconds(this.playbackElapsedSeconds)} / ${formatSeconds(this.activeResult.metadata.proxyDurationSeconds)}`
-    );
   }
 
   private resolveApproximateActiveComponents() {
@@ -777,7 +772,6 @@ export class AudioFourierController {
 
     const context = this.getAudioContext();
     this.setState('animating', 'Playing selected Fourier energy mix...');
-    this.resultMeta.textContent = 'Move the slider during playback to add or remove signal energy.';
     await context.resume();
     this.ensureBandBuffers();
 
@@ -831,7 +825,6 @@ export class AudioFourierController {
     this.stopPlayback(false);
     this.renderCurrentViewport();
     this.setState('ready', 'Playback paused.');
-    this.resultMeta.textContent = 'Paused. The viewport is frozen for inspection.';
   }
 
   private stopPlayback(resetElapsed: boolean) {
@@ -886,7 +879,10 @@ export class AudioFourierController {
 
       const context = this.getAudioContext();
       this.playbackElapsedSeconds = clamp(context.currentTime - this.playbackStartedAt, 0, this.activeResult.metadata.proxyDurationSeconds);
-      this.renderWaveViewport(true);
+      if (!this.lastLiveRenderAt || timestamp - this.lastLiveRenderAt >= 34) {
+        this.lastLiveRenderAt = timestamp;
+        this.renderWaveViewport(true);
+      }
       if (!this.lastPlaybackProgressAt || timestamp - this.lastPlaybackProgressAt >= PLAYBACK_PROGRESS_UPDATE_MS) {
         this.lastPlaybackProgressAt = timestamp;
         this.progressMeta.textContent = `${formatSeconds(this.playbackElapsedSeconds)} / ${formatSeconds(this.activeResult.metadata.proxyDurationSeconds)}`;
@@ -895,6 +891,7 @@ export class AudioFourierController {
     };
 
     this.stopAnimationFrame();
+    this.lastLiveRenderAt = 0;
     this.animationFrameId = window.requestAnimationFrame(step);
   }
 
@@ -932,12 +929,9 @@ export class AudioFourierController {
     }
 
     context.clearRect(0, 0, canvas.width, canvas.height);
-    const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
-    gradient.addColorStop(0, 'rgba(7, 16, 19, 0.96)');
-    gradient.addColorStop(1, 'rgba(18, 11, 22, 0.98)');
-    context.fillStyle = gradient;
+    context.fillStyle = '#000000';
     context.fillRect(0, 0, canvas.width, canvas.height);
-    context.strokeStyle = 'rgba(235, 228, 179, 0.12)';
+    context.strokeStyle = 'rgba(255, 255, 255, 0.08)';
     context.lineWidth = 1;
     for (let x = 0; x <= canvas.width; x += canvas.width / 12) {
       context.beginPath();
@@ -1004,12 +998,6 @@ export class AudioFourierController {
     const endSample = startSample + viewportSampleCount;
 
     const visualPointCount = this.resolveVisualPointCount(viewportSampleCount, livePlayback);
-    if (this.visualOriginalMinScratch.length !== visualPointCount) {
-      this.visualOriginalMinScratch = new Float32Array(visualPointCount);
-      this.visualOriginalMaxScratch = new Float32Array(visualPointCount);
-      this.visualMixMinScratch = new Float32Array(visualPointCount);
-      this.visualMixMaxScratch = new Float32Array(visualPointCount);
-    }
 
     const samplesPerPoint = Math.max(
       1,
@@ -1030,9 +1018,18 @@ export class AudioFourierController {
 
       for (let envelopeIndex = 0; envelopeIndex < samplesPerPoint; envelopeIndex += 1) {
         const phase = (envelopeIndex + 0.5) / samplesPerPoint;
-        const samplePosition = clamp(binStart + (binEnd - binStart) * phase, 0, result.metadata.proxySampleCount - 1);
-        const original = this.readSampleAt(result.originalSamples, samplePosition);
-        const mixed = this.readSampleAt(this.visualMixSamples, samplePosition);
+        let samplePosition: number;
+        if (livePlayback) {
+          samplePosition = clamp(
+            Math.floor(binStart + (binEnd - binStart) * phase),
+            0,
+            result.metadata.proxySampleCount - 1
+          );
+        } else {
+          samplePosition = clamp(binStart + (binEnd - binStart) * phase, 0, result.metadata.proxySampleCount - 1);
+        }
+        const original = result.originalSamples[samplePosition];
+        const mixed = this.visualMixSamples[samplePosition];
         originalMin = Math.min(originalMin, original);
         originalMax = Math.max(originalMax, original);
         mixMin = Math.min(mixMin, mixed);
@@ -1052,15 +1049,17 @@ export class AudioFourierController {
     }
 
     this.drawWaveFrame(
-      this.visualOriginalMinScratch.subarray(0, visualPointCount),
-      this.visualOriginalMaxScratch.subarray(0, visualPointCount),
-      this.visualMixMinScratch.subarray(0, visualPointCount),
-      this.visualMixMaxScratch.subarray(0, visualPointCount),
+      this.visualOriginalMinScratch,
+      this.visualOriginalMaxScratch,
+      this.visualMixMinScratch,
+      this.visualMixMaxScratch,
+      visualPointCount,
       startSample / result.metadata.proxySampleRate,
       endSample / result.metadata.proxySampleRate,
       livePlayback
     );
   }
+
 
   private renderCurrentViewport() {
     this.renderWaveViewport();
@@ -1073,15 +1072,16 @@ export class AudioFourierController {
     originalMax: Float32Array,
     reconstructedMin: Float32Array,
     reconstructedMax: Float32Array,
+    pointCount: number,
     startSeconds: number,
     endSeconds: number,
     livePlayback = false
   ) {
     this.clearCanvas(this.waveCanvas, this.waveContext);
-    this.drawWaveformEnvelope(originalMin, originalMax, 'rgba(255, 206, 115, 0.24)', 'rgba(255, 206, 115, 0.34)', 1.5, !livePlayback);
-    this.drawWaveformEnvelope(reconstructedMin, reconstructedMax, 'rgba(241, 230, 175, 0.26)', 'rgba(241, 230, 175, 0.88)', 2.5, !livePlayback);
+    this.drawWaveformEnvelope(originalMin, originalMax, pointCount, 'rgba(255, 255, 255, 0.35)', 'rgba(255, 255, 255, 0.45)', 1.5, false);
+    this.drawWaveformEnvelope(reconstructedMin, reconstructedMax, pointCount, 'rgba(255, 255, 255, 0.18)', 'rgba(255, 255, 255, 0.92)', 2.5, true);
     this.waveContext.save();
-    this.waveContext.fillStyle = 'rgba(238, 246, 241, 0.72)';
+    this.waveContext.fillStyle = 'rgba(255, 255, 255, 0.72)';
     this.waveContext.font = '13px JetBrains Mono, monospace';
     this.waveContext.fillText(`${formatSeconds(startSeconds)} - ${formatSeconds(endSeconds)}`, 18, 28);
     this.waveContext.restore();
@@ -1090,6 +1090,7 @@ export class AudioFourierController {
   private drawWaveformEnvelope(
     minSamples: Float32Array,
     maxSamples: Float32Array,
+    count: number,
     fillColor: string,
     strokeColor: string,
     lineWidth: number,
@@ -1099,7 +1100,7 @@ export class AudioFourierController {
     const canvas = this.waveCanvas;
     const centerY = canvas.height / 2;
     const scaleY = canvas.height * 0.42;
-    const lastIndex = Math.max(1, minSamples.length - 1);
+    const lastIndex = Math.max(1, count - 1);
 
     context.save();
     context.fillStyle = fillColor;
@@ -1108,7 +1109,7 @@ export class AudioFourierController {
     context.shadowColor = glow ? strokeColor : 'transparent';
     context.shadowBlur = glow && lineWidth > 2 ? 16 : 0;
     context.beginPath();
-    for (let index = 0; index < maxSamples.length; index += 1) {
+    for (let index = 0; index < count; index += 1) {
       const x = index / lastIndex * canvas.width;
       const y = centerY - maxSamples[index] * scaleY;
       if (index === 0) {
@@ -1117,7 +1118,7 @@ export class AudioFourierController {
         context.lineTo(x, y);
       }
     }
-    for (let index = minSamples.length - 1; index >= 0; index -= 1) {
+    for (let index = count - 1; index >= 0; index -= 1) {
       const x = index / lastIndex * canvas.width;
       const y = centerY - minSamples[index] * scaleY;
       context.lineTo(x, y);
@@ -1126,7 +1127,7 @@ export class AudioFourierController {
     context.fill();
 
     context.beginPath();
-    for (let index = 0; index < maxSamples.length; index += 1) {
+    for (let index = 0; index < count; index += 1) {
       const x = index / lastIndex * canvas.width;
       const midpoint = (minSamples[index] + maxSamples[index]) / 2;
       const y = centerY - midpoint * scaleY;
@@ -1157,7 +1158,7 @@ export class AudioFourierController {
       const x = index * (barWidth + gap);
       const y = canvas.height - height;
       const gain = this.activeResult.bandGains[index];
-      context.fillStyle = gain > 0 ? `rgba(245, 218, 113, ${0.28 + gain * 0.68})` : 'rgba(111, 133, 145, 0.24)';
+      context.fillStyle = gain > 0 ? `rgba(255, 255, 255, ${0.3 + gain * 0.7})` : 'rgba(255, 255, 255, 0.15)';
       context.fillRect(x, y, barWidth, height);
     }
   }
@@ -1178,9 +1179,9 @@ export class AudioFourierController {
     const cycles = clamp(frequency / Math.max(1, this.activeResult.metadata.proxySampleRate) * 48, 1, 18);
 
     context.save();
-    context.strokeStyle = 'rgba(196, 170, 99, 0.95)';
+    context.strokeStyle = 'rgba(255, 255, 255, 0.95)';
     context.lineWidth = 3;
-    context.shadowColor = 'rgba(196, 170, 99, 0.7)';
+    context.shadowColor = 'rgba(255, 255, 255, 0.5)';
     context.shadowBlur = 14;
     context.beginPath();
     for (let x = 0; x < canvas.width; x += 1) {
@@ -1194,11 +1195,11 @@ export class AudioFourierController {
     }
     context.stroke();
     context.shadowBlur = 0;
-    context.fillStyle = 'rgba(238, 246, 241, 0.92)';
+    context.fillStyle = 'rgba(255, 255, 255, 0.92)';
     context.font = '18px Inter, sans-serif';
     context.fillText(`${Math.round(this.activeResult.energyPercent * 100)}% signal energy`, 22, 34);
     context.font = '14px JetBrains Mono, monospace';
-    context.fillStyle = 'rgba(238, 246, 241, 0.72)';
+    context.fillStyle = 'rgba(255, 255, 255, 0.72)';
     context.fillText(`${activeComponents.toLocaleString()} components · ${formatFrequency(frequency)} · amp ${amplitude.toFixed(4)} · phase ${phase.toFixed(2)}`, 22, 58);
     context.restore();
   }
