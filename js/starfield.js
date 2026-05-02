@@ -99,11 +99,11 @@
     return {
       x: isLeftToRight ? -50 : width + 50,
       y: Math.random() * (height * 0.5), // Mostly in upper half
-      length: 100 + Math.random() * 150,
-      speedX: (isLeftToRight ? 1 : -1) * (300 + Math.random() * 300),
-      speedY: 60 + Math.random() * 180,
-      opacity: 0.8,
-      thickness: 1 + Math.random() * 2
+      length: 200 + Math.random() * 400, // Longer, more majestic tail
+      speedX: (isLeftToRight ? 1 : -1) * (150 + Math.random() * 250), // Slightly slower for a grander feel
+      speedY: 30 + Math.random() * 100, // Slower descent
+      opacity: 0.6 + Math.random() * 0.4,
+      thickness: 1.5 + Math.random() * 2.5 // Slightly thicker core
     };
   }
 
@@ -185,30 +185,55 @@
     for (let i = 0; i < comets.length; i++) {
       const comet = comets[i];
       
-      // Calculate tail: fixed length along direction of travel
+      // Calculate direction and tail
       const speed = Math.sqrt(comet.speedX * comet.speedX + comet.speedY * comet.speedY);
       const dirX = speed > 0.001 ? comet.speedX / speed : 0;
       const dirY = speed > 0.001 ? comet.speedY / speed : 0;
+      
       const tailX = comet.x - dirX * comet.length;
       const tailY = comet.y - dirY * comet.length;
 
+      // Perpendicular vector for the width of the comet head
+      const perpX = -dirY;
+      const perpY = dirX;
+      
+      const headWidth = comet.thickness * 1.8;
+
       const gradient = ctx.createLinearGradient(comet.x, comet.y, tailX, tailY);
       gradient.addColorStop(0, `rgba(255, 255, 255, ${comet.opacity})`);
-      gradient.addColorStop(0.3, `rgba(200, 220, 255, ${comet.opacity * 0.5})`);
-      gradient.addColorStop(0.7, `rgba(100, 150, 255, ${comet.opacity * 0.15})`);
+      gradient.addColorStop(0.05, `rgba(180, 220, 255, ${comet.opacity * 0.8})`);
+      gradient.addColorStop(0.3, `rgba(100, 150, 255, ${comet.opacity * 0.3})`);
       gradient.addColorStop(1, 'rgba(100, 150, 255, 0)');
       
+      // Draw the tapered tail shape
       ctx.beginPath();
-      ctx.moveTo(comet.x, comet.y);
-      ctx.lineTo(tailX, tailY);
-      ctx.strokeStyle = gradient;
-      ctx.lineWidth = comet.thickness;
-      ctx.lineCap = 'round';
-      ctx.stroke();
+      ctx.moveTo(tailX, tailY);
+      ctx.lineTo(comet.x - perpX * headWidth, comet.y - perpY * headWidth);
       
-      // Comet head glow
+      // Arc around the front of the head
+      const angle = Math.atan2(dirY, dirX);
+      ctx.arc(comet.x, comet.y, headWidth, angle - Math.PI / 2, angle + Math.PI / 2);
+      
+      ctx.closePath();
+      ctx.fillStyle = gradient;
+      ctx.fill();
+      
+      // Comet coma (glowing aura)
+      const glowRadius = comet.thickness * 6;
+      const headGlow = ctx.createRadialGradient(comet.x, comet.y, 0, comet.x, comet.y, glowRadius);
+      headGlow.addColorStop(0, `rgba(255, 255, 255, ${comet.opacity})`);
+      headGlow.addColorStop(0.15, `rgba(200, 230, 255, ${comet.opacity * 0.6})`);
+      headGlow.addColorStop(0.4, `rgba(100, 150, 255, ${comet.opacity * 0.2})`);
+      headGlow.addColorStop(1, 'rgba(100, 150, 255, 0)');
+      
       ctx.beginPath();
-      ctx.arc(comet.x, comet.y, comet.thickness * 1.5, 0, Math.PI * 2);
+      ctx.arc(comet.x, comet.y, glowRadius, 0, Math.PI * 2);
+      ctx.fillStyle = headGlow;
+      ctx.fill();
+
+      // Solid inner core
+      ctx.beginPath();
+      ctx.arc(comet.x, comet.y, comet.thickness * 0.7, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(255, 255, 255, ${comet.opacity})`;
       ctx.fill();
     }
