@@ -1,31 +1,32 @@
-const MODEL_ID = 'onnx-community/Qwen3-0.6B-ONNX';
-const TRANSFORMERS_RUNTIMES = [
-  {
-    name: 'Transformers.js 4.2.0',
-    url: 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0'
-  },
-  {
-    name: 'Transformers.js 3.8.1',
-    url: 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1'
-  }
-];
-const SYSTEM_PROMPT = 'You are a tiny local AI assistant. You run entirely in the visitor\'s browser. Be concise, friendly, and honest about limitations. You can answer general questions. Do not claim to have internet access, private data, or server-side tools. If unsure, say so.';
-const GENERATION_DEFAULTS = {
-  max_new_tokens: 192,
-  temperature: 0.6,
-  top_p: 0.9,
-  do_sample: true,
-  repetition_penalty: 1.1
+import { LOCAL_LLM_CONFIG } from './local-llm-config.js';
+
+const WORKER_STATE = {
+  IDLE: 'idle',
+  RUNTIME_LOADING: 'runtime-loading',
+  MODEL_DOWNLOADING: 'model-downloading',
+  MODEL_LOADING: 'model-loading',
+  READY: 'ready',
+  GENERATING: 'generating',
+  ERROR: 'error',
+  UNSUPPORTED: 'unsupported',
+  DISPOSED: 'disposed'
 };
 
+let wllamaModule = null;
+let wllama = null;
 let transformersModule = null;
-let selectedRuntime = null;
 let generator = null;
+let stoppingCriteria = null;
+let pastKeyValuesCache = null;
 let loadPromise = null;
-let backend = null;
+let state = WORKER_STATE.IDLE;
+let activeRuntime = 'gguf';
 let activeGeneration = 0;
+let activeAbortController = null;
 
-for (const method of ['debug', 'info', 'warn', 'error']) {
+installWorkerDocumentBase();
+
+for (const method of ['debug', 'info', 'warn']) {
   self.console[method] = () => {};
 }
 
@@ -33,23 +34,28 @@ self.addEventListener('message', (event) => {
   const message = event.data || {};
 
   if (message.type === 'load') {
-    loadModel();
+    void loadModel();
     return;
   }
 
   if (message.type === 'generate') {
-    generateReply(message.messages || []);
+    void generateReply(message.messages || []);
+    return;
+  }
+
+  if (message.type === 'cancel') {
+    cancelGeneration();
     return;
   }
 
   if (message.type === 'dispose') {
-    disposeModel(message.clearCache === true);
+    void disposeModel(message.clearCache === true);
   }
 });
 
 async function loadModel() {
-  if (generator) {
-    postMessage({ type: 'ready', backend, model: MODEL_ID, runtime: selectedRuntime?.name || '' });
+  if (wllama?.isModelLoaded?.() || generator) {
+    postReady();
     return;
   }
 
@@ -60,7 +66,8 @@ async function loadModel() {
 
   loadPromise = loadModelInternal()
     .catch((error) => {
-      postMessage(buildLoadError(error));
+      const failure = buildLoadError(error);
+      setState(failure.status, failure.message, failure);
       throw error;
     })
     .finally(() => {
@@ -76,110 +83,294 @@ async function loadModel() {
 
 async function loadModelInternal() {
   postCapabilities();
-  const runtimeFailures = [];
-
-  for (const runtime of TRANSFORMERS_RUNTIMES) {
-    selectedRuntime = runtime;
-    postMessage({ type: 'status', status: 'runtime-import', runtime: runtime.name });
-
-    try {
-      transformersModule = await import(runtime.url);
-      configureTransformers(transformersModule);
-    } catch (error) {
-      runtimeFailures.push({ runtime: runtime.name, category: 'runtime-import', message: normalizeError(error) });
-      transformersModule = null;
-      selectedRuntime = null;
-      continue;
-    }
-
-    const result = await tryLoadWithRuntime(runtime, runtimeFailures);
-    if (result) return;
-
-    await safeDispose();
-    transformersModule = null;
-    selectedRuntime = null;
-  }
-
-  const finalError = new Error('All local runtime paths failed.');
-  finalError.failures = runtimeFailures;
-  finalError.category = runtimeFailures.at(-1)?.category || 'unsupported';
-  throw finalError;
-}
-
-function configureTransformers(module) {
-  const { env } = module;
-  if (!env) return;
-
-  env.allowLocalModels = false;
-  env.allowRemoteModels = true;
-  env.useBrowserCache = true;
-}
-
-async function tryLoadWithRuntime(runtime, runtimeFailures) {
-  const { pipeline } = transformersModule;
-  const webGpuProbe = await probeWebGpu();
-
-  if (webGpuProbe.available) {
-    postMessage({ type: 'status', status: 'loading-webgpu', runtime: runtime.name });
-
-    try {
-      generator = await pipeline('text-generation', MODEL_ID, {
-        device: 'webgpu',
-        dtype: 'q4',
-        progress_callback: (progress) => postProgress(progress, 'webgpu', runtime.name)
-      });
-      backend = 'webgpu';
-      postMessage({ type: 'ready', backend, model: MODEL_ID, runtime: runtime.name });
-      return true;
-    } catch (error) {
-      runtimeFailures.push({
-        runtime: runtime.name,
-        backend: 'webgpu',
-        category: 'webgpu-failed',
-        message: normalizeError(error)
-      });
-      await safeDispose();
-      postMessage({
-        type: 'status',
-        status: 'backend-fallback',
-        runtime: runtime.name,
-        message: 'WebGPU could not initialize this model, so I am trying the local CPU path.'
-      });
-    }
-  } else {
-    runtimeFailures.push({
-      runtime: runtime.name,
-      backend: 'webgpu',
-      category: 'webgpu-unavailable',
-      message: webGpuProbe.reason
-    });
-  }
-
-  postMessage({
-    type: 'status',
-    status: 'loading-wasm',
-    runtime: runtime.name,
-    message: 'Loading local model with WASM/CPU.'
-  });
+  assertMinimumRuntimeSupport();
 
   try {
-    // Omitting `device` intentionally selects Transformers.js' browser WASM/CPU backend.
-    generator = await pipeline('text-generation', MODEL_ID, {
-      dtype: 'q4',
-      progress_callback: (progress) => postProgress(progress, 'wasm', runtime.name)
-    });
-    backend = 'wasm';
-    postMessage({ type: 'ready', backend, model: MODEL_ID, runtime: runtime.name });
-    return true;
+    await loadGgufModel();
   } catch (error) {
-    runtimeFailures.push({
-      runtime: runtime.name,
-      backend: 'wasm',
-      category: 'wasm-failed',
-      message: normalizeError(error)
-    });
-    return false;
+    const failure = buildLoadError(error);
+    if (shouldTryOnnxFallback(failure)) {
+      await safeDisposeGguf();
+      await loadOnnxFallback(failure);
+      return;
+    }
+    throw error;
   }
+}
+
+async function loadGgufModel() {
+  activeRuntime = 'gguf';
+  setState(WORKER_STATE.RUNTIME_LOADING, `Loading ${LOCAL_LLM_CONFIG.runtime.name}.`);
+  const module = await import(LOCAL_LLM_CONFIG.runtime.moduleUrl);
+  wllamaModule = module;
+
+  const { Wllama, LoggerWithoutDebug } = module;
+  wllama = new Wllama(LOCAL_LLM_CONFIG.runtime.pathConfig, {
+    logger: LoggerWithoutDebug,
+    parallelDownloads: 3
+  });
+
+  setState(WORKER_STATE.MODEL_DOWNLOADING, `Downloading ${LOCAL_LLM_CONFIG.model.displayName}.`);
+  let lastProgress = 0;
+
+  await wllama.loadModelFromHF(LOCAL_LLM_CONFIG.model.repo, LOCAL_LLM_CONFIG.model.file, {
+    ...LOCAL_LLM_CONFIG.load.context,
+    useCache: LOCAL_LLM_CONFIG.load.useCache,
+    progressCallback: ({ loaded, total }) => {
+      const progress = total > 0 ? Math.round((loaded / total) * 100) : null;
+      if (progress !== null) lastProgress = Math.max(lastProgress, progress);
+      postMessage({
+        type: 'progress',
+        state: WORKER_STATE.MODEL_DOWNLOADING,
+        loaded,
+        total,
+        progress: progress === null ? null : Math.min(96, lastProgress),
+        file: LOCAL_LLM_CONFIG.model.file,
+        model: LOCAL_LLM_CONFIG.model.displayName
+      });
+      if (progress !== null && progress >= 100) {
+        setState(WORKER_STATE.MODEL_LOADING, 'Preparing the GGUF runtime context.');
+      }
+    }
+  });
+
+  postReady();
+}
+
+async function loadOnnxFallback(ggufFailure) {
+  const fallback = LOCAL_LLM_CONFIG.fallbackRuntime;
+  if (!fallback?.enabled) {
+    const error = new Error('No browser fallback runtime is configured.');
+    error.category = 'fallback-unavailable';
+    throw error;
+  }
+
+  activeRuntime = 'onnx';
+  setState(
+    WORKER_STATE.RUNTIME_LOADING,
+    `GGUF load needs PrismML Q1_0 kernels; loading ${fallback.name}.`,
+    {
+      category: 'gguf-fallback',
+      detail: ggufFailure.detail,
+      likelyFix: 'Using the WebGPU Bonsai fallback while keeping inference in this browser.'
+    }
+  );
+
+  const webGpu = await probeWebGpu();
+  if (!webGpu.available) {
+    const error = new Error(webGpu.reason || 'WebGPU is unavailable for the Bonsai fallback.');
+    error.category = 'webgpu-unavailable';
+    throw error;
+  }
+
+  transformersModule = await import(fallback.moduleUrl);
+  configureTransformers(transformersModule);
+
+  const { InterruptableStoppingCriteria, pipeline } = transformersModule;
+  stoppingCriteria = new InterruptableStoppingCriteria();
+
+  setState(WORKER_STATE.MODEL_DOWNLOADING, `Downloading ${LOCAL_LLM_CONFIG.model.displayName} WebGPU fallback.`);
+  generator = await pipeline('text-generation', fallback.modelId, {
+    device: fallback.device,
+    dtype: fallback.dtype,
+    progress_callback: (progress) => postTransformersProgress(progress, fallback.name)
+  });
+
+  setState(WORKER_STATE.MODEL_LOADING, 'Optimizing Bonsai for 1-bit WebGPU execution.');
+  const warmupInputs = generator.tokenizer('a');
+  await generator.model.generate({ ...warmupInputs, max_new_tokens: 1 });
+
+  postReady();
+}
+
+function postReady() {
+  if (activeRuntime === 'onnx') {
+    const fallback = LOCAL_LLM_CONFIG.fallbackRuntime;
+    setState(WORKER_STATE.READY, `${LOCAL_LLM_CONFIG.model.displayName} is ready on WebGPU.`, {
+      type: 'ready',
+      backend: 'webgpu',
+      model: fallback.modelId,
+      repo: LOCAL_LLM_CONFIG.model.repo,
+      file: fallback.modelId,
+      runtime: `${fallback.name} ${fallback.packageVersion}`,
+      threads: null,
+      metadata: null
+    });
+    return;
+  }
+
+  const metadata = safeCall(() => wllama.getModelMetadata(), null);
+  setState(WORKER_STATE.READY, `${LOCAL_LLM_CONFIG.model.displayName} is ready.`, {
+    type: 'ready',
+    backend: wllama?.isMultithread?.() ? 'wasm-multithread' : 'wasm',
+    model: LOCAL_LLM_CONFIG.model.displayName,
+    repo: LOCAL_LLM_CONFIG.model.repo,
+    file: LOCAL_LLM_CONFIG.model.file,
+    runtime: `${LOCAL_LLM_CONFIG.runtime.name} ${LOCAL_LLM_CONFIG.runtime.packageVersion}`,
+    threads: safeCall(() => wllama.getNumThreads(), 1),
+    metadata
+  });
+}
+
+async function generateReply(messages) {
+  const generationId = ++activeGeneration;
+
+  try {
+    await loadModel();
+    if (generationId !== activeGeneration) return;
+    if (activeRuntime === 'onnx') {
+      await generateTransformersReply(messages, generationId);
+      return;
+    }
+    if (!wllama?.isModelLoaded?.()) return;
+
+    activeAbortController = new AbortController();
+    setState(WORKER_STATE.GENERATING, 'Generating locally.');
+
+    const conversation = compactMessages(messages);
+    const options = {
+      ...LOCAL_LLM_CONFIG.generation,
+      stream: true,
+      useCache: true,
+      abortSignal: activeAbortController.signal
+    };
+
+    const stream = await wllama.createChatCompletion(conversation, options);
+    let currentText = '';
+
+    for await (const chunk of stream) {
+      if (generationId !== activeGeneration) return;
+      const nextText = String(chunk?.currentText || '');
+      const token = nextText.startsWith(currentText) ? nextText.slice(currentText.length) : nextText;
+      currentText = nextText;
+      if (token) postMessage({ type: 'token', token });
+    }
+
+    if (generationId !== activeGeneration) return;
+    setState(WORKER_STATE.READY, 'Ready.');
+    postMessage({ type: 'complete', text: currentText, backend: 'wasm' });
+  } catch (error) {
+    if (generationId !== activeGeneration) return;
+
+    if (isAbortError(error)) {
+      setState(WORKER_STATE.READY, 'Generation stopped.');
+      postMessage({ type: 'cancelled' });
+      return;
+    }
+
+    const failure = buildGenerationError(error);
+    setState(WORKER_STATE.ERROR, failure.message, failure);
+  } finally {
+    if (generationId === activeGeneration) {
+      activeAbortController = null;
+    }
+  }
+}
+
+async function generateTransformersReply(messages, generationId) {
+  if (!generator) return;
+
+  setState(WORKER_STATE.GENERATING, 'Generating locally on WebGPU.');
+  stoppingCriteria?.reset?.();
+
+  const module = transformersModule || (await import(LOCAL_LLM_CONFIG.fallbackRuntime.moduleUrl));
+  const { DynamicCache, InterruptableStoppingCriteria, TextStreamer } = module;
+  stoppingCriteria ??= new InterruptableStoppingCriteria();
+  pastKeyValuesCache ??= new DynamicCache();
+
+  let streamedText = '';
+  const streamer = new TextStreamer(generator.tokenizer, {
+    skip_prompt: true,
+    skip_special_tokens: true,
+    callback_function: (token) => {
+      if (generationId !== activeGeneration) return;
+      streamedText += token;
+      postMessage({ type: 'token', token });
+    }
+  });
+
+  const output = await generator(compactMessages(messages), {
+    max_new_tokens: LOCAL_LLM_CONFIG.generation.max_new_tokens,
+    do_sample: false,
+    streamer,
+    stopping_criteria: stoppingCriteria,
+    past_key_values: pastKeyValuesCache
+  });
+
+  if (generationId !== activeGeneration) return;
+  const finalText = extractGeneratedText(output, streamedText);
+  setState(WORKER_STATE.READY, 'Ready.');
+  postMessage({ type: 'complete', text: finalText, backend: 'webgpu' });
+}
+
+function cancelGeneration() {
+  activeGeneration += 1;
+  activeAbortController?.abort();
+  stoppingCriteria?.interrupt?.();
+  activeAbortController = null;
+  if (wllama?.isModelLoaded?.() || generator) {
+    setState(WORKER_STATE.READY, 'Generation stopped.');
+    postMessage({ type: 'cancelled' });
+  }
+}
+
+async function disposeModel(clearCache) {
+  activeGeneration += 1;
+  activeAbortController?.abort();
+  activeAbortController = null;
+
+  await safeDisposeGguf();
+  await safeDisposeTransformers();
+
+  wllama = null;
+  wllamaModule = null;
+  transformersModule = null;
+  activeRuntime = 'gguf';
+  state = WORKER_STATE.DISPOSED;
+
+  if (clearCache) await deleteLocalModelCaches();
+  postMessage({ type: 'disposed', state });
+}
+
+function compactMessages(messages) {
+  const sanitized = messages
+    .filter((message) => message && typeof message.content === 'string' && message.role !== 'notice')
+    .map((message) => ({
+      role: message.role === 'assistant' ? 'assistant' : 'user',
+      content: message.content.slice(0, LOCAL_LLM_CONFIG.limits.maxMessageChars)
+    }));
+
+  return [
+    { role: 'system', content: LOCAL_LLM_CONFIG.systemPrompt },
+    ...sanitized.slice(-LOCAL_LLM_CONFIG.limits.maxHistoryMessages)
+  ];
+}
+
+function setState(nextState, message, extra = {}) {
+  state = nextState;
+  postMessage({
+    type: extra.type || 'status',
+    state,
+    status: state,
+    message,
+    ...extra
+  });
+}
+
+function postCapabilities() {
+  postMessage({
+    type: 'capabilities',
+    capabilities: {
+      secureContext: typeof self.isSecureContext === 'boolean' ? self.isSecureContext : null,
+      webAssembly: typeof WebAssembly === 'object',
+      wasmMemory64: canCreateMemory64(),
+      crossOriginIsolated: Boolean(self.crossOriginIsolated),
+      cacheApi: Boolean(self.caches?.open),
+      workerGpu: Boolean(self.navigator?.gpu),
+      hardwareConcurrency: self.navigator?.hardwareConcurrency ?? null,
+      userAgent: self.navigator?.userAgent || ''
+    }
+  });
 }
 
 async function probeWebGpu() {
@@ -201,30 +392,24 @@ async function probeWebGpu() {
   }
 }
 
-function postCapabilities() {
-  postMessage({
-    type: 'capabilities',
-    capabilities: {
-      secureContext: typeof self.isSecureContext === 'boolean' ? self.isSecureContext : null,
-      workerGpu: Boolean(self.navigator?.gpu),
-      moduleWorker: true,
-      cacheApi: Boolean(self.caches?.open),
-      crossOriginIsolated: Boolean(self.crossOriginIsolated),
-      userAgent: self.navigator?.userAgent || ''
-    }
-  });
+function configureTransformers(module) {
+  const { env } = module;
+  if (!env) return;
+
+  env.allowLocalModels = false;
+  env.allowRemoteModels = true;
+  env.useBrowserCache = true;
 }
 
-function postProgress(progress, attemptedBackend, runtimeName) {
-  const percent = Number.isFinite(progress?.progress) ? Math.max(0, Math.min(100, progress.progress)) : null;
-  const status = normalizeProgressStatus(progress?.status);
-
+function postTransformersProgress(progress, runtimeName) {
+  const percent = Number.isFinite(progress?.progress) ? Math.max(0, Math.min(96, progress.progress)) : null;
   postMessage({
     type: 'progress',
-    backend: attemptedBackend,
+    state: normalizeProgressStatus(progress?.status) === 'downloading'
+      ? WORKER_STATE.MODEL_DOWNLOADING
+      : WORKER_STATE.MODEL_LOADING,
     runtime: runtimeName,
-    status,
-    file: typeof progress?.file === 'string' ? progress.file : '',
+    file: typeof progress?.file === 'string' ? progress.file : LOCAL_LLM_CONFIG.fallbackRuntime.modelId,
     progress: percent,
     loaded: Number.isFinite(progress?.loaded) ? progress.loaded : null,
     total: Number.isFinite(progress?.total) ? progress.total : null
@@ -238,71 +423,59 @@ function normalizeProgressStatus(status) {
   return 'loading';
 }
 
-async function generateReply(messages) {
-  const generationId = ++activeGeneration;
-
-  try {
-    await loadModel();
-
-    if (!generator || generationId !== activeGeneration) return;
-
-    postMessage({ type: 'status', status: 'generating' });
-
-    const { TextStreamer } = await getTransformers();
-    let streamedText = '';
-    const streamer = new TextStreamer(generator.tokenizer, {
-      skip_prompt: true,
-      skip_special_tokens: true,
-      callback_function: (token) => {
-        streamedText += token;
-        postMessage({ type: 'token', token });
-      }
-    });
-
-    const conversation = compactMessages(messages);
-    const output = await generator(conversation, {
-      ...GENERATION_DEFAULTS,
-      streamer
-    });
-
-    if (generationId !== activeGeneration) return;
-
-    const finalText = extractGeneratedText(output, streamedText);
-    postMessage({ type: 'complete', text: finalText, backend });
-  } catch {
-    if (generationId === activeGeneration) {
-      postMessage({
-        type: 'error',
-        status: 'error',
-        category: 'generation-failed',
-        message: 'The local model stopped unexpectedly.',
-        detail: 'The worker stayed alive, but generation failed. This can happen with low memory or very long prompts.',
-        likelyFix: 'Reset the chat and try a shorter prompt.'
-      });
-    }
+function assertMinimumRuntimeSupport() {
+  if (typeof WebAssembly !== 'object') {
+    const error = new Error('WebAssembly is unavailable.');
+    error.category = 'wasm-unavailable';
+    throw error;
   }
 }
 
-async function getTransformers() {
-  if (transformersModule) return transformersModule;
-  selectedRuntime = TRANSFORMERS_RUNTIMES[0];
-  transformersModule = await import(selectedRuntime.url);
-  configureTransformers(transformersModule);
-  return transformersModule;
+function canCreateMemory64() {
+  try {
+    if (typeof WebAssembly !== 'object' || typeof WebAssembly.Memory !== 'function') return false;
+    new WebAssembly.Memory({ initial: 1, maximum: 1, index: 'i64' });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-function compactMessages(messages) {
-  const sanitized = messages
-    .filter((message) => message && typeof message.content === 'string')
-    .map((message) => ({
-      role: message.role === 'assistant' ? 'assistant' : 'user',
-      content: message.content.slice(0, 2500)
-    }));
+function shouldTryOnnxFallback(failure) {
+  return Boolean(
+    LOCAL_LLM_CONFIG.fallbackRuntime?.enabled &&
+      (failure.category === 'model-parse-failed' || failure.category === 'model-runtime-incompatible')
+  );
+}
 
-  return [
-    { role: 'system', content: SYSTEM_PROMPT },
-    ...sanitized.slice(-10)
-  ];
+async function safeDisposeGguf() {
+  if (!wllama) return;
+
+  try {
+    await wllama.exit();
+  } catch {
+    // Best-effort cleanup; the UI can always create a fresh runtime.
+  } finally {
+    wllama = null;
+    wllamaModule = null;
+  }
+}
+
+async function safeDisposeTransformers() {
+  pastKeyValuesCache?.dispose?.();
+  pastKeyValuesCache = null;
+  stoppingCriteria?.reset?.();
+  stoppingCriteria = null;
+
+  if (!generator) return;
+
+  try {
+    await generator.dispose();
+  } catch {
+    // Best-effort cleanup in a reset path.
+  } finally {
+    generator = null;
+  }
 }
 
 function extractGeneratedText(output, fallbackText) {
@@ -319,95 +492,105 @@ function extractGeneratedText(output, fallbackText) {
   return fallbackText;
 }
 
-async function disposeModel(clearCache) {
-  activeGeneration += 1;
-  await safeDispose();
-  backend = null;
-
-  if (clearCache) await deleteTransformersCaches();
-
-  postMessage({ type: 'disposed' });
+function buildLoadError(error) {
+  const detail = normalizeError(error);
+  const category = categorizeError(error, detail);
+  return {
+    type: 'error',
+    status: category === 'unsupported-browser' || category === 'wasm-unavailable' ? WORKER_STATE.UNSUPPORTED : WORKER_STATE.ERROR,
+    category,
+    message: category === 'download-failed'
+      ? 'The Bonsai GGUF download failed.'
+      : category === 'model-runtime-incompatible'
+        ? 'The Bonsai GGUF needs a runtime this browser bundle does not include.'
+      : category === 'unsupported-browser'
+        ? 'This browser cannot run the local GGUF runtime.'
+        : 'The local GGUF model could not start.',
+    detail,
+    likelyFix: likelyFixForCategory(category)
+  };
 }
 
-async function safeDispose() {
-  if (!generator) return;
-
-  try {
-    await generator.dispose();
-  } catch {
-    // Disposing is best-effort in a worker reset path.
-  } finally {
-    generator = null;
-  }
+function buildGenerationError(error) {
+  const detail = normalizeError(error);
+  const category = categorizeError(error, detail);
+  return {
+    type: 'error',
+    status: WORKER_STATE.ERROR,
+    category,
+    message: 'The local model stopped during generation.',
+    detail,
+    likelyFix: category === 'out-of-memory'
+      ? 'Close memory-heavy tabs, reset the model, and try a shorter prompt.'
+      : 'Reset the chat and try a shorter prompt.'
+  };
 }
 
-async function deleteTransformersCaches() {
+function categorizeError(error, detail) {
+  const source = `${error?.category || ''} ${detail}`.toLowerCase();
+  if (/webassembly is unavailable|wasm-unavailable/.test(source)) return 'wasm-unavailable';
+  if (/webgpu-unavailable|webgpu is unavailable|navigator\.gpu is unavailable|webgpu did not return/.test(source)) return 'unsupported-browser';
+  if (/memory64|memory 64|unsupported memory|safari/.test(source)) return 'unsupported-browser';
+  if (/network|fetch|failed to fetch|http|hugging face|xet|download|cors/.test(source)) return 'download-failed';
+  if (/out of memory|oom|allocation|arraybuffer|memory access out of bounds/.test(source)) return 'out-of-memory';
+  if (/invalid typed array length|file bounds|corrupt|incomplete|invalid ggml type|q1_0|q1_0_g128/.test(source)) return 'model-runtime-incompatible';
+  if (/gguf|invalid model|parse|metadata|tensor/.test(source)) return 'model-parse-failed';
+  if (/import|module|cdn|jsdelivr/.test(source)) return 'runtime-import';
+  return 'runtime-failed';
+}
+
+function likelyFixForCategory(category) {
+  if (category === 'wasm-unavailable') return 'Use a current desktop browser with WebAssembly enabled.';
+  if (category === 'unsupported-browser') return 'Try current Chrome or Edge. Safari may not support the Memory64 requirement used by this GGUF runtime.';
+  if (category === 'download-failed') return 'Check network access to Hugging Face/jsDelivr, disable blocking extensions for this page, then retry.';
+  if (category === 'out-of-memory') return 'Close memory-heavy tabs and retry. Bonsai is small for GGUF, but it still needs enough browser memory.';
+  if (category === 'model-runtime-incompatible') return 'This Bonsai GGUF uses PrismML Q1_0 kernels. The page will try the Bonsai WebGPU fallback when WebGPU is available.';
+  if (category === 'model-parse-failed') return 'Retry after clearing the model cache. If it persists, the cached GGUF may be incomplete or unsupported by this browser runtime.';
+  if (category === 'runtime-import') return 'Check network access to the Wllama runtime CDN, then retry.';
+  return 'Retry in a current desktop browser from HTTPS or localhost.';
+}
+
+async function deleteLocalModelCaches() {
   if (!self.caches?.keys || !self.caches?.delete) return false;
 
   try {
     const cacheNames = await self.caches.keys();
-    const targets = cacheNames.filter((name) => /transformers|huggingface/i.test(name));
+    const targets = cacheNames.filter((name) => /wllama|huggingface|transformers|local-llm/i.test(name));
     await Promise.all(targets.map((name) => self.caches.delete(name)));
-    await self.caches.delete('transformers-cache');
     return true;
   } catch {
     return false;
   }
 }
 
-function buildLoadError(error) {
-  const failures = Array.isArray(error?.failures) ? error.failures : [];
-  const lastFailure = failures.at(-1) || {};
-  const category = error?.category || lastFailure.category || 'unsupported';
-  const message = category === 'runtime-import'
-    ? 'The local AI runtime could not be loaded.'
-    : 'Your browser could not run this local model.';
-
-  return {
-    type: 'error',
-    status: 'unsupported',
-    category,
-    message,
-    detail: summarizeFailures(failures),
-    likelyFix: likelyFixForCategory(category, failures)
-  };
-}
-
-function summarizeFailures(failures) {
-  if (!failures.length) {
-    return 'Both WebGPU and WASM/CPU failed before the model became ready.';
-  }
-
-  return failures
-    .slice(-4)
-    .map((failure) => {
-      const backendLabel = failure.backend ? ` ${failure.backend}` : '';
-      return `${failure.runtime || 'Runtime'}${backendLabel}: ${failure.message || failure.category}`;
-    })
-    .join(' | ');
-}
-
-function likelyFixForCategory(category, failures) {
-  const hasOnlyNoWebGpu = failures.some((failure) => failure.category === 'webgpu-unavailable')
-    && failures.some((failure) => failure.category === 'wasm-failed');
-
-  if (category === 'runtime-import') {
-    return 'Check the WebStorm server, CDN/network access, and content blockers, then retry.';
-  }
-
-  if (hasOnlyNoWebGpu) {
-    return 'Firefox may need WebGPU support enabled, but the page should still try WASM/CPU. If WASM also fails, try a current Chrome, Edge, or Safari build.';
-  }
-
-  if (category === 'wasm-failed') {
-    return 'Close memory-heavy tabs and retry, or use a browser with WebGPU available.';
-  }
-
-  return 'Retry from localhost or HTTPS in a current desktop browser with enough available memory.';
+function isAbortError(error) {
+  return error?.name === 'AbortError' || /abort|cancel/i.test(normalizeError(error));
 }
 
 function normalizeError(error) {
-  if (typeof error?.message === 'string' && error.message.trim()) return error.message.slice(0, 220);
-  if (typeof error === 'string') return error.slice(0, 220);
+  if (typeof error?.message === 'string' && error.message.trim()) return error.message.slice(0, 500);
+  if (typeof error === 'string') return error.slice(0, 500);
   return 'Unknown error';
+}
+
+function safeCall(fn, fallback) {
+  try {
+    return fn();
+  } catch {
+    return fallback;
+  }
+}
+
+function installWorkerDocumentBase() {
+  if (typeof self.document !== 'undefined') return;
+
+  const workerUrl = self.location?.href || './local-llm-worker.js';
+  Object.defineProperty(self, 'document', {
+    configurable: true,
+    enumerable: false,
+    value: {
+      baseURI: workerUrl,
+      currentScript: { src: workerUrl }
+    }
+  });
 }

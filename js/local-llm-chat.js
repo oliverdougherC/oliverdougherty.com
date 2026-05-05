@@ -1,23 +1,6 @@
-const MODEL_ID = 'onnx-community/Qwen3-0.6B-ONNX';
-const MAX_INPUT_CHARS = 1800;
-const MIN_LOADING_STEP_MS = 1900;
-const BRAILLE_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+import { LOCAL_LLM_CONFIG } from './local-llm-config.js';
 
-const LOADING_STEPS = [
-  { threshold: 0, html: 'Runs locally in your browser' },
-  { threshold: 25, html: "Right now, we're downloading a modal, and caching it in your browser" },
-  { threshold: 50, html: "Don't worry, I'll delete it when you're done ;)" },
-  { threshold: 75, html: 'This is a <em>teensy</em> model, so expect imperfection' },
-  { threshold: 100, html: 'Say Hello', ready: true }
-];
-
-const CACHED_LOADING_STEPS = [
-  { threshold: 0, html: 'Runs locally in your browser' },
-  { threshold: 50, html: 'Warming the cached local model' },
-  { threshold: 100, html: 'Say Hello', ready: true }
-];
-
-// Add your own post-load rotating composer prompts here.
+const MAX_INPUT_CHARS = LOCAL_LLM_CONFIG.limits.maxInputChars;
 const READY_PROMPTS = [
   'Ask a concise question...',
   'Draft a tiny explanation...',
@@ -25,35 +8,35 @@ const READY_PROMPTS = [
   'Try a local-only brainstorm...'
 ];
 
+const LOADING_COPY = {
+  idle: `Runs in this browser with ${LOCAL_LLM_CONFIG.model.displayName}.`,
+  'runtime-loading': 'Starting the browser GGUF runtime.',
+  'model-downloading': `Downloading ${LOCAL_LLM_CONFIG.model.displayName} (${LOCAL_LLM_CONFIG.model.sizeLabel}).`,
+  'model-loading': 'Preparing the local model context.',
+  ready: 'Ready. Messages stay in this browser.',
+  generating: 'Generating locally.',
+  error: 'Local model unavailable.',
+  unsupported: 'This browser cannot run the local model.'
+};
+
 class LocalLlmUtility {
   constructor(root) {
     this.root = root;
     this.worker = null;
     this.messages = [];
     this.status = 'idle';
-    this.loadStarted = false;
     this.progress = 0;
-    this.loadingStep = -1;
-    this.targetLoadingStep = 0;
-    this.loadingStepStartedAt = 0;
-    this.loadingStepTimer = null;
-    this.centerHideTimer = null;
-    this.loadFailureTimer = null;
-    this.spinnerTimer = null;
     this.promptTimer = null;
     this.promptIndex = 0;
-    this.spinnerIndex = 0;
     this.assistantDraft = null;
-    this.downloadProgressSeen = false;
-    this.loadStartTime = 0;
-    this.cachedLoadMode = false;
     this.diagnostics = null;
+    this.lastProgressTotal = 0;
 
     this.mount();
     this.bindEvents();
     this.renderMessages();
     this.updateStatus('idle', 'Idle.');
-    this.showCenterIdle();
+    this.showCenterCopy(LOADING_COPY.idle);
   }
 
   mount() {
@@ -66,8 +49,10 @@ class LocalLlmUtility {
               <button type="button" class="local-llm-card local-llm-reset" id="localLlmResetBtn" data-cursor="hover">Reset model</button>
             </div>
           </div>
+          <div class="local-llm-thread" id="localLlmMessages"></div>
           <div class="local-llm-center" id="localLlmCenter">
-            <p class="local-llm-load-copy local-llm-load-copy--visible" id="localLlmLoadCopy">Runs locally in your browser</p>
+            <p class="local-llm-load-copy local-llm-load-copy--visible" id="localLlmLoadCopy"></p>
+            <p class="local-llm-model-note" id="localLlmModelNote"></p>
             <div class="local-llm-progress-wrap" id="localLlmProgressWrap" hidden>
               <div class="utility-progress-bar local-llm-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="localLlmProgressBar">
                 <span class="utility-progress-fill local-llm-progress-fill"></span>
@@ -76,7 +61,6 @@ class LocalLlmUtility {
             </div>
             <div class="local-llm-diagnostics" id="localLlmDiagnostics" hidden></div>
           </div>
-          <div class="local-llm-thread" id="localLlmMessages"></div>
         </div>
 
         <form class="local-llm-form" id="localLlmForm">
@@ -106,6 +90,7 @@ class LocalLlmUtility {
     this.progressFill = this.root.querySelector('.local-llm-progress-fill');
     this.progressPercent = this.root.querySelector('#localLlmProgressPercent');
     this.loadCopy = this.root.querySelector('#localLlmLoadCopy');
+    this.modelNote = this.root.querySelector('#localLlmModelNote');
     this.center = this.root.querySelector('#localLlmCenter');
     this.diagnosticsPanel = this.root.querySelector('#localLlmDiagnostics');
     this.transcript = this.root.querySelector('#localLlmTranscript');
@@ -132,7 +117,6 @@ class LocalLlmUtility {
         event.preventDefault();
         this.sendMessage();
       }
-
       if (event.key === 'Escape' && this.status !== 'generating') {
         this.input.blur();
       }
@@ -143,47 +127,52 @@ class LocalLlmUtility {
       }
     });
     window.addEventListener('pagehide', () => {
-      this.worker?.postMessage({ type: 'dispose', clearCache: true });
-      deleteTransformersCaches();
+      this.worker?.postMessage({ type: 'dispose', clearCache: false });
       this.worker?.terminate();
     });
   }
 
   startChat() {
-    if (this.loadStarted && this.status !== 'unsupported' && this.status !== 'error') return;
+    if (this.status === 'ready' || this.status === 'generating' || this.isLoading()) return;
 
-    this.loadStarted = true;
     this.progress = 0;
-    this.downloadProgressSeen = false;
-    this.cachedLoadMode = false;
-    this.loadStartTime = performance.now();
+    this.lastProgressTotal = 0;
     this.diagnostics = null;
     this.hideDiagnostics();
     this.stopPromptCycle();
-    this.center.classList.remove('local-llm-center--hidden');
-    this.center.classList.add('local-llm-center--loading');
-    this.updateStatus('loading', 'Loading local model.');
-    this.showLoadingStep(0, true);
-    this.startSpinner();
+    this.showCenterCopy(LOADING_COPY['runtime-loading']);
+    this.updateProgressBar();
+    this.updateStatus('runtime-loading', 'Starting local runtime.');
 
     try {
-      this.worker = new Worker(new URL('./local-llm-worker.js', import.meta.url), { type: 'module' });
+      this.worker = this.createWorker();
       this.worker.addEventListener('message', (event) => this.handleWorkerMessage(event.data || {}));
       this.worker.addEventListener('error', () => {
         this.showLoadFailure({
+          status: 'error',
+          category: 'worker-failed',
           message: 'The browser blocked the local model worker before it could start.',
-          detail: 'Module workers need a normal local server, HTTPS, or localhost. Some file-like preview servers block worker module imports.',
-          likelyFix: 'Serve this page from localhost or HTTPS, then retry.'
+          detail: 'Module workers need HTTPS, localhost, or a normal static server.',
+          likelyFix: 'Open this page from GitHub Pages, HTTPS, or localhost, then retry.'
         });
       });
       this.worker.postMessage({ type: 'load' });
     } catch {
       this.showLoadFailure({
+        status: 'unsupported',
+        category: 'worker-unavailable',
         message: 'This browser could not create the local model worker.',
-        detail: 'The page stayed responsive, but the worker API was unavailable.',
-        likelyFix: 'Try a current desktop browser served from localhost or HTTPS.'
+        detail: 'The page stayed responsive, but the Worker API was unavailable.',
+        likelyFix: 'Try a current desktop browser.'
       });
     }
+  }
+
+  createWorker() {
+    if (window.__OD_LOCAL_LLM_TEST_MODE__) {
+      return new LocalLlmMockWorker(window.__OD_LOCAL_LLM_TEST_MODE__);
+    }
+    return new Worker(new URL('./local-llm-worker.js', import.meta.url), { type: 'module' });
   }
 
   handleWorkerMessage(message) {
@@ -197,20 +186,21 @@ class LocalLlmUtility {
       return;
     }
 
-    if (message.type === 'status') {
-      this.updateStatusFromWorker(message);
+    if (message.type === 'ready') {
+      this.progress = 100;
+      this.updateProgressBar();
+      this.hideDiagnostics();
+      this.assistantDraft = null;
+      this.updateStatus('ready', message.message || 'Ready.');
+      this.showCenterCopy(LOADING_COPY.ready);
+      this.center.classList.add('local-llm-center--hidden');
+      this.startPromptCycle();
+      this.input.focus({ preventScroll: true });
       return;
     }
 
-    if (message.type === 'ready') {
-      this.progress = 100;
-      this.cachedLoadMode = !this.downloadProgressSeen && performance.now() - this.loadStartTime < 4500;
-      this.updateProgressBar();
-      this.updateStatus('ready', `Ready on ${message.backend === 'webgpu' ? 'WebGPU' : 'WASM/CPU'}.`);
-      this.targetLoadingStep = this.getActiveLoadingSteps().length - 1;
-      this.queueNextLoadingStep();
-      this.startPromptCycle();
-      this.input.focus({ preventScroll: true });
+    if (message.type === 'status') {
+      this.updateStatusFromWorker(message);
       return;
     }
 
@@ -221,6 +211,11 @@ class LocalLlmUtility {
 
     if (message.type === 'complete') {
       this.finishAssistantMessage(message.text || '');
+      return;
+    }
+
+    if (message.type === 'cancelled') {
+      this.finishCancelledGeneration();
       return;
     }
 
@@ -236,111 +231,34 @@ class LocalLlmUtility {
   }
 
   updateStatusFromWorker(message) {
-    if (message.status === 'runtime-import') {
-      this.updateStatus('loading', `Loading ${message.runtime || 'Transformers.js'}.`);
-    } else if (message.status === 'loading-webgpu') {
-      this.updateStatus('loading', 'Loading local model with WebGPU.');
-    } else if (message.status === 'loading-wasm') {
-      this.updateStatus('loading', message.message || 'Loading local model with WASM/CPU.');
-    } else if (message.status === 'backend-fallback') {
-      this.updateStatus('loading', message.message || 'Trying another local runtime path.');
-    } else if (message.status === 'generating') {
-      this.updateStatus('generating', 'Generating locally.');
+    const state = message.state || message.status || 'runtime-loading';
+    const copy = message.message || LOADING_COPY[state] || 'Working locally.';
+    this.updateStatus(state, copy);
+    this.showCenterCopy(LOADING_COPY[state] || copy);
+    if (state === 'model-loading' && this.progress < 98) {
+      this.progress = 98;
+      this.updateProgressBar();
     }
   }
 
   updateProgress(message) {
-    if (message.status === 'downloading') {
-      this.downloadProgressSeen = true;
-      this.updateStatus('downloading', 'Downloading model.');
-    } else if (this.status !== 'ready') {
-      this.updateStatus('loading', 'Loading model.');
+    const progress = Number.isFinite(message.progress) ? Math.round(message.progress) : null;
+    if (progress !== null) {
+      this.progress = Math.max(this.progress, Math.min(96, progress));
+    } else if (this.progress < 12) {
+      this.progress = 12;
     }
-
-    if (Number.isFinite(message.progress)) {
-      const capped = message.status === 'downloading' ? 96 : 99;
-      this.progress = Math.max(this.progress, Math.min(capped, Math.round(message.progress)));
-    } else if (this.progress < 16) {
-      this.progress = 16;
-    }
-
+    this.lastProgressTotal = Number.isFinite(message.total) ? message.total : this.lastProgressTotal;
+    this.updateStatus('model-downloading', 'Downloading model.');
+    this.showCenterCopy(LOADING_COPY['model-downloading']);
     this.updateProgressBar();
-    this.syncLoadingCopyToProgress();
   }
 
-  getActiveLoadingSteps() {
-    return this.cachedLoadMode ? CACHED_LOADING_STEPS : LOADING_STEPS;
-  }
-
-  syncLoadingCopyToProgress() {
-    const steps = this.getActiveLoadingSteps();
-    let index = 0;
-
-    for (let i = 0; i < steps.length; i += 1) {
-      if (this.progress >= steps[i].threshold) index = i;
-    }
-
-    this.targetLoadingStep = Math.max(this.targetLoadingStep, index);
-    this.queueNextLoadingStep();
-  }
-
-  showLoadingStep(nextIndex, immediate = false) {
-    const steps = this.getActiveLoadingSteps();
-    if (nextIndex === this.loadingStep && !immediate) return;
-
-    const elapsed = performance.now() - this.loadingStepStartedAt;
-    window.clearTimeout(this.loadingStepTimer);
-
-    if (!immediate && elapsed < MIN_LOADING_STEP_MS) {
-      this.loadingStepTimer = window.setTimeout(() => this.showLoadingStep(nextIndex), MIN_LOADING_STEP_MS - elapsed);
-      return;
-    }
-
-    this.loadingStep = nextIndex;
-    this.loadingStepStartedAt = performance.now();
-    this.loadCopy.classList.remove('local-llm-load-copy--visible', 'local-llm-load-copy--hello');
-
-    window.setTimeout(() => {
-      const step = steps[Math.min(nextIndex, steps.length - 1)];
-      this.loadCopy.innerHTML = step.html;
-      this.loadCopy.classList.toggle('local-llm-load-copy--hello', step.ready === true);
-      window.requestAnimationFrame(() => {
-        this.loadCopy.classList.add('local-llm-load-copy--visible');
-      });
-
-      if (step.ready && this.status === 'ready') {
-        window.clearTimeout(this.centerHideTimer);
-        this.centerHideTimer = window.setTimeout(() => {
-          this.center.classList.add('local-llm-center--hidden');
-          this.center.classList.remove('local-llm-center--loading');
-        }, 2600);
-      } else {
-        this.queueNextLoadingStep();
-      }
-    }, 180);
-  }
-
-  queueNextLoadingStep() {
-    if (this.loadingStep < 0 || this.targetLoadingStep <= this.loadingStep) return;
-
-    const elapsed = performance.now() - this.loadingStepStartedAt;
-    const delay = Math.max(MIN_LOADING_STEP_MS - elapsed, 0);
-    const nextStep = Math.min(this.loadingStep + 1, this.targetLoadingStep);
-
-    window.clearTimeout(this.loadingStepTimer);
-    this.loadingStepTimer = window.setTimeout(() => {
-      this.showLoadingStep(nextStep);
-    }, delay);
-  }
-
-  showCenterIdle() {
-    window.clearTimeout(this.centerHideTimer);
-    this.hideDiagnostics();
-    this.center.classList.remove('local-llm-center--hidden', 'local-llm-center--loading');
-    this.progressWrap.hidden = true;
-    this.loadCopy.innerHTML = LOADING_STEPS[0].html;
-    this.loadCopy.classList.remove('local-llm-load-copy--hello');
+  showCenterCopy(text) {
+    this.center.classList.remove('local-llm-center--hidden');
+    this.loadCopy.textContent = text;
     this.loadCopy.classList.add('local-llm-load-copy--visible');
+    this.modelNote.textContent = `${LOCAL_LLM_CONFIG.model.displayName} from Hugging Face via ${LOCAL_LLM_CONFIG.runtime.name}; falls back to Bonsai WebGPU when GGUF kernels are unsupported.`;
   }
 
   updateProgressBar() {
@@ -354,40 +272,46 @@ class LocalLlmUtility {
   updateStatus(status, label = '') {
     this.status = status;
     this.root.dataset.localLlmStatus = status;
+    this.root.dataset.localLlmStatusMessage = label;
 
     const chipState = status === 'unsupported' ? 'error' : status;
     this.statusChip.textContent = formatStatus(status);
-    this.statusChip.className = `local-llm-card utility-status-chip utility-status-chip--${status === 'downloading' || status === 'loading' || status === 'generating' ? 'processing' : chipState}`;
+    this.statusChip.className = `local-llm-card utility-status-chip utility-status-chip--${this.isLoading(status) || status === 'generating' ? 'processing' : chipState}`;
 
-    const isStarting = status === 'loading' || status === 'downloading';
     const canSend = status === 'ready';
     this.sendButton.disabled = !canSend;
     this.input.disabled = !canSend;
-    this.progressWrap.hidden = !isStarting && status !== 'ready' && status !== 'unsupported' && status !== 'error';
-    this.resetButton.textContent = status === 'generating' ? 'Stop / reset' : 'Reset model';
+    this.progressWrap.hidden = !(this.isLoading(status) || status === 'ready' || status === 'unsupported' || status === 'error');
+    this.resetButton.textContent = this.isLoading(status)
+      ? 'Cancel load'
+      : status === 'generating'
+        ? 'Stop / reset'
+        : 'Reset model';
 
     if (status === 'ready') {
       this.setReadyPrompt(READY_PROMPTS[this.promptIndex] || 'Say hello...');
     } else if (status === 'unsupported' || status === 'error') {
-      this.stopSpinner();
       this.stopPromptCycle();
       this.input.placeholder = 'The local model is not available here.';
       this.readyPrompt.textContent = 'The local model is not available here.';
-      this.center.classList.remove('local-llm-center--hidden');
-      this.progressWrap.hidden = false;
     } else if (status === 'idle') {
-      this.stopSpinner();
       this.stopPromptCycle();
       this.input.placeholder = 'Load the model first.';
       this.readyPrompt.textContent = 'Load the model first.';
+    } else if (status === 'generating') {
+      this.stopPromptCycle();
     }
 
     this.updatePromptVisibility();
     this.updateLoadControl();
   }
 
+  isLoading(status = this.status) {
+    return status === 'runtime-loading' || status === 'model-downloading' || status === 'model-loading';
+  }
+
   updateLoadControl() {
-    const isLoading = this.status === 'loading' || this.status === 'downloading';
+    const isLoading = this.isLoading();
     const isReady = this.status === 'ready' || this.status === 'generating';
     const isFailure = this.status === 'unsupported' || this.status === 'error';
 
@@ -397,10 +321,11 @@ class LocalLlmUtility {
     this.startButton.classList.toggle('local-llm-load-control--error', isFailure);
 
     if (isLoading) {
+      this.startSymbol.textContent = '…';
       this.startText.textContent = `${Math.max(0, Math.min(100, this.progress))}%`;
     } else if (isReady) {
       this.startSymbol.textContent = '✓';
-      this.startText.textContent = 'Ready';
+      this.startText.textContent = this.status === 'generating' ? 'Busy' : 'Ready';
     } else if (isFailure) {
       this.startSymbol.textContent = '↻';
       this.startText.textContent = 'Retry';
@@ -412,21 +337,7 @@ class LocalLlmUtility {
     }
   }
 
-  startSpinner() {
-    this.stopSpinner();
-    this.spinnerTimer = window.setInterval(() => {
-      this.spinnerIndex = (this.spinnerIndex + 1) % BRAILLE_FRAMES.length;
-      this.startSymbol.textContent = BRAILLE_FRAMES[this.spinnerIndex];
-    }, 95);
-  }
-
-  stopSpinner() {
-    window.clearInterval(this.spinnerTimer);
-    this.spinnerTimer = null;
-  }
-
   startPromptCycle() {
-    this.stopSpinner();
     this.stopPromptCycle();
     this.promptIndex = 0;
     this.setReadyPrompt(READY_PROMPTS[this.promptIndex] || 'Say hello...');
@@ -443,14 +354,7 @@ class LocalLlmUtility {
 
   setReadyPrompt(text) {
     this.input.placeholder = text;
-    this.readyPrompt.classList.remove('local-llm-ready-prompt--enter');
-    this.readyPrompt.classList.add('local-llm-ready-prompt--exit');
-
-    window.setTimeout(() => {
-      this.readyPrompt.textContent = text;
-      this.readyPrompt.classList.remove('local-llm-ready-prompt--exit');
-      this.readyPrompt.classList.add('local-llm-ready-prompt--enter');
-    }, 220);
+    this.readyPrompt.textContent = text;
   }
 
   updatePromptVisibility() {
@@ -500,8 +404,11 @@ class LocalLlmUtility {
     if (this.assistantDraft) {
       if (finalText.trim()) this.assistantDraft.content = finalText;
       this.assistantDraft.content = cleanupModelText(this.assistantDraft.content);
-      if (!this.assistantDraft.content.trim()) {
+      if (!this.assistantDraft.content.trim() && this.status !== 'error' && this.status !== 'unsupported') {
         this.assistantDraft.content = 'I could not produce a useful answer. Try a shorter prompt.';
+      }
+      if (!this.assistantDraft.content.trim()) {
+        this.messages = this.messages.filter((message) => message !== this.assistantDraft);
       }
       this.assistantDraft = null;
       this.messages = this.trimHistory(this.messages);
@@ -512,6 +419,16 @@ class LocalLlmUtility {
       this.updateStatus('ready', 'Ready.');
       this.startPromptCycle();
     }
+  }
+
+  finishCancelledGeneration() {
+    if (this.assistantDraft) {
+      this.assistantDraft.content = cleanupModelText(this.assistantDraft.content) || 'Generation stopped.';
+      this.assistantDraft = null;
+      this.renderMessages();
+    }
+    this.updateStatus('ready', 'Generation stopped.');
+    this.startPromptCycle();
   }
 
   trimHistory(messages) {
@@ -533,7 +450,7 @@ class LocalLlmUtility {
       `;
     }).join('');
 
-    this.transcript.scrollTop = this.transcript.scrollHeight;
+    this.messageList.scrollTop = this.messageList.scrollHeight;
   }
 
   addSystemNotice(content) {
@@ -542,21 +459,11 @@ class LocalLlmUtility {
   }
 
   showLoadFailure(message) {
-    const elapsed = performance.now() - this.loadStartTime;
-    if ((message.status || 'unsupported') === 'unsupported' && elapsed < MIN_LOADING_STEP_MS) {
-      window.clearTimeout(this.loadFailureTimer);
-      this.loadFailureTimer = window.setTimeout(() => this.showLoadFailure(message), MIN_LOADING_STEP_MS - elapsed);
-      return;
-    }
-
     const fallback = buildFailureCopy(message, this.diagnostics);
-    this.updateStatus(message.status || 'unsupported', fallback.message);
-    this.loadCopy.textContent = 'Local model unavailable';
-    this.loadCopy.classList.remove('local-llm-load-copy--hello');
-    this.loadCopy.classList.add('local-llm-load-copy--visible');
+    this.updateStatus(message.status || 'error', fallback.message);
+    this.showCenterCopy(LOADING_COPY[message.status] || LOADING_COPY.error);
     this.updateProgressBar();
     this.showDiagnostics(fallback);
-    this.loadStarted = false;
   }
 
   showDiagnostics(copy) {
@@ -575,19 +482,17 @@ class LocalLlmUtility {
   }
 
   async resetChat({ clearCache = true } = {}) {
+    if (this.status === 'generating') {
+      this.worker?.postMessage({ type: 'cancel' });
+    }
+
     this.messages = [];
     this.assistantDraft = null;
     this.renderMessages();
     this.progress = 0;
-    this.loadingStep = -1;
-    this.targetLoadingStep = 0;
-    this.loadStarted = false;
-    this.cachedLoadMode = false;
-    this.downloadProgressSeen = false;
-    this.showLoadingStep(0, true);
-    this.updateProgressBar();
-    window.clearTimeout(this.loadFailureTimer);
+    this.lastProgressTotal = 0;
     this.hideDiagnostics();
+    this.stopPromptCycle();
 
     if (this.worker) {
       this.worker.postMessage({ type: 'dispose', clearCache });
@@ -595,30 +500,122 @@ class LocalLlmUtility {
       this.worker = null;
     }
 
-    if (clearCache) await deleteTransformersCaches();
+    if (clearCache) await deleteLocalModelCaches();
+    this.updateProgressBar();
     this.updateStatus('idle', clearCache ? 'Model cache reset. Start again to reload locally.' : 'Ready to retry local loading.');
-    this.showCenterIdle();
+    this.showCenterCopy(LOADING_COPY.idle);
+  }
+}
+
+class LocalLlmMockWorker extends EventTarget {
+  constructor(mode) {
+    super();
+    this.mode = mode;
+    this.disposed = false;
+    this.timerIds = [];
+  }
+
+  postMessage(message) {
+    if (this.disposed) return;
+    if (message.type === 'load') this.mockLoad();
+    if (message.type === 'generate') this.mockGenerate();
+    if (message.type === 'cancel') this.emit({ type: 'cancelled' });
+    if (message.type === 'dispose') this.emit({ type: 'disposed', state: 'disposed' });
+  }
+
+  terminate() {
+    this.disposed = true;
+    this.timerIds.forEach((id) => window.clearTimeout(id));
+    this.timerIds = [];
+  }
+
+  mockLoad() {
+    this.emit({
+      type: 'capabilities',
+      capabilities: {
+        secureContext: true,
+        webAssembly: true,
+        wasmMemory64: true,
+        cacheApi: true,
+        crossOriginIsolated: false,
+        hardwareConcurrency: 4,
+        userAgent: 'mock'
+      }
+    });
+
+    if (this.mode === 'unsupported') {
+      this.queue(() => this.emit({
+        type: 'error',
+        status: 'unsupported',
+        category: 'unsupported-browser',
+        message: 'This browser cannot run the local GGUF runtime.',
+        detail: 'Mocked unsupported Memory64 environment.',
+        likelyFix: 'Try current Chrome or Edge.'
+      }), 80);
+      return;
+    }
+
+    this.queue(() => this.emit({ type: 'status', state: 'runtime-loading', message: 'Starting local runtime.' }), 20);
+    this.queue(() => this.emit({
+      type: 'progress',
+      state: 'model-downloading',
+      loaded: 124000000,
+      total: 248000000,
+      progress: 50,
+      file: LOCAL_LLM_CONFIG.model.file
+    }), 80);
+    this.queue(() => this.emit({ type: 'status', state: 'model-loading', message: 'Preparing the GGUF runtime context.' }), 140);
+    this.queue(() => this.emit({
+      type: 'ready',
+      state: 'ready',
+      status: 'ready',
+      backend: 'mock-wasm',
+      model: LOCAL_LLM_CONFIG.model.displayName,
+      runtime: 'Mock Wllama'
+    }), 220);
+  }
+
+  mockGenerate() {
+    const text = 'This is a mocked Bonsai response from the browser-only assistant.';
+    this.emit({ type: 'status', state: 'generating', message: 'Generating locally.' });
+    this.queue(() => this.emit({ type: 'token', token: text.slice(0, 24) }), 20);
+    this.queue(() => this.emit({ type: 'token', token: text.slice(24) }), 60);
+    this.queue(() => this.emit({ type: 'complete', text, backend: 'mock-wasm' }), 90);
+  }
+
+  queue(callback, delay) {
+    const id = window.setTimeout(() => {
+      if (!this.disposed) callback();
+    }, delay);
+    this.timerIds.push(id);
+  }
+
+  emit(detail) {
+    this.dispatchEvent(new MessageEvent('message', { data: detail }));
   }
 }
 
 function buildFailureCopy(message, diagnostics) {
-  const rawDetail = message.detail || message.message || 'The browser could not initialize the local model.';
-  let likelyFix = message.likelyFix || 'Try a current desktop browser with enough memory, served from localhost or HTTPS.';
-  let detail = rawDetail;
+  const category = message.category || 'runtime-failed';
+  let likelyFix = message.likelyFix || 'Try a current desktop browser with enough memory.';
+  let detail = message.detail || message.message || 'The browser could not initialize the local model.';
 
-  if (diagnostics?.secureContext === false) {
-    detail = 'This page is not running in a secure browser context, so WebGPU and some worker features may be blocked.';
-    likelyFix = 'Serve it from http://localhost, 127.0.0.1, or HTTPS, then retry.';
-  } else if (diagnostics?.workerGpu === false && message.category === 'wasm-failed') {
-    detail = 'WebGPU is not available here, and the WASM/CPU fallback could not initialize this model.';
-    likelyFix = 'Try Chrome, Edge, or Safari, or use Firefox after enabling a compatible WebGPU/WASM setup.';
-  } else if (message.category === 'runtime-import') {
-    detail = 'The worker started, but the Transformers.js runtime could not be imported from the pinned CDN.';
-    likelyFix = 'Check the local server, network access, and content blockers, then retry.';
+  if (diagnostics?.webAssembly === false) {
+    detail = 'WebAssembly is unavailable in this browser context.';
+    likelyFix = 'Use a current desktop browser with WebAssembly enabled.';
+  } else if (diagnostics?.wasmMemory64 === false && category === 'unsupported-browser') {
+    detail = 'The GGUF runtime needs WASM Memory64, which this browser does not expose.';
+    likelyFix = 'Try current Chrome or Edge. Safari support is limited for this runtime.';
+  } else if (category === 'download-failed') {
+    detail = 'The worker started, but the Bonsai model or Wllama runtime could not be downloaded.';
+    likelyFix = 'Check network access to Hugging Face and jsDelivr, then retry.';
+  } else if (category === 'out-of-memory') {
+    detail = 'The browser ran out of memory while loading or generating with the local model.';
+    likelyFix = 'Close memory-heavy tabs, reset the model, and try a shorter prompt.';
   }
 
   return {
-    title: 'Local model could not start',
+    title: category === 'unsupported-browser' ? 'Browser not supported' : 'Local model could not start',
     message: message.message || 'This browser could not load the local model.',
     detail,
     likelyFix
@@ -669,14 +666,13 @@ function formatStatus(status) {
     .join(' ');
 }
 
-async function deleteTransformersCaches() {
+async function deleteLocalModelCaches() {
   if (!window.caches?.keys || !window.caches?.delete) return false;
 
   try {
     const cacheNames = await window.caches.keys();
-    const targets = cacheNames.filter((name) => /transformers|huggingface/i.test(name));
+    const targets = cacheNames.filter((name) => /wllama|huggingface|transformers|local-llm/i.test(name));
     await Promise.all(targets.map((name) => window.caches.delete(name)));
-    await window.caches.delete('transformers-cache');
     return true;
   } catch {
     return false;
@@ -685,7 +681,8 @@ async function deleteTransformersCaches() {
 
 function initLocalLlmUtility() {
   const root = document.getElementById('localLlmUtilityApp');
-  if (!root) return;
+  if (!root || root.dataset.localLlmMounted === 'true') return;
+  root.dataset.localLlmMounted = 'true';
   new LocalLlmUtility(root);
 }
 

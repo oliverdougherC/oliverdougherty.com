@@ -506,6 +506,166 @@ async function assertUtilityIsolationLayout(page, label) {
   }
 }
 
+async function readLocalAssistantMetrics(page) {
+  return page.evaluate(() => {
+    const rect = (selector) => {
+      const element = document.querySelector(selector);
+      if (!(element instanceof HTMLElement)) return null;
+      const box = element.getBoundingClientRect();
+      const styles = getComputedStyle(element);
+      return {
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+        display: styles.display,
+        visibility: styles.visibility,
+        overflowY: styles.overflowY,
+        visible: box.width > 0 && box.height > 0 && styles.display !== 'none' && styles.visibility !== 'hidden'
+      };
+    };
+    const overlaps = (a, b) => Boolean(
+      a &&
+      b &&
+      a.visible &&
+      b.visible &&
+      a.left < b.right &&
+      a.right > b.left &&
+      a.top < b.bottom &&
+      a.bottom > b.top
+    );
+    const shell = rect('#localLlmUtilityApp');
+    const transcript = rect('#localLlmTranscript');
+    const center = rect('#localLlmCenter');
+    const thread = rect('#localLlmMessages');
+    const form = rect('#localLlmForm');
+    const input = rect('#localLlmInput');
+    const status = document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus ?? '';
+    const diagnostics = document.getElementById('localLlmDiagnostics');
+
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      status,
+      shell,
+      transcript,
+      center,
+      thread,
+      form,
+      input,
+      centerOverlapsForm: overlaps(center, form),
+      threadOverlapsForm: overlaps(thread, form),
+      formOutsideShell: Boolean(
+        form &&
+        shell &&
+        (form.left < shell.left - 1 || form.right > shell.right + 1 || form.bottom > shell.bottom + 1)
+      ),
+      transcriptZeroHeight: !transcript || transcript.height <= 0,
+      inputText: document.getElementById('localLlmInput')?.value ?? '',
+      sendDisabled: document.querySelector('.local-llm-send')?.hasAttribute('disabled') ?? true,
+      startText: document.querySelector('.local-llm-load-control-text')?.textContent?.trim() ?? '',
+      resetText: document.getElementById('localLlmResetBtn')?.textContent?.trim() ?? '',
+      messageText: document.getElementById('localLlmMessages')?.textContent?.trim() ?? '',
+      diagnosticsHidden: diagnostics?.hasAttribute('hidden') ?? true,
+      diagnosticsText: diagnostics?.textContent?.trim() ?? ''
+    };
+  });
+}
+
+function assertLocalAssistantLayout(metrics, label) {
+  assert(metrics.scrollWidth === metrics.clientWidth, `[${label}] Local Assistant should not create horizontal overflow.`);
+  assert(metrics.shell?.visible, `[${label}] Local Assistant shell should be visible.`);
+  assert(metrics.transcript?.visible, `[${label}] Local Assistant transcript should be visible.`);
+  assert(metrics.thread?.visible, `[${label}] Local Assistant thread should be visible.`);
+  assert(metrics.form?.visible, `[${label}] Local Assistant composer should be visible.`);
+  assert(metrics.input?.visible, `[${label}] Local Assistant input should be visible.`);
+  assert(!metrics.transcriptZeroHeight, `[${label}] Local Assistant transcript should have usable height.`);
+  assert(!metrics.centerOverlapsForm, `[${label}] Local Assistant loading/diagnostics panel overlaps the composer.`);
+  assert(!metrics.threadOverlapsForm, `[${label}] Local Assistant thread overlaps the composer.`);
+  assert(!metrics.formOutsideShell, `[${label}] Local Assistant composer escapes its shell.`);
+  assert(metrics.shell.right <= metrics.viewport.width + 1, `[${label}] Local Assistant shell overflows viewport width.`);
+}
+
+async function runLocalAssistantCheck(browser, pageUrl) {
+  for (const viewport of [
+    { label: 'desktop', width: 1440, height: 1100 },
+    { label: 'tablet', width: 820, height: 1180 },
+    { label: 'mobile', width: 390, height: 844 }
+  ]) {
+    const page = await browser.newPage({
+      viewport: { width: viewport.width, height: viewport.height }
+    });
+    await page.addInitScript(() => {
+      window.__OD_RETRO_VM_TEST_MODE__ = true;
+      window.__OD_LOCAL_LLM_TEST_MODE__ = 'ready';
+    });
+
+    try {
+      await page.goto(pageUrl.replace(/#.*$/, '#local-assistant'), { waitUntil: 'networkidle' });
+      await page.waitForSelector('#localLlmStartBtn', { timeout: 10000 });
+      assertLocalAssistantLayout(await readLocalAssistantMetrics(page), `local-assistant:${viewport.label}:idle`);
+
+      await page.click('#localLlmStartBtn');
+      await page.waitForFunction(() => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'ready', {
+        timeout: 10000
+      });
+      const readyMetrics = await readLocalAssistantMetrics(page);
+      assertLocalAssistantLayout(readyMetrics, `local-assistant:${viewport.label}:ready`);
+      assert(readyMetrics.sendDisabled === false, `[local-assistant:${viewport.label}] send should enable after mocked load.`);
+      assert(readyMetrics.startText === 'Ready', `[local-assistant:${viewport.label}] load control should report Ready.`);
+
+      if (viewport.label === 'desktop') {
+        await page.fill('#localLlmInput', 'Explain this local assistant in one sentence.');
+        await page.click('.local-llm-send');
+        await page.waitForFunction(
+          () => /mocked Bonsai response/i.test(document.getElementById('localLlmMessages')?.textContent ?? ''),
+          { timeout: 10000 }
+        );
+        const generatedMetrics = await readLocalAssistantMetrics(page);
+        assertLocalAssistantLayout(generatedMetrics, 'local-assistant:desktop:generated');
+        assert(/Local Assistant/i.test(generatedMetrics.messageText), 'Local Assistant should render an assistant response.');
+
+        await page.click('#localLlmResetBtn');
+        await page.waitForFunction(() => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'idle', {
+          timeout: 10000
+        });
+        const resetMetrics = await readLocalAssistantMetrics(page);
+        assert(resetMetrics.messageText === '', 'Local Assistant reset should clear the transcript.');
+        assert(resetMetrics.inputText === '', 'Local Assistant reset should clear the composer.');
+      }
+    } finally {
+      await page.close();
+    }
+  }
+
+  const unsupportedPage = await browser.newPage({ viewport: { width: 820, height: 900 } });
+  await unsupportedPage.addInitScript(() => {
+    window.__OD_LOCAL_LLM_TEST_MODE__ = 'unsupported';
+  });
+
+  try {
+    await unsupportedPage.goto(pageUrl.replace(/#.*$/, '#local-assistant'), { waitUntil: 'networkidle' });
+    await unsupportedPage.waitForSelector('#localLlmStartBtn', { timeout: 10000 });
+    await unsupportedPage.click('#localLlmStartBtn');
+    await unsupportedPage.waitForFunction(() => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'unsupported', {
+      timeout: 10000
+    });
+    const unsupportedMetrics = await readLocalAssistantMetrics(unsupportedPage);
+    assertLocalAssistantLayout(unsupportedMetrics, 'local-assistant:unsupported');
+    assert(unsupportedMetrics.diagnosticsHidden === false, 'Unsupported Local Assistant should render diagnostics.');
+    assert(/browser|memory64|chrome|edge/i.test(unsupportedMetrics.diagnosticsText), 'Unsupported Local Assistant diagnostics should be actionable.');
+    await unsupportedPage.click('[data-local-llm-retry]');
+    await unsupportedPage.waitForFunction(() => /retry|unsupported|browser/i.test(document.getElementById('localLlmDiagnostics')?.textContent ?? ''), {
+      timeout: 10000
+    });
+  } finally {
+    await unsupportedPage.close();
+  }
+}
+
 async function readLightModeVisualMetrics(page) {
   return page.evaluate(() => {
     const bodyBackground = getComputedStyle(document.body).backgroundColor;
@@ -718,6 +878,7 @@ async function main() {
     await page.addInitScript(() => {
       window.__OD_RETRO_VM_TEST_MODE__ = true;
       window.__OD_STRESS_TEST_MAX_WORKERS__ = 2;
+      window.__OD_LOCAL_LLM_TEST_MODE__ = 'ready';
     });
 
     const retroVmRequests = [];
@@ -877,6 +1038,8 @@ async function main() {
     if (!colorModeDisabled) {
       await runLightModeVisualCheck(browser, pageUrl);
     }
+
+    await runLocalAssistantCheck(browser, pageUrl);
 
     const retroVmRequestsBeforeActivation = retroVmRequests.length;
     let retroVmLaunchable = false;

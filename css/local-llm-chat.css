@@ -168,11 +168,12 @@
   display: grid;
   place-items: center;
   align-content: center;
-  gap: var(--space-4);
-  padding: clamp(1.25rem, 4vw, 3rem);
+  gap: clamp(0.75rem, 1.8vw, 1.2rem);
+  padding: clamp(1rem, 3vw, 2rem);
   text-align: center;
-  border-radius: clamp(1rem, 2vw, 1.7rem);
-  background: color-mix(in srgb, var(--local-llm-panel) 88%, transparent);
+  border-radius: 0.8rem;
+  background: color-mix(in srgb, var(--local-llm-panel) 92%, transparent);
+  overflow: auto;
   transition:
     opacity 520ms var(--ease-out-expo),
     visibility 520ms var(--ease-out-expo),
@@ -187,13 +188,13 @@
 }
 
 .local-llm-load-copy {
-  max-width: min(44rem, 92%);
-  min-height: 2.8em;
+  max-width: min(34rem, 92%);
+  min-height: 1.3em;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--color-text-primary);
-  font: 520 clamp(1.55rem, 4.2vw, 3.85rem) / 1.12 var(--font-display);
+  font: 560 clamp(1.15rem, 2.6vw, 1.65rem) / 1.25 var(--font-display);
   letter-spacing: 0;
   text-wrap: balance;
   opacity: 0;
@@ -212,11 +213,18 @@
 }
 
 .local-llm-load-copy--hello {
-  font-size: clamp(3.2rem, 12vw, 7.5rem);
-  line-height: 0.9;
+  font-size: clamp(1.15rem, 2.6vw, 1.65rem);
+  line-height: 1.25;
   color: color-mix(in srgb, var(--color-accent) 70%, var(--color-text-primary) 30%);
   text-shadow: 0 0 26px color-mix(in srgb, var(--color-accent) 38%, transparent);
-  animation: localLlmHello 2600ms var(--ease-out-expo) forwards;
+}
+
+.local-llm-model-note {
+  max-width: min(36rem, 94%);
+  margin: 0;
+  color: var(--color-text-secondary);
+  font: 400 0.86rem / 1.55 var(--font-body);
+  text-wrap: balance;
 }
 
 .local-llm-progress-wrap {
@@ -264,6 +272,8 @@
   line-height: 1.48;
   text-align: left;
   background: color-mix(in srgb, #ff4444 6%, var(--color-bg-primary));
+  max-height: min(18rem, 44vh);
+  overflow: auto;
 }
 
 .local-llm-diagnostics[hidden] {
@@ -654,10 +664,20 @@
 
   .local-llm-center {
     inset: 2.85rem 0.85rem 0.85rem;
+    padding: 0.9rem;
   }
 
   .local-llm-form {
     padding-inline: 0.7rem;
+  }
+
+  .local-llm-load-copy {
+    font-size: 1.05rem;
+  }
+
+  .local-llm-model-note,
+  .local-llm-diagnostics {
+    font-size: 0.8rem;
   }
 }
 
