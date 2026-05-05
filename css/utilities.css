@@ -1531,11 +1531,11 @@
   height: 100%;
   min-height: 20rem;
   border-radius: var(--radius-xl);
-  background: linear-gradient(135deg, #12141f 0%, #24111a 52%, #071b1f 100%);
+  background: #000000;
 }
 
 .stress-visual-panel::after {
-  content: "GPU output appears here while running";
+  content: "Stress test output appears here while running";
   position: absolute;
   inset: 0;
   display: grid;

@@ -8,6 +8,15 @@ const READY_PROMPTS = [
   'Try a local-only brainstorm...'
 ];
 
+const LOADING_MESSAGES = [
+  { threshold: 0, state: 'runtime-loading', text: 'Runs in this browser.' },
+  { threshold: 8, state: 'model-downloading', text: 'Downloading a tiny Bonsai.' },
+  { threshold: 28, state: 'model-downloading', text: 'Caching the model so the next visit is less dramatic.' },
+  { threshold: 52, state: 'model-downloading', text: 'Still local. Still private. Still a little weird.' },
+  { threshold: 74, state: 'model-downloading', text: 'Teaching the browser where all the small weights go.' },
+  { threshold: 92, state: 'model-loading', text: 'Almost there. Be gentle; it is pocket-sized.' }
+];
+
 const LOADING_COPY = {
   idle: `Runs in this browser with ${LOCAL_LLM_CONFIG.model.displayName}.`,
   'runtime-loading': 'Starting the browser GGUF runtime.',
@@ -31,6 +40,7 @@ class LocalLlmUtility {
     this.assistantDraft = null;
     this.diagnostics = null;
     this.lastProgressTotal = 0;
+    this.loadingMessageIndex = -1;
 
     this.mount();
     this.bindEvents();
@@ -138,9 +148,10 @@ class LocalLlmUtility {
     this.progress = 0;
     this.lastProgressTotal = 0;
     this.diagnostics = null;
+    this.loadingMessageIndex = -1;
     this.hideDiagnostics();
     this.stopPromptCycle();
-    this.showCenterCopy(LOADING_COPY['runtime-loading']);
+    this.showLoadingCopy('runtime-loading');
     this.updateProgressBar();
     this.updateStatus('runtime-loading', 'Starting local runtime.');
 
@@ -192,8 +203,7 @@ class LocalLlmUtility {
       this.hideDiagnostics();
       this.assistantDraft = null;
       this.updateStatus('ready', message.message || 'Ready.');
-      this.showCenterCopy(LOADING_COPY.ready);
-      this.center.classList.add('local-llm-center--hidden');
+      this.hideCenterPanel();
       this.startPromptCycle();
       this.input.focus({ preventScroll: true });
       return;
@@ -234,7 +244,13 @@ class LocalLlmUtility {
     const state = message.state || message.status || 'runtime-loading';
     const copy = message.message || LOADING_COPY[state] || 'Working locally.';
     this.updateStatus(state, copy);
-    this.showCenterCopy(LOADING_COPY[state] || copy);
+    if (this.isLoading(state)) {
+      this.showLoadingCopy(state);
+    } else if (state === 'error' || state === 'unsupported') {
+      this.showCenterCopy(LOADING_COPY[state] || copy);
+    } else {
+      this.hideCenterPanel();
+    }
     if (state === 'model-loading' && this.progress < 98) {
       this.progress = 98;
       this.updateProgressBar();
@@ -250,8 +266,26 @@ class LocalLlmUtility {
     }
     this.lastProgressTotal = Number.isFinite(message.total) ? message.total : this.lastProgressTotal;
     this.updateStatus('model-downloading', 'Downloading model.');
-    this.showCenterCopy(LOADING_COPY['model-downloading']);
+    this.showLoadingCopy('model-downloading');
     this.updateProgressBar();
+  }
+
+  showLoadingCopy(state) {
+    const index = this.getLoadingMessageIndex(state);
+    const message = LOADING_MESSAGES[index]?.text || LOADING_COPY[state] || 'Working locally.';
+    this.loadingMessageIndex = index;
+    this.showCenterCopy(message);
+  }
+
+  getLoadingMessageIndex(state) {
+    let index = 0;
+    for (let i = 0; i < LOADING_MESSAGES.length; i += 1) {
+      const message = LOADING_MESSAGES[i];
+      if (message.state === state || this.progress >= message.threshold) {
+        if (this.progress >= message.threshold) index = i;
+      }
+    }
+    return Math.max(index, this.loadingMessageIndex);
   }
 
   showCenterCopy(text) {
@@ -259,6 +293,11 @@ class LocalLlmUtility {
     this.loadCopy.textContent = text;
     this.loadCopy.classList.add('local-llm-load-copy--visible');
     this.modelNote.textContent = `${LOCAL_LLM_CONFIG.model.displayName} from Hugging Face via ${LOCAL_LLM_CONFIG.runtime.name}; falls back to Bonsai WebGPU when GGUF kernels are unsupported.`;
+  }
+
+  hideCenterPanel() {
+    this.center.classList.add('local-llm-center--hidden');
+    this.progressWrap.hidden = true;
   }
 
   updateProgressBar() {
@@ -281,7 +320,7 @@ class LocalLlmUtility {
     const canSend = status === 'ready';
     this.sendButton.disabled = !canSend;
     this.input.disabled = !canSend;
-    this.progressWrap.hidden = !(this.isLoading(status) || status === 'ready' || status === 'unsupported' || status === 'error');
+    this.progressWrap.hidden = !(this.isLoading(status) || status === 'unsupported' || status === 'error');
     this.resetButton.textContent = this.isLoading(status)
       ? 'Cancel load'
       : status === 'generating'
@@ -417,6 +456,7 @@ class LocalLlmUtility {
 
     if (this.status !== 'unsupported' && this.status !== 'error') {
       this.updateStatus('ready', 'Ready.');
+      this.hideCenterPanel();
       this.startPromptCycle();
     }
   }
@@ -428,6 +468,7 @@ class LocalLlmUtility {
       this.renderMessages();
     }
     this.updateStatus('ready', 'Generation stopped.');
+    this.hideCenterPanel();
     this.startPromptCycle();
   }
 
@@ -491,6 +532,7 @@ class LocalLlmUtility {
     this.renderMessages();
     this.progress = 0;
     this.lastProgressTotal = 0;
+    this.loadingMessageIndex = -1;
     this.hideDiagnostics();
     this.stopPromptCycle();
 
@@ -563,8 +605,8 @@ class LocalLlmMockWorker extends EventTarget {
       total: 248000000,
       progress: 50,
       file: LOCAL_LLM_CONFIG.model.file
-    }), 80);
-    this.queue(() => this.emit({ type: 'status', state: 'model-loading', message: 'Preparing the GGUF runtime context.' }), 140);
+    }), 220);
+    this.queue(() => this.emit({ type: 'status', state: 'model-loading', message: 'Preparing the GGUF runtime context.' }), 850);
     this.queue(() => this.emit({
       type: 'ready',
       state: 'ready',
@@ -572,7 +614,7 @@ class LocalLlmMockWorker extends EventTarget {
       backend: 'mock-wasm',
       model: LOCAL_LLM_CONFIG.model.displayName,
       runtime: 'Mock Wllama'
-    }), 220);
+    }), 1250);
   }
 
   mockGenerate() {

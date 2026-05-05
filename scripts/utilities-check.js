@@ -569,6 +569,7 @@ async function readLocalAssistantMetrics(page) {
       startText: document.querySelector('.local-llm-load-control-text')?.textContent?.trim() ?? '',
       resetText: document.getElementById('localLlmResetBtn')?.textContent?.trim() ?? '',
       messageText: document.getElementById('localLlmMessages')?.textContent?.trim() ?? '',
+      loadCopyText: document.getElementById('localLlmLoadCopy')?.textContent?.trim() ?? '',
       diagnosticsHidden: diagnostics?.hasAttribute('hidden') ?? true,
       diagnosticsText: diagnostics?.textContent?.trim() ?? ''
     };
@@ -609,11 +610,26 @@ async function runLocalAssistantCheck(browser, pageUrl) {
       assertLocalAssistantLayout(await readLocalAssistantMetrics(page), `local-assistant:${viewport.label}:idle`);
 
       await page.click('#localLlmStartBtn');
-      await page.waitForFunction(() => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'ready', {
-        timeout: 10000
-      });
+      await page.waitForFunction(
+        () => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'model-downloading',
+        null,
+        { timeout: 10000 }
+      );
+      const downloadingMetrics = await readLocalAssistantMetrics(page);
+      assertLocalAssistantLayout(downloadingMetrics, `local-assistant:${viewport.label}:downloading`);
+      assert(
+        /bonsai|caching|browser|local/i.test(downloadingMetrics.loadCopyText),
+        `[local-assistant:${viewport.label}] download copy should show the local model loading messages.`
+      );
+
+      await page.waitForFunction(
+        () => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'ready',
+        null,
+        { timeout: 10000 }
+      );
       const readyMetrics = await readLocalAssistantMetrics(page);
       assertLocalAssistantLayout(readyMetrics, `local-assistant:${viewport.label}:ready`);
+      assert(!readyMetrics.center?.visible, `[local-assistant:${viewport.label}] ready panel should hide after load.`);
       assert(readyMetrics.sendDisabled === false, `[local-assistant:${viewport.label}] send should enable after mocked load.`);
       assert(readyMetrics.startText === 'Ready', `[local-assistant:${viewport.label}] load control should report Ready.`);
 
@@ -622,16 +638,20 @@ async function runLocalAssistantCheck(browser, pageUrl) {
         await page.click('.local-llm-send');
         await page.waitForFunction(
           () => /mocked Bonsai response/i.test(document.getElementById('localLlmMessages')?.textContent ?? ''),
+          null,
           { timeout: 10000 }
         );
         const generatedMetrics = await readLocalAssistantMetrics(page);
         assertLocalAssistantLayout(generatedMetrics, 'local-assistant:desktop:generated');
+        assert(!generatedMetrics.center?.visible, 'Local Assistant center panel should stay hidden after generation.');
         assert(/Local Assistant/i.test(generatedMetrics.messageText), 'Local Assistant should render an assistant response.');
 
         await page.click('#localLlmResetBtn');
-        await page.waitForFunction(() => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'idle', {
-          timeout: 10000
-        });
+        await page.waitForFunction(
+          () => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'idle',
+          null,
+          { timeout: 10000 }
+        );
         const resetMetrics = await readLocalAssistantMetrics(page);
         assert(resetMetrics.messageText === '', 'Local Assistant reset should clear the transcript.');
         assert(resetMetrics.inputText === '', 'Local Assistant reset should clear the composer.');
@@ -650,9 +670,11 @@ async function runLocalAssistantCheck(browser, pageUrl) {
     await unsupportedPage.goto(pageUrl.replace(/#.*$/, '#local-assistant'), { waitUntil: 'networkidle' });
     await unsupportedPage.waitForSelector('#localLlmStartBtn', { timeout: 10000 });
     await unsupportedPage.click('#localLlmStartBtn');
-    await unsupportedPage.waitForFunction(() => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'unsupported', {
-      timeout: 10000
-    });
+    await unsupportedPage.waitForFunction(
+      () => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'unsupported',
+      null,
+      { timeout: 10000 }
+    );
     const unsupportedMetrics = await readLocalAssistantMetrics(unsupportedPage);
     assertLocalAssistantLayout(unsupportedMetrics, 'local-assistant:unsupported');
     assert(unsupportedMetrics.diagnosticsHidden === false, 'Unsupported Local Assistant should render diagnostics.');

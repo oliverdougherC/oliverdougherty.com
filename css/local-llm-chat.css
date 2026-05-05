@@ -181,6 +181,7 @@
 }
 
 .local-llm-center--hidden {
+  display: none;
   opacity: 0;
   visibility: hidden;
   transform: translateY(-8px) scale(0.995);
