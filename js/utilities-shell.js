@@ -27,6 +27,11 @@
   const dropdownButtons = document.querySelectorAll('.utility-switcher-dropdown button[data-utility]');
   const stages = document.querySelectorAll('.utility-stage');
 
+  const FLAIR_COLORS = ['#FF6700', '#2BA84A', '#004BA8'];
+
+  function pickFlairColor() {
+    return FLAIR_COLORS[Math.floor(Math.random() * FLAIR_COLORS.length)];
+  }
   let currentUtilityId = null;
   let isTransitioning = false;
   let localAssistantScriptPromise = null;
@@ -71,6 +76,7 @@
 
   function activateStage(stage, utilityId) {
     stage.classList.add('is-active');
+    stage.style.setProperty('--utility-flair', pickFlairColor());
     setActiveUtility(utilityId);
     stage.dispatchEvent(new CustomEvent('utility-activate', { bubbles: true }));
     if (utilityId === 'local-assistant') {
@@ -84,6 +90,7 @@
   }
 
   function deactivateStage(stage) {
+    stage.style.removeProperty('--utility-flair');
     stage.dispatchEvent(new CustomEvent('utility-deactivate', { bubbles: true }));
   }
 

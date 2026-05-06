@@ -1565,6 +1565,124 @@
 }
 
 /* ========================================
+   Per-Utility Random Flair Colors
+   ======================================== */
+
+.utility-stage.is-active[style*="--utility-flair"] {
+  --flair: var(--utility-flair);
+  --flair-dark: color-mix(in srgb, var(--utility-flair) 70%, #000000);
+  --flair-glow: color-mix(in srgb, var(--utility-flair) 30%, transparent);
+  --flair-soft: color-mix(in srgb, var(--utility-flair) 15%, transparent);
+}
+
+/* --- Primary action buttons (all utilities) --- */
+.utility-stage.is-active[style*="--utility-flair"] .btn-primary-minimal,
+.utility-stage.is-active[style*="--utility-flair"] .btn-primary-utility {
+  background:
+    linear-gradient(135deg, var(--flair) 0%, var(--flair-dark) 100%) padding-box,
+    linear-gradient(var(--flair-glow), var(--flair-glow)) border-box;
+  background-clip: padding-box, border-box;
+  color: #ffffff;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--utility-flair) 25%, transparent);
+}
+
+.utility-stage.is-active[style*="--utility-flair"] .btn-primary-minimal:hover,
+.utility-stage.is-active[style*="--utility-flair"] .btn-primary-utility:hover {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 0 20px -4px var(--flair-glow);
+}
+
+/* --- Progress fills --- */
+.utility-stage.is-active[style*="--utility-flair"] .utility-progress-fill-minimal,
+.utility-stage.is-active[style*="--utility-flair"] .death-progress-fill,
+.utility-stage.is-active[style*="--utility-flair"] .audio-progress-fill {
+  background: linear-gradient(90deg, var(--flair), color-mix(in srgb, var(--flair) 75%, #ffffff));
+  box-shadow: 0 0 12px var(--flair-glow);
+}
+
+/* --- Active demo / preset chips --- */
+.utility-stage.is-active[style*="--utility-flair"] .demo-chip-minimal.active {
+  background: var(--flair-soft);
+  border-color: color-mix(in srgb, var(--utility-flair) 45%, rgba(255,255,255,0.1));
+  color: #ffffff;
+}
+
+/* --- Death Calculator: focused inputs --- */
+.utility-stage.is-active[style*="--utility-flair"] .death-question-card .control-input:focus,
+.utility-stage.is-active[style*="--utility-flair"] .death-question-card .control-select:focus {
+  border-color: var(--flair);
+  box-shadow: 0 0 15px var(--flair-glow);
+}
+
+/* --- Stress Test: active mode button --- */
+.utility-stage.is-active[style*="--utility-flair"] .stress-mode-button.is-active {
+  border-color: color-mix(in srgb, var(--utility-flair) 50%, transparent);
+  background: var(--flair-soft);
+  color: #ffffff;
+}
+
+/* --- Stress Test: running visual panel border --- */
+.utility-stage.is-active[style*="--utility-flair"] .utility-shell--stress[data-stress-state='running'] .stress-visual-panel {
+  border-color: color-mix(in srgb, var(--utility-flair) 40%, transparent);
+  box-shadow: 0 0 22px var(--flair-soft), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* --- Virtual Machine: Launch button --- */
+.utility-stage.is-active[style*="--utility-flair"] #retroVmLaunchBtn {
+  background:
+    linear-gradient(135deg, var(--flair) 0%, var(--flair-dark) 100%) padding-box,
+    linear-gradient(var(--flair-glow), var(--flair-glow)) border-box;
+  background-clip: padding-box, border-box;
+  color: #ffffff;
+  border-color: transparent;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--utility-flair) 25%, transparent);
+}
+
+.utility-stage.is-active[style*="--utility-flair"] #retroVmLaunchBtn:hover {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 0 20px -4px var(--flair-glow);
+}
+
+/* --- Virtual Machine: running screen border --- */
+.utility-stage.is-active[style*="--utility-flair"] [data-vm-state='running'] .vm-screen-shell {
+  border-color: color-mix(in srgb, var(--utility-flair) 40%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 24px -12px rgba(0, 0, 0, 0.5),
+    0 0 18px var(--flair-soft);
+}
+
+/* --- Local Assistant --- */
+.utility-stage.is-active[style*="--utility-flair"] .utility-shell--local-llm .local-llm-send {
+  background:
+    linear-gradient(135deg, var(--flair) 0%, var(--flair-dark) 100%) padding-box,
+    linear-gradient(var(--flair-glow), var(--flair-glow)) border-box;
+  background-clip: padding-box, border-box;
+  color: #ffffff;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--utility-flair) 25%, transparent);
+}
+
+.utility-stage.is-active[style*="--utility-flair"] .utility-shell--local-llm .local-llm-send:hover {
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 0 20px -4px var(--flair-glow);
+}
+
+.utility-stage.is-active[style*="--utility-flair"] .utility-shell--local-llm .local-llm-progress-fill {
+  background: linear-gradient(90deg, var(--flair), color-mix(in srgb, var(--flair) 75%, #ffffff));
+  box-shadow: 0 0 10px var(--flair-glow);
+}
+
+.utility-stage.is-active[style*="--utility-flair"] .utility-shell--local-llm .local-llm-mark {
+  border-color: color-mix(in srgb, var(--utility-flair) 45%, var(--local-llm-line));
+  color: var(--flair);
+  background: color-mix(in srgb, var(--utility-flair) 10%, transparent);
+}
+
+.utility-stage.is-active[style*="--utility-flair"] .utility-shell--local-llm .local-llm-message--assistant .local-llm-message-role {
+  color: var(--flair);
+}
+
+/* ========================================
    Local Assistant Utility
    ======================================== */
 
