@@ -34,6 +34,7 @@
   }
   let currentUtilityId = null;
   let isTransitioning = false;
+  let hasExitedTitleCard = false;
   let localAssistantScriptPromise = null;
 
   function getHashTarget() {
@@ -110,6 +111,20 @@
     utilityView.classList.remove('utilities-view--active');
     titleView.classList.add('utilities-view--active');
 
+    // If returning from a utility, skip entrance animations for instant visibility
+    if (hasExitedTitleCard) {
+      document.documentElement.classList.add('utilities-returned');
+      titleButtons.forEach(function (btn) {
+        if (!btn.classList.contains('is-visible')) {
+          btn.style.transition = 'none';
+          btn.classList.add('is-visible');
+          requestAnimationFrame(function () {
+            btn.style.transition = '';
+          });
+        }
+      });
+    }
+
     currentUtilityId = null;
     setActiveUtility(null);
 
@@ -122,6 +137,10 @@
     opts = opts || {};
     if (isTransitioning) return;
     isTransitioning = true;
+
+    if (!currentUtilityId) {
+      hasExitedTitleCard = true;
+    }
 
     var incoming = getStage(utilityId);
     if (!incoming) {

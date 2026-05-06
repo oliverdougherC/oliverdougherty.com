@@ -4,6 +4,7 @@ import {
   mapSliderValueToEnergyPercent,
   mixEnergyBands,
   resolveEnergyMakeupGain,
+  resolveSampleEnvelope,
   renderWindowedComponentCount
 } from '@utilities/audioFourierCore';
 
@@ -20,8 +21,8 @@ describe('audio Fourier core', () => {
     const max = 1000;
 
     expect(mapSliderValueToEnergyPercent(0, max)).toBe(0);
-    expect(mapSliderValueToEnergyPercent(500, max)).toBeCloseTo(0.8, 6);
-    expect(mapSliderValueToEnergyPercent(200, max)).toBeGreaterThan(0.5);
+    expect(mapSliderValueToEnergyPercent(500, max)).toBeCloseTo(0.5, 6);
+    expect(mapSliderValueToEnergyPercent(200, max)).toBeCloseTo(0.2, 6);
     expect(mapSliderValueToEnergyPercent(max, max)).toBe(1);
   });
 
@@ -30,6 +31,20 @@ describe('audio Fourier core', () => {
     expect(resolveEnergyMakeupGain(0.5)).toBeGreaterThan(1);
     expect(resolveEnergyMakeupGain(0.2)).toBeGreaterThan(resolveEnergyMakeupGain(0.5));
     expect(resolveEnergyMakeupGain(0)).toBeLessThanOrEqual(2.8);
+  });
+
+  it('resolves waveform envelopes from fractional viewport ranges', () => {
+    const samples = new Float32Array([0.1, -0.4, 0.7, -0.2, 0.3]);
+    const fractionalEnvelope = resolveSampleEnvelope(samples, 0.5, 3.2);
+    const singleEnvelope = resolveSampleEnvelope(samples, 2.8, 2.9);
+    const clampedEnvelope = resolveSampleEnvelope(samples, -3, 99);
+
+    expect(fractionalEnvelope.min).toBeCloseTo(-0.4, 6);
+    expect(fractionalEnvelope.max).toBeCloseTo(0.7, 6);
+    expect(singleEnvelope.min).toBeCloseTo(0.7, 6);
+    expect(singleEnvelope.max).toBeCloseTo(0.7, 6);
+    expect(clampedEnvelope.min).toBeCloseTo(-0.4, 6);
+    expect(clampedEnvelope.max).toBeCloseTo(0.7, 6);
   });
 
   it('orders dominant tones early in the windowed component list', () => {

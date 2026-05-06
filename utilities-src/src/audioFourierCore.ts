@@ -41,6 +41,11 @@ export interface EnergyBandReconstruction {
   mixedDisplayFrame: Float32Array;
 }
 
+export interface SampleEnvelope {
+  min: number;
+  max: number;
+}
+
 interface ReconstructionScratch {
   window: Float32Array;
   spectraReal: Float32Array;
@@ -124,8 +129,36 @@ export function mapSliderValueToComponentCount(value: number, maxValue: number, 
 }
 
 export function mapSliderValueToEnergyPercent(value: number, maxValue: number) {
-  const phase = clamp(value / Math.max(1, maxValue), 0, 1);
-  return Math.pow(phase, Math.log(0.8) / Math.log(0.5));
+  return clamp(value / Math.max(1, maxValue), 0, 1);
+}
+
+export function resolveSampleEnvelope(samples: Float32Array, startSample: number, endSample: number): SampleEnvelope {
+  if (samples.length === 0) {
+    return { min: 0, max: 0 };
+  }
+
+  const lower = Math.min(startSample, endSample);
+  const upper = Math.max(startSample, endSample);
+  const start = clamp(Math.floor(lower), 0, samples.length - 1);
+  const end = clamp(Math.ceil(upper), start + 1, samples.length);
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+
+  for (let sampleIndex = start; sampleIndex < end; sampleIndex += 1) {
+    const value = samples[sampleIndex];
+    if (!Number.isFinite(value)) {
+      continue;
+    }
+    min = Math.min(min, value);
+    max = Math.max(max, value);
+  }
+
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    const value = samples[start] ?? 0;
+    return { min: value, max: value };
+  }
+
+  return { min, max };
 }
 
 export function resolveEnergyBandGains(energyPercent: number, bandEnergyFractions: Float32Array) {

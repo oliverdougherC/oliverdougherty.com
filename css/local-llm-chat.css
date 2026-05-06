@@ -189,23 +189,19 @@
   display: none;
 }
 
-.local-llm-load-copy,
-.local-llm-model-note,
-.local-llm-diagnostics p {
-  margin: 0;
-}
-
 .local-llm-load-copy {
   color: var(--local-llm-text);
   font: 560 clamp(1.2rem, 2.4vw, 1.75rem) / 1.22 var(--font-display);
   letter-spacing: 0;
   text-wrap: balance;
+  text-align: center;
 }
 
 .local-llm-model-note {
   color: var(--local-llm-muted);
   font: 400 0.88rem / 1.5 var(--font-body);
   text-wrap: balance;
+  text-align: center;
 }
 
 .local-llm-progress-wrap {
@@ -462,9 +458,9 @@
   min-height: var(--local-llm-control-size);
   max-height: 10rem;
   resize: none;
-  padding: 0.9rem 1rem;
+  padding: 0.9rem 1.2rem;
   border: 1px solid var(--local-llm-line);
-  border-radius: 8px;
+  border-radius: var(--radius-full);
   color: var(--local-llm-text);
   caret-color: var(--local-llm-text);
   font: 400 0.98rem / 1.42 var(--font-body);
