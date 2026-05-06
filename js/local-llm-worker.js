@@ -1,16 +1,4 @@
-import { LOCAL_LLM_CONFIG } from './local-llm-config.js';
-
-const WORKER_STATE = {
-  IDLE: 'idle',
-  RUNTIME_LOADING: 'runtime-loading',
-  MODEL_DOWNLOADING: 'model-downloading',
-  MODEL_LOADING: 'model-loading',
-  READY: 'ready',
-  GENERATING: 'generating',
-  ERROR: 'error',
-  UNSUPPORTED: 'unsupported',
-  DISPOSED: 'disposed'
-};
+import { LOCAL_LLM_CONFIG, WORKER_STATE } from './local-llm-config.js';
 
 let wllamaModule = null;
 let wllama = null;
@@ -26,7 +14,8 @@ let activeAbortController = null;
 
 installWorkerDocumentBase();
 
-for (const method of ['debug', 'info', 'warn']) {
+// Suppress noisy worker logs; keep warnings visible for memory pressure / deprecated APIs.
+for (const method of ['debug', 'info']) {
   self.console[method] = () => {};
 }
 
@@ -219,10 +208,17 @@ async function generateReply(messages) {
     await loadModel();
     if (generationId !== activeGeneration) return;
     if (activeRuntime === 'onnx') {
+      if (!generator) {
+        setState(WORKER_STATE.ERROR, 'Model failed to load; cannot generate.');
+        return;
+      }
       await generateTransformersReply(messages, generationId);
       return;
     }
-    if (!wllama?.isModelLoaded?.()) return;
+    if (!wllama?.isModelLoaded?.()) {
+      setState(WORKER_STATE.ERROR, 'Model failed to load; cannot generate.');
+      return;
+    }
 
     activeAbortController = new AbortController();
     setState(WORKER_STATE.GENERATING, 'Generating locally.');
@@ -273,10 +269,12 @@ async function generateTransformersReply(messages, generationId) {
   setState(WORKER_STATE.GENERATING, 'Generating locally on WebGPU.');
   stoppingCriteria?.reset?.();
 
-  const module = transformersModule || (await import(LOCAL_LLM_CONFIG.fallbackRuntime.moduleUrl));
-  const { DynamicCache, InterruptableStoppingCriteria, TextStreamer } = module;
+  const { DynamicCache, InterruptableStoppingCriteria, TextStreamer } = transformersModule;
   stoppingCriteria ??= new InterruptableStoppingCriteria();
-  pastKeyValuesCache ??= new DynamicCache();
+
+  // Reset KV cache between conversations to avoid memory growth and context contamination
+  pastKeyValuesCache?.dispose?.();
+  pastKeyValuesCache = new DynamicCache();
 
   let streamedText = '';
   const streamer = new TextStreamer(generator.tokenizer, {
@@ -291,7 +289,11 @@ async function generateTransformersReply(messages, generationId) {
 
   const output = await generator(compactMessages(messages), {
     max_new_tokens: LOCAL_LLM_CONFIG.generation.max_new_tokens,
-    do_sample: false,
+    do_sample: true,
+    temperature: LOCAL_LLM_CONFIG.generation.sampling.temp,
+    top_k: LOCAL_LLM_CONFIG.generation.sampling.top_k,
+    top_p: LOCAL_LLM_CONFIG.generation.sampling.top_p,
+    repetition_penalty: LOCAL_LLM_CONFIG.generation.sampling.penalty_repeat,
     streamer,
     stopping_criteria: stoppingCriteria,
     past_key_values: pastKeyValuesCache
@@ -308,9 +310,10 @@ function cancelGeneration() {
   activeAbortController?.abort();
   stoppingCriteria?.interrupt?.();
   activeAbortController = null;
+  // Don't post 'cancelled' here — the generation's catch block handles it,
+  // avoiding a duplicate message when the stream throws an AbortError.
   if (wllama?.isModelLoaded?.() || generator) {
     setState(WORKER_STATE.READY, 'Generation stopped.');
-    postMessage({ type: 'cancelled' });
   }
 }
 
@@ -340,9 +343,23 @@ function compactMessages(messages) {
       content: message.content.slice(0, LOCAL_LLM_CONFIG.limits.maxMessageChars)
     }));
 
+  // Trim complete user/assistant pairs from the start to avoid orphaned messages
+  // that confuse chat-template models
+  const max = LOCAL_LLM_CONFIG.limits.maxHistoryMessages;
+  let chat = sanitized;
+  if (sanitized.length > max) {
+    const sliced = sanitized.slice(-max);
+    // If slice starts with a user message (incomplete pair), drop it
+    if (sliced.length > 0 && sliced[0].role === 'user') {
+      chat = sliced.slice(1);
+    } else {
+      chat = sliced;
+    }
+  }
+
   return [
     { role: 'system', content: LOCAL_LLM_CONFIG.systemPrompt },
-    ...sanitized.slice(-LOCAL_LLM_CONFIG.limits.maxHistoryMessages)
+    ...chat
   ];
 }
 
@@ -379,7 +396,7 @@ async function probeWebGpu() {
   }
 
   if (typeof self.navigator.gpu.requestAdapter !== 'function') {
-    return { available: true, reason: 'navigator.gpu exists but requestAdapter is unavailable.' };
+    return { available: false, reason: 'navigator.gpu exists but requestAdapter is unavailable.' };
   }
 
   try {
@@ -483,12 +500,13 @@ function extractGeneratedText(output, fallbackText) {
   const generated = first?.generated_text;
 
   if (Array.isArray(generated)) {
-    const last = generated[generated.length - 1];
-    if (typeof last?.content === 'string') return last.content;
+    for (let i = generated.length - 1; i >= 0; i--) {
+      if (typeof generated[i]?.content === 'string') return generated[i].content;
+    }
   }
 
+  if (typeof generated === 'string' && generated.trim()) return generated;
   if (fallbackText.trim()) return fallbackText;
-  if (typeof generated === 'string') return generated;
   return fallbackText;
 }
 

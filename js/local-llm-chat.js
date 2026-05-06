@@ -1,4 +1,4 @@
-import { LOCAL_LLM_CONFIG } from './local-llm-config.js';
+import { LOCAL_LLM_CONFIG, WORKER_STATE } from './local-llm-config.js';
 
 const MAX_INPUT_CHARS = LOCAL_LLM_CONFIG.limits.maxInputChars;
 const READY_PROMPTS = [
@@ -28,6 +28,25 @@ const LOADING_COPY = {
   unsupported: 'This browser cannot run the local model.'
 };
 
+const LOAD_CONTROL_STATE = {
+  loading: { symbol: '\u2026', cls: 'local-llm-load-control--loading', disabled: true },
+  ready: { symbol: '\u2713', cls: 'local-llm-load-control--ready', text: 'Ready', disabled: true },
+  generating: { symbol: '\u2713', cls: 'local-llm-load-control--ready', text: 'Busy', disabled: true },
+  unsupported: { symbol: '\u21AB', cls: 'local-llm-load-control--error', text: 'Retry', disabled: false },
+  error: { symbol: '\u21AB', cls: 'local-llm-load-control--error', text: 'Retry', disabled: false },
+  idle: { symbol: '\u2193', cls: '', text: 'Load', disabled: false }
+};
+
+const LOAD_CONTROL_GROUP = {
+  'runtime-loading': 'loading',
+  'model-downloading': 'loading',
+  'model-loading': 'loading',
+  ready: 'ready',
+  generating: 'generating',
+  unsupported: 'unsupported',
+  error: 'error'
+};
+
 class LocalLlmUtility {
   constructor(root) {
     this.root = root;
@@ -39,8 +58,8 @@ class LocalLlmUtility {
     this.promptIndex = 0;
     this.assistantDraft = null;
     this.diagnostics = null;
-    this.lastProgressTotal = 0;
     this.loadingMessageIndex = -1;
+    this._lastAssistantElement = null;
 
     this.mount();
     this.bindEvents();
@@ -52,7 +71,8 @@ class LocalLlmUtility {
   mount() {
     this.root.innerHTML = `
       <div class="local-llm-window">
-        <div class="local-llm-transcript" id="localLlmTranscript" aria-live="polite">
+        <div class="local-llm-transcript" id="localLlmTranscript">
+          <div id="localLlmLiveRegion" class="local-llm-live-region" aria-live="polite" aria-atomic="true"></div>
           <div class="local-llm-top-cards" role="toolbar" aria-label="Model status and actions">
             <div class="local-llm-top-cards-track">
               <span class="local-llm-card utility-status-chip utility-status-chip--idle" id="localLlmStatusChip">Idle</span>
@@ -64,7 +84,7 @@ class LocalLlmUtility {
             <p class="local-llm-load-copy local-llm-load-copy--visible" id="localLlmLoadCopy"></p>
             <p class="local-llm-model-note" id="localLlmModelNote"></p>
             <div class="local-llm-progress-wrap" id="localLlmProgressWrap" hidden>
-              <div class="utility-progress-bar local-llm-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="localLlmProgressBar">
+              <div class="utility-progress-bar local-llm-progress" role="progressbar" aria-label="Model download progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="localLlmProgressBar">
                 <span class="utility-progress-fill local-llm-progress-fill"></span>
               </div>
               <span class="local-llm-progress-percent" id="localLlmProgressPercent">0%</span>
@@ -82,6 +102,8 @@ class LocalLlmUtility {
           <div class="local-llm-input-shell">
             <textarea id="localLlmInput" class="local-llm-input" rows="1" maxlength="${MAX_INPUT_CHARS}" placeholder="Load the model first." disabled></textarea>
             <span class="local-llm-ready-prompt" id="localLlmReadyPrompt" aria-hidden="true">Load the model first.</span>
+            <span class="local-llm-char-count" id="localLlmCharCount" aria-hidden="true" hidden></span>
+            <span class="local-llm-typing" id="localLlmTyping" hidden><span class="local-llm-typing-dot"></span><span class="local-llm-typing-dot"></span><span class="local-llm-typing-dot"></span></span>
           </div>
           <button class="local-llm-send" type="submit" aria-label="Send message" disabled data-cursor="hover">
             <svg class="local-llm-send-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
@@ -108,6 +130,9 @@ class LocalLlmUtility {
     this.form = this.root.querySelector('#localLlmForm');
     this.input = this.root.querySelector('#localLlmInput');
     this.readyPrompt = this.root.querySelector('#localLlmReadyPrompt');
+    this.charCount = this.root.querySelector('#localLlmCharCount');
+    this.typingIndicator = this.root.querySelector('#localLlmTyping');
+    this.typingTimer = null;
     this.sendButton = this.root.querySelector('.local-llm-send');
   }
 
@@ -121,9 +146,10 @@ class LocalLlmUtility {
     this.input.addEventListener('input', () => {
       this.updatePromptVisibility();
       this.autoSizeInput();
+      this.updateCharCount();
     });
     this.input.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' && !event.shiftKey) {
+      if (event.key === 'Enter' && (!event.shiftKey || event.ctrlKey || event.metaKey)) {
         event.preventDefault();
         this.sendMessage();
       }
@@ -133,12 +159,16 @@ class LocalLlmUtility {
     });
     this.diagnosticsPanel.addEventListener('click', (event) => {
       if (event.target.closest('[data-local-llm-retry]')) {
-        this.resetChat({ clearCache: false }).then(() => this.startChat());
+        this.resetChat({ clearCache: false }).then(() => this.startChat()).catch(() => {
+          this.updateStatus('error', 'Retry failed. Check network and try again.');
+        });
       }
     });
     window.addEventListener('pagehide', () => {
-      this.worker?.postMessage({ type: 'dispose', clearCache: false });
       this.worker?.terminate();
+    });
+    this.root.addEventListener('utility-deactivate', () => {
+      this.resetChat({ clearCache: false });
     });
   }
 
@@ -146,7 +176,6 @@ class LocalLlmUtility {
     if (this.status === 'ready' || this.status === 'generating' || this.isLoading()) return;
 
     this.progress = 0;
-    this.lastProgressTotal = 0;
     this.diagnostics = null;
     this.loadingMessageIndex = -1;
     this.hideDiagnostics();
@@ -215,6 +244,7 @@ class LocalLlmUtility {
     }
 
     if (message.type === 'token') {
+      this.hideTypingIndicator();
       this.appendAssistantToken(message.token || '');
       return;
     }
@@ -264,9 +294,14 @@ class LocalLlmUtility {
     } else if (this.progress < 12) {
       this.progress = 12;
     }
-    this.lastProgressTotal = Number.isFinite(message.total) ? message.total : this.lastProgressTotal;
-    this.updateStatus('model-downloading', 'Downloading model.');
-    this.showLoadingCopy('model-downloading');
+
+    // Use the state reported by the worker instead of hardcoding 'model-downloading'.
+    // This prevents overwriting 'model-loading' with a stale status.
+    const state = message.state === WORKER_STATE.MODEL_LOADING
+      ? 'model-loading'
+      : 'model-downloading';
+    this.updateStatus(state, state === 'model-loading' ? 'Preparing model context.' : 'Downloading model.');
+    this.showLoadingCopy(state);
     this.updateProgressBar();
   }
 
@@ -280,10 +315,7 @@ class LocalLlmUtility {
   getLoadingMessageIndex(state) {
     let index = 0;
     for (let i = 0; i < LOADING_MESSAGES.length; i += 1) {
-      const message = LOADING_MESSAGES[i];
-      if (message.state === state || this.progress >= message.threshold) {
-        if (this.progress >= message.threshold) index = i;
-      }
+      if (this.progress >= LOADING_MESSAGES[i].threshold) index = i;
     }
     return Math.max(index, this.loadingMessageIndex);
   }
@@ -292,7 +324,7 @@ class LocalLlmUtility {
     this.center.classList.remove('local-llm-center--hidden');
     this.loadCopy.textContent = text;
     this.loadCopy.classList.add('local-llm-load-copy--visible');
-    this.modelNote.textContent = `${LOCAL_LLM_CONFIG.model.displayName} from Hugging Face via ${LOCAL_LLM_CONFIG.runtime.name}; falls back to Bonsai WebGPU when GGUF kernels are unsupported.`;
+    this.modelNote.textContent = `${LOCAL_LLM_CONFIG.model.displayName} — runs entirely in this browser.`;
   }
 
   hideCenterPanel() {
@@ -320,7 +352,8 @@ class LocalLlmUtility {
     const canSend = status === 'ready';
     this.sendButton.disabled = !canSend;
     this.input.disabled = !canSend;
-    this.progressWrap.hidden = !(this.isLoading(status) || status === 'unsupported' || status === 'error');
+    this.resetButton.disabled = this.isLoading(status);
+    this.progressWrap.hidden = !(this.isLoading(status) || status === 'unsupported');
     this.resetButton.textContent = this.isLoading(status)
       ? 'Cancel load'
       : status === 'generating'
@@ -346,34 +379,22 @@ class LocalLlmUtility {
   }
 
   isLoading(status = this.status) {
-    return status === 'runtime-loading' || status === 'model-downloading' || status === 'model-loading';
+    return status === WORKER_STATE.RUNTIME_LOADING || status === WORKER_STATE.MODEL_DOWNLOADING || status === WORKER_STATE.MODEL_LOADING;
   }
 
   updateLoadControl() {
     const isLoading = this.isLoading();
-    const isReady = this.status === 'ready' || this.status === 'generating';
-    const isFailure = this.status === 'unsupported' || this.status === 'error';
+    const group = LOAD_CONTROL_GROUP[this.status] || 'idle';
+    const appearance = LOAD_CONTROL_STATE[group];
 
-    this.startButton.disabled = isLoading || isReady;
-    this.startButton.classList.toggle('local-llm-load-control--loading', isLoading);
-    this.startButton.classList.toggle('local-llm-load-control--ready', isReady);
-    this.startButton.classList.toggle('local-llm-load-control--error', isFailure);
+    this.startButton.disabled = appearance.disabled;
+    this.startButton.classList.remove('local-llm-load-control--loading', 'local-llm-load-control--ready', 'local-llm-load-control--error');
+    if (appearance.cls) this.startButton.classList.add(appearance.cls);
 
-    if (isLoading) {
-      this.startSymbol.textContent = '…';
-      this.startText.textContent = `${Math.max(0, Math.min(100, this.progress))}%`;
-    } else if (isReady) {
-      this.startSymbol.textContent = '✓';
-      this.startText.textContent = this.status === 'generating' ? 'Busy' : 'Ready';
-    } else if (isFailure) {
-      this.startSymbol.textContent = '↻';
-      this.startText.textContent = 'Retry';
-      this.startButton.disabled = false;
-    } else {
-      this.startSymbol.textContent = '↓';
-      this.startText.textContent = 'Load';
-      this.startButton.disabled = false;
-    }
+    this.startSymbol.textContent = appearance.symbol;
+    this.startText.textContent = isLoading
+      ? `${Math.max(0, Math.min(100, this.progress))}%`
+      : (appearance.text || '');
   }
 
   startPromptCycle() {
@@ -393,7 +414,22 @@ class LocalLlmUtility {
 
   setReadyPrompt(text) {
     this.input.placeholder = text;
-    this.readyPrompt.textContent = text;
+    this.readyPrompt.classList.remove('local-llm-ready-prompt--enter');
+    this.readyPrompt.classList.add('local-llm-ready-prompt--exit');
+
+    // Respect prefers-reduced-motion: update text immediately without animation.
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const delay = reduceMotion ? 0 : 280;
+
+    setTimeout(() => {
+      this.readyPrompt.textContent = text;
+      this.readyPrompt.classList.remove('local-llm-ready-prompt--exit');
+      if (reduceMotion) {
+        this.readyPrompt.classList.remove('local-llm-ready-prompt--enter');
+      } else {
+        this.readyPrompt.classList.add('local-llm-ready-prompt--enter');
+      }
+    }, delay);
   }
 
   updatePromptVisibility() {
@@ -403,6 +439,37 @@ class LocalLlmUtility {
   autoSizeInput() {
     this.input.style.height = 'auto';
     this.input.style.height = `${Math.min(this.input.scrollHeight, 160)}px`;
+  }
+
+  updateCharCount() {
+    const len = this.input.value.length;
+    const remaining = MAX_INPUT_CHARS - len;
+    if (remaining <= 600) {
+      this.charCount.hidden = false;
+      this.charCount.textContent = `${remaining}`;
+      this.charCount.style.color = remaining <= 100 ? '#ff8888' : '';
+    } else {
+      this.charCount.hidden = true;
+    }
+  }
+
+  showTypingAfterDelay() {
+    this.hideTypingIndicator();
+    this.typingTimer = setTimeout(() => {
+      if (this.typingIndicator) {
+        this.typingIndicator.hidden = false;
+      }
+    }, 500);
+  }
+
+  hideTypingIndicator() {
+    if (this.typingTimer) {
+      clearTimeout(this.typingTimer);
+      this.typingTimer = null;
+    }
+    if (this.typingIndicator) {
+      this.typingIndicator.hidden = true;
+    }
   }
 
   sendMessage() {
@@ -425,7 +492,9 @@ class LocalLlmUtility {
     this.assistantDraft = { role: 'assistant', content: '' };
     this.messages.push(this.assistantDraft);
     this.renderMessages();
+    this.appendAssistantToken('');
     this.updateStatus('generating', 'Generating locally.');
+    this.showTypingAfterDelay();
     this.worker.postMessage({ type: 'generate', messages: this.messages.filter((message) => message.role !== 'notice') });
   }
 
@@ -433,15 +502,19 @@ class LocalLlmUtility {
     if (!this.assistantDraft) {
       this.assistantDraft = { role: 'assistant', content: '' };
       this.messages.push(this.assistantDraft);
+      this.appendAssistantElement();
     }
 
     this.assistantDraft.content += token;
-    this.renderMessages();
+    this.updateAssistantElement();
   }
 
   finishAssistantMessage(finalText) {
     if (this.assistantDraft) {
-      if (finalText.trim()) this.assistantDraft.content = finalText;
+      // Only replace with finalText if it's non-empty AND longer than streamed content
+      if (finalText && finalText.trim().length > this.assistantDraft.content.trim().length) {
+        this.assistantDraft.content = finalText;
+      }
       this.assistantDraft.content = cleanupModelText(this.assistantDraft.content);
       if (!this.assistantDraft.content.trim() && this.status !== 'error' && this.status !== 'unsupported') {
         this.assistantDraft.content = 'I could not produce a useful answer. Try a shorter prompt.';
@@ -452,9 +525,16 @@ class LocalLlmUtility {
       this.assistantDraft = null;
       this.messages = this.trimHistory(this.messages);
       this.renderMessages();
+      // Update hidden live region so screen readers announce only the final message
+      const liveRegion = this.root.querySelector('#localLlmLiveRegion');
+      if (liveRegion && this.messages.length) {
+        const last = this.messages.filter((m) => m.role === 'assistant').pop();
+        liveRegion.textContent = last ? last.content : '';
+      }
     }
 
     if (this.status !== 'unsupported' && this.status !== 'error') {
+      this.hideTypingIndicator();
       this.updateStatus('ready', 'Ready.');
       this.hideCenterPanel();
       this.startPromptCycle();
@@ -462,6 +542,7 @@ class LocalLlmUtility {
   }
 
   finishCancelledGeneration() {
+    this.hideTypingIndicator();
     if (this.assistantDraft) {
       this.assistantDraft.content = cleanupModelText(this.assistantDraft.content) || 'Generation stopped.';
       this.assistantDraft = null;
@@ -474,24 +555,72 @@ class LocalLlmUtility {
 
   trimHistory(messages) {
     const notices = messages.filter((message) => message.role === 'notice').slice(-2);
-    const chat = messages.filter((message) => message.role !== 'notice').slice(-12);
+    const chat = messages.filter((message) => message.role !== 'notice').slice(-LOCAL_LLM_CONFIG.limits.maxHistoryMessages);
     return [...notices, ...chat];
   }
 
   renderMessages() {
-    this.messageList.innerHTML = this.messages.map((message) => {
+    const fragment = document.createDocumentFragment();
+    this._lastAssistantElement = null;
+
+    for (const message of this.messages) {
       const role = message.role === 'user' ? 'You' : message.role === 'notice' ? 'Note' : 'Local Assistant';
-      const content = renderMarkdown(message.role === 'assistant' ? cleanupModelText(message.content) : message.content);
+      // Streaming draft needs cleanup here; completed messages were already
+      // cleaned in finishAssistantMessage / finishCancelledGeneration.
+      const content = renderMarkdown(message === this.assistantDraft
+        ? cleanupModelText(message.content)
+        : message.content);
 
-      return `
-        <article class="local-llm-message local-llm-message--${message.role}">
-          <div class="local-llm-message-role">${role}</div>
-          <div class="local-llm-message-content">${content}</div>
-        </article>
+      const article = document.createElement('article');
+      article.className = `local-llm-message local-llm-message--${message.role}`;
+      article.setAttribute('aria-label', role);
+      article.innerHTML = `
+        <div class="local-llm-message-role">${role}</div>
+        <div class="local-llm-message-content">${content}</div>
       `;
-    }).join('');
 
-    this.messageList.scrollTop = this.messageList.scrollHeight;
+      if (message.role === 'assistant') {
+        this._lastAssistantElement = article;
+      }
+
+      fragment.appendChild(article);
+    }
+
+    this.messageList.innerHTML = '';
+    this.messageList.appendChild(fragment);
+
+    this.scrollMessagesIfNeeded();
+  }
+
+  appendAssistantElement() {
+    // Create a new assistant element for the draft without rebuilding the entire list
+    const article = document.createElement('article');
+    article.className = 'local-llm-message local-llm-message--assistant';
+    article.setAttribute('aria-label', 'Local Assistant');
+    article.innerHTML = `
+      <div class="local-llm-message-role">Local Assistant</div>
+      <div class="local-llm-message-content"></div>
+    `;
+    this.messageList.appendChild(article);
+    this._lastAssistantElement = article;
+  }
+
+  updateAssistantElement() {
+    if (!this._lastAssistantElement || !this.assistantDraft) return;
+    const contentDiv = this._lastAssistantElement.querySelector('.local-llm-message-content');
+    if (contentDiv) {
+      contentDiv.innerHTML = renderMarkdown(this.assistantDraft.content);
+    }
+    this.scrollMessagesIfNeeded();
+  }
+
+  scrollMessagesIfNeeded() {
+    // Only auto-scroll if the user is near the bottom; don't interrupt manual reading
+    const threshold = 60;
+    const diff = this.messageList.scrollHeight - this.messageList.clientHeight - this.messageList.scrollTop;
+    if (diff <= threshold) {
+      this.messageList.scrollTop = this.messageList.scrollHeight;
+    }
   }
 
   addSystemNotice(content) {
@@ -531,18 +660,24 @@ class LocalLlmUtility {
     this.assistantDraft = null;
     this.renderMessages();
     this.progress = 0;
-    this.lastProgressTotal = 0;
     this.loadingMessageIndex = -1;
     this.hideDiagnostics();
     this.stopPromptCycle();
 
     if (this.worker) {
-      this.worker.postMessage({ type: 'dispose', clearCache });
+      // Terminate the worker immediately. Previously we posted a 'dispose' message
+      // before terminating, but terminate() kills the worker synchronously before
+      // the message is processed, so cache deletion in the worker was skipped.
       this.worker.terminate();
       this.worker = null;
     }
 
-    if (clearCache) await deleteLocalModelCaches();
+    if (clearCache) {
+      const cacheCleared = await deleteLocalModelCaches();
+      if (!cacheCleared) {
+        this.addSystemNotice('Cache deletion failed. The model may reload from cache. Try a hard refresh if issues persist.');
+      }
+    }
     this.updateProgressBar();
     this.updateStatus('idle', clearCache ? 'Model cache reset. Start again to reload locally.' : 'Ready to retry local loading.');
     this.showCenterCopy(LOADING_COPY.idle);
@@ -680,10 +815,22 @@ function renderMarkdown(markdown) {
       return `<pre><code>${block.replace(/^```[a-z0-9-]*\n?/i, '').replace(/```$/i, '')}</code></pre>`;
     }
 
+    // Detect unordered/ordered lists
+    if (/^\s*[-*]\s|^\s*\d+\.\s/.test(block)) {
+      const items = block
+        .split(/\n/)
+        .map((line) => `<li>${line.replace(/^\s*[-*]\s*/, '').replace(/^\s*\d+\.\s*/, '')}</li>`)
+        .join('');
+      return `<ul>${items}</ul>`;
+    }
+
     const inline = block
       .replace(/`([^`]+)`/g, '<code>$1</code>')
       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
       .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img alt="$1" src="$2">')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/~~([^~]+)~~/g, '<del>$1</del>')
       .replace(/\n/g, '<br>');
 
     return `<p>${inline}</p>`;

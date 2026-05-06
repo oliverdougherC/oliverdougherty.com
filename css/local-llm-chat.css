@@ -121,6 +121,7 @@
   border-color: color-mix(in srgb, var(--color-accent) 50%, var(--local-llm-line));
   outline: none;
   transform: translateY(-1px);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 25%, transparent);
 }
 
 .local-llm-top-cards .local-llm-reset {
@@ -143,6 +144,16 @@
   overflow: hidden;
   padding: clamp(1.1rem, 2.4vw, 1.75rem);
   background: var(--local-llm-transcript-surface);
+}
+
+/* Hidden aria-live region — only fires on generation complete, not every token */
+.local-llm-live-region {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
 }
 
 .local-llm-thread {
@@ -249,8 +260,8 @@
 }
 
 .local-llm-progress-fill {
-  background: linear-gradient(90deg, #00ff88, #39ff14);
-  box-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+  background: linear-gradient(90deg, var(--color-accent, #00ff88), color-mix(in srgb, var(--color-accent, #00ff88) 70%, #ffffff));
+  box-shadow: 0 0 20px color-mix(in srgb, var(--color-accent, #00ff88) 40%, transparent);
 }
 
 .local-llm-progress-percent {
@@ -450,6 +461,7 @@
   border-color: color-mix(in srgb, var(--color-accent) 54%, var(--local-llm-line));
   outline: none;
   transform: translateY(-1px);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 25%, transparent);
 }
 
 .local-llm-load-control--loading {
@@ -458,8 +470,8 @@
 }
 
 .local-llm-load-control--ready {
-  color: #39ff14;
-  border-color: color-mix(in srgb, #39ff14 58%, var(--local-llm-line));
+  color: var(--color-accent, #39ff14);
+  border-color: color-mix(in srgb, var(--color-accent, #39ff14) 58%, var(--local-llm-line));
   cursor: default;
 }
 
@@ -566,6 +578,65 @@
 
 .local-llm-ready-prompt[hidden] {
   display: none;
+}
+
+.local-llm-char-count {
+  position: absolute;
+  bottom: 0.35rem;
+  right: 0.7rem;
+  color: var(--color-text-tertiary);
+  font: 400 0.62rem / 1 var(--font-mono);
+  pointer-events: none;
+  transition: color 200ms ease;
+}
+
+.local-llm-char-count[hidden] {
+  display: none;
+}
+
+.local-llm-typing {
+  position: absolute;
+  bottom: 0.35rem;
+  left: 0.7rem;
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+  pointer-events: none;
+}
+
+.local-llm-typing[hidden] {
+  display: none;
+}
+
+.local-llm-typing-dot {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 50%;
+  background: var(--color-text-tertiary);
+  animation: localLlmTypingBounce 1.2s ease-in-out infinite;
+}
+
+.local-llm-typing-dot:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.local-llm-typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.local-llm-typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes localLlmTypingBounce {
+  0%, 60%, 100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
 }
 
 .local-llm-ready-prompt--exit {
@@ -695,7 +766,8 @@
 
   .local-llm-load-copy--hello,
   .local-llm-ready-prompt--exit,
-  .local-llm-ready-prompt--enter {
+  .local-llm-ready-prompt--enter,
+  .local-llm-typing-dot {
     animation: none;
   }
 
