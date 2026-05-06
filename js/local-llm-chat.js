@@ -21,15 +21,15 @@ const STATE_COPY = {
 };
 
 const LOAD_CONTROL = {
-  idle: { text: 'Load', symbol: '↓', disabled: false },
-  checking: { text: 'Check', symbol: '…', disabled: true, cls: 'local-llm-load-control--loading' },
-  loading: { text: '0%', symbol: '…', disabled: true, cls: 'local-llm-load-control--loading' },
-  optimizing: { text: 'Tune', symbol: '…', disabled: true, cls: 'local-llm-load-control--loading' },
-  ready: { text: 'Ready', symbol: '✓', disabled: true, cls: 'local-llm-load-control--ready' },
-  thinking: { text: 'Busy', symbol: '■', disabled: true, cls: 'local-llm-load-control--ready' },
-  streaming: { text: 'Busy', symbol: '■', disabled: true, cls: 'local-llm-load-control--ready' },
-  error: { text: 'Retry', symbol: '↻', disabled: false, cls: 'local-llm-load-control--error' },
-  unsupported: { text: 'Retry', symbol: '↻', disabled: false, cls: 'local-llm-load-control--error' }
+  idle: { text: 'Load', disabled: false },
+  checking: { text: 'Check', disabled: true, cls: 'local-llm-load-control--loading' },
+  loading: { text: '0%', disabled: true, cls: 'local-llm-load-control--loading' },
+  optimizing: { text: 'Tune', disabled: true, cls: 'local-llm-load-control--loading' },
+  ready: { text: 'Ready', disabled: true, cls: 'local-llm-load-control--ready' },
+  thinking: { text: 'Busy', disabled: true, cls: 'local-llm-load-control--ready' },
+  streaming: { text: 'Busy', disabled: true, cls: 'local-llm-load-control--ready' },
+  error: { text: 'Retry', disabled: false, cls: 'local-llm-load-control--error' },
+  unsupported: { text: 'Retry', disabled: false, cls: 'local-llm-load-control--error' }
 };
 
 class LocalLlmUtility {
@@ -61,63 +61,63 @@ class LocalLlmUtility {
 
   mount() {
     this.root.innerHTML = `
-      <div class="local-llm-window">
-        <header class="local-llm-header">
-          <div class="local-llm-title-block">
-            <div class="local-llm-title-row">
-              <span class="local-llm-mark" aria-hidden="true">1</span>
-              <h2 class="local-llm-title">Local Assistant</h2>
-              <span class="local-llm-card utility-status-chip utility-status-chip--idle" id="localLlmStatusChip">Idle</span>
-            </div>
-            <div class="local-llm-meta" aria-label="Model runtime details">
-              <span id="localLlmModelName">${escapeHtml(LOCAL_LLM_CONFIG.model.displayName)}</span>
-              <span id="localLlmBackend">WebGPU</span>
-              <span><span id="localLlmTps">--</span> tok/s</span>
-            </div>
-          </div>
-          <div class="local-llm-header-actions">
-            <button type="button" class="local-llm-reset" id="localLlmResetBtn" data-cursor="hover">Reset chat</button>
-          </div>
-        </header>
-
-        <div class="local-llm-transcript" id="localLlmTranscript">
-          <div id="localLlmLiveRegion" class="local-llm-live-region" aria-live="polite" aria-atomic="true"></div>
-          <div class="local-llm-thread" id="localLlmMessages"></div>
-          <section class="local-llm-center" id="localLlmCenter" aria-live="polite">
-            <p class="local-llm-load-copy" id="localLlmLoadCopy"></p>
-            <p class="local-llm-model-note" id="localLlmModelNote"></p>
-            <div class="local-llm-progress-wrap" id="localLlmProgressWrap" hidden>
-              <div class="utility-progress-bar local-llm-progress" role="progressbar" aria-label="Model download progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="localLlmProgressBar">
-                <span class="utility-progress-fill local-llm-progress-fill"></span>
+      <div class="utility-layout utility-layout--local-llm">
+        <div class="utility-view utility-view--minimal">
+          <article class="canvas-panel-minimal canvas-panel--local-llm" style="flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0; border: none; background: transparent;">
+            <header class="local-llm-header">
+              <div class="local-llm-title-block">
+                <div class="local-llm-title-row">
+                  <span class="utility-kicker" style="margin-bottom: 0;">Local Assistant</span>
+                  <span class="local-llm-card utility-status-chip utility-status-chip--idle" id="localLlmStatusChip" style="margin-left: 0.5rem; padding: 0.22rem 0.55rem; border-radius: var(--radius-full); font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: var(--tracking-wide); text-transform: uppercase;">Idle</span>
+                </div>
+                <div class="local-llm-meta" aria-label="Model runtime details" style="color: var(--color-text-secondary); font-size: 0.78rem;">
+                  <span id="localLlmModelName">${escapeHtml(LOCAL_LLM_CONFIG.model.displayName)}</span> • 
+                  <span id="localLlmBackend">WebGPU</span> • 
+                  <span><span id="localLlmTps">--</span> tok/s</span>
+                </div>
               </div>
-              <span class="local-llm-progress-percent" id="localLlmProgressPercent">0%</span>
-            </div>
-            <div class="local-llm-diagnostics" id="localLlmDiagnostics" hidden></div>
-          </section>
-        </div>
+              <div class="local-llm-header-actions" style="display: flex; gap: 0.5rem;">
+                <button type="button" class="btn-secondary-utility btn-secondary-utility--compact" id="localLlmResetBtn" data-cursor="hover">Reset</button>
+              </div>
+            </header>
 
-        <form class="local-llm-form" id="localLlmForm">
-          <button type="button" class="local-llm-load-control" id="localLlmStartBtn" aria-label="Download and start the local model" data-cursor="hover">
-            <span class="local-llm-load-control-symbol" aria-hidden="true">↓</span>
-            <span class="local-llm-load-control-text">Load</span>
-          </button>
-          <label class="local-llm-label" for="localLlmInput">Message the local AI</label>
-          <div class="local-llm-input-shell">
-            <textarea id="localLlmInput" class="local-llm-input" rows="1" maxlength="${MAX_INPUT_CHARS}" placeholder="Load the model first." disabled></textarea>
-            <span class="local-llm-ready-prompt" id="localLlmReadyPrompt" aria-hidden="true">Load the model first.</span>
-            <span class="local-llm-char-count" id="localLlmCharCount" aria-hidden="true" hidden></span>
-            <span class="local-llm-typing" id="localLlmTyping" hidden><span class="local-llm-typing-dot"></span><span class="local-llm-typing-dot"></span><span class="local-llm-typing-dot"></span></span>
-          </div>
-          <button class="local-llm-send" type="submit" aria-label="Send message" disabled data-cursor="hover">
-            <span class="local-llm-send-text">Send</span>
-            <svg class="local-llm-send-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" d="M4 12 12 4M6 4h6v6"/></svg>
-          </button>
-        </form>
+            <div class="local-llm-transcript" id="localLlmTranscript">
+              <div id="localLlmLiveRegion" class="local-llm-live-region" aria-live="polite" aria-atomic="true"></div>
+              <div class="local-llm-thread" id="localLlmMessages"></div>
+              <section class="local-llm-center" id="localLlmCenter" aria-live="polite">
+                <p class="local-llm-load-copy" id="localLlmLoadCopy"></p>
+                <p class="local-llm-model-note" id="localLlmModelNote"></p>
+                <div class="local-llm-progress-wrap" id="localLlmProgressWrap" hidden>
+                  <div class="utility-progress-bar-minimal" role="progressbar" aria-label="Model download progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="localLlmProgressBar" style="flex: 1;">
+                    <span class="utility-progress-fill-minimal" id="localLlmProgressFill"></span>
+                  </div>
+                  <span class="local-llm-progress-percent" id="localLlmProgressPercent">0%</span>
+                </div>
+                <div class="local-llm-diagnostics" id="localLlmDiagnostics" hidden></div>
+              </section>
+            </div>
+
+            <form class="local-llm-form" id="localLlmForm">
+              <button type="button" class="btn-secondary-utility local-llm-load-control" id="localLlmStartBtn" aria-label="Download and start the local model" data-cursor="hover">
+                <span class="local-llm-load-control-text">Load</span>
+              </button>
+              <label class="local-llm-label" for="localLlmInput">Message the local AI</label>
+              <div class="local-llm-input-shell">
+                <textarea id="localLlmInput" class="control-input local-llm-input" rows="1" maxlength="${MAX_INPUT_CHARS}" placeholder="Load the model first." disabled></textarea>
+                <span class="local-llm-ready-prompt" id="localLlmReadyPrompt" aria-hidden="true">Load the model first.</span>
+                <span class="local-llm-char-count" id="localLlmCharCount" aria-hidden="true" hidden></span>
+                <span class="local-llm-typing" id="localLlmTyping" hidden><span class="local-llm-typing-dot"></span><span class="local-llm-typing-dot"></span><span class="local-llm-typing-dot"></span></span>
+              </div>
+              <button class="btn-primary-utility local-llm-send" type="submit" aria-label="Send message" disabled data-cursor="hover">
+                <span class="local-llm-send-text">Send</span>
+              </button>
+            </form>
+          </article>
+        </div>
       </div>
     `;
 
     this.startButton = this.root.querySelector('#localLlmStartBtn');
-    this.startSymbol = this.root.querySelector('.local-llm-load-control-symbol');
     this.startText = this.root.querySelector('.local-llm-load-control-text');
     this.resetButton = this.root.querySelector('#localLlmResetBtn');
     this.statusChip = this.root.querySelector('#localLlmStatusChip');
@@ -393,7 +393,6 @@ class LocalLlmUtility {
     this.startButton.classList.remove('local-llm-load-control--loading', 'local-llm-load-control--ready', 'local-llm-load-control--error');
     if (appearance.cls) this.startButton.classList.add(appearance.cls);
 
-    this.startSymbol.textContent = appearance.symbol;
     this.startText.textContent = this.status === WORKER_STATE.LOADING
       ? `${Math.max(0, Math.min(100, this.progress))}%`
       : appearance.text;
