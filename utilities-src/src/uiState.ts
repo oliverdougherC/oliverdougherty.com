@@ -1,5 +1,5 @@
 export type SelectionKind = 'source' | 'target';
-export type StateKind = 'idle' | 'processing' | 'ready' | 'animating' | 'complete' | 'error';
+export type StateKind = 'idle' | 'processing' | 'ready' | 'paused' | 'animating' | 'complete' | 'error';
 
 export interface ImageSelection {
   kind: 'file' | 'demo';

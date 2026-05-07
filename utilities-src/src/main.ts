@@ -17,7 +17,7 @@ import {
 } from './transformAnimation';
 import { resolveOutputDimensions, transformPreparedImages } from './transformCore';
 import type { PreparedImageTransfer, TransformMetadata, TransformPresetId } from './types';
-import { DEMOS, resolvePlaybackButtonLabel, type ImageSelection, type SelectionKind, type StateKind } from './uiState';
+import { DEMOS, type ImageSelection, type SelectionKind, type StateKind } from './uiState';
 import type { WorkerRequest, WorkerResponse, WorkerSuccessMessage } from './workerTypes';
 
 interface HydratedTransfer {
@@ -51,7 +51,6 @@ class UtilitiesApp {
   private readonly swapButton: HTMLButtonElement;
   private readonly resetButton: HTMLButtonElement;
   private readonly playButton: HTMLButtonElement;
-  private readonly pauseButton: HTMLButtonElement;
   private readonly statusChip: HTMLElement | null;
   private readonly statusText: HTMLElement | null;
   private readonly progressText: HTMLElement;
@@ -108,7 +107,6 @@ class UtilitiesApp {
     this.swapButton = this.requireElement('transformSwapBtn');
     this.resetButton = this.requireElement('transformResetBtn');
     this.playButton = this.requireElement('transformPlayBtn');
-    this.pauseButton = this.requireElement('transformPauseBtn');
     this.statusChip = document.getElementById('transformStatusChip');
     this.statusText = document.getElementById('transformStatusText');
     this.progressText = this.requireElement('transformProgressText');
@@ -158,7 +156,6 @@ class UtilitiesApp {
       this.resetAll();
     });
     this.playButton.addEventListener('click', () => this.handlePlaybackButton());
-    this.pauseButton.addEventListener('click', () => this.pauseAnimation());
     this.presetSelect.addEventListener('change', () => {
       const preset = getPreset(this.selectedPreset);
       if (this.activeTransform) {
@@ -320,20 +317,31 @@ class UtilitiesApp {
     const hasResult = Boolean(this.activeTransform);
     const isProcessing = this.state === 'processing';
     const isAnimating = this.state === 'animating';
+    const isPaused = this.state === 'paused';
+    const isComplete = this.state === 'complete';
 
-    this.playButton.textContent = resolvePlaybackButtonLabel({
-      hasResult,
-      isProcessing,
-      isAnimating,
-      reducedMotion: this.reducedMotion,
-      animationElapsedMs: this.animationElapsedMs
-    });
+    if (isComplete) {
+      this.playButton.textContent = '↻';
+      this.playButton.disabled = false;
+      this.playButton.setAttribute('aria-label', 'Replay animation');
+    } else if (isAnimating) {
+      this.playButton.textContent = '⏸';
+      this.playButton.disabled = false;
+      this.playButton.setAttribute('aria-label', 'Pause playback');
+    } else if (isPaused) {
+      this.playButton.textContent = '▶';
+      this.playButton.disabled = false;
+      this.playButton.setAttribute('aria-label', 'Resume playback');
+    } else {
+      this.playButton.textContent = '▶';
+      this.playButton.disabled = !hasResult || isProcessing;
+      this.playButton.setAttribute('aria-label', 'Play animation');
+    }
+
     this.presetSelect.disabled = isProcessing;
     this.generateButton.disabled = !hasBothSelections || isProcessing;
     this.swapButton.disabled = !hasBothSelections || isProcessing;
     this.resetButton.disabled = isProcessing && !hasResult;
-    this.playButton.disabled = !hasResult || isProcessing || isAnimating || this.reducedMotion;
-    this.pauseButton.disabled = !hasResult || !isAnimating;
   }
 
   private setState(state: StateKind, text: string) {
@@ -343,7 +351,7 @@ class UtilitiesApp {
     }
     this.root.dataset.transformStatusMessage = text;
     const chipLabel =
-      state === 'ready' ? 'Ready' : state === 'complete' ? 'Complete' : state[0].toUpperCase() + state.slice(1);
+      state === 'ready' ? 'Ready' : state === 'complete' ? 'Complete' : state === 'paused' ? 'Paused' : state[0].toUpperCase() + state.slice(1);
     this.root.dataset.transformStatusChip = chipLabel;
     if (this.statusChip) {
       this.statusChip.textContent = chipLabel;
@@ -352,7 +360,7 @@ class UtilitiesApp {
     window.dispatchEvent(new CustomEvent('utilities-load-state', {
       detail: {
         source: 'image-transform',
-        active: state === 'processing' || state === 'animating'
+        active: state === 'processing' || state === 'animating' || state === 'paused'
       }
     }));
     this.syncButtons();
@@ -1150,7 +1158,17 @@ class UtilitiesApp {
   }
 
   private handlePlaybackButton() {
-    if (this.animationElapsedMs > 0) {
+    if (this.state === 'animating') {
+      this.pauseAnimation();
+      return;
+    }
+
+    if (this.state === 'paused') {
+      this.resumeAnimation();
+      return;
+    }
+
+    if (this.state === 'complete' || this.state === 'ready') {
       this.replayAnimation();
       return;
     }
@@ -1213,9 +1231,21 @@ class UtilitiesApp {
         this.animationElapsedMs += performance.now() - this.animationStartedAt;
         this.animationStartedAt = 0;
       }
-      this.setState('ready', 'Animation stopped. Press replay to run it again.');
-       
+      this.setState('paused', 'Animation paused.');
     }
+  }
+
+  private resumeAnimation() {
+    if (this.animationElapsedMs >= this.getAnimationDurationMs()) {
+      this.replayAnimation();
+      return;
+    }
+    this.playAnimation();
+  }
+
+  private getAnimationDurationMs(): number {
+    const preset = getPreset(this.activeTransform?.metadata.presetId ?? this.selectedPreset);
+    return preset.animationDurationMs;
   }
 
   private replayAnimation() {
@@ -1224,8 +1254,10 @@ class UtilitiesApp {
     }
 
     this.pauseAnimation();
+    this.animationElapsedMs = 0;
+    this.animationStartedAt = 0;
     this.resetResultCanvas();
-    this.setProgress(0, 'Animation reset. Replaying from the beginning.');
+    this.setState('animating', 'Animating the result image…');
     this.playAnimation();
   }
 
