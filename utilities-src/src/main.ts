@@ -197,10 +197,9 @@ class UtilitiesApp {
     return element;
   }
 
-  private setResultMetaCopy(text: string) {
-    this.root.dataset.resultMetaMessage = text;
+  private setResultMetaCopy(_text: string) {
     if (this.resultMeta) {
-      this.resultMeta.textContent = text;
+      this.resultMeta.textContent = '';
     }
   }
 
@@ -1043,7 +1042,7 @@ class UtilitiesApp {
         'Transform complete.',
         `${transform.metadata.matcherStrategy} · analyze ${transform.metadata.timingsMs.analyze.toFixed(0)} ms · assign ${transform.metadata.timingsMs.assign.toFixed(0)} ms`
       );
-      this.setResultMetaCopy('Final result rendered immediately for reduced motion.');
+       
     } else {
       this.setState('ready', 'Transform ready. Press play or replay to run the animation.');
       this.setProgress(
@@ -1051,7 +1050,7 @@ class UtilitiesApp {
         'Transform ready to animate.',
         `${transform.metadata.matcherStrategy} · analyze ${transform.metadata.timingsMs.analyze.toFixed(0)} ms · assign ${transform.metadata.timingsMs.assign.toFixed(0)} ms`
       );
-      this.setResultMetaCopy('Pixels from the source image shift into their assigned landing positions.');
+       
       this.playAnimation();
     }
   }
@@ -1168,7 +1167,6 @@ class UtilitiesApp {
     const preset = getPreset(this.activeTransform.metadata.presetId);
     const durationMs = preset.animationDurationMs;
     this.setState('animating', 'Animating the result image…');
-    this.setResultMetaCopy('The source pixels are physically rearranging into the new image.');
     this.syncButtons();
 
     const step = (timestamp: number) => {
@@ -1194,7 +1192,6 @@ class UtilitiesApp {
         this.animationFrameId = 0;
         this.renderCompleteResult();
         this.setState('complete', 'Animation complete.');
-        this.setResultMetaCopy('Every source pixel has reached its final landing position.');
         this.syncButtons();
         return;
       }
@@ -1217,7 +1214,7 @@ class UtilitiesApp {
         this.animationStartedAt = 0;
       }
       this.setState('ready', 'Animation stopped. Press replay to run it again.');
-      this.setResultMetaCopy('The current pass stopped. Replay restarts the full rearrangement from frame zero.');
+       
     }
   }
 

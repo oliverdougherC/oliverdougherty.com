@@ -89,7 +89,7 @@ class LocalLlmUtility {
                 <p class="local-llm-model-note" id="localLlmModelNote"></p>
                 <div class="local-llm-progress-wrap" id="localLlmProgressWrap" hidden>
                   <div class="utility-progress-bar-minimal" role="progressbar" aria-label="Model download progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="localLlmProgressBar" style="flex: 1;">
-                    <span class="utility-progress-fill-minimal" id="localLlmProgressFill"></span>
+                    <span class="local-llm-progress-fill" id="localLlmProgressFill"></span>
                   </div>
                   <span class="local-llm-progress-percent" id="localLlmProgressPercent">0%</span>
                 </div>
