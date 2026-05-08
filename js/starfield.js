@@ -436,7 +436,7 @@
       star.y -= star.speed * deltaSeconds;
       star.x += star.drift * deltaSeconds;
       star.twinklePhase += star.twinkleSpeed * deltaSeconds;
-      
+
       if (star.y < -10) {
         star.y = height + 10;
         star.x = Math.random() * width;
@@ -490,7 +490,7 @@
       const star = stars[i];
       const twinkle = Math.sin(star.twinklePhase) * 0.3;
       const currentOpacity = Math.max(0.1, Math.min(1, star.baseOpacity + twinkle));
-      
+
       ctx.beginPath();
       ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
       ctx.fillStyle = star.color;
@@ -502,19 +502,19 @@
     // Draw Comets
     for (let i = 0; i < comets.length; i++) {
       const comet = comets[i];
-      
+
       // Calculate direction and tail
       const speed = Math.sqrt(comet.speedX * comet.speedX + comet.speedY * comet.speedY);
       const dirX = speed > 0.001 ? comet.speedX / speed : 0;
       const dirY = speed > 0.001 ? comet.speedY / speed : 0;
-      
+
       const tailX = comet.x - dirX * comet.length;
       const tailY = comet.y - dirY * comet.length;
 
       // Perpendicular vector for the width of the comet head
       const perpX = -dirY;
       const perpY = dirX;
-      
+
       const headWidth = comet.thickness * 1.8;
 
       const gradient = ctx.createLinearGradient(comet.x, comet.y, tailX, tailY);
@@ -522,20 +522,20 @@
       gradient.addColorStop(0.05, `rgba(180, 220, 255, ${comet.opacity * 0.8})`);
       gradient.addColorStop(0.3, `rgba(100, 150, 255, ${comet.opacity * 0.3})`);
       gradient.addColorStop(1, 'rgba(100, 150, 255, 0)');
-      
+
       // Draw the tapered tail shape
       ctx.beginPath();
       ctx.moveTo(tailX, tailY);
       ctx.lineTo(comet.x - perpX * headWidth, comet.y - perpY * headWidth);
-      
+
       // Arc around the front of the head
       const angle = Math.atan2(dirY, dirX);
       ctx.arc(comet.x, comet.y, headWidth, angle - Math.PI / 2, angle + Math.PI / 2);
-      
+
       ctx.closePath();
       ctx.fillStyle = gradient;
       ctx.fill();
-      
+
       // Comet coma (glowing aura)
       const glowRadius = comet.thickness * 6;
       const headGlow = ctx.createRadialGradient(comet.x, comet.y, 0, comet.x, comet.y, glowRadius);
@@ -543,7 +543,7 @@
       headGlow.addColorStop(0.15, `rgba(200, 230, 255, ${comet.opacity * 0.6})`);
       headGlow.addColorStop(0.4, `rgba(100, 150, 255, ${comet.opacity * 0.2})`);
       headGlow.addColorStop(1, 'rgba(100, 150, 255, 0)');
-      
+
       ctx.beginPath();
       ctx.arc(comet.x, comet.y, glowRadius, 0, Math.PI * 2);
       ctx.fillStyle = headGlow;

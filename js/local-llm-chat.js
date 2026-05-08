@@ -71,8 +71,8 @@ class LocalLlmUtility {
                   <span class="local-llm-card utility-status-chip utility-status-chip--idle" id="localLlmStatusChip" style="margin-left: 0.5rem; padding: 0.22rem 0.55rem; border-radius: var(--radius-full); font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: var(--tracking-wide); text-transform: uppercase;">Idle</span>
                 </div>
                 <div class="local-llm-meta" aria-label="Model runtime details" style="color: var(--color-text-secondary); font-size: 0.78rem;">
-                  <span id="localLlmModelName">${escapeHtml(LOCAL_LLM_CONFIG.model.displayName)}</span> • 
-                  <span id="localLlmBackend">WebGPU</span> • 
+                  <span id="localLlmModelName">${escapeHtml(LOCAL_LLM_CONFIG.model.displayName)}</span> •
+                  <span id="localLlmBackend">WebGPU</span> •
                   <span><span id="localLlmTps">--</span> tok/s</span>
                 </div>
               </div>

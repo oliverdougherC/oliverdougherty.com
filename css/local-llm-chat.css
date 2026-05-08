@@ -1,7 +1,7 @@
 .utility-shell--local-llm {
   padding: 0;
   overflow: hidden;
-  
+
   --local-llm-bg: transparent;
   --local-llm-panel: rgba(255, 255, 255, 0.02);
   --local-llm-panel-strong: rgba(255, 255, 255, 0.04);

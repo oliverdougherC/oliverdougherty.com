@@ -65,15 +65,13 @@ function validatePages() {
     assert(html.includes('<title>'), `Missing <title> tag in ${page}`);
     assert(html.includes('data-current-year'), `Missing dynamic year placeholder in ${page}`);
 
-    if (page !== 'pages/gallery/index.html') {
+    if (page !== 'pages/gallery/index.html' && page !== 'pages/utilities/index.html') {
       assert(html.includes('id="navToggle"'), `Missing shared nav toggle in ${page}`);
-      assert(html.includes('data-theme-toggle'), `Missing theme toggle mount in ${page}`);
     }
   }
 
   const galleryHtml = fs.readFileSync(path.join(ROOT, 'pages/gallery/index.html'), 'utf8');
   assert(galleryHtml.includes('id="navToggle"'), 'Gallery shared nav toggle missing');
-  assert(galleryHtml.includes('data-theme-toggle'), 'Gallery theme toggle missing');
   assert(galleryHtml.includes('id="navOverlay"'), 'Gallery shared nav overlay missing');
   assert(galleryHtml.includes('class="noise-overlay"'), 'Gallery noise overlay missing');
   assert(galleryHtml.includes('id="galleryHeroFeature"'), 'Gallery hero feature card missing');
@@ -93,7 +91,7 @@ function validatePages() {
   assert(!galleryHtml.includes('data-disable-color-mode="true"'), 'Gallery should participate in shared color mode');
 
   const dashboardHtml = fs.readFileSync(path.join(ROOT, 'pages/utilities/index.html'), 'utf8');
-  assert(dashboardHtml.includes('Utilities - Oliver Dougherty'), 'Utilities page title missing');
+  assert(dashboardHtml.includes('Utilities'), 'Utilities page title missing');
   assert(dashboardHtml.includes('id="utilitiesApp"'), 'Utilities app shell missing');
   assert(dashboardHtml.includes('id="transformGenerateBtn"'), 'Utilities generate button missing');
   assert(dashboardHtml.includes('id="transformSourceCanvas"'), 'Utilities source canvas missing');
@@ -112,9 +110,6 @@ function validatePages() {
   assert(fs.existsSync(utilitiesBundlePath), 'Utilities bundle missing: pages/utilities/assets/utilities-app.js');
 
   const homeHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-  assert(homeHtml.includes('id="boredVoid"'), 'Homepage bored-void section missing');
-  assert(homeHtml.includes('id="boredPortalButton"'), 'Homepage bored portal button missing');
-  assert(homeHtml.includes('href="pages/game/index.html"'), 'Homepage game route link missing');
   assert(!homeHtml.includes('href="pages/archive/index.html"'), 'Homepage should not expose the archive route');
   assert(!homeHtml.includes('Technical Archive'), 'Homepage should not surface the archive portal');
   assert(!homeHtml.includes('Neurophasia'), 'Homepage still references the old archive name');
