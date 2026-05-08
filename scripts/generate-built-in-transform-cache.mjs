@@ -1,12 +1,12 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import sharp from 'sharp';
 import ts from 'typescript';
 
-const ROOT = '/Users/ofhd/Developer/websites/Oliver-Unified';
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE_ROOT = path.join(ROOT, 'utilities-src', 'src');
 const OUTPUT_DIR = path.join(SOURCE_ROOT, 'data', 'precomputed-transforms');
 const TEMP_DIR = await fs.mkdtemp(path.join(os.tmpdir(), 'utilities-transform-cache-'));

@@ -1,8 +1,8 @@
 {
-  "name": "oliver-unified",
+  "name": "oliverdougherty.com",
   "version": "1.0.0",
   "private": true,
-  "description": "Oliver Unified static site",
+  "description": "oliverdougherty.com static site",
   "scripts": {
     "optimize-images": "node scripts/optimize-images.js",
     "build:deploy": "node scripts/build-deploy.js",
