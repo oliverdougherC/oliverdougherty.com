@@ -295,7 +295,7 @@
 
                         <article class="canvas-panel-minimal">
                           <div class="canvas-stage-minimal audio-wave-stage">
-                            <canvas id="audioFourierWaveCanvas" width="1040" height="360"></canvas>
+                            <canvas id="audioFourierWaveCanvas" width="1040" height="360" role="img" aria-label="Fourier waveform viewport showing original and reconstructed audio signals"></canvas>
                             <p class="canvas-result-meta-minimal audio-result-meta-minimal" id="audioFourierResultMeta">Generate a Fourier transform to begin the reconstruction.</p>
 
                             <div class="canvas-overlay-controls">
@@ -327,8 +327,8 @@
 
                         <div class="support-panels audio-support-panels" hidden>
                           <!-- Hidden to maintain minimal aesthetic, kept for JS compatibility -->
-                          <canvas id="audioFourierSpectrumCanvas" width="640" height="260"></canvas>
-                          <canvas id="audioFourierComponentCanvas" width="640" height="260"></canvas>
+                            <canvas id="audioFourierSpectrumCanvas" width="640" height="260" role="img" aria-label="Energy band spectrum showing component distribution"></canvas>
+                            <canvas id="audioFourierComponentCanvas" width="640" height="260" role="img" aria-label="Active component visualization showing frequency and amplitude"></canvas>
                         </div>
                       </div>
                     </div>

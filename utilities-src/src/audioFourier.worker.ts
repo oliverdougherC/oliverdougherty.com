@@ -4,15 +4,23 @@ import {
   buildEnergyBandReconstruction,
   buildWindowedFourierAnalysis
 } from './audioFourierCore';
-import type { AudioFourierWorkerRequest, AudioFourierWorkerResponse } from './audioFourierWorkerTypes';
+import type { AudioFourierAnalyzeRequest, AudioFourierWorkerRequest, AudioFourierWorkerResponse } from './audioFourierWorkerTypes';
 import { getAudioFourierPreset } from './audioPresets';
 import { prepareAudioSignal } from './audioSignal';
 
 const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 const cancelledRequests = new Set<number>();
+const pendingRequests: AudioFourierAnalyzeRequest[] = [];
+let isProcessing = false;
 
-function asArrayBuffer(buffer: ArrayBufferLike) {
-  return buffer as ArrayBuffer;
+function asArrayBuffer(buffer: ArrayBufferLike): ArrayBuffer {
+  if (buffer instanceof ArrayBuffer) {
+    return buffer;
+  }
+  if (buffer.slice !== undefined) {
+    return buffer.slice(0, buffer.byteLength);
+  }
+  throw new TypeError('Expected an ArrayBuffer but received an incompatible type.');
 }
 
 function now() {
@@ -56,7 +64,7 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
     postMessage({
       type: 'audio-fourier-progress',
       requestId: request.requestId,
-      progress: 0.1,
+      progress: 0.12,
       message: 'Running windowed Fourier analysis...'
     });
 
@@ -81,7 +89,7 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
     postMessage({
       type: 'audio-fourier-progress',
       requestId: request.requestId,
-      progress: 0.82,
+      progress: 0.62,
       message: 'Rendering live energy bands...'
     });
     const bandsStartedAt = now();
@@ -147,6 +155,7 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
         asArrayBuffer(analysis.componentAmplitudes.buffer),
         asArrayBuffer(analysis.componentPhases.buffer)
       ]
+      // None of the above ArrayBuffers share backing stores: analysis.samples is a copy, bands.* are freshly allocated, and the component arrays (frequencies/amplitudes/phases) own their buffers from the analysis constructor.
     );
   } catch (error) {
     if (/cancelled/i.test(error instanceof Error ? error.message : '')) {
@@ -167,6 +176,22 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
   }
 }
 
+async function processQueue() {
+  if (isProcessing || pendingRequests.length === 0) return;
+  isProcessing = true;
+
+  while (pendingRequests.length > 0) {
+    const request = pendingRequests.shift()!;
+    if (cancelledRequests.has(request.requestId)) {
+      cancelledRequests.delete(request.requestId);
+      continue;
+    }
+    await handleAnalyzeRequest(request);
+  }
+
+  isProcessing = false;
+}
+
 workerScope.onmessage = (event: MessageEvent<AudioFourierWorkerRequest>) => {
   const request = event.data;
   if (request.type === 'cancel-audio-fourier') {
@@ -174,5 +199,24 @@ workerScope.onmessage = (event: MessageEvent<AudioFourierWorkerRequest>) => {
     return;
   }
 
-  void handleAnalyzeRequest(request);
+  if (request.type !== 'analyze-audio-fourier') {
+    postMessage({
+      type: 'audio-fourier-error',
+      requestId: (request as any).requestId ?? 0,
+      message: 'Malformed worker message: missing or unrecognized type.'
+    });
+    return;
+  }
+
+  if (!request.presetId) {
+    postMessage({
+      type: 'audio-fourier-error',
+      requestId: request.requestId,
+      message: 'Malformed worker message: missing presetId.'
+    });
+    return;
+  }
+
+  pendingRequests.push(request);
+  void processQueue();
 };

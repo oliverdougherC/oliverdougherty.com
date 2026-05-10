@@ -5,6 +5,7 @@ import {
   type AudioFourierPresetId,
   type BuiltInAudioPresetId
 } from './audioPresets';
+import { clamp } from './math';
 import {
   mapSliderValueToEnergyPercent,
   mixEnergyBands,
@@ -51,12 +52,14 @@ interface ActiveAudioFourier {
   energyPercent: number;
 }
 
-function asArrayBuffer(buffer: ArrayBufferLike) {
-  return buffer as ArrayBuffer;
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
+function asArrayBuffer(buffer: ArrayBufferLike): ArrayBuffer {
+  if (buffer instanceof ArrayBuffer) {
+    return buffer;
+  }
+  if (buffer.slice !== undefined) {
+    return buffer.slice(0, buffer.byteLength);
+  }
+  throw new TypeError('Expected an ArrayBuffer but received an incompatible type.');
 }
 
 function formatSeconds(value: number) {
@@ -81,9 +84,12 @@ const MIN_VISUAL_POINTS = 768;
 const LIVE_MAX_VISUAL_POINTS = 768;
 const LIVE_MIN_VISUAL_POINTS = 512;
 const FULL_ENERGY_VISUAL_THRESHOLD = 0.999;
+const GAIN_RAMP_TIME_CONSTANT = 0.015;
+const MASTER_GAIN_RAMP_TIME_CONSTANT = 0.02;
+const SMOOTHED_ENVELOPE_BLEND = 0.72;
 
 export class AudioFourierController {
-  private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   private readonly viewportSeconds = 2;
   private readonly root: HTMLElement;
   private readonly input: HTMLInputElement;
@@ -178,6 +184,15 @@ export class AudioFourierController {
     this.waveBackgroundCanvas = this.buildBackgroundCanvas(this.waveCanvas);
     this.spectrumBackgroundCanvas = this.buildBackgroundCanvas(this.spectrumCanvas);
     this.componentBackgroundCanvas = this.buildBackgroundCanvas(this.componentCanvas);
+
+    const mql = window.matchMedia('(prefers-reduced-motion: reduce)');
+    mql.addEventListener('change', () => {
+      const prev = this.reducedMotion;
+      this.reducedMotion = mql.matches;
+      if (prev !== mql.matches) {
+        this.syncButtons();
+      }
+    });
   }
 
   init() {
@@ -341,14 +356,13 @@ export class AudioFourierController {
     this.generateButton.disabled = isProcessing;
     this.qualitySelect.disabled = isProcessing;
     this.componentSlider.disabled = !hasResult || isProcessing;
-    this.playButton.disabled = !hasResult || isProcessing || isPlaying || this.reducedMotion;
+    this.playButton.disabled = !hasResult || isProcessing || isPlaying;
     this.pauseButton.disabled = !hasResult || !isPlaying;
     this.resetButton.disabled = isProcessing && !hasResult;
     this.playButton.textContent = resolveAudioPlaybackButtonLabel({
       hasResult,
       isProcessing,
       isPlaying,
-      reducedMotion: this.reducedMotion,
       elapsedSeconds: this.playbackElapsedSeconds,
       isComplete: this.state === 'complete'
     });
@@ -470,6 +484,9 @@ export class AudioFourierController {
 
       const worker = this.getWorker();
       const transfer = source.channelBuffers.slice();
+      // The channelBuffers are transferred (not copied) to the worker via the transfer array.
+      // After postMessage returns, the Float32Array backing buffers are detached and no longer
+      // accessible from the main thread. This avoids a costly deep copy of the sample data.
       const request: AudioFourierWorkerRequest = {
         type: 'analyze-audio-fourier',
         requestId,
@@ -639,13 +656,10 @@ export class AudioFourierController {
     this.sourceDurationLabel.textContent = `${formatSeconds(result.metadata.sourceDurationSeconds)} source`;
     this.durationLabel.textContent = `${result.metadata.timingsMs.total.toFixed(0)} ms`;
     this.renderCurrentViewport();
-    this.setState('ready', 'Fourier proxy ready. Playing at the auditory midpoint.');
+    this.setState('ready', 'Fourier proxy ready. Press Play to start audio.');
     this.syncEnergyReadout();
     this.resultMeta.textContent = 'The viewport follows playback and shows the original trace against the reconstructed signal.';
     this.setProgress(1, 'Fourier proxy ready.');
-    void this.playFromBeginning().catch(() => {
-      this.setState('ready', 'Fourier proxy ready. Press Play to start audio.');
-    });
   }
 
   private configureSlider() {
@@ -756,7 +770,7 @@ export class AudioFourierController {
     for (let bandIndex = 0; bandIndex < this.activeResult.metadata.bandCount; bandIndex += 1) {
       const buffer = context.createBuffer(1, sampleCount, this.activeResult.metadata.proxySampleRate);
       buffer.copyToChannel(
-        this.activeResult.bandSamples.subarray(bandIndex * sampleCount, (bandIndex + 1) * sampleCount) as Float32Array<ArrayBuffer>,
+        this.activeResult.bandSamples.subarray(bandIndex * sampleCount, (bandIndex + 1) * sampleCount),
         0
       );
       this.bandBuffers.push(buffer);
@@ -781,7 +795,7 @@ export class AudioFourierController {
   }
 
   private async playPlayback() {
-    if (!this.activeResult || this.reducedMotion) {
+    if (!this.activeResult) {
       this.syncButtons();
       return;
     }
@@ -872,11 +886,11 @@ export class AudioFourierController {
 
     const context = this.getAudioContext();
     for (let index = 0; index < this.activeBandNodes.length; index += 1) {
-      this.activeBandNodes[index].gain.gain.setTargetAtTime(this.activeResult.bandGains[index], context.currentTime, 0.015);
+      this.activeBandNodes[index].gain.gain.setTargetAtTime(this.activeResult.bandGains[index], context.currentTime, GAIN_RAMP_TIME_CONSTANT);
     }
     if (this.activeMasterGain) {
       this.activeMasterGain.gain.cancelScheduledValues(context.currentTime);
-      this.activeMasterGain.gain.setTargetAtTime(resolveEnergyMakeupGain(this.activeResult.energyPercent), context.currentTime, 0.02);
+      this.activeMasterGain.gain.setTargetAtTime(resolveEnergyMakeupGain(this.activeResult.energyPercent), context.currentTime, MASTER_GAIN_RAMP_TIME_CONSTANT);
     }
   }
 
@@ -943,20 +957,6 @@ export class AudioFourierController {
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.fillStyle = '#000000';
     context.fillRect(0, 0, canvas.width, canvas.height);
-    context.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-    context.lineWidth = 1;
-    for (let x = 0; x <= canvas.width; x += canvas.width / 12) {
-      context.beginPath();
-      context.moveTo(x, 0);
-      context.lineTo(x, canvas.height);
-      context.stroke();
-    }
-    for (let y = 0; y <= canvas.height; y += canvas.height / 6) {
-      context.beginPath();
-      context.moveTo(0, y);
-      context.lineTo(canvas.width, y);
-      context.stroke();
-    }
   }
 
   private drawCenteredLabel(canvas: HTMLCanvasElement, context: CanvasRenderingContext2D, label: string) {
@@ -1083,7 +1083,7 @@ export class AudioFourierController {
       }
 
       const smoothedAmplitude = weightedSum / Math.max(1, weightTotal);
-      const amplitude = Math.max(rawAmplitude * 0.72, smoothedAmplitude);
+      const amplitude = Math.max(rawAmplitude * SMOOTHED_ENVELOPE_BLEND, smoothedAmplitude);
       minSamples[index] = -amplitude;
       maxSamples[index] = amplitude;
     }
@@ -1143,17 +1143,10 @@ export class AudioFourierController {
         context.lineTo(x, y);
       }
     }
-    context.stroke();
-
-    context.beginPath();
     for (let index = 0; index < count; index += 1) {
       const x = index / lastIndex * canvas.width;
       const y = centerY - minSamples[index] * scaleY;
-      if (index === 0) {
-        context.moveTo(x, y);
-      } else {
-        context.lineTo(x, y);
-      }
+      context.lineTo(x, y);
     }
     context.stroke();
     context.restore();
@@ -1190,6 +1183,16 @@ export class AudioFourierController {
     const canvas = this.componentCanvas;
     this.clearCanvas(canvas, context);
     const activeComponents = this.resolveApproximateActiveComponents();
+    if (activeComponents === 0) {
+      context.save();
+      context.fillStyle = 'rgba(255, 255, 255, 0.55)';
+      context.font = '16px Inter, sans-serif';
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText('No active components', canvas.width / 2, canvas.height / 2);
+      context.restore();
+      return;
+    }
     const componentIndex = clamp(activeComponents - 1, 0, this.activeResult.componentFrequencies.length - 1);
     const frequency = this.activeResult.componentFrequencies[componentIndex];
     const amplitude = this.activeResult.componentAmplitudes[componentIndex];
@@ -1220,5 +1223,18 @@ export class AudioFourierController {
     context.fillStyle = 'rgba(255, 255, 255, 0.72)';
     context.fillText(`${activeComponents.toLocaleString()} components · ${formatFrequency(frequency)} · amp ${amplitude.toFixed(4)} · phase ${phase.toFixed(2)}`, 22, 58);
     context.restore();
+  }
+
+  public destroy() {
+    this.stopPlayback(true);
+    this.abandonActiveComputation();
+    this.audioContext?.close();
+    this.audioContext = null;
+    this.bandBuffers = [];
+    this.activeMasterGain = null;
+    this.visualMixSamples = new Float32Array(0);
+    this.stopAnimationFrame();
+    this.sliderRafPending = false;
+    this.setState('idle', 'Destroyed.');
   }
 }

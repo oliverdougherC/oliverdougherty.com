@@ -1,4 +1,5 @@
 import { createFftWorkspace, fft, fftInto } from './fft';
+import { assertPowerOfTwo, clamp } from './math';
 
 export interface WindowedFourierOptions {
   frameSize: number;
@@ -55,27 +56,19 @@ interface ReconstructionScratch {
   fftWorkspace: ReturnType<typeof createFftWorkspace>;
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function assertPowerOfTwo(size: number) {
-  if (!Number.isInteger(size) || size < 2 || (size & (size - 1)) !== 0) {
-    throw new Error('Audio Fourier frame size must be a power of two.');
-  }
-}
-
 function createHannWindow(size: number) {
   const window = new Float32Array(size);
   if (size === 1) {
     window[0] = 1;
     return window;
   }
-
+  if (size === 2) {
+    // Both endpoints must be zero for a valid Hann window.
+    return window;
+  }
   for (let index = 0; index < size; index += 1) {
     window[index] = 0.5 - 0.5 * Math.cos(2 * Math.PI * index / (size - 1));
   }
-
   return window;
 }
 
@@ -106,11 +99,27 @@ function coefficientFrequency(coefficientIndex: number, binCount: number, sample
   return bin * sampleRate / frameSize;
 }
 
+// One-sided amplitude spectrum: DC (bin 0) and Nyquist (bin = binCount-1) are divided
+// by frameSize, while all other bins are divided by frameSize/2 (via 2*magnitude/frameSize).
+// This is the standard convention for real-valued signals where negative-frequency bins
+// are folded into the positive half. The reconstruction functions work with raw coefficients,
+// so displayed amplitudes don't round-trip perfectly with fftInto's full normalization.
 function coefficientAmplitude(real: number, imag: number, bin: number, binCount: number, frameSize: number) {
   const magnitude = Math.hypot(real, imag);
   return bin === 0 || bin === binCount - 1 ? magnitude / frameSize : 2 * magnitude / frameSize;
 }
 
+const SLIDER_CURVE_EXPONENT = 1.85;
+const FFT_PROGRESS_THROTTLE = 64;
+const OVERLAP_ADD_NORMALIZATION_THRESHOLD = 0.000001;
+
+/**
+ * Maps a slider value to a component count using an exponential curve for perceptually uniform selection.
+ * @param value - Current slider value.
+ * @param maxValue - Maximum slider value.
+ * @param componentCount - Total number of available Fourier components.
+ * @returns Clamped component count between 1 and `componentCount`.
+ */
 export function mapSliderValueToComponentCount(value: number, maxValue: number, componentCount: number) {
   if (componentCount <= 1) {
     return 1;
@@ -123,15 +132,28 @@ export function mapSliderValueToComponentCount(value: number, maxValue: number, 
   }
 
   const phase = clamp(value / Math.max(1, maxValue), 0, 1);
-  const curved = Math.pow(phase, 1.85);
+  const curved = Math.pow(phase, SLIDER_CURVE_EXPONENT);
   const mapped = Math.round(Math.exp(Math.log(componentCount) * curved));
   return clamp(mapped, 1, componentCount);
 }
 
+/**
+ * Maps a slider value to a linear energy percentage between 0 and 1.
+ * @param value - Current slider value.
+ * @param maxValue - Maximum slider value.
+ * @returns Clamped energy fraction between 0 and 1.
+ */
 export function mapSliderValueToEnergyPercent(value: number, maxValue: number) {
   return clamp(value / Math.max(1, maxValue), 0, 1);
 }
 
+/**
+ * Finds the minimum and maximum sample values over a given sample range.
+ * @param samples - Audio sample buffer.
+ * @param startSample - Start index (fractional).
+ * @param endSample - End index (fractional).
+ * @returns Object containing `min` and `max` sample values.
+ */
 export function resolveSampleEnvelope(samples: Float32Array, startSample: number, endSample: number): SampleEnvelope {
   if (samples.length === 0) {
     return { min: 0, max: 0 };
@@ -161,6 +183,12 @@ export function resolveSampleEnvelope(samples: Float32Array, startSample: number
   return { min, max };
 }
 
+/**
+ * Computes per-band gain values so the selected bands include a target fraction of total signal energy.
+ * @param energyPercent - Target energy fraction between 0 and 1.
+ * @param bandEnergyFractions - Cumulative energy fraction for each band (ascending).
+ * @returns Gain values per band, clamped between 0 and 1.
+ */
 export function resolveEnergyBandGains(energyPercent: number, bandEnergyFractions: Float32Array) {
   const gains = new Float32Array(bandEnergyFractions.length);
   const target = clamp(energyPercent, 0, 1);
@@ -178,13 +206,14 @@ export function resolveEnergyBandGains(energyPercent: number, bandEnergyFraction
     previous = next;
   }
 
-  if (target >= 1 && gains.length > 0) {
-    gains.fill(1);
-  }
-
   return gains;
 }
 
+/**
+ * Computes a compensation gain to restore perceived loudness when energy is reduced.
+ * @param energyPercent - Target energy fraction between 0 and 1.
+ * @returns Gain value clamped between 1 and 2.8.
+ */
 export function resolveEnergyMakeupGain(energyPercent: number) {
   const resolvedEnergy = clamp(energyPercent, 0, 1);
   if (resolvedEnergy >= 0.98) {
@@ -194,6 +223,14 @@ export function resolveEnergyMakeupGain(energyPercent: number) {
   return clamp(1 / Math.sqrt(Math.max(0.08, resolvedEnergy)), 1, 2.8);
 }
 
+/**
+ * Builds a complete windowed Fourier analysis of an audio signal, sorting components by energy.
+ * @param samples - Input audio sample buffer.
+ * @param sampleRate - Audio sample rate in Hz.
+ * @param options - Configuration for frame size, hop size, display sample count, and optional energy band count.
+ * @param onProgress - Optional callback for progress updates.
+ * @returns Complete `WindowedFourierAnalysis` object containing spectral coefficients, energy-sorted component arrays, and a display frame.
+ */
 export function buildWindowedFourierAnalysis(
   samples: Float32Array,
   sampleRate: number,
@@ -240,7 +277,7 @@ export function buildWindowedFourierAnalysis(
       energies[coefficientIndex] = real * real + imag * imag;
     }
 
-    if (frameIndex % 64 === 0 || frameIndex + 1 === frameCount) {
+    if (frameIndex % FFT_PROGRESS_THROTTLE === 0 || frameIndex + 1 === frameCount) {
       onProgress?.(0.12 + 0.48 * ((frameIndex + 1) / frameCount), 'Analyzing full-song proxy windows...');
     }
   }
@@ -289,6 +326,12 @@ export function buildWindowedFourierAnalysis(
   };
 }
 
+/**
+ * Reconstructs audio samples from the top-N energy-ranked Fourier components using overlap-add synthesis.
+ * @param analysis - The windowed Fourier analysis result from `buildWindowedFourierAnalysis`.
+ * @param componentCount - Number of top-energy components to include in reconstruction.
+ * @returns Reconstructed audio sample buffer.
+ */
 export function reconstructWindowedComponentCount(
   analysis: WindowedFourierAnalysis,
   componentCount: number
@@ -296,17 +339,22 @@ export function reconstructWindowedComponentCount(
   const resolvedCount = clamp(Math.round(componentCount), 1, analysis.componentOrder.length);
 
   if (resolvedCount >= analysis.componentOrder.length) {
+    // analysis.samples is already a copy of the original input created during
+    // buildWindowedFourierAnalysis, so returning a fresh copy is correct and avoids
+    // re-running the expensive reconstruction path for the trivial full-count case.
     return new Float32Array(analysis.samples);
   }
+
+  const scratch = createReconstructionScratch(analysis);
+  const { window, spectraReal, spectraImag, output, normalization, fftWorkspace } = scratch;
+  spectraReal.fill(0);
+  spectraImag.fill(0);
+  output.fill(0);
+  normalization.fill(0);
 
   const frameSize = analysis.frameSize;
   const hopSize = analysis.hopSize;
   const binCount = analysis.binCount;
-  const window = createHannWindow(frameSize);
-  const spectraReal = new Float32Array(analysis.frameCount * frameSize);
-  const spectraImag = new Float32Array(analysis.frameCount * frameSize);
-  const output = new Float32Array((analysis.frameCount - 1) * hopSize + frameSize);
-  const normalization = new Float32Array(output.length);
 
   for (let orderedIndex = 0; orderedIndex < resolvedCount; orderedIndex += 1) {
     const coefficientIndex = analysis.componentOrder[orderedIndex];
@@ -325,10 +373,11 @@ export function reconstructWindowedComponentCount(
 
   for (let frameIndex = 0; frameIndex < analysis.frameCount; frameIndex += 1) {
     const frameOffset = frameIndex * frameSize;
-    const time = fft(
+    const time = fftInto(
       spectraReal.subarray(frameOffset, frameOffset + frameSize),
       spectraImag.subarray(frameOffset, frameOffset + frameSize),
-      true
+      true,
+      fftWorkspace
     ).real;
     const sampleStart = frameIndex * hopSize;
 
@@ -343,7 +392,7 @@ export function reconstructWindowedComponentCount(
   const trimmed = new Float32Array(analysis.samples.length);
   for (let index = 0; index < trimmed.length; index += 1) {
     const norm = normalization[index];
-    trimmed[index] = norm > 0.000001 ? output[index] / norm : output[index];
+         trimmed[index] = norm > OVERLAP_ADD_NORMALIZATION_THRESHOLD ? output[index] / norm : output[index];
   }
 
   return trimmed;
@@ -361,6 +410,14 @@ function createReconstructionScratch(analysis: WindowedFourierAnalysis): Reconst
   };
 }
 
+/**
+ * Reconstructs audio from a specific contiguous range of energy-sorted components, with optional scratch buffer reuse.
+ * @param analysis - The windowed Fourier analysis result from `buildWindowedFourierAnalysis`.
+ * @param startComponentIndex - Start index in the energy-sorted component order (inclusive).
+ * @param endComponentIndex - End index in the energy-sorted component order (exclusive).
+ * @param scratch - Optional pre-allocated scratch buffers to reuse for performance.
+ * @returns Reconstructed audio sample buffer.
+ */
 export function reconstructWindowedComponentRange(
   analysis: WindowedFourierAnalysis,
   startComponentIndex: number,
@@ -414,12 +471,18 @@ export function reconstructWindowedComponentRange(
   const trimmed = new Float32Array(analysis.samples.length);
   for (let index = 0; index < trimmed.length; index += 1) {
     const norm = normalization[index];
-    trimmed[index] = norm > 0.000001 ? output[index] / norm : output[index];
+     trimmed[index] = norm > OVERLAP_ADD_NORMALIZATION_THRESHOLD ? output[index] / norm : output[index];
   }
 
   return trimmed;
 }
 
+/**
+ * Reconstructs audio and produces a downsampled display frame for a given component count.
+ * @param analysis - The windowed Fourier analysis result from `buildWindowedFourierAnalysis`.
+ * @param componentCount - Number of top-energy components to include in reconstruction.
+ * @returns Object with resolved component count, downsampled display frame, and full playback samples.
+ */
 export function renderWindowedComponentCount(
   analysis: WindowedFourierAnalysis,
   componentCount: number
@@ -436,11 +499,21 @@ export function renderWindowedComponentCount(
   };
 }
 
+/**
+ * Partitions Fourier components into equal-energy bands and reconstructs each band independently.
+ * @param analysis - The windowed Fourier analysis result from `buildWindowedFourierAnalysis`.
+ * @param bandCount - Number of equal-energy bands to partition components into.
+ * @param onProgress - Optional callback for progress updates.
+ * @returns Object with per-band samples, component boundaries, energy fractions, and a mixed output.
+ */
 export function buildEnergyBandReconstruction(
   analysis: WindowedFourierAnalysis,
   bandCount: number,
   onProgress?: (progress: number, message: string) => void
 ): EnergyBandReconstruction {
+  // Memory note: bandSamples allocates O(bandCount × sampleCount).
+  // For a 7M sample signal with 12 bands this is ~336 MB. The bands are
+  // reconstructed once and stored for fast slider-driven mixing.
   const resolvedBandCount = clamp(Math.round(bandCount), 1, analysis.componentOrder.length);
   const bandSamples = new Float32Array(resolvedBandCount * analysis.samples.length);
   const bandEndComponentCounts = new Uint32Array(resolvedBandCount);
@@ -469,9 +542,6 @@ export function buildEnergyBandReconstruction(
 
     const band = reconstructWindowedComponentRange(analysis, componentStart, componentEnd, reconstructionScratch);
     bandSamples.set(band, bandIndex * analysis.samples.length);
-    for (let sampleIndex = 0; sampleIndex < mixedSamples.length; sampleIndex += 1) {
-      mixedSamples[sampleIndex] += band[sampleIndex];
-    }
     bandEndComponentCounts[bandIndex] = componentEnd;
     bandEnergyFractions[bandIndex] = totalEnergy > 0 ? energySum / totalEnergy : (bandIndex + 1) / resolvedBandCount;
     componentStart = componentEnd;
@@ -479,6 +549,8 @@ export function buildEnergyBandReconstruction(
   }
 
   bandEnergyFractions[resolvedBandCount - 1] = 1;
+  const allOnes = new Float32Array(resolvedBandCount).fill(1);
+  mixEnergyBands(bandSamples, analysis.samples.length, allOnes, mixedSamples);
   const finalBandOffset = (resolvedBandCount - 1) * analysis.samples.length;
   for (let sampleIndex = 0; sampleIndex < mixedSamples.length; sampleIndex += 1) {
     const residual = analysis.samples[sampleIndex] - mixedSamples[sampleIndex];
@@ -497,6 +569,14 @@ export function buildEnergyBandReconstruction(
   };
 }
 
+/**
+ * Combines per-band audio samples with per-band gain values into a single mixed output.
+ * @param bandSamples - Concatenated sample buffers for each band (length: `bandCount * sampleCount`).
+ * @param sampleCount - Number of samples per band.
+ * @param gains - Per-band gain multipliers.
+ * @param destination - Optional output buffer; allocated if not provided.
+ * @returns The mixed audio sample buffer.
+ */
 export function mixEnergyBands(
   bandSamples: Float32Array,
   sampleCount: number,
@@ -517,6 +597,14 @@ export function mixEnergyBands(
   return destination;
 }
 
+/**
+ * Calculates a time-centered viewport range for audio waveform display.
+ * @param currentTimeSeconds - Current playback position in seconds.
+ * @param durationSeconds - Total audio duration in seconds.
+ * @param sampleRate - Audio sample rate in Hz.
+ * @param viewportSeconds - Window width in seconds centered on the current time.
+ * @returns Object with `startSample`, `endSample`, and `viewportSampleCount`.
+ */
 export function resolveViewportRange(
   currentTimeSeconds: number,
   durationSeconds: number,

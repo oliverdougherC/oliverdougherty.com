@@ -1,3 +1,5 @@
+import type { WindowedFourierOptions } from './audioFourierCore';
+
 export type BuiltInAudioPresetId = 'best-friends' | 'i-cant-wait-to-get-there' | 'tell-your-friends';
 export type AudioFourierPresetId = 'fast' | 'balanced' | 'detailed';
 
@@ -8,15 +10,12 @@ export interface BuiltInAudioPreset {
   url: string;
 }
 
-export interface AudioFourierPreset {
+export interface AudioFourierPreset extends WindowedFourierOptions {
   id: AudioFourierPresetId;
   label: string;
   proxySampleRate: number;
   maxProxySampleCount: number;
   maxDurationSeconds: number;
-  frameSize: number;
-  hopSize: number;
-  displaySampleCount: number;
   sliderSteps: number;
   energyBandCount: number;
 }
@@ -85,6 +84,10 @@ export const AUDIO_FOURIER_PRESETS: Record<AudioFourierPresetId, AudioFourierPre
   }
 };
 
-export function getAudioFourierPreset(id: AudioFourierPresetId) {
-  return AUDIO_FOURIER_PRESETS[id];
+export function getAudioFourierPreset(id: string): AudioFourierPreset {
+  const preset = AUDIO_FOURIER_PRESETS[id as AudioFourierPresetId];
+  if (!preset) {
+    throw new Error(`Unknown audio Fourier preset: ${id}`);
+  }
+  return preset;
 }

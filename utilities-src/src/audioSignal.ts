@@ -1,3 +1,5 @@
+import { clamp } from './math';
+
 export interface AudioChannels {
   sampleRate: number;
   channels: Float32Array[];
@@ -16,10 +18,6 @@ export interface AudioSignalPrepareOptions {
   proxySampleRate: number;
   maxProxySampleCount?: number;
   maxDurationSeconds: number;
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
 }
 
 function mean(samples: Float32Array) {

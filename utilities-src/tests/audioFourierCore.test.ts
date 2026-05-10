@@ -3,8 +3,10 @@ import {
   buildWindowedFourierAnalysis,
   mapSliderValueToEnergyPercent,
   mixEnergyBands,
+  resolveEnergyBandGains,
   resolveEnergyMakeupGain,
   resolveSampleEnvelope,
+  resolveViewportRange,
   renderWindowedComponentCount
 } from '@utilities/audioFourierCore';
 
@@ -114,6 +116,134 @@ describe('audio Fourier core', () => {
     expect(maxDifference(bands.mixedSamples, samples)).toBeLessThan(0.00001);
     expect(maxDifference(fullMix, bands.mixedSamples)).toBeLessThan(0.00001);
     expect(maxDifference(halfMix, fullMix)).toBeGreaterThan(0.01);
+  });
+
+  it('computes partial gains for middle bands when target falls between energy fractions', () => {
+    const fractions = new Float32Array([0.2, 0.5, 0.8, 1.0]);
+
+    const gainsAt03 = resolveEnergyBandGains(0.3, fractions);
+    expect(gainsAt03[0]).toBe(1);
+    expect(gainsAt03[1]).toBeGreaterThan(0);
+    expect(gainsAt03[1]).toBeLessThan(1);
+    expect(gainsAt03[2]).toBe(0);
+    expect(gainsAt03[3]).toBe(0);
+
+    const gainsAt065 = resolveEnergyBandGains(0.65, fractions);
+    expect(gainsAt065[0]).toBe(1);
+    expect(gainsAt065[1]).toBe(1);
+    expect(gainsAt065[2]).toBeGreaterThan(0);
+    expect(gainsAt065[2]).toBeLessThan(1);
+    expect(gainsAt065[3]).toBe(0);
+  });
+
+  it('resolves viewport range at start of track boundary', () => {
+    const { startSample, endSample, viewportSampleCount } = resolveViewportRange(
+      0,
+      10,
+      64,
+      2
+    );
+
+    expect(startSample).toBe(0);
+    expect(endSample).toBe(128);
+    expect(viewportSampleCount).toBe(128);
+  });
+
+  it('resolves viewport range at end of track boundary', () => {
+    const { startSample, endSample, viewportSampleCount } = resolveViewportRange(
+      10,
+      10,
+      64,
+      2
+    );
+
+    const totalSamples = 10 * 64;
+    expect(viewportSampleCount).toBe(128);
+    expect(startSample).toBe(totalSamples - 128);
+    expect(endSample).toBe(totalSamples);
+  });
+
+  it('handles displaySampleCount larger than signal length via renderWindowedComponentCount', () => {
+    const sampleRate = 256;
+    const samples = new Float32Array(512);
+    for (let i = 0; i < samples.length; i++) {
+      samples[i] = Math.sin(2 * Math.PI * 8 * i / sampleRate) * 0.6;
+    }
+
+    const analysis = buildWindowedFourierAnalysis(samples, sampleRate, {
+      frameSize: 64,
+      hopSize: 32,
+      displaySampleCount: 4096
+    });
+
+    const result = renderWindowedComponentCount(analysis, analysis.componentOrder.length);
+
+    expect(result.displayFrame.length).toBe(4096);
+    expect(result.playbackSamples.length).toBe(512);
+  });
+
+  it('builds analysis with only one frame when samples length is less than frameSize', () => {
+    const sampleRate = 256;
+    const samples = new Float32Array(32);
+    for (let i = 0; i < samples.length; i++) {
+      samples[i] = Math.sin(2 * Math.PI * 2 * i / sampleRate) * 0.5;
+    }
+
+    const analysis = buildWindowedFourierAnalysis(samples, sampleRate, {
+      frameSize: 64,
+      hopSize: 32,
+      displaySampleCount: 32
+    });
+
+    expect(analysis.frameCount).toBe(1);
+    expect(analysis.binCount).toBe(33);
+    expect(analysis.componentOrder.length).toBe(33);
+  });
+
+  it('reconstruction with component count of 1 produces valid output', () => {
+    const sampleRate = 512;
+    const samples = new Float32Array(1024);
+    for (let i = 0; i < samples.length; i++) {
+      samples[i] =
+        Math.sin(2 * Math.PI * 10 * i / sampleRate) * 0.6 +
+        Math.sin(2 * Math.PI * 37 * i / sampleRate) * 0.3;
+    }
+
+    const analysis = buildWindowedFourierAnalysis(samples, sampleRate, {
+      frameSize: 128,
+      hopSize: 64,
+      displaySampleCount: 128
+    });
+
+    const result = renderWindowedComponentCount(analysis, 1);
+
+    expect(result.componentCount).toBe(1);
+    expect(result.playbackSamples.length).toBe(1024);
+    expect(result.displayFrame.length).toBe(128);
+
+    let maxVal = 0;
+    for (let i = 0; i < result.playbackSamples.length; i++) {
+      maxVal = Math.max(maxVal, Math.abs(result.playbackSamples[i]));
+    }
+    expect(maxVal).toBeGreaterThan(0);
+  });
+
+  it('returns all-zero gains when target energy is 0', () => {
+    const fractions = new Float32Array([0.25, 0.5, 0.75, 1.0]);
+    const gains = resolveEnergyBandGains(0, fractions);
+
+    for (let i = 0; i < gains.length; i++) {
+      expect(gains[i]).toBe(0);
+    }
+  });
+
+  it('returns all-ones gains when target energy is 1', () => {
+    const fractions = new Float32Array([0.25, 0.5, 0.75, 1.0]);
+    const gains = resolveEnergyBandGains(1, fractions);
+
+    for (let i = 0; i < gains.length; i++) {
+      expect(gains[i]).toBe(1);
+    }
   });
 
   it('keeps song-length proxy analysis bounded by frame options', () => {

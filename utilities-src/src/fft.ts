@@ -1,3 +1,5 @@
+import { assertPowerOfTwo } from './math';
+
 export interface ComplexSpectrum {
   real: Float32Array;
   imag: Float32Array;
@@ -6,12 +8,6 @@ export interface ComplexSpectrum {
 export interface FftWorkspace {
   real: Float32Array;
   imag: Float32Array;
-}
-
-function assertPowerOfTwo(size: number) {
-  if (!Number.isInteger(size) || size < 2 || (size & (size - 1)) !== 0) {
-    throw new Error('FFT size must be a power of two.');
-  }
 }
 
 function reverseBits(value: number, bits: number) {

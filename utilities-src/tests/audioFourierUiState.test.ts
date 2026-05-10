@@ -1,13 +1,12 @@
 import { resolveAudioPlaybackButtonLabel } from '@utilities/audioFourierUiState';
 
-describe('audio_fourier_ui_state', () => {
-  it('resolves_play_and_replay_labels_from_playback_state', () => {
+describe('audio playback UI state', () => {
+  it('resolves play and replay labels from playback state', () => {
     expect(
       resolveAudioPlaybackButtonLabel({
         hasResult: true,
         isProcessing: false,
         isPlaying: false,
-        reducedMotion: false,
         elapsedSeconds: 0,
         isComplete: false,
       })
@@ -18,7 +17,6 @@ describe('audio_fourier_ui_state', () => {
         hasResult: true,
         isProcessing: false,
         isPlaying: false,
-        reducedMotion: false,
         elapsedSeconds: 1,
         isComplete: false,
       })
@@ -29,7 +27,6 @@ describe('audio_fourier_ui_state', () => {
         hasResult: true,
         isProcessing: false,
         isPlaying: false,
-        reducedMotion: false,
         elapsedSeconds: 1,
         isComplete: true,
       })
