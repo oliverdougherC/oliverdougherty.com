@@ -1468,13 +1468,13 @@
   box-shadow: 0 0 15px rgba(255,128,96,0.15), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .stress-layout {
   display: grid;
   grid-template-columns: minmax(18rem, 0.55fr) minmax(0, 1fr);
-  gap: clamp(0.9rem, 1.8vw, 1.5rem);
+  gap: clamp(0.7rem, 1.5vw, 1.2rem);
   height: 100%;
   min-height: 0;
 }
@@ -1491,8 +1491,9 @@
 .stress-control-panel {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  padding: clamp(1rem, 2vw, 1.4rem);
+  gap: clamp(0.7rem, 1.4vw, 1rem);
+  overflow: auto;
+  padding: clamp(0.85rem, 1.6vw, 1.15rem);
 }
 
 .stress-warning {
@@ -1508,7 +1509,7 @@
 }
 
 .stress-mode-button {
-  min-height: 2.75rem;
+  min-height: 2.55rem;
   font: inherit;
   color: var(--color-text-primary);
   border: 1px solid var(--utilities-border-soft);
@@ -1544,21 +1545,22 @@
 
 .stress-start-button,
 .stress-stop-button {
-  min-height: 3.2rem;
+  min-height: 3rem;
   font-weight: var(--weight-semibold);
 }
 
 .stress-metrics {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.65rem;
-  margin: auto 0 0;
+  grid-template-columns: repeat(2, minmax(7.25rem, 1fr));
+  gap: 0.5rem;
+  margin: 0;
 }
 
 .stress-metrics div {
   display: grid;
   gap: 0.25rem;
-  padding: 0.75rem;
+  min-height: 4.25rem;
+  padding: 0.6rem 0.65rem;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-xl);
   background: rgba(0, 0, 0, 0.18);
@@ -1576,7 +1578,7 @@
   overflow: hidden;
   color: var(--color-text-primary);
   font-family: var(--font-mono), monospace;
-  font-size: clamp(1rem, 1.7vw, 1.35rem);
+  font-size: clamp(0.95rem, 1.45vw, 1.22rem);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1584,14 +1586,14 @@
 .stress-visual-panel {
   position: relative;
   overflow: hidden;
-  padding: clamp(0.6rem, 1.3vw, 0.9rem);
+  padding: clamp(0.5rem, 1.1vw, 0.75rem);
 }
 
 .stress-visual-panel canvas {
   display: block;
   width: 100%;
   height: 100%;
-  min-height: 20rem;
+  min-height: clamp(16rem, 48vh, 20rem);
   border-radius: var(--radius-xl);
   background: #000000;
 }
@@ -3078,7 +3080,14 @@ html[data-active-utility] .utility-switcher {
 
   .stress-layout {
     grid-template-columns: 1fr;
+    align-content: start;
+    height: auto;
+    max-height: 100%;
     overflow: auto;
+  }
+
+  .stress-control-panel {
+    overflow: visible;
   }
 
   .stress-visual-panel canvas {

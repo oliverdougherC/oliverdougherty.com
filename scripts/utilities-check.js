@@ -506,6 +506,133 @@ async function assertUtilityIsolationLayout(page, label) {
   }
 }
 
+async function readStressCanvasStats(page) {
+  return page.evaluate(() => {
+    const canvas = document.getElementById('stressCanvas');
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      return { missing: true };
+    }
+
+    const sampler = document.createElement('canvas');
+    sampler.width = 96;
+    sampler.height = 54;
+    const context = sampler.getContext('2d', { willReadFrequently: true });
+    if (!context) {
+      return { missing: false, readable: false };
+    }
+
+    context.clearRect(0, 0, sampler.width, sampler.height);
+    context.drawImage(canvas, 0, 0, sampler.width, sampler.height);
+    const pixels = context.getImageData(0, 0, sampler.width, sampler.height).data;
+    let litPixels = 0;
+    let opaquePixels = 0;
+    let totalRgb = 0;
+    let maxChannel = 0;
+    for (let offset = 0; offset < pixels.length; offset += 4) {
+      const red = pixels[offset];
+      const green = pixels[offset + 1];
+      const blue = pixels[offset + 2];
+      const alpha = pixels[offset + 3];
+      const brightness = red + green + blue;
+      totalRgb += brightness;
+      maxChannel = Math.max(maxChannel, red, green, blue);
+      if (alpha > 0) {
+        opaquePixels += 1;
+      }
+      if (alpha > 0 && brightness > 24) {
+        litPixels += 1;
+      }
+    }
+
+    return {
+      missing: false,
+      readable: true,
+      idle: canvas.dataset.stressIdle ?? '',
+      width: canvas.width,
+      height: canvas.height,
+      sampledPixels: sampler.width * sampler.height,
+      litPixels,
+      opaquePixels,
+      totalRgb,
+      maxChannel
+    };
+  });
+}
+
+async function assertStressCanvasActive(page, label) {
+  const stats = await readStressCanvasStats(page);
+  assert(!stats.missing, `[${label}] stress canvas is missing.`);
+  assert(stats.readable !== false, `[${label}] stress canvas pixels should be readable in the browser check.`);
+  assert(stats.width > 0 && stats.height > 0, `[${label}] stress canvas should have a positive drawing buffer.`);
+  assert(stats.litPixels > 48, `[${label}] stress canvas should render nonblack output; stats=${JSON.stringify(stats)}.`);
+  assert(stats.maxChannel > 24, `[${label}] stress canvas should contain visible color; stats=${JSON.stringify(stats)}.`);
+}
+
+async function assertStressCanvasIdle(page, label) {
+  const stats = await readStressCanvasStats(page);
+  assert(!stats.missing, `[${label}] stress canvas is missing.`);
+  assert(stats.idle === 'true', `[${label}] stress canvas should mark its idle placeholder state.`);
+  assert(stats.litPixels === 0, `[${label}] stopped stress canvas should be cleared; stats=${JSON.stringify(stats)}.`);
+}
+
+async function readStressLayoutMetrics(page) {
+  return page.evaluate(() => {
+    const rect = (selector) => {
+      const element = document.querySelector(selector);
+      if (!(element instanceof HTMLElement || element instanceof HTMLCanvasElement)) return null;
+      const box = element.getBoundingClientRect();
+      return {
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+        visible: box.width > 0 && box.height > 0
+      };
+    };
+    const shell = document.getElementById('stressTestApp');
+    const layout = document.querySelector('.stress-layout');
+    const control = document.querySelector('.stress-control-panel');
+    const visual = document.querySelector('.stress-visual-panel');
+    const metrics = document.querySelector('.stress-metrics');
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      shell: rect('#stressTestApp'),
+      layout: rect('.stress-layout'),
+      control: rect('.stress-control-panel'),
+      visual: rect('.stress-visual-panel'),
+      metrics: rect('.stress-metrics'),
+      shellScrollHeight: shell?.scrollHeight ?? 0,
+      shellClientHeight: shell?.clientHeight ?? 0,
+      layoutScrollWidth: layout?.scrollWidth ?? 0,
+      layoutClientWidth: layout?.clientWidth ?? 0,
+      controlScrollHeight: control?.scrollHeight ?? 0,
+      controlClientHeight: control?.clientHeight ?? 0
+    };
+  });
+}
+
+async function assertStressLayout(page, label, options = {}) {
+  const state = await readStressLayoutMetrics(page);
+  assert(state.scrollWidth === state.clientWidth, `[${label}] stress utility should not create horizontal page overflow.`);
+  assert(state.shell?.visible, `[${label}] stress shell should be visible.`);
+  assert(state.layout?.visible, `[${label}] stress layout should be visible.`);
+  assert(state.control?.visible, `[${label}] stress control panel should be visible.`);
+  assert(state.visual?.visible, `[${label}] stress visual panel should be visible.`);
+  assert(state.metrics?.visible, `[${label}] stress metrics should be visible.`);
+  assert(state.shell.left >= -1, `[${label}] stress shell overflows left.`);
+  assert(state.shell.right <= state.viewport.width + 1, `[${label}] stress shell overflows right.`);
+  assert(state.shell.bottom <= state.viewport.height + 1, `[${label}] stress shell overflows below the viewport.`);
+  assert(state.layoutScrollWidth <= state.layoutClientWidth + 1, `[${label}] stress layout should not overflow horizontally.`);
+  if (options.requirePanelFit) {
+    assert(state.metrics.bottom <= state.control.bottom + 1, `[${label}] stress metrics should not clip below the control panel.`);
+    assert(state.controlScrollHeight <= state.controlClientHeight + 1, `[${label}] stress control panel should fit without internal clipping.`);
+  }
+}
+
 async function readLocalAssistantMetrics(page) {
   return page.evaluate(() => {
     const rect = (selector) => {
@@ -1380,7 +1507,9 @@ async function main() {
     assert(audioErrorState.chip === 'Error', 'Invalid audio upload should set the Audio Fourier error chip.');
     assert(/audio|decode|unable|supported/i.test(audioErrorState.text), 'Invalid audio upload should surface a readable error.');
 
+    await page.setViewportSize({ width: 2048, height: 998 });
     await navigateUtility(page, 'stress-test');
+    await assertStressLayout(page, 'stress:desktop:idle', { requirePanelFit: true });
 
     const stressInitialState = await page.evaluate(() => ({
       state: document.getElementById('stressTestApp')?.dataset.stressState ?? '',
@@ -1423,6 +1552,11 @@ async function main() {
     assert(stressRunningState.workers === '2', 'Stress Test browser check should honor the worker-count test cap.');
     assert(stressRunningState.backend === 'none', 'CPU-only Stress Test should not start GPU work.');
     assert(stressRunningState.stopDisabled === false, 'Stress Test stop should enable while running.');
+    await page.waitForFunction(() => Number(document.getElementById('stressTestApp')?.dataset.stressGpuFrameCount ?? '0') >= 2, {
+      timeout: 10000
+    });
+    await assertStressCanvasActive(page, 'stress:cpu:running');
+    await assertStressLayout(page, 'stress:desktop:cpu-running', { requirePanelFit: true });
 
     await page.click('#stressStopBtn');
     await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'idle', {
@@ -1437,6 +1571,7 @@ async function main() {
     assert(stressStoppedState.state === 'idle', 'Stress Test should return to idle after Stop.');
     assert(stressStoppedState.workers === '0', 'Stress Test should clear workers after Stop.');
     assert(stressStoppedState.backend === 'none', 'Stress Test should clear GPU backend after Stop.');
+    await assertStressCanvasIdle(page, 'stress:cpu:stopped');
 
     await page.click('[data-stress-mode-option="gpu"]');
     await page.click('#stressStartBtn');
@@ -1470,11 +1605,14 @@ async function main() {
     assert(stressGpuState.frames >= 2, 'GPU Stress Test should render multiple GPU frames.');
     assert(stressGpuState.workload >= 1, 'GPU Stress Test should expose a positive workload level.');
     assert(stressGpuState.activeCanvas === 'true', 'GPU Stress Test should report active GPU canvas output.');
+    await assertStressCanvasActive(page, 'stress:gpu:running');
+    await assertStressLayout(page, 'stress:desktop:gpu-running', { requirePanelFit: true });
 
     await page.click('#stressStopBtn');
     await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'idle', {
       timeout: 10000
     });
+    await page.setViewportSize({ width: 1440, height: 1100 });
 
     const webGl1Page = await browser.newPage({
       viewport: { width: 1440, height: 1100 }
@@ -1556,6 +1694,21 @@ async function main() {
     assert(noGpuStressState.backend === 'none', 'Unsupported GPU Stress Test should keep GPU backend none.');
     assert(/webgpu|webgl|gpu/i.test(noGpuStressState.status), 'Unsupported GPU Stress Test should surface readable fallback copy.');
     await noGpuPage.close();
+
+    const stressMobilePage = await browser.newPage({
+      viewport: { width: 390, height: 844 }
+    });
+    await stressMobilePage.addInitScript(() => {
+      window.__OD_STRESS_TEST_MAX_WORKERS__ = 1;
+    });
+    await stressMobilePage.goto(`${baseUrl}/pages/utilities/index.html#stress-test`, { waitUntil: 'networkidle' });
+    await stressMobilePage.waitForFunction(
+      () => document.querySelector('.utility-stage[data-utility-id="stress-test"]')?.classList.contains('is-active'),
+      { timeout: 10000 }
+    );
+    await stressMobilePage.waitForSelector('#stressTestApp[data-stress-state="idle"]', { timeout: 10000 });
+    await assertStressLayout(stressMobilePage, 'stress:mobile:idle');
+    await stressMobilePage.close();
 
     await navigateUtility(page, 'death-calculator');
 
