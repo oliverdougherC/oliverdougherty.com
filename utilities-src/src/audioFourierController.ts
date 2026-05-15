@@ -8,11 +8,11 @@ import {
 import { clamp } from './math';
 import {
   mapSliderValueToEnergyPercent,
-  mixEnergyBands,
+  mixEnergyBandEnvelopes,
   resolveEnergyBandGains,
   resolveEnergyMakeupGain,
-  resolveSampleEnvelope,
-  resolveViewportRange
+  resolveEnvelopeViewportRange,
+  type MixedAudioEnvelope
 } from './audioFourierCore';
 import { resolveAudioPlaybackButtonState } from './audioFourierUiState';
 import type { AudioFourierSourceTransfer, AudioFourierSuccessMessage, AudioFourierWorkerRequest, AudioFourierWorkerResponse } from './audioFourierWorkerTypes';
@@ -42,8 +42,11 @@ interface ActiveBandNode {
 
 interface ActiveAudioFourier {
   metadata: AudioFourierSuccessMessage['metadata'];
-  originalSamples: Float32Array;
   bandSamples: Float32Array;
+  originalEnvelopeMin: Float32Array;
+  originalEnvelopeMax: Float32Array;
+  bandEnvelopeMin: Float32Array;
+  bandEnvelopeMax: Float32Array;
   bandEndComponentCounts: Uint32Array;
   bandEnergyFractions: Float32Array;
   componentFrequencies: Float32Array;
@@ -51,6 +54,7 @@ interface ActiveAudioFourier {
   componentPhases: Float32Array;
   bandGains: Float32Array;
   energyPercent: number;
+  visualEnvelopeDirty: boolean;
 }
 
 function asArrayBuffer(buffer: ArrayBufferLike): ArrayBuffer {
@@ -79,14 +83,11 @@ const INITIAL_SLIDER_VALUE = 50;
 const PLAYBACK_FADE_SECONDS = 0.1;
 const PLAYBACK_START_DELAY_SECONDS = 0.035;
 const PLAYBACK_PROGRESS_UPDATE_MS = 100;
-const MAX_VISUAL_POINTS = 1024;
-const MIN_VISUAL_POINTS = 768;
-const LIVE_MAX_VISUAL_POINTS = 768;
-const LIVE_MIN_VISUAL_POINTS = 512;
 const FULL_ENERGY_VISUAL_THRESHOLD = 0.999;
 const GAIN_RAMP_TIME_CONSTANT = 0.015;
 const MASTER_GAIN_RAMP_TIME_CONSTANT = 0.02;
 const SMOOTHED_ENVELOPE_BLEND = 0.72;
+const VISUAL_CLOCK_RECONCILE_SECONDS = 0.08;
 
 export class AudioFourierController {
   private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -134,16 +135,18 @@ export class AudioFourierController {
   private bandBuffers: AudioBuffer[] = [];
   private activeBandNodes: ActiveBandNode[] = [];
   private activeMasterGain: GainNode | null = null;
-  private visualMixSamples = new Float32Array(0);
+  private mixedVisualEnvelope: MixedAudioEnvelope | null = null;
   private playbackStartedAt = 0;
   private playbackElapsedSeconds = 0;
+  private visualPlaybackElapsedSeconds = 0;
+  private visualPlaybackUpdatedAt = 0;
   private animationFrameId = 0;
-  private visualOriginalMinScratch = new Float32Array(MAX_VISUAL_POINTS);
-  private visualOriginalMaxScratch = new Float32Array(MAX_VISUAL_POINTS);
-  private visualMixMinScratch = new Float32Array(MAX_VISUAL_POINTS);
-  private visualMixMaxScratch = new Float32Array(MAX_VISUAL_POINTS);
-  private visualOriginalAmpScratch = new Float32Array(MAX_VISUAL_POINTS);
-  private visualMixAmpScratch = new Float32Array(MAX_VISUAL_POINTS);
+  private visualOriginalMinScratch = new Float32Array(0);
+  private visualOriginalMaxScratch = new Float32Array(0);
+  private visualMixMinScratch = new Float32Array(0);
+  private visualMixMaxScratch = new Float32Array(0);
+  private visualOriginalAmpScratch = new Float32Array(0);
+  private visualMixAmpScratch = new Float32Array(0);
   private lastPlaybackProgressAt = 0;
   private state: AudioFourierState = 'idle';
   private sliderRafPending = false;
@@ -419,8 +422,9 @@ export class AudioFourierController {
     this.activeResult = null;
     this.bandBuffers = [];
     this.activeMasterGain = null;
-    this.visualMixSamples = new Float32Array(0);
+    this.mixedVisualEnvelope = null;
     this.playbackElapsedSeconds = 0;
+    this.visualPlaybackElapsedSeconds = 0;
     this.clearDiagnostics();
     this.componentSlider.disabled = true;
     this.componentSlider.value = String(INITIAL_SLIDER_VALUE);
@@ -432,7 +436,7 @@ export class AudioFourierController {
     this.componentCountLabel.textContent = '—';
     this.sourceDurationLabel.textContent = '—';
     this.durationLabel.textContent = '—';
-    this.resultMeta.textContent = 'Generate a Fourier transform to begin the reconstruction.';
+    this.resultMeta.textContent = '';
     const preset = getAudioFourierPreset(this.selectedQuality);
     this.setState('idle', statusText);
     this.setProgress(0, 'Ready for audio.', `${preset.label} · full-song proxy at ${preset.proxySampleRate} Hz`);
@@ -459,8 +463,9 @@ export class AudioFourierController {
     this.activeResult = null;
     this.bandBuffers = [];
     this.activeMasterGain = null;
-    this.visualMixSamples = new Float32Array(0);
+    this.mixedVisualEnvelope = null;
     this.playbackElapsedSeconds = 0;
+    this.visualPlaybackElapsedSeconds = 0;
     this.clearDiagnostics();
     this.drawEmptyState();
 
@@ -633,21 +638,26 @@ export class AudioFourierController {
     const bandEnergyFractions = new Float32Array(asArrayBuffer(message.bandEnergyFractions));
     const result: ActiveAudioFourier = {
       metadata: message.metadata,
-      originalSamples: new Float32Array(asArrayBuffer(message.originalSamples)),
       bandSamples: new Float32Array(asArrayBuffer(message.bandSamples)),
+      originalEnvelopeMin: new Float32Array(asArrayBuffer(message.originalEnvelopeMin)),
+      originalEnvelopeMax: new Float32Array(asArrayBuffer(message.originalEnvelopeMax)),
+      bandEnvelopeMin: new Float32Array(asArrayBuffer(message.bandEnvelopeMin)),
+      bandEnvelopeMax: new Float32Array(asArrayBuffer(message.bandEnvelopeMax)),
       bandEndComponentCounts: new Uint32Array(asArrayBuffer(message.bandEndComponentCounts)),
       bandEnergyFractions,
       componentFrequencies: new Float32Array(asArrayBuffer(message.componentFrequencies)),
       componentAmplitudes: new Float32Array(asArrayBuffer(message.componentAmplitudes)),
       componentPhases: new Float32Array(asArrayBuffer(message.componentPhases)),
       bandGains: resolveEnergyBandGains(energyPercent, bandEnergyFractions),
-      energyPercent
+      energyPercent,
+      visualEnvelopeDirty: true
     };
 
     this.activeResult = result;
     this.bandBuffers = [];
-    this.rebuildVisualMixSamples();
+    this.mixedVisualEnvelope = null;
     this.playbackElapsedSeconds = 0;
+    this.visualPlaybackElapsedSeconds = 0;
     this.syncDiagnostics(result, message.requestId);
     this.configureSlider();
     this.sampleRateLabel.textContent = `${result.metadata.proxySampleRate.toFixed(0)} Hz proxy`;
@@ -703,7 +713,7 @@ export class AudioFourierController {
       sliderMaxValue
     );
     this.activeResult.bandGains = resolveEnergyBandGains(this.activeResult.energyPercent, this.activeResult.bandEnergyFractions);
-    this.rebuildVisualMixSamples();
+    this.activeResult.visualEnvelopeDirty = true;
     this.updateLiveBandGains();
     this.syncEnergyReadout();
 
@@ -753,22 +763,26 @@ export class AudioFourierController {
     return this.activeResult.metadata.componentCount;
   }
 
-  private rebuildVisualMixSamples() {
+  private resolveMixedVisualEnvelope() {
     if (!this.activeResult) {
-      this.visualMixSamples = new Float32Array(0);
-      return;
+      this.mixedVisualEnvelope = null;
+      return null;
     }
 
-    if (this.visualMixSamples.length !== this.activeResult.metadata.proxySampleCount) {
-      this.visualMixSamples = new Float32Array(this.activeResult.metadata.proxySampleCount);
+    if (!this.mixedVisualEnvelope || this.activeResult.visualEnvelopeDirty) {
+      this.mixedVisualEnvelope = mixEnergyBandEnvelopes(
+        this.activeResult.bandEnvelopeMin,
+        this.activeResult.bandEnvelopeMax,
+        this.activeResult.metadata.envelopeBucketCount,
+        this.activeResult.metadata.proxySampleCount,
+        this.activeResult.metadata.envelopeBucketSampleCount,
+        this.activeResult.bandGains,
+        this.mixedVisualEnvelope ?? undefined
+      );
+      this.activeResult.visualEnvelopeDirty = false;
     }
 
-    mixEnergyBands(
-      this.activeResult.bandSamples,
-      this.activeResult.metadata.proxySampleCount,
-      this.activeResult.bandGains,
-      this.visualMixSamples
-    );
+    return this.mixedVisualEnvelope;
   }
 
   private ensureBandBuffers() {
@@ -862,6 +876,7 @@ export class AudioFourierController {
           return;
         }
         this.playbackElapsedSeconds = this.activeResult?.metadata.proxyDurationSeconds ?? 0;
+        this.visualPlaybackElapsedSeconds = this.playbackElapsedSeconds;
         this.activeBandNodes = [];
         this.setState('complete', 'Playback complete.');
         this.resultMeta.textContent = '';
@@ -871,6 +886,8 @@ export class AudioFourierController {
     }
 
     this.playbackStartedAt = startedAt - offset;
+    this.visualPlaybackElapsedSeconds = offset;
+    this.visualPlaybackUpdatedAt = 0;
     this.lastPlaybackProgressAt = 0;
     this.tickPlayback();
   }
@@ -882,6 +899,7 @@ export class AudioFourierController {
 
     const context = this.getAudioContext();
     this.playbackElapsedSeconds = clamp(context.currentTime - this.playbackStartedAt, 0, this.activeResult.metadata.proxyDurationSeconds);
+    this.visualPlaybackElapsedSeconds = this.playbackElapsedSeconds;
     this.stopPlayback(false);
     this.renderCurrentViewport();
     this.setState('ready', 'Playback paused.');
@@ -906,7 +924,9 @@ export class AudioFourierController {
     }
     if (resetElapsed) {
       this.playbackElapsedSeconds = 0;
+      this.visualPlaybackElapsedSeconds = 0;
     }
+    this.visualPlaybackUpdatedAt = 0;
   }
 
   private updateLiveBandGains() {
@@ -939,6 +959,28 @@ export class AudioFourierController {
 
       const context = this.getAudioContext();
       this.playbackElapsedSeconds = clamp(context.currentTime - this.playbackStartedAt, 0, this.activeResult.metadata.proxyDurationSeconds);
+      if (!this.visualPlaybackUpdatedAt) {
+        this.visualPlaybackUpdatedAt = timestamp;
+        this.visualPlaybackElapsedSeconds = this.playbackElapsedSeconds;
+      } else {
+        const frameDeltaSeconds = Math.max(0, (timestamp - this.visualPlaybackUpdatedAt) / 1000);
+        this.visualPlaybackUpdatedAt = timestamp;
+        this.visualPlaybackElapsedSeconds = clamp(
+          this.visualPlaybackElapsedSeconds + frameDeltaSeconds,
+          0,
+          this.activeResult.metadata.proxyDurationSeconds
+        );
+        const drift = this.playbackElapsedSeconds - this.visualPlaybackElapsedSeconds;
+        if (Math.abs(drift) > VISUAL_CLOCK_RECONCILE_SECONDS) {
+          this.visualPlaybackElapsedSeconds = this.playbackElapsedSeconds;
+        } else {
+          this.visualPlaybackElapsedSeconds = clamp(
+            this.visualPlaybackElapsedSeconds + drift * 0.08,
+            0,
+            this.activeResult.metadata.proxyDurationSeconds
+          );
+        }
+      }
       this.renderWaveViewport(true);
       if (!this.lastPlaybackProgressAt || timestamp - this.lastPlaybackProgressAt >= PLAYBACK_PROGRESS_UPDATE_MS) {
         this.lastPlaybackProgressAt = timestamp;
@@ -957,7 +999,7 @@ export class AudioFourierController {
     this.selection = buildDefaultAudioSelection();
     this.activeResult = null;
     this.bandBuffers = [];
-    this.visualMixSamples = new Float32Array(0);
+    this.mixedVisualEnvelope = null;
     this.clearDiagnostics();
     this.syncSelection();
     this.invalidateComputedState('Choose an audio file or start from a built-in song preset.');
@@ -967,7 +1009,6 @@ export class AudioFourierController {
     this.clearCanvas(this.waveCanvas, this.waveContext);
     this.clearCanvas(this.spectrumCanvas, this.spectrumContext);
     this.clearCanvas(this.componentCanvas, this.componentContext);
-    this.drawCenteredLabel(this.waveCanvas, this.waveContext, 'Waveform viewport will draw here');
     this.drawCenteredLabel(this.spectrumCanvas, this.spectrumContext, 'Energy bands will appear here');
     this.drawCenteredLabel(this.componentCanvas, this.componentContext, 'Active signal-energy readout');
   }
@@ -999,52 +1040,34 @@ export class AudioFourierController {
     context.restore();
   }
 
-  private resolveVisualPointCount(viewportSampleCount: number, livePlayback: boolean) {
-    const minimum = livePlayback ? LIVE_MIN_VISUAL_POINTS : MIN_VISUAL_POINTS;
-    const maximum = livePlayback ? LIVE_MAX_VISUAL_POINTS : MAX_VISUAL_POINTS;
-    if (viewportSampleCount <= minimum) {
-      return viewportSampleCount;
-    }
-
-    const canvasBudget = Math.max(minimum, Math.min(maximum, Math.round(this.waveCanvas.width * (livePlayback ? 0.5 : 1.25))));
-    return Math.min(viewportSampleCount, canvasBudget);
-  }
-
   private renderWaveViewport(livePlayback = false) {
     if (!this.activeResult) {
       return;
     }
 
     const result = this.activeResult;
-    const {
-      startSample,
-      endSample,
-      viewportSampleCount
-    } = resolveViewportRange(
-      this.playbackElapsedSeconds,
+    const currentSeconds = livePlayback ? this.visualPlaybackElapsedSeconds : this.playbackElapsedSeconds;
+    const range = resolveEnvelopeViewportRange(
+      currentSeconds,
       result.metadata.proxyDurationSeconds,
       result.metadata.proxySampleRate,
-      this.viewportSeconds
+      this.viewportSeconds,
+      result.metadata.envelopeBucketSampleCount
     );
-
-    const visualPointCount = this.resolveVisualPointCount(viewportSampleCount, livePlayback);
+    const visualPointCount = Math.max(1, range.lastBucketIndex - range.firstBucketIndex);
     const isFullEnergy = result.energyPercent >= FULL_ENERGY_VISUAL_THRESHOLD;
+    const mixedEnvelope = isFullEnergy ? null : this.resolveMixedVisualEnvelope();
+    this.ensureVisualScratch(visualPointCount);
 
     for (let pointIndex = 0; pointIndex < visualPointCount; pointIndex += 1) {
-      const binStart = startSample + Math.floor(pointIndex * viewportSampleCount / visualPointCount);
-      const binEnd = pointIndex + 1 === visualPointCount
-        ? endSample
-        : startSample + Math.max(
-          pointIndex + 1,
-          Math.floor((pointIndex + 1) * viewportSampleCount / visualPointCount)
-        );
-      const original = resolveSampleEnvelope(result.originalSamples, binStart, binEnd);
-      const mixed = isFullEnergy
-        ? original
-        : resolveSampleEnvelope(this.visualMixSamples, binStart, binEnd);
+      const bucketIndex = range.firstBucketIndex + pointIndex;
+      const originalMin = result.originalEnvelopeMin[bucketIndex] ?? 0;
+      const originalMax = result.originalEnvelopeMax[bucketIndex] ?? 0;
+      const mixedMin = mixedEnvelope?.min[bucketIndex] ?? originalMin;
+      const mixedMax = mixedEnvelope?.max[bucketIndex] ?? originalMax;
 
-      this.visualOriginalAmpScratch[pointIndex] = Math.max(Math.abs(original.min), Math.abs(original.max));
-      this.visualMixAmpScratch[pointIndex] = Math.max(Math.abs(mixed.min), Math.abs(mixed.max));
+      this.visualOriginalAmpScratch[pointIndex] = Math.max(Math.abs(originalMin), Math.abs(originalMax));
+      this.visualMixAmpScratch[pointIndex] = Math.max(Math.abs(mixedMin), Math.abs(mixedMax));
     }
 
     this.writeSmoothedEnvelope(this.visualOriginalAmpScratch, this.visualOriginalMinScratch, this.visualOriginalMaxScratch, visualPointCount);
@@ -1056,13 +1079,26 @@ export class AudioFourierController {
       this.visualMixMinScratch,
       this.visualMixMaxScratch,
       visualPointCount,
-      startSample / result.metadata.proxySampleRate,
-      endSample / result.metadata.proxySampleRate,
-      livePlayback,
+      range.firstBucketIndex,
+      range.startSample,
+      range.viewportSampleCount,
+      result.metadata.envelopeBucketSampleCount,
       isFullEnergy
     );
   }
 
+  private ensureVisualScratch(pointCount: number) {
+    if (this.visualOriginalMinScratch.length >= pointCount) {
+      return;
+    }
+
+    this.visualOriginalMinScratch = new Float32Array(pointCount);
+    this.visualOriginalMaxScratch = new Float32Array(pointCount);
+    this.visualMixMinScratch = new Float32Array(pointCount);
+    this.visualMixMaxScratch = new Float32Array(pointCount);
+    this.visualOriginalAmpScratch = new Float32Array(pointCount);
+    this.visualMixAmpScratch = new Float32Array(pointCount);
+  }
 
   private renderCurrentViewport() {
     this.renderWaveViewport();
@@ -1076,21 +1112,41 @@ export class AudioFourierController {
     reconstructedMin: Float32Array,
     reconstructedMax: Float32Array,
     pointCount: number,
-    startSeconds: number,
-    endSeconds: number,
-    livePlayback = false,
+    firstBucketIndex: number,
+    startSample: number,
+    viewportSampleCount: number,
+    bucketSampleCount: number,
     isFullEnergy = false
   ) {
     this.clearCanvas(this.waveCanvas, this.waveContext);
     if (!isFullEnergy) {
-      this.drawWaveformEnvelope(originalMin, originalMax, pointCount, 'rgba(255, 255, 255, 0.35)', 'rgba(255, 255, 255, 0.45)', 1.5, false);
+      this.drawWaveformEnvelope(
+        originalMin,
+        originalMax,
+        pointCount,
+        firstBucketIndex,
+        startSample,
+        viewportSampleCount,
+        bucketSampleCount,
+        'rgba(255, 255, 255, 0.35)',
+        'rgba(255, 255, 255, 0.45)',
+        1.5,
+        false
+      );
     }
-    this.drawWaveformEnvelope(reconstructedMin, reconstructedMax, pointCount, 'rgba(255, 255, 255, 0.18)', 'rgba(255, 255, 255, 0.92)', 2.5, true);
-    this.waveContext.save();
-    this.waveContext.fillStyle = 'rgba(255, 255, 255, 0.72)';
-    this.waveContext.font = '13px JetBrains Mono, monospace';
-    this.waveContext.fillText(`${formatSeconds(startSeconds)} - ${formatSeconds(endSeconds)}`, 18, 28);
-    this.waveContext.restore();
+    this.drawWaveformEnvelope(
+      reconstructedMin,
+      reconstructedMax,
+      pointCount,
+      firstBucketIndex,
+      startSample,
+      viewportSampleCount,
+      bucketSampleCount,
+      'rgba(255, 255, 255, 0.18)',
+      'rgba(255, 255, 255, 0.92)',
+      2.5,
+      true
+    );
   }
 
   private writeSmoothedEnvelope(
@@ -1122,6 +1178,10 @@ export class AudioFourierController {
     minSamples: Float32Array,
     maxSamples: Float32Array,
     count: number,
+    firstBucketIndex: number,
+    startSample: number,
+    viewportSampleCount: number,
+    bucketSampleCount: number,
     fillColor: string,
     strokeColor: string,
     lineWidth: number,
@@ -1131,7 +1191,6 @@ export class AudioFourierController {
     const canvas = this.waveCanvas;
     const centerY = canvas.height / 2;
     const scaleY = canvas.height * 0.42;
-    const lastIndex = Math.max(1, count - 1);
 
     context.save();
     context.fillStyle = fillColor;
@@ -1143,7 +1202,8 @@ export class AudioFourierController {
     context.shadowBlur = glow && lineWidth > 2 ? 16 : 0;
     context.beginPath();
     for (let index = 0; index < count; index += 1) {
-      const x = index / lastIndex * canvas.width;
+      const bucketStartSample = (firstBucketIndex + index) * bucketSampleCount;
+      const x = (bucketStartSample - startSample) / viewportSampleCount * canvas.width;
       const y = centerY - maxSamples[index] * scaleY;
       if (index === 0) {
         context.moveTo(x, y);
@@ -1152,7 +1212,8 @@ export class AudioFourierController {
       }
     }
     for (let index = count - 1; index >= 0; index -= 1) {
-      const x = index / lastIndex * canvas.width;
+      const bucketStartSample = (firstBucketIndex + index) * bucketSampleCount;
+      const x = (bucketStartSample - startSample) / viewportSampleCount * canvas.width;
       const y = centerY - minSamples[index] * scaleY;
       context.lineTo(x, y);
     }
@@ -1167,7 +1228,8 @@ export class AudioFourierController {
     for (const samples of [maxSamples, minSamples]) {
       context.beginPath();
       for (let index = 0; index < count; index += 1) {
-        const x = index / lastIndex * canvas.width;
+        const bucketStartSample = (firstBucketIndex + index) * bucketSampleCount;
+        const x = (bucketStartSample - startSample) / viewportSampleCount * canvas.width;
         const y = centerY - samples[index] * scaleY;
         if (index === 0) {
           context.moveTo(x, y);
@@ -1260,7 +1322,7 @@ export class AudioFourierController {
     this.audioContext = null;
     this.bandBuffers = [];
     this.activeMasterGain = null;
-    this.visualMixSamples = new Float32Array(0);
+    this.mixedVisualEnvelope = null;
     this.stopAnimationFrame();
     this.sliderRafPending = false;
     this.setState('idle', 'Destroyed.');

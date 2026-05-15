@@ -1412,6 +1412,7 @@ async function main() {
       selected: document.getElementById('audioFourierSelection')?.textContent?.trim() ?? '',
       sampleRate: document.getElementById('audioFourierSampleRate')?.textContent?.trim() ?? '',
       componentCount: document.getElementById('audioFourierComponentCount')?.textContent?.trim() ?? '',
+      resultMeta: document.getElementById('audioFourierResultMeta')?.textContent?.trim() ?? '',
       sliderDisabled: document.getElementById('audioFourierComponentSlider')?.hasAttribute('disabled') ?? false,
       generateDisabled: document.getElementById('audioFourierGenerateBtn')?.hasAttribute('disabled') ?? true,
       playDisabled: document.getElementById('audioFourierPlayBtn')?.hasAttribute('disabled') ?? false,
@@ -1422,6 +1423,7 @@ async function main() {
     assert(initialAudioState.selected === 'Best Friends', 'Audio Fourier should default to the Best Friends song preset.');
     assert(initialAudioState.sampleRate === '—', 'Audio Fourier sample-rate metric should stay blank before generation.');
     assert(initialAudioState.componentCount === '—', 'Audio Fourier component count should stay blank before generation.');
+    assert(initialAudioState.resultMeta === '', 'Audio Fourier waveform viewport should not show instructional copy before generation.');
     assert(initialAudioState.sliderDisabled === true, 'Audio Fourier component slider should stay disabled before generation.');
     assert(initialAudioState.generateDisabled === false, 'Audio Fourier generate should be available for the default preset.');
     assert(initialAudioState.playDisabled === true, 'Audio Fourier playback should be disabled before generation.');
@@ -1529,6 +1531,24 @@ async function main() {
 
     await page.setViewportSize({ width: 1280, height: 640 });
     await page.waitForTimeout(120);
+    const shortAudioLayout = await page.evaluate(() => ({
+      scrollHeight: document.documentElement.scrollHeight,
+      clientHeight: document.documentElement.clientHeight,
+      signalsVisible: (() => {
+        const element = document.querySelector('.audio-metric-card--signals');
+        return Boolean(element && element.getBoundingClientRect().height > 0 && getComputedStyle(element).display !== 'none');
+      })(),
+      strengthVisible: (() => {
+        const element = document.querySelector('.audio-metric-card--strength');
+        return Boolean(element && element.getBoundingClientRect().height > 0 && getComputedStyle(element).display !== 'none');
+      })()
+    }));
+    assert(shortAudioLayout.scrollHeight <= shortAudioLayout.clientHeight + 1, 'Audio Fourier short layout should not make the page scroll.');
+    assert(shortAudioLayout.signalsVisible === false, 'Audio Fourier short layout should keep signals hidden.');
+    assert(shortAudioLayout.strengthVisible === true, 'Audio Fourier short layout should keep signal strength visible.');
+
+    await page.setViewportSize({ width: 1280, height: 540 });
+    await page.waitForTimeout(120);
     const shortestAudioLayout = await page.evaluate(() => ({
       scrollHeight: document.documentElement.scrollHeight,
       clientHeight: document.documentElement.clientHeight,
@@ -1543,7 +1563,7 @@ async function main() {
     }));
     assert(shortestAudioLayout.scrollHeight <= shortestAudioLayout.clientHeight + 1, 'Audio Fourier shortest layout should not make the page scroll.');
     assert(shortestAudioLayout.signalsVisible === false, 'Audio Fourier shortest layout should keep signals hidden.');
-    assert(shortestAudioLayout.strengthVisible === false, 'Audio Fourier shortest layout should hide signal strength after signals.');
+    assert(shortestAudioLayout.strengthVisible === false, 'Audio Fourier shortest layout should hide signal strength only in cramped layouts.');
 
     await page.setViewportSize({ width: 2048, height: 998 });
     await page.waitForTimeout(120);
@@ -1564,6 +1584,29 @@ async function main() {
     assert(/Playing selected Fourier energy mix/.test(sliderDuringPlaybackState.status), 'Audio Fourier slider should not stop playback.');
     assert(/60% signal energy/.test(sliderDuringPlaybackState.readout), 'Audio Fourier readout should update with perceptual slider mapping during playback.');
     assert(sliderDuringPlaybackState.signalStrength === '60%', 'Audio Fourier signal strength metric should update during playback.');
+    const preRapidSliderPixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
+    await page.evaluate(async () => {
+      const slider = document.getElementById('audioFourierComponentSlider');
+      if (!(slider instanceof HTMLInputElement)) {
+        throw new Error('Audio Fourier slider missing.');
+      }
+      for (const value of [5, 35, 70, 25, 95, 45, 80]) {
+        slider.value = String(value);
+        slider.dispatchEvent(new InputEvent('input', { bubbles: true }));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      }
+    });
+    await page.waitForTimeout(180);
+    const postRapidSliderPixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
+    const rapidSliderState = await page.evaluate(() => ({
+      audioState: document.getElementById('audioFourierApp')?.dataset.audioState ?? '',
+      status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
+      signalStrength: document.getElementById('audioFourierSignalStrengthMetric')?.textContent?.trim() ?? ''
+    }));
+    assert(rapidSliderState.audioState === 'animating', 'Rapid Audio Fourier slider changes should keep playback animating.');
+    assert(/Playing selected Fourier energy mix/.test(rapidSliderState.status), 'Rapid Audio Fourier slider changes should not interrupt playback status.');
+    assert(rapidSliderState.signalStrength === '92%', 'Rapid Audio Fourier slider changes should update signal strength after the final value.');
+    assert(totalAbsoluteDifference(preRapidSliderPixels, postRapidSliderPixels) > 0, 'Rapid Audio Fourier slider changes should keep waveform rendering live.');
     await page.click('#audioFourierPauseBtn');
     await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'built-in song preset playback pauses');
 

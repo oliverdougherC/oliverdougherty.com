@@ -1490,7 +1490,7 @@
   }
 }
 
-@media (max-height: 680px) and (min-width: 1101px) {
+@media (max-height: 560px) and (min-width: 1101px) {
   #audioFourierApp .audio-metric-card--strength {
     display: none;
   }

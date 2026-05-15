@@ -1,9 +1,14 @@
 import {
   buildEnergyBandReconstruction,
+  buildEnergyBandEnvelopes,
+  buildSampleEnvelope,
   buildWindowedFourierAnalysis,
   mapSliderValueToEnergyPercent,
+  mixEnergyBandEnvelopes,
   mixEnergyBands,
   resolveEnergyBandGains,
+  resolveEnvelopeViewportRange,
+  resolveEnvelopeBucketSampleCount,
   resolveEnergyMakeupGain,
   resolveSampleEnvelope,
   resolveViewportRange,
@@ -16,6 +21,13 @@ function maxDifference(left: Float32Array, right: Float32Array) {
     difference = Math.max(difference, Math.abs(left[index] - right[index]));
   }
   return difference;
+}
+
+function expectArrayCloseTo(actual: Float32Array, expected: number[]) {
+  expect(actual.length).toBe(expected.length);
+  for (let index = 0; index < expected.length; index += 1) {
+    expect(actual[index]).toBeCloseTo(expected[index], 6);
+  }
 }
 
 describe('audio Fourier core', () => {
@@ -244,6 +256,57 @@ describe('audio Fourier core', () => {
     for (let i = 0; i < gains.length; i++) {
       expect(gains[i]).toBe(1);
     }
+  });
+
+  it('builds fixed sample envelopes that preserve bucket min and max bounds', () => {
+    const samples = new Float32Array([0.1, -0.7, 0.4, 0.8, -0.2, 0.3, -0.5]);
+    const envelope = buildSampleEnvelope(samples, 3);
+
+    expect(envelope.bucketSampleCount).toBe(3);
+    expectArrayCloseTo(envelope.min, [-0.7, -0.2, -0.5]);
+    expectArrayCloseTo(envelope.max, [0.4, 0.8, -0.5]);
+  });
+
+  it('resolves adjacent envelope viewports as sub-bucket translations', () => {
+    const sampleRate = 1000;
+    const bucketSampleCount = resolveEnvelopeBucketSampleCount(sampleRate, 100);
+    const first = resolveEnvelopeViewportRange(1, 10, sampleRate, 2, bucketSampleCount);
+    const adjacent = resolveEnvelopeViewportRange(1.004, 10, sampleRate, 2, bucketSampleCount);
+
+    expect(bucketSampleCount).toBe(10);
+    expect(adjacent.firstBucketIndex).toBe(first.firstBucketIndex);
+    expect(adjacent.lastBucketIndex - first.lastBucketIndex).toBeLessThanOrEqual(1);
+    expect(adjacent.bucketOffsetFraction).toBeGreaterThan(first.bucketOffsetFraction);
+  });
+
+  it('mixes energy band envelopes from gains without full sample remixing', () => {
+    const sampleCount = 6;
+    const bandSamples = new Float32Array([
+      -0.2, 0.1, 0.5, -0.4, 0.2, 0.3,
+      -0.1, 0.4, -0.3, 0.2, -0.6, 0.1
+    ]);
+    const envelopes = buildEnergyBandEnvelopes(bandSamples, sampleCount, 2, 2);
+    const firstOnly = mixEnergyBandEnvelopes(
+      envelopes.min,
+      envelopes.max,
+      envelopes.bucketCount,
+      envelopes.sampleCount,
+      envelopes.bucketSampleCount,
+      new Float32Array([1, 0])
+    );
+    const mixed = mixEnergyBandEnvelopes(
+      envelopes.min,
+      envelopes.max,
+      envelopes.bucketCount,
+      envelopes.sampleCount,
+      envelopes.bucketSampleCount,
+      new Float32Array([1, 0.5])
+    );
+
+    expectArrayCloseTo(firstOnly.min, [-0.2, -0.4, 0.2]);
+    expectArrayCloseTo(firstOnly.max, [0.1, 0.5, 0.3]);
+    expectArrayCloseTo(mixed.min, [-0.25, -0.55, -0.1]);
+    expectArrayCloseTo(mixed.max, [0.3, 0.6, 0.35]);
   });
 
   it('keeps song-length proxy analysis bounded by frame options', () => {

@@ -47,6 +47,31 @@ export interface SampleEnvelope {
   max: number;
 }
 
+export interface AudioEnvelope {
+  min: Float32Array;
+  max: Float32Array;
+  bucketSampleCount: number;
+  bucketCount: number;
+  sampleCount: number;
+}
+
+export interface MixedAudioEnvelope {
+  min: Float32Array;
+  max: Float32Array;
+  bucketSampleCount: number;
+  bucketCount: number;
+  sampleCount: number;
+}
+
+export interface EnvelopeViewportRange {
+  startSample: number;
+  endSample: number;
+  viewportSampleCount: number;
+  firstBucketIndex: number;
+  lastBucketIndex: number;
+  bucketOffsetFraction: number;
+}
+
 interface ReconstructionScratch {
   window: Float32Array;
   spectraReal: Float32Array;
@@ -118,6 +143,7 @@ const ENERGY_SLIDER_LOW_EXPONENT = Math.log(ENERGY_SLIDER_LOW_REFERENCE_VALUE / 
   Math.log(ENERGY_SLIDER_LOW_REFERENCE / ENERGY_SLIDER_MIDPOINT);
 const FFT_PROGRESS_THROTTLE = 64;
 const OVERLAP_ADD_NORMALIZATION_THRESHOLD = 0.000001;
+const DEFAULT_ENVELOPE_TARGET_POINTS_PER_SECOND = 420;
 
 /**
  * Maps a slider value to a component count using an exponential curve for perceptually uniform selection.
@@ -618,6 +644,143 @@ export function mixEnergyBands(
   return destination;
 }
 
+export function resolveEnvelopeBucketSampleCount(sampleRate: number, targetPointsPerSecond = DEFAULT_ENVELOPE_TARGET_POINTS_PER_SECOND) {
+  return Math.max(1, Math.round(sampleRate / Math.max(1, targetPointsPerSecond)));
+}
+
+export function buildSampleEnvelope(samples: Float32Array, bucketSampleCount: number): AudioEnvelope {
+  const resolvedBucketSampleCount = Math.max(1, Math.round(bucketSampleCount));
+  const bucketCount = Math.max(1, Math.ceil(samples.length / resolvedBucketSampleCount));
+  const min = new Float32Array(bucketCount);
+  const max = new Float32Array(bucketCount);
+
+  for (let bucketIndex = 0; bucketIndex < bucketCount; bucketIndex += 1) {
+    const start = bucketIndex * resolvedBucketSampleCount;
+    const end = Math.min(samples.length, start + resolvedBucketSampleCount);
+    let bucketMin = Number.POSITIVE_INFINITY;
+    let bucketMax = Number.NEGATIVE_INFINITY;
+
+    for (let sampleIndex = start; sampleIndex < end; sampleIndex += 1) {
+      const value = samples[sampleIndex];
+      if (!Number.isFinite(value)) {
+        continue;
+      }
+      bucketMin = Math.min(bucketMin, value);
+      bucketMax = Math.max(bucketMax, value);
+    }
+
+    if (!Number.isFinite(bucketMin) || !Number.isFinite(bucketMax)) {
+      bucketMin = 0;
+      bucketMax = 0;
+    }
+    min[bucketIndex] = bucketMin;
+    max[bucketIndex] = bucketMax;
+  }
+
+  return {
+    min,
+    max,
+    bucketSampleCount: resolvedBucketSampleCount,
+    bucketCount,
+    sampleCount: samples.length
+  };
+}
+
+export function buildEnergyBandEnvelopes(
+  bandSamples: Float32Array,
+  sampleCount: number,
+  bandCount: number,
+  bucketSampleCount: number
+) {
+  const resolvedBandCount = Math.max(0, Math.round(bandCount));
+  const resolvedBucketSampleCount = Math.max(1, Math.round(bucketSampleCount));
+  const bucketCount = Math.max(1, Math.ceil(sampleCount / resolvedBucketSampleCount));
+  const min = new Float32Array(resolvedBandCount * bucketCount);
+  const max = new Float32Array(resolvedBandCount * bucketCount);
+
+  for (let bandIndex = 0; bandIndex < resolvedBandCount; bandIndex += 1) {
+    const bandOffset = bandIndex * sampleCount;
+    const envelopeOffset = bandIndex * bucketCount;
+    for (let bucketIndex = 0; bucketIndex < bucketCount; bucketIndex += 1) {
+      const start = bucketIndex * resolvedBucketSampleCount;
+      const end = Math.min(sampleCount, start + resolvedBucketSampleCount);
+      let bucketMin = Number.POSITIVE_INFINITY;
+      let bucketMax = Number.NEGATIVE_INFINITY;
+
+      for (let sampleIndex = start; sampleIndex < end; sampleIndex += 1) {
+        const value = bandSamples[bandOffset + sampleIndex];
+        if (!Number.isFinite(value)) {
+          continue;
+        }
+        bucketMin = Math.min(bucketMin, value);
+        bucketMax = Math.max(bucketMax, value);
+      }
+
+      if (!Number.isFinite(bucketMin) || !Number.isFinite(bucketMax)) {
+        bucketMin = 0;
+        bucketMax = 0;
+      }
+      min[envelopeOffset + bucketIndex] = bucketMin;
+      max[envelopeOffset + bucketIndex] = bucketMax;
+    }
+  }
+
+  return {
+    min,
+    max,
+    bucketSampleCount: resolvedBucketSampleCount,
+    bucketCount,
+    sampleCount,
+    bandCount: resolvedBandCount
+  };
+}
+
+export function mixEnergyBandEnvelopes(
+  bandMin: Float32Array,
+  bandMax: Float32Array,
+  bucketCount: number,
+  sampleCount: number,
+  bucketSampleCount: number,
+  gains: Float32Array,
+  destination: MixedAudioEnvelope = {
+    min: new Float32Array(bucketCount),
+    max: new Float32Array(bucketCount),
+    bucketSampleCount,
+    bucketCount,
+    sampleCount
+  }
+): MixedAudioEnvelope {
+  if (destination.min.length !== bucketCount || destination.max.length !== bucketCount) {
+    destination = {
+      min: new Float32Array(bucketCount),
+      max: new Float32Array(bucketCount),
+      bucketSampleCount,
+      bucketCount,
+      sampleCount
+    };
+  }
+
+  destination.min.fill(0);
+  destination.max.fill(0);
+  destination.bucketSampleCount = bucketSampleCount;
+  destination.bucketCount = bucketCount;
+  destination.sampleCount = sampleCount;
+
+  for (let bandIndex = 0; bandIndex < gains.length; bandIndex += 1) {
+    const gain = Math.max(0, gains[bandIndex]);
+    if (gain === 0) {
+      continue;
+    }
+    const offset = bandIndex * bucketCount;
+    for (let bucketIndex = 0; bucketIndex < bucketCount; bucketIndex += 1) {
+      destination.min[bucketIndex] += bandMin[offset + bucketIndex] * gain;
+      destination.max[bucketIndex] += bandMax[offset + bucketIndex] * gain;
+    }
+  }
+
+  return destination;
+}
+
 /**
  * Calculates a time-centered viewport range for audio waveform display.
  * @param currentTimeSeconds - Current playback position in seconds.
@@ -641,5 +804,34 @@ export function resolveViewportRange(
     startSample,
     endSample: startSample + viewportSampleCount,
     viewportSampleCount
+  };
+}
+
+export function resolveEnvelopeViewportRange(
+  currentTimeSeconds: number,
+  durationSeconds: number,
+  sampleRate: number,
+  viewportSeconds: number,
+  bucketSampleCount: number
+): EnvelopeViewportRange {
+  const sampleCount = Math.max(1, Math.round(durationSeconds * sampleRate));
+  const viewportSampleCount = Math.max(1, Math.min(sampleCount, Math.round(viewportSeconds * sampleRate)));
+  const maxStartSample = Math.max(0, sampleCount - viewportSampleCount);
+  const centerSample = clamp(currentTimeSeconds * sampleRate, 0, sampleCount - 1);
+  const startSample = clamp(centerSample - viewportSampleCount / 2, 0, maxStartSample);
+  const resolvedBucketSampleCount = Math.max(1, Math.round(bucketSampleCount));
+  const startBucket = startSample / resolvedBucketSampleCount;
+  const firstBucketIndex = Math.max(0, Math.floor(startBucket) - 1);
+  const visibleBucketCount = Math.ceil(viewportSampleCount / resolvedBucketSampleCount);
+  const bucketCount = Math.max(1, Math.ceil(sampleCount / resolvedBucketSampleCount));
+  const lastBucketIndex = Math.min(bucketCount, Math.ceil(startBucket) + visibleBucketCount + 2);
+
+  return {
+    startSample,
+    endSample: startSample + viewportSampleCount,
+    viewportSampleCount,
+    firstBucketIndex,
+    lastBucketIndex,
+    bucketOffsetFraction: startBucket - Math.floor(startBucket)
   };
 }

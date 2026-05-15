@@ -1,8 +1,11 @@
 /// <reference lib="webworker" />
 
 import {
+  buildEnergyBandEnvelopes,
   buildEnergyBandReconstruction,
-  buildWindowedFourierAnalysis
+  buildSampleEnvelope,
+  buildWindowedFourierAnalysis,
+  resolveEnvelopeBucketSampleCount
 } from './audioFourierCore';
 import type { AudioFourierAnalyzeRequest, AudioFourierWorkerRequest, AudioFourierWorkerResponse } from './audioFourierWorkerTypes';
 import { getAudioFourierPreset } from './audioPresets';
@@ -108,6 +111,15 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
     const bandsMs = now() - bandsStartedAt;
     assertNotCancelled(request.requestId);
 
+    const envelopeBucketSampleCount = resolveEnvelopeBucketSampleCount(prepared.sampleRate);
+    const originalEnvelope = buildSampleEnvelope(analysis.samples, envelopeBucketSampleCount);
+    const bandEnvelopes = buildEnergyBandEnvelopes(
+      bands.bandSamples,
+      bands.sampleCount,
+      bands.bandCount,
+      envelopeBucketSampleCount
+    );
+
     const totalMs = now() - startedAt;
 
     postMessage(
@@ -125,6 +137,8 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
           proxySampleCount: prepared.samples.length,
           componentCount: analysis.componentOrder.length,
           bandCount: bands.bandCount,
+          envelopeBucketSampleCount,
+          envelopeBucketCount: originalEnvelope.bucketCount,
           displaySampleCount: preset.displaySampleCount,
           frameCount: analysis.frameCount,
           frameSize: preset.frameSize,
@@ -137,8 +151,11 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
             total: totalMs
           }
         },
-        originalSamples: asArrayBuffer(analysis.samples.buffer),
         bandSamples: asArrayBuffer(bands.bandSamples.buffer),
+        originalEnvelopeMin: asArrayBuffer(originalEnvelope.min.buffer),
+        originalEnvelopeMax: asArrayBuffer(originalEnvelope.max.buffer),
+        bandEnvelopeMin: asArrayBuffer(bandEnvelopes.min.buffer),
+        bandEnvelopeMax: asArrayBuffer(bandEnvelopes.max.buffer),
         bandEndComponentCounts: asArrayBuffer(bands.bandEndComponentCounts.buffer),
         bandEnergyFractions: asArrayBuffer(bands.bandEnergyFractions.buffer),
         componentFrequencies: asArrayBuffer(analysis.componentFrequencies.buffer),
@@ -146,15 +163,18 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
         componentPhases: asArrayBuffer(analysis.componentPhases.buffer)
       },
       [
-        asArrayBuffer(analysis.samples.buffer),
         asArrayBuffer(bands.bandSamples.buffer),
+        asArrayBuffer(originalEnvelope.min.buffer),
+        asArrayBuffer(originalEnvelope.max.buffer),
+        asArrayBuffer(bandEnvelopes.min.buffer),
+        asArrayBuffer(bandEnvelopes.max.buffer),
         asArrayBuffer(bands.bandEndComponentCounts.buffer),
         asArrayBuffer(bands.bandEnergyFractions.buffer),
         asArrayBuffer(analysis.componentFrequencies.buffer),
         asArrayBuffer(analysis.componentAmplitudes.buffer),
         asArrayBuffer(analysis.componentPhases.buffer)
       ]
-      // None of the above ArrayBuffers share backing stores: analysis.samples is a copy, bands.* are freshly allocated, and the component arrays (frequencies/amplitudes/phases) own their buffers from the analysis constructor.
+      // None of the above ArrayBuffers share backing stores: bands.* and envelopes are freshly allocated, and the component arrays (frequencies/amplitudes/phases) own their buffers from the analysis constructor.
     );
   } catch (error) {
     if (/cancelled/i.test(error instanceof Error ? error.message : '')) {

@@ -43,6 +43,8 @@ export interface AudioFourierSuccessMessage {
     proxySampleCount: number;
     componentCount: number;
     bandCount: number;
+    envelopeBucketSampleCount: number;
+    envelopeBucketCount: number;
     displaySampleCount: number;
     frameCount: number;
     frameSize: number;
@@ -55,8 +57,11 @@ export interface AudioFourierSuccessMessage {
       total: number;
     };
   };
-  originalSamples: ArrayBuffer;
   bandSamples: ArrayBuffer;
+  originalEnvelopeMin: ArrayBuffer;
+  originalEnvelopeMax: ArrayBuffer;
+  bandEnvelopeMin: ArrayBuffer;
+  bandEnvelopeMax: ArrayBuffer;
   bandEndComponentCounts: ArrayBuffer;
   bandEnergyFractions: ArrayBuffer;
   componentFrequencies: ArrayBuffer;

@@ -200,6 +200,9 @@ async function measureAudioPlaybackResponsiveness(page) {
 
   return page.evaluate(async () => {
     const samples = [];
+    const slider = document.getElementById('audioFourierComponentSlider');
+    const sliderValues = [8, 25, 60, 95, 40, 75, 15, 85];
+    let sliderEvents = 0;
     const startedAt = performance.now();
     let previous = startedAt;
 
@@ -207,6 +210,11 @@ async function measureAudioPlaybackResponsiveness(page) {
       function step(timestamp) {
         samples.push(timestamp - previous);
         previous = timestamp;
+        if (slider instanceof HTMLInputElement && samples.length % 4 === 0) {
+          slider.value = String(sliderValues[sliderEvents % sliderValues.length]);
+          slider.dispatchEvent(new InputEvent('input', { bubbles: true }));
+          sliderEvents += 1;
+        }
         if (timestamp - startedAt >= 2000) {
           resolve();
           return;
@@ -222,7 +230,8 @@ async function measureAudioPlaybackResponsiveness(page) {
     return {
       rafFps: samples.length / elapsedSeconds,
       rafP95FrameMs: p95,
-      rafSampleCount: samples.length
+      rafSampleCount: samples.length,
+      sliderEvents
     };
   });
 }
@@ -345,7 +354,7 @@ async function main() {
 
     for (const result of audioResults) {
       lines.push(
-        `${result.name}: wall=${formatMs(result.wallMs)} total=${formatMs(result.totalMs)} proxy=${formatMs(result.proxyMs)} analysis=${formatMs(result.analysisMs)} bands=${formatMs(result.bandMs)} bandCount=${result.bandCount} components=${result.componentCount} sampleRate=${result.sampleRate.toFixed(1)} proxyDuration=${result.proxyDuration.toFixed(1)}s playbackRaf=${formatFps(result.rafFps)} playbackP95=${formatMs(result.rafP95FrameMs)} rafSamples=${result.rafSampleCount}`
+        `${result.name}: wall=${formatMs(result.wallMs)} total=${formatMs(result.totalMs)} proxy=${formatMs(result.proxyMs)} analysis=${formatMs(result.analysisMs)} bands=${formatMs(result.bandMs)} bandCount=${result.bandCount} components=${result.componentCount} sampleRate=${result.sampleRate.toFixed(1)} proxyDuration=${result.proxyDuration.toFixed(1)}s playbackRaf=${formatFps(result.rafFps)} playbackP95=${formatMs(result.rafP95FrameMs)} rafSamples=${result.rafSampleCount} sliderEvents=${result.sliderEvents}`
       );
     }
 
@@ -356,6 +365,10 @@ async function main() {
       throw new Error(
         `${slowPlayback.name} playback responsiveness regressed: p95 RAF frame ${formatMs(slowPlayback.rafP95FrameMs)} exceeds 50ms.`
       );
+    }
+    const missingSliderStress = audioResults.find((result) => result.sliderEvents < 10);
+    if (missingSliderStress) {
+      throw new Error(`${missingSliderStress.name} playback responsiveness probe did not exercise enough rapid slider updates.`);
     }
   } finally {
     await browser.close();
