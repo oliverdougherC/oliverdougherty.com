@@ -242,8 +242,6 @@ export class DeathCalculatorController {
   private activeQuestionId = QUESTION_DEFINITIONS[0]?.id ?? '';
   private activeScreen: DeathCalculatorScreen = 'intro';
   private countdownTimer = 0;
-  private prediction: PredictionResult | null = null;
-
   constructor(root: HTMLElement) {
     this.root = root;
     this.form = this.requireElement('deathSurveyForm');
@@ -343,7 +341,6 @@ export class DeathCalculatorController {
       void this.calculatePrediction();
     });
 
-    this.syncFormerSmokerField();
     this.reset();
   }
 
@@ -387,7 +384,6 @@ export class DeathCalculatorController {
   }
 
   private begin() {
-    this.prediction = null;
     this.activeQuestionId = this.getVisibleQuestions()[0]?.id ?? QUESTION_DEFINITIONS[0]?.id ?? '';
     this.setStatus('Answer each card and move straight through the flow.');
     this.setScreen('question');
@@ -535,7 +531,6 @@ export class DeathCalculatorController {
       const prediction = predictLongevity(answers, longevityDataset);
       this.renderPrediction(prediction);
     } catch (error) {
-      this.prediction = null;
       this.stopCountdown();
       this.setScreen('error');
       this.setStatus(error instanceof Error ? error.message : 'Unable to calculate prediction.');
@@ -586,7 +581,6 @@ export class DeathCalculatorController {
   }
 
   private renderImmortal() {
-    this.prediction = null;
     this.stopCountdown();
     this.medianDate.textContent = 'You appear to be immortal.';
     this.countdownDisplay.innerHTML = '<span class="death-infinity" aria-label="Infinity">∞</span>';
@@ -603,7 +597,6 @@ export class DeathCalculatorController {
   }
 
   private renderPrediction(prediction: PredictionResult) {
-    this.prediction = prediction;
     this.medianDate.textContent = formatPredictionDate(prediction.medianTimestamp);
     this.resultMeta.textContent =
       'The model uses the 50th percentile of the personalized survival curve as the estimate shown here.';
@@ -634,7 +627,6 @@ export class DeathCalculatorController {
 
   private reset() {
     this.form.reset();
-    this.prediction = null;
     this.stopCountdown();
     this.activeQuestionId = this.getVisibleQuestions()[0]?.id ?? QUESTION_DEFINITIONS[0]?.id ?? '';
     this.medianDate.textContent = 'Estimated date will appear here';

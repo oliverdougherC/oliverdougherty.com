@@ -834,11 +834,6 @@ export class AudioFourierController {
     await this.playPlayback();
   }
 
-  private async playFromBeginning() {
-    this.stopPlayback(true);
-    await this.playPlayback();
-  }
-
   private async playPlayback() {
     if (!this.activeResult) {
       this.syncButtons();
