@@ -23,8 +23,8 @@ describe('audio Fourier core', () => {
     const max = 1000;
 
     expect(mapSliderValueToEnergyPercent(0, max)).toBe(0);
-    expect(mapSliderValueToEnergyPercent(500, max)).toBeCloseTo(0.5, 6);
-    expect(mapSliderValueToEnergyPercent(200, max)).toBeCloseTo(0.2, 6);
+    expect(mapSliderValueToEnergyPercent(500, max)).toBeCloseTo(0.8, 6);
+    expect(mapSliderValueToEnergyPercent(200, max)).toBeCloseTo(0.6, 6);
     expect(mapSliderValueToEnergyPercent(max, max)).toBe(1);
   });
 

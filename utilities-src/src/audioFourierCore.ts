@@ -110,6 +110,12 @@ function coefficientAmplitude(real: number, imag: number, bin: number, binCount:
 }
 
 const SLIDER_CURVE_EXPONENT = 1.85;
+const ENERGY_SLIDER_MIDPOINT = 0.5;
+const ENERGY_SLIDER_MIDPOINT_VALUE = 0.8;
+const ENERGY_SLIDER_LOW_REFERENCE = 0.2;
+const ENERGY_SLIDER_LOW_REFERENCE_VALUE = 0.6;
+const ENERGY_SLIDER_LOW_EXPONENT = Math.log(ENERGY_SLIDER_LOW_REFERENCE_VALUE / ENERGY_SLIDER_MIDPOINT_VALUE) /
+  Math.log(ENERGY_SLIDER_LOW_REFERENCE / ENERGY_SLIDER_MIDPOINT);
 const FFT_PROGRESS_THROTTLE = 64;
 const OVERLAP_ADD_NORMALIZATION_THRESHOLD = 0.000001;
 
@@ -138,13 +144,28 @@ export function mapSliderValueToComponentCount(value: number, maxValue: number, 
 }
 
 /**
- * Maps a slider value to a linear energy percentage between 0 and 1.
+ * Maps a slider value to a perceptual energy percentage between 0 and 1.
  * @param value - Current slider value.
  * @param maxValue - Maximum slider value.
  * @returns Clamped energy fraction between 0 and 1.
  */
 export function mapSliderValueToEnergyPercent(value: number, maxValue: number) {
-  return clamp(value / Math.max(1, maxValue), 0, 1);
+  const phase = clamp(value / Math.max(1, maxValue), 0, 1);
+  if (phase <= 0) {
+    return 0;
+  }
+  if (phase >= 1) {
+    return 1;
+  }
+  if (phase <= ENERGY_SLIDER_MIDPOINT) {
+    return ENERGY_SLIDER_MIDPOINT_VALUE * Math.pow(
+      phase / ENERGY_SLIDER_MIDPOINT,
+      ENERGY_SLIDER_LOW_EXPONENT
+    );
+  }
+
+  return ENERGY_SLIDER_MIDPOINT_VALUE +
+    (1 - ENERGY_SLIDER_MIDPOINT_VALUE) * ((phase - ENERGY_SLIDER_MIDPOINT) / ENERGY_SLIDER_MIDPOINT);
 }
 
 /**

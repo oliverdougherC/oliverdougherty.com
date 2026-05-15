@@ -17,10 +17,9 @@ function asArrayBuffer(buffer: ArrayBufferLike): ArrayBuffer {
   if (buffer instanceof ArrayBuffer) {
     return buffer;
   }
-  if (buffer.slice !== undefined) {
-    return buffer.slice(0, buffer.byteLength);
-  }
-  throw new TypeError('Expected an ArrayBuffer but received an incompatible type.');
+  const copy = new Uint8Array(buffer.byteLength);
+  copy.set(new Uint8Array(buffer));
+  return copy.buffer;
 }
 
 function now() {

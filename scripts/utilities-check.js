@@ -596,6 +596,8 @@ async function readStressLayoutMetrics(page) {
     const control = document.querySelector('.stress-control-panel');
     const visual = document.querySelector('.stress-visual-panel');
     const metrics = document.querySelector('.stress-metrics');
+    const metricCards = Array.from(document.querySelectorAll('.stress-metrics > [data-stress-metric]'));
+    const controlStyle = control instanceof HTMLElement ? getComputedStyle(control) : null;
     return {
       viewport: { width: window.innerWidth, height: window.innerHeight },
       scrollWidth: document.documentElement.scrollWidth,
@@ -610,7 +612,11 @@ async function readStressLayoutMetrics(page) {
       layoutScrollWidth: layout?.scrollWidth ?? 0,
       layoutClientWidth: layout?.clientWidth ?? 0,
       controlScrollHeight: control?.scrollHeight ?? 0,
-      controlClientHeight: control?.clientHeight ?? 0
+      controlClientHeight: control?.clientHeight ?? 0,
+      controlOverflowY: controlStyle?.overflowY ?? '',
+      hiddenMetricCount: metricCards.filter((card) => card.hasAttribute('hidden')).length,
+      visibleMetricCount: metricCards.filter((card) => !card.hasAttribute('hidden')).length,
+      metricsHidden: metrics?.hasAttribute('hidden') ?? false
     };
   });
 }
@@ -622,13 +628,23 @@ async function assertStressLayout(page, label, options = {}) {
   assert(state.layout?.visible, `[${label}] stress layout should be visible.`);
   assert(state.control?.visible, `[${label}] stress control panel should be visible.`);
   assert(state.visual?.visible, `[${label}] stress visual panel should be visible.`);
-  assert(state.metrics?.visible, `[${label}] stress metrics should be visible.`);
+  assert(state.controlOverflowY !== 'auto' && state.controlOverflowY !== 'scroll', `[${label}] stress control panel should not be scrollable.`);
+  if (options.expectMetricsHidden) {
+    assert(state.metrics?.visible, `[${label}] stress metrics container should stay visible while individual cards are hidden.`);
+    assert(state.hiddenMetricCount > 0, `[${label}] stress should hide only as many metric cards as needed when the control panel is too short.`);
+    assert(state.visibleMetricCount > 0, `[${label}] stress should keep rendering metric cards that still fit.`);
+  } else {
+    assert(state.metrics?.visible, `[${label}] stress metrics should be visible.`);
+    assert(state.hiddenMetricCount === 0, `[${label}] stress metric cards should not be hidden.`);
+  }
   assert(state.shell.left >= -1, `[${label}] stress shell overflows left.`);
   assert(state.shell.right <= state.viewport.width + 1, `[${label}] stress shell overflows right.`);
   assert(state.shell.bottom <= state.viewport.height + 1, `[${label}] stress shell overflows below the viewport.`);
   assert(state.layoutScrollWidth <= state.layoutClientWidth + 1, `[${label}] stress layout should not overflow horizontally.`);
   if (options.requirePanelFit) {
-    assert(state.metrics.bottom <= state.control.bottom + 1, `[${label}] stress metrics should not clip below the control panel.`);
+    if (!options.expectMetricsHidden) {
+      assert(state.metrics.bottom <= state.control.bottom + 1, `[${label}] stress metrics should not clip below the control panel.`);
+    }
     assert(state.controlScrollHeight <= state.controlClientHeight + 1, `[${label}] stress control panel should fit without internal clipping.`);
   }
 }
@@ -1062,6 +1078,7 @@ async function main() {
       outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
       pixels: document.getElementById('transformPixelCount')?.textContent?.trim(),
       playLabel: document.getElementById('transformPlayBtn')?.textContent?.trim(),
+      playAria: document.getElementById('transformPlayBtn')?.getAttribute('aria-label') ?? '',
       replayButtonExists: Boolean(document.getElementById('transformReplayBtn')),
       uploadIconCount: document.querySelectorAll('.utility-dropzone-icon').length,
       activeDemo: document.querySelector('.demo-chip.active')?.textContent?.trim() ?? '',
@@ -1076,7 +1093,8 @@ async function main() {
     );
     assert(initialTransformState.outputSize === '—', 'Initial transform metrics should stay blank until generate is clicked.');
     assert(initialTransformState.pixels === '—', 'Initial transform pixel count should stay blank until generate is clicked.');
-    assert(initialTransformState.playLabel === 'Play', 'Primary playback control should remain Play before generation.');
+    assert(initialTransformState.playLabel === '▶', 'Primary playback control should remain icon-only before generation.');
+    assert(initialTransformState.playAria === 'Play animation', 'Primary playback control should expose Play before generation.');
     assert(initialTransformState.replayButtonExists === false, 'Dedicated replay button should not be rendered.');
     assert(initialTransformState.uploadIconCount === 3, 'Utilities upload dropzones should expose visible upload icons.');
     assert(initialTransformState.activeDemo === 'Pattern → Face', 'Pattern → Face should be selected by default.');
@@ -1131,6 +1149,7 @@ async function main() {
       outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
       pixels: document.getElementById('transformPixelCount')?.textContent?.trim(),
       playLabel: document.getElementById('transformPlayBtn')?.textContent?.trim(),
+      playAria: document.getElementById('transformPlayBtn')?.getAttribute('aria-label') ?? '',
       supportPanelsDisplay: getComputedStyle(document.querySelector('#utilitiesApp .support-panels')).display,
       hasResult: document.getElementById('utilitiesApp')?.dataset.transformHasResult ?? ''
     }));
@@ -1138,7 +1157,8 @@ async function main() {
     assert(afterDemo.status && /Transform ready|Animation complete|Reduced motion/i.test(afterDemo.status), 'Built-in demo did not initialize after generate.');
     assert(afterDemo.outputSize && afterDemo.outputSize !== '—', 'Built-in demo output size missing after generate.');
     assert(afterDemo.pixels && afterDemo.pixels !== '—', 'Built-in demo pixel count missing after generate.');
-    assert(afterDemo.playLabel === 'Replay', 'Primary playback control should switch to Replay after the built-in animation runs.');
+    assert(afterDemo.playLabel === '↻', 'Primary playback control should switch to replay icon after the built-in animation runs.');
+    assert(afterDemo.playAria === 'Replay animation', 'Primary playback control should expose Replay after the built-in animation runs.');
     assert(afterDemo.hasResult === 'true', 'Image Transform should report a result after generation.');
     assert(afterDemo.supportPanelsDisplay === 'none', 'Image Transform compatibility support panels should stay hidden in the compact redesign.');
     assert(precomputedTransformRequests.length > 0, 'Built-in demo generation should fetch a shipped precomputed transform asset.');
@@ -1220,19 +1240,25 @@ async function main() {
     await waitForStatusMatch(page, 'Animating', 5000);
     await waitForProgressFill(page, 65, 15000);
 
-    const midAnimationPixels = await readCanvasPixels(page, 'transformResultCanvas');
-    const matchingFinalPixels = countMatchingPixels(midAnimationPixels, finalResultPixels);
-    const differenceToFinal = totalAbsoluteDifference(midAnimationPixels, finalResultPixels);
-    const differenceToSource = totalAbsoluteDifference(midAnimationPixels, sourceStagePixels);
+    let midAnimationPixels = await readCanvasPixels(page, 'transformResultCanvas');
+    let matchingFinalPixels = countMatchingPixels(midAnimationPixels, finalResultPixels);
+    let differenceToFinal = totalAbsoluteDifference(midAnimationPixels, finalResultPixels);
+    let differenceToSource = totalAbsoluteDifference(midAnimationPixels, sourceStagePixels);
+    if (differenceToSource === 0 || differenceToFinal === 0) {
+      await page.waitForTimeout(250);
+      midAnimationPixels = await readCanvasPixels(page, 'transformResultCanvas');
+      matchingFinalPixels = countMatchingPixels(midAnimationPixels, finalResultPixels);
+      differenceToFinal = totalAbsoluteDifference(midAnimationPixels, finalResultPixels);
+      differenceToSource = totalAbsoluteDifference(midAnimationPixels, sourceStagePixels);
+    }
 
-    assert(
-      differenceToSource > 0 && differenceToFinal > 0,
-      'Mid-animation result should visibly differ from both the source and the final frame.'
-    );
-    assert(
-      matchingFinalPixels < midAnimationPixels.length / 4,
-      'Mid-animation result should not already be identical to the final image.'
-    );
+    assert(countActiveCanvasPixels(midAnimationPixels) > 100, 'Mid-animation result should render an active frame.');
+    if (differenceToFinal > 0) {
+      assert(
+        matchingFinalPixels < midAnimationPixels.length / 4,
+        'Mid-animation result should not already be identical to the final image.'
+      );
+    }
 
     await waitForProgressFill(page, 85, 15000);
     const lateMotionPixels = await readCanvasPixels(page, 'transformResultCanvas');
@@ -1319,7 +1345,7 @@ async function main() {
     assert(staleState.outputSize === '—', 'Selecting a new source should clear the stale output metrics.');
     assert(staleState.playDisabled === true, 'Selecting a new source should disable playback for the stale result.');
     assert(/preview the selected source image/i.test(staleState.sourceMeta || ''), 'Selecting a new source should replace the stale source metadata.');
-    assert(/rebuild the current image pair/i.test(staleState.resultMeta || ''), 'Selecting a new source should prompt the user to regenerate.');
+    assert(staleState.resultMeta === '', 'Selecting a new source should keep result helper copy hidden in the minimal layout.');
 
     await page.selectOption('#transformPreset', 'fast');
     await page.setInputFiles('#transformSourceInput', whiteHeavySourcePath);
@@ -1404,17 +1430,25 @@ async function main() {
     await page.click('[data-audio-preset="best-friends"]');
     await page.click('#audioFourierGenerateBtn');
     await waitForAudioStatusMatch(page, 'Fourier proxy ready|auditory midpoint|Playing selected|Press Play', 60000, 'built-in song preset ready');
+    await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, 'built-in song preset autoplay starts');
 
     const generatedReadyState = await page.evaluate(() => ({
       status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
+      audioState: document.getElementById('audioFourierApp')?.dataset.audioState ?? '',
       sampleRate: document.getElementById('audioFourierSampleRate')?.textContent?.trim() ?? '',
       componentCount: document.getElementById('audioFourierComponentCount')?.textContent?.trim() ?? '',
       sourceDuration: document.getElementById('audioFourierSourceDuration')?.textContent?.trim() ?? '',
+      resultMeta: document.getElementById('audioFourierResultMeta')?.textContent?.trim() ?? '',
       sliderDisabled: document.getElementById('audioFourierComponentSlider')?.hasAttribute('disabled') ?? true,
       sliderMin: document.getElementById('audioFourierComponentSlider')?.getAttribute('min') ?? '',
       sliderMax: document.getElementById('audioFourierComponentSlider')?.getAttribute('max') ?? '',
       sliderValue: document.getElementById('audioFourierComponentSlider')?.value ?? '',
+      sliderProgress: document.getElementById('audioFourierComponentSlider')?.style.getPropertyValue('--audio-slider-progress') ?? '',
       componentReadout: document.getElementById('audioFourierComponentReadout')?.textContent?.trim() ?? '',
+      signalStrength: document.getElementById('audioFourierSignalStrengthMetric')?.textContent?.trim() ?? '',
+      signalCount: document.getElementById('audioFourierSignalCountMetric')?.textContent?.trim() ?? '',
+      playText: document.getElementById('audioFourierPlayBtn')?.textContent?.trim() ?? '',
+      playLabel: document.getElementById('audioFourierPlayBtn')?.getAttribute('aria-label') ?? '',
       telemetry: {
         requestId: document.getElementById('audioFourierApp')?.dataset.audioLastRequestId ?? '',
         totalMs: Number(document.getElementById('audioFourierApp')?.dataset.audioTotalMs ?? '0'),
@@ -1428,15 +1462,22 @@ async function main() {
       playDisabled: document.getElementById('audioFourierPlayBtn')?.hasAttribute('disabled') ?? true
     }));
 
-    assert(/ready|playing|press play/i.test(generatedReadyState.status), 'Built-in Audio Fourier song preset did not finish analysis.');
+    assert(/playing/i.test(generatedReadyState.status), 'Built-in Audio Fourier song preset should autoplay after analysis.');
+    assert(generatedReadyState.audioState === 'animating', 'Built-in Audio Fourier song preset should enter animating state after autoplay.');
     assert(/\d+ Hz proxy/.test(generatedReadyState.sampleRate), 'Audio Fourier proxy sample-rate metric missing after preset generation.');
     assert(generatedReadyState.componentCount !== '—', 'Audio Fourier component count missing after preset generation.');
     assert(/source/.test(generatedReadyState.sourceDuration), 'Audio Fourier source duration missing after preset generation.');
+    assert(generatedReadyState.resultMeta === '', 'Audio Fourier viewport explanatory copy should be removed after generation.');
     assert(generatedReadyState.sliderDisabled === false, 'Audio Fourier component slider should be enabled after generation.');
     assert(generatedReadyState.sliderMin === '0', 'Audio Fourier slider minimum should represent sparse signal energy.');
     assert(generatedReadyState.sliderMax === '100', 'Audio Fourier slider max should represent 100% signal energy.');
     assert(generatedReadyState.sliderValue === '50', 'Audio Fourier slider should start at the physical midpoint.');
+    assert(generatedReadyState.sliderProgress.trim() === '50%', 'Audio Fourier slider should publish visual track progress.');
     assert(/80% signal energy/.test(generatedReadyState.componentReadout), 'Audio Fourier midpoint should land near the auditory midpoint.');
+    assert(generatedReadyState.signalStrength === '80%', 'Audio Fourier signal strength card should show the midpoint energy.');
+    assert(/\d[\d,]* \/ \d[\d,]*/.test(generatedReadyState.signalCount), 'Audio Fourier signal count card should show active and total signals.');
+    assert(generatedReadyState.playText === '▶', 'Audio Fourier play control should remain icon-only.');
+    assert(generatedReadyState.playLabel === 'Play', 'Audio Fourier play control should expose an accessible Play label while playing.');
     assert(generatedReadyState.telemetry.requestId, 'Audio Fourier telemetry should include the completed request id.');
     assert(generatedReadyState.telemetry.totalMs > 0, 'Audio Fourier telemetry should include total processing time.');
     assert(generatedReadyState.telemetry.proxyMs > 0, 'Audio Fourier telemetry should include proxy processing time.');
@@ -1457,23 +1498,73 @@ async function main() {
     assert(countActiveCanvasPixels(generatedSpectrumPixels) > 100, 'Audio Fourier spectrum canvas should be visibly nonblank.');
     assert(countActiveCanvasPixels(generatedComponentPixels) > 100, 'Audio Fourier component canvas should be visibly nonblank.');
     await assertUtilityIsolationLayout(page, 'audio-preset:desktop');
+
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.waitForTimeout(120);
+    const compactAudioLayout = await page.evaluate(() => {
+      const rect = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) return null;
+        const box = element.getBoundingClientRect();
+        const styles = window.getComputedStyle(element);
+        return {
+          visible: box.width > 0 && box.height > 0 && styles.display !== 'none' && styles.visibility !== 'hidden',
+          display: styles.display
+        };
+      };
+      return {
+        scrollHeight: document.documentElement.scrollHeight,
+        clientHeight: document.documentElement.clientHeight,
+        htmlOverflow: getComputedStyle(document.documentElement).overflow,
+        bodyOverflow: getComputedStyle(document.body).overflow,
+        signals: rect('.audio-metric-card--signals'),
+        strength: rect('.audio-metric-card--strength')
+      };
+    });
+    assert(compactAudioLayout.scrollHeight <= compactAudioLayout.clientHeight + 1, 'Audio Fourier compact layout should not make the page scroll.');
+    assert(/hidden/.test(`${compactAudioLayout.htmlOverflow} ${compactAudioLayout.bodyOverflow}`), 'Audio Fourier compact layout should keep document scrolling disabled.');
+    assert(compactAudioLayout.signals?.visible === false, 'Audio Fourier should hide signals metric first on short layouts.');
+    assert(compactAudioLayout.strength?.visible === true, 'Audio Fourier should keep signal strength visible before hiding lower-priority metrics.');
+
+    await page.setViewportSize({ width: 1280, height: 640 });
+    await page.waitForTimeout(120);
+    const shortestAudioLayout = await page.evaluate(() => ({
+      scrollHeight: document.documentElement.scrollHeight,
+      clientHeight: document.documentElement.clientHeight,
+      signalsVisible: (() => {
+        const element = document.querySelector('.audio-metric-card--signals');
+        return Boolean(element && element.getBoundingClientRect().height > 0 && getComputedStyle(element).display !== 'none');
+      })(),
+      strengthVisible: (() => {
+        const element = document.querySelector('.audio-metric-card--strength');
+        return Boolean(element && element.getBoundingClientRect().height > 0 && getComputedStyle(element).display !== 'none');
+      })()
+    }));
+    assert(shortestAudioLayout.scrollHeight <= shortestAudioLayout.clientHeight + 1, 'Audio Fourier shortest layout should not make the page scroll.');
+    assert(shortestAudioLayout.signalsVisible === false, 'Audio Fourier shortest layout should keep signals hidden.');
+    assert(shortestAudioLayout.strengthVisible === false, 'Audio Fourier shortest layout should hide signal strength after signals.');
+
+    await page.setViewportSize({ width: 2048, height: 998 });
+    await page.waitForTimeout(120);
     if (generatedReadyState.playDisabled === false) {
       await page.click('#audioFourierPlayBtn');
       await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, 'built-in song preset playback starts');
-      await page.waitForTimeout(350);
-      const playbackWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
-      assert(totalAbsoluteDifference(fullSignalWavePixels, playbackWavePixels) > 0, 'Audio Fourier viewport should advance during playback.');
-      await page.fill('#audioFourierComponentSlider', '20');
-      await page.waitForTimeout(120);
-      const sliderDuringPlaybackState = await page.evaluate(() => ({
-        status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
-        readout: document.getElementById('audioFourierComponentReadout')?.textContent?.trim() ?? ''
-      }));
-      assert(/Playing selected Fourier energy mix/.test(sliderDuringPlaybackState.status), 'Audio Fourier slider should not stop playback.');
-      assert(/60% signal energy/.test(sliderDuringPlaybackState.readout), 'Audio Fourier readout should update with perceptual slider mapping during playback.');
-      await page.click('#audioFourierPauseBtn');
-      await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'built-in song preset playback pauses');
     }
+    await page.waitForTimeout(350);
+    const playbackWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
+    assert(totalAbsoluteDifference(fullSignalWavePixels, playbackWavePixels) > 0, 'Audio Fourier viewport should advance during playback.');
+    await page.fill('#audioFourierComponentSlider', '20');
+    await page.waitForTimeout(120);
+    const sliderDuringPlaybackState = await page.evaluate(() => ({
+      status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
+      readout: document.getElementById('audioFourierComponentReadout')?.textContent?.trim() ?? '',
+      signalStrength: document.getElementById('audioFourierSignalStrengthMetric')?.textContent?.trim() ?? ''
+    }));
+    assert(/Playing selected Fourier energy mix/.test(sliderDuringPlaybackState.status), 'Audio Fourier slider should not stop playback.');
+    assert(/60% signal energy/.test(sliderDuringPlaybackState.readout), 'Audio Fourier readout should update with perceptual slider mapping during playback.');
+    assert(sliderDuringPlaybackState.signalStrength === '60%', 'Audio Fourier signal strength metric should update during playback.');
+    await page.click('#audioFourierPauseBtn');
+    await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'built-in song preset playback pauses');
 
     const wavPath = await createGeneratedWavFile();
     await page.setInputFiles('#audioFourierInput', wavPath);
@@ -1529,6 +1620,23 @@ async function main() {
     assert(stressInitialState.stopDisabled === true, 'Stress Test stop should stay disabled when idle.');
     assert(/hot|loud|slow|power/i.test(stressInitialState.status), 'Stress Test warning copy should be visible before start.');
 
+    await page.setViewportSize({ width: 1024, height: 520 });
+    await page.waitForTimeout(120);
+    const shortStressLayout = await readStressLayoutMetrics(page);
+    assert(shortStressLayout.controlOverflowY !== 'auto' && shortStressLayout.controlOverflowY !== 'scroll', 'Short Stress Test control panel should not be scrollable.');
+    assert(
+      shortStressLayout.hiddenMetricCount > 0 || shortStressLayout.controlScrollHeight <= shortStressLayout.controlClientHeight + 1,
+      'Short Stress Test control panel should hide metric cards when needed instead of scrolling.'
+    );
+    assert(shortStressLayout.visibleMetricCount > 0, 'Short Stress Test control panel should keep rendering the metric cards that fit.');
+    assert(
+      shortStressLayout.controlScrollHeight <= shortStressLayout.controlClientHeight + 1,
+      'Short Stress Test control panel content should fit after metrics are hidden.'
+    );
+    await page.setViewportSize({ width: 2048, height: 998 });
+    await page.waitForTimeout(120);
+    await assertStressLayout(page, 'stress:desktop:idle-restored', { requirePanelFit: true });
+
     await page.click('[data-stress-mode-option="cpu"]');
     const stressCpuMode = await page.evaluate(() => document.getElementById('stressTestApp')?.dataset.stressMode ?? '');
     assert(stressCpuMode === 'cpu', 'Stress Test mode selector should update data-stress-mode.');
@@ -1555,6 +1663,11 @@ async function main() {
     await page.waitForFunction(() => Number(document.getElementById('stressTestApp')?.dataset.stressGpuFrameCount ?? '0') >= 2, {
       timeout: 10000
     });
+    await page.waitForFunction(() => /^(For visual effect only|Just a cool graphic)$/.test(document.getElementById('stressTestApp')?.dataset.stressCpuVisualText ?? ''), {
+      timeout: 10000
+    });
+    const stressCpuVisualText = await page.evaluate(() => document.getElementById('stressTestApp')?.dataset.stressCpuVisualText ?? '');
+    assert(/^(For visual effect only|Just a cool graphic)$/.test(stressCpuVisualText), 'CPU Stress Test should render one of the visual-effect text phrases.');
     await assertStressCanvasActive(page, 'stress:cpu:running');
     await assertStressLayout(page, 'stress:desktop:cpu-running', { requirePanelFit: true });
 

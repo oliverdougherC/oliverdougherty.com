@@ -11,9 +11,10 @@ import {
   mixEnergyBands,
   resolveEnergyBandGains,
   resolveEnergyMakeupGain,
-  resolveSampleEnvelope
+  resolveSampleEnvelope,
+  resolveViewportRange
 } from './audioFourierCore';
-import { resolveAudioPlaybackButtonLabel } from './audioFourierUiState';
+import { resolveAudioPlaybackButtonState } from './audioFourierUiState';
 import type { AudioFourierSourceTransfer, AudioFourierSuccessMessage, AudioFourierWorkerRequest, AudioFourierWorkerResponse } from './audioFourierWorkerTypes';
 
 type AudioFourierState = 'idle' | 'processing' | 'ready' | 'animating' | 'complete' | 'error';
@@ -56,10 +57,9 @@ function asArrayBuffer(buffer: ArrayBufferLike): ArrayBuffer {
   if (buffer instanceof ArrayBuffer) {
     return buffer;
   }
-  if (buffer.slice !== undefined) {
-    return buffer.slice(0, buffer.byteLength);
-  }
-  throw new TypeError('Expected an ArrayBuffer but received an incompatible type.');
+  const copy = new Uint8Array(buffer.byteLength);
+  copy.set(new Uint8Array(buffer));
+  return copy.buffer;
 }
 
 function formatSeconds(value: number) {
@@ -100,6 +100,8 @@ export class AudioFourierController {
   private readonly resetButton: HTMLButtonElement;
   private readonly componentSlider: HTMLInputElement;
   private readonly componentReadout: HTMLElement;
+  private readonly signalStrengthMetric: HTMLElement;
+  private readonly signalCountMetric: HTMLElement;
   private readonly componentMinLabel: HTMLElement;
   private readonly componentMaxLabel: HTMLElement;
   private readonly statusChip: HTMLElement;
@@ -159,6 +161,8 @@ export class AudioFourierController {
     this.resetButton = this.requireElement('audioFourierResetBtn');
     this.componentSlider = this.requireElement('audioFourierComponentSlider');
     this.componentReadout = this.requireElement('audioFourierComponentReadout');
+    this.signalStrengthMetric = this.requireElement('audioFourierSignalStrengthMetric');
+    this.signalCountMetric = this.requireElement('audioFourierSignalCountMetric');
     this.componentMinLabel = this.requireElement('audioFourierComponentMin');
     this.componentMaxLabel = this.requireElement('audioFourierComponentMax');
     this.statusChip = this.requireElement('audioFourierStatusChip');
@@ -226,6 +230,9 @@ export class AudioFourierController {
     this.componentMinLabel.textContent = 'Sparse';
     this.componentMaxLabel.textContent = 'Full proxy';
     this.componentReadout.textContent = 'Generate first';
+    this.signalStrengthMetric.textContent = '--';
+    this.signalCountMetric.textContent = '--';
+    this.syncSliderProgress();
     this.syncSelection();
     this.drawEmptyState();
   }
@@ -283,20 +290,6 @@ export class AudioFourierController {
     const context = canvas.getContext('2d')!;
     context.fillStyle = '#000000';
     context.fillRect(0, 0, canvas.width, canvas.height);
-    context.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-    context.lineWidth = 1;
-    for (let x = 0; x <= canvas.width; x += canvas.width / 12) {
-      context.beginPath();
-      context.moveTo(x, 0);
-      context.lineTo(x, canvas.height);
-      context.stroke();
-    }
-    for (let y = 0; y <= canvas.height; y += canvas.height / 6) {
-      context.beginPath();
-      context.moveTo(0, y);
-      context.lineTo(canvas.width, y);
-      context.stroke();
-    }
     return canvas;
   }
 
@@ -359,13 +352,16 @@ export class AudioFourierController {
     this.playButton.disabled = !hasResult || isProcessing || isPlaying;
     this.pauseButton.disabled = !hasResult || !isPlaying;
     this.resetButton.disabled = isProcessing && !hasResult;
-    this.playButton.textContent = resolveAudioPlaybackButtonLabel({
+    const playbackButton = resolveAudioPlaybackButtonState({
       hasResult,
       isProcessing,
       isPlaying,
       elapsedSeconds: this.playbackElapsedSeconds,
       isComplete: this.state === 'complete'
     });
+    this.playButton.textContent = playbackButton.icon;
+    this.playButton.setAttribute('aria-label', playbackButton.label);
+    this.playButton.title = playbackButton.label;
   }
 
   private setState(state: AudioFourierState, text: string) {
@@ -429,6 +425,9 @@ export class AudioFourierController {
     this.componentSlider.disabled = true;
     this.componentSlider.value = String(INITIAL_SLIDER_VALUE);
     this.componentReadout.textContent = 'Generate first';
+    this.signalStrengthMetric.textContent = '--';
+    this.signalCountMetric.textContent = '--';
+    this.syncSliderProgress();
     this.sampleRateLabel.textContent = '—';
     this.componentCountLabel.textContent = '—';
     this.sourceDurationLabel.textContent = '—';
@@ -658,8 +657,9 @@ export class AudioFourierController {
     this.renderCurrentViewport();
     this.setState('ready', 'Fourier proxy ready. Press Play to start audio.');
     this.syncEnergyReadout();
-    this.resultMeta.textContent = 'The viewport follows playback and shows the original trace against the reconstructed signal.';
+    this.resultMeta.textContent = '';
     this.setProgress(1, 'Fourier proxy ready.');
+    void this.tryAutoPlayAfterGeneration(message.requestId);
   }
 
   private configureSlider() {
@@ -675,10 +675,18 @@ export class AudioFourierController {
     this.componentSlider.value = String(Math.min(INITIAL_SLIDER_VALUE, sliderMaxValue));
     this.componentMinLabel.textContent = 'Sparse';
     this.componentMaxLabel.textContent = 'Full proxy';
+    this.syncSliderProgress();
   }
 
   private resolveSliderMaxValue(value = Number(this.componentSlider.max)) {
     return Number.isFinite(value) && value > 0 ? Math.round(value) : 100;
+  }
+
+  private syncSliderProgress() {
+    const sliderMaxValue = this.resolveSliderMaxValue();
+    const sliderValue = clamp(Number(this.componentSlider.value), 0, sliderMaxValue);
+    const progress = sliderMaxValue > 0 ? sliderValue / sliderMaxValue : 0;
+    this.componentSlider.style.setProperty('--audio-slider-progress', `${progress * 100}%`);
   }
 
   private handleSliderInput() {
@@ -689,6 +697,7 @@ export class AudioFourierController {
     const sliderMaxValue = this.resolveSliderMaxValue();
     const sliderValue = clamp(Number(this.componentSlider.value), 0, sliderMaxValue);
     this.componentSlider.value = String(sliderValue);
+    this.syncSliderProgress();
     this.activeResult.energyPercent = mapSliderValueToEnergyPercent(
       sliderValue,
       sliderMaxValue
@@ -722,6 +731,8 @@ export class AudioFourierController {
     const activeComponents = this.resolveApproximateActiveComponents();
     const total = this.activeResult.metadata.componentCount;
     this.componentReadout.textContent = `${energyPercent}% signal energy · ${activeComponents.toLocaleString()} / ${total.toLocaleString()} components`;
+    this.signalStrengthMetric.textContent = `${energyPercent}%`;
+    this.signalCountMetric.textContent = `${activeComponents.toLocaleString()} / ${total.toLocaleString()}`;
   }
 
   private resolveApproximateActiveComponents() {
@@ -769,11 +780,30 @@ export class AudioFourierController {
     const sampleCount = this.activeResult.metadata.proxySampleCount;
     for (let bandIndex = 0; bandIndex < this.activeResult.metadata.bandCount; bandIndex += 1) {
       const buffer = context.createBuffer(1, sampleCount, this.activeResult.metadata.proxySampleRate);
+      const bandSlice = new Float32Array(this.activeResult.bandSamples.subarray(bandIndex * sampleCount, (bandIndex + 1) * sampleCount));
       buffer.copyToChannel(
-        this.activeResult.bandSamples.subarray(bandIndex * sampleCount, (bandIndex + 1) * sampleCount),
+        bandSlice,
         0
       );
       this.bandBuffers.push(buffer);
+    }
+  }
+
+  private async tryAutoPlayAfterGeneration(requestId: number) {
+    if (requestId !== this.activeRequestId || !this.activeResult || this.state !== 'ready') {
+      return;
+    }
+
+    try {
+      await this.playPlayback();
+    } catch (_error) {
+      if (requestId !== this.activeRequestId || !this.activeResult) {
+        return;
+      }
+      this.stopPlayback(false);
+      this.renderCurrentViewport();
+      this.setState('ready', 'Fourier proxy ready. Press Play to start audio.');
+      this.resultMeta.textContent = '';
     }
   }
 
@@ -834,7 +864,7 @@ export class AudioFourierController {
         this.playbackElapsedSeconds = this.activeResult?.metadata.proxyDurationSeconds ?? 0;
         this.activeBandNodes = [];
         this.setState('complete', 'Playback complete.');
-        this.resultMeta.textContent = 'Playback finished for the current signal-energy mix.';
+        this.resultMeta.textContent = '';
         this.stopAnimationFrame();
         this.syncButtons();
       };
@@ -986,29 +1016,28 @@ export class AudioFourierController {
     }
 
     const result = this.activeResult;
-    const viewportSampleCount = Math.max(
-      1,
-      Math.min(result.metadata.proxySampleCount, Math.round(this.viewportSeconds * result.metadata.proxySampleRate))
+    const {
+      startSample,
+      endSample,
+      viewportSampleCount
+    } = resolveViewportRange(
+      this.playbackElapsedSeconds,
+      result.metadata.proxyDurationSeconds,
+      result.metadata.proxySampleRate,
+      this.viewportSeconds
     );
-    const centerSample = clamp(
-      this.playbackElapsedSeconds * result.metadata.proxySampleRate,
-      0,
-      Math.max(0, result.metadata.proxySampleCount - 1)
-    );
-    const startSample = clamp(
-      centerSample - viewportSampleCount / 2,
-      0,
-      Math.max(0, result.metadata.proxySampleCount - viewportSampleCount)
-    );
-    const endSample = startSample + viewportSampleCount;
 
     const visualPointCount = this.resolveVisualPointCount(viewportSampleCount, livePlayback);
-    const sampleStep = viewportSampleCount / visualPointCount;
     const isFullEnergy = result.energyPercent >= FULL_ENERGY_VISUAL_THRESHOLD;
 
     for (let pointIndex = 0; pointIndex < visualPointCount; pointIndex += 1) {
-      const binStart = startSample + pointIndex * sampleStep;
-      const binEnd = pointIndex + 1 === visualPointCount ? endSample : binStart + sampleStep;
+      const binStart = startSample + Math.floor(pointIndex * viewportSampleCount / visualPointCount);
+      const binEnd = pointIndex + 1 === visualPointCount
+        ? endSample
+        : startSample + Math.max(
+          pointIndex + 1,
+          Math.floor((pointIndex + 1) * viewportSampleCount / visualPointCount)
+        );
       const original = resolveSampleEnvelope(result.originalSamples, binStart, binEnd);
       const mixed = isFullEnergy
         ? original
@@ -1108,6 +1137,8 @@ export class AudioFourierController {
     context.fillStyle = fillColor;
     context.strokeStyle = strokeColor;
     context.lineWidth = lineWidth;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
     context.shadowColor = glow ? strokeColor : 'transparent';
     context.shadowBlur = glow && lineWidth > 2 ? 16 : 0;
     context.beginPath();
@@ -1133,22 +1164,19 @@ export class AudioFourierController {
       return;
     }
 
-    context.beginPath();
-    for (let index = 0; index < count; index += 1) {
-      const x = index / lastIndex * canvas.width;
-      const y = centerY - maxSamples[index] * scaleY;
-      if (index === 0) {
-        context.moveTo(x, y);
-      } else {
-        context.lineTo(x, y);
+    for (const samples of [maxSamples, minSamples]) {
+      context.beginPath();
+      for (let index = 0; index < count; index += 1) {
+        const x = index / lastIndex * canvas.width;
+        const y = centerY - samples[index] * scaleY;
+        if (index === 0) {
+          context.moveTo(x, y);
+        } else {
+          context.lineTo(x, y);
+        }
       }
+      context.stroke();
     }
-    for (let index = 0; index < count; index += 1) {
-      const x = index / lastIndex * canvas.width;
-      const y = centerY - minSamples[index] * scaleY;
-      context.lineTo(x, y);
-    }
-    context.stroke();
     context.restore();
   }
 

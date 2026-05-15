@@ -1204,6 +1204,44 @@
   flex: 0 0 auto;
 }
 
+.utility-shell--audio .audio-metric-cards {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.1rem;
+}
+
+.utility-shell--audio .audio-metric-card {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0.72rem 0.8rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.utility-shell--audio .audio-metric-title {
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 0.68rem;
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.utility-shell--audio .audio-metric-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--flair, var(--audio-accent));
+  font-family: var(--font-mono), monospace;
+  font-size: clamp(1.2rem, 2vw, 1.65rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  text-shadow: 0 0 14px var(--flair-glow, rgba(255, 255, 255, 0.22));
+  white-space: nowrap;
+}
+
 .utility-shell--audio .audio-progress-fill {
   background: linear-gradient(90deg, var(--audio-gold), var(--audio-highlight) 58%, var(--audio-accent));
   box-shadow: var(--audio-progress-glow);
@@ -1255,28 +1293,29 @@
   gap: clamp(0.8rem, 1.4vw, 1.15rem);
 }
 
+.utility-shell--audio .utility-rail--minimal {
+  overflow: hidden;
+}
+
 .audio-component-control--inline {
-  display: flex;
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: 0.9rem;
-  padding: 0.65rem 0.9rem;
+  display: block;
+  padding: 0.78rem 0.95rem 0.62rem;
   border-radius: var(--radius-full);
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.035);
   border: 1px solid var(--audio-stage-border);
 }
 
 .audio-slider-wrapper {
-  flex: 1;
   display: grid;
-  gap: 0.35rem;
-  min-width: 8rem;
+  gap: 0.48rem;
+  min-width: 0;
+  width: 100%;
 }
 
 .audio-component-slider {
   width: 100%;
   accent-color: var(--audio-accent);
-  height: 18px;
+  height: 22px;
   padding: 0;
   background: transparent;
   border-radius: var(--radius-full);
@@ -1289,38 +1328,53 @@
 }
 
 .audio-component-slider::-webkit-slider-runnable-track {
-  height: 4px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
+  height: 8px;
+  background:
+    linear-gradient(
+      90deg,
+      var(--flair, #ffffff) 0 var(--audio-slider-progress, 0%),
+      rgba(255, 255, 255, 0.14) var(--audio-slider-progress, 0%) 100%
+    );
+  border-radius: var(--radius-full);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
 .audio-component-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   margin-top: -6px;
   border-radius: 50%;
   background: #ffffff;
   border: 0;
   cursor: pointer;
-  box-shadow: 0 0 10px rgba(255, 255, 255, 0.45);
+  box-shadow:
+    0 0 0 4px rgba(0, 0, 0, 0.55),
+    0 0 16px var(--flair-glow, rgba(255, 255, 255, 0.45));
 }
 
 .audio-component-slider::-moz-range-track {
-  height: 4px;
-  background: rgba(255, 255, 255, 0.1);
+  height: 8px;
+  background:
+    linear-gradient(
+      90deg,
+      var(--flair, #ffffff) 0 var(--audio-slider-progress, 0%),
+      rgba(255, 255, 255, 0.14) var(--audio-slider-progress, 0%) 100%
+    );
   border: 0;
-  border-radius: 2px;
+  border-radius: var(--radius-full);
 }
 
 .audio-component-slider::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   border: 0;
   border-radius: 50%;
   background: #ffffff;
   cursor: pointer;
-  box-shadow: 0 0 10px rgba(255, 255, 255, 0.45);
+  box-shadow:
+    0 0 0 4px rgba(0, 0, 0, 0.55),
+    0 0 16px var(--flair-glow, rgba(255, 255, 255, 0.45));
 }
 
 .audio-component-slider:focus-visible::-webkit-slider-thumb {
@@ -1416,8 +1470,6 @@
 
 @media (max-width: 520px) {
   .utility-shell--audio .audio-component-control--inline {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
     border-radius: var(--radius-xl);
   }
 
@@ -1429,6 +1481,18 @@
 
   .utility-shell--audio .audio-slider-wrapper {
     min-width: 0;
+  }
+}
+
+@media (max-height: 760px) and (min-width: 1101px) {
+  #audioFourierApp .audio-metric-card--signals {
+    display: none;
+  }
+}
+
+@media (max-height: 680px) and (min-width: 1101px) {
+  #audioFourierApp .audio-metric-card--strength {
+    display: none;
   }
 }
 
@@ -1492,7 +1556,7 @@
   display: flex;
   flex-direction: column;
   gap: clamp(0.7rem, 1.4vw, 1rem);
-  overflow: auto;
+  overflow: hidden;
   padding: clamp(0.85rem, 1.6vw, 1.15rem);
 }
 
@@ -1554,6 +1618,10 @@
   grid-template-columns: repeat(2, minmax(7.25rem, 1fr));
   gap: 0.5rem;
   margin: 0;
+}
+
+.stress-metrics > [hidden] {
+  display: none;
 }
 
 .stress-metrics div {
@@ -3087,7 +3155,7 @@ html[data-active-utility] .utility-switcher {
   }
 
   .stress-control-panel {
-    overflow: visible;
+    overflow: hidden;
   }
 
   .stress-visual-panel canvas {

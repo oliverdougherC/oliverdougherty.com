@@ -278,6 +278,18 @@
                               <button type="button" class="demo-chip demo-chip-minimal" data-audio-preset="i-cant-wait-to-get-there" title="I Can't Wait To Get There">Get There</button>
                               <button type="button" class="demo-chip demo-chip-minimal" data-audio-preset="tell-your-friends" title="Tell Your Friends">Tell Friends</button>
                             </div>
+
+                            <div class="audio-metric-cards" aria-label="Fourier signal metrics">
+                              <span class="audio-component-readout" id="audioFourierComponentReadout" hidden>Generate first</span>
+                              <div class="audio-metric-card audio-metric-card--strength">
+                                <span class="audio-metric-title">Signal strength</span>
+                                <span class="audio-metric-value" id="audioFourierSignalStrengthMetric">--</span>
+                              </div>
+                              <div class="audio-metric-card audio-metric-card--signals">
+                                <span class="audio-metric-title">Signals</span>
+                                <span class="audio-metric-value" id="audioFourierSignalCountMetric">--</span>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -313,7 +325,6 @@
 
                           <div class="audio-compact-controls">
                             <div class="audio-component-control--inline">
-                              <span class="audio-component-readout" id="audioFourierComponentReadout">0 signals</span>
                               <div class="audio-slider-wrapper">
                                 <input id="audioFourierComponentSlider" class="audio-component-slider" type="range" min="0" max="100" step="1" value="50" disabled aria-label="Fourier signals added">
                                 <div class="audio-component-scale" aria-hidden="true">
@@ -675,28 +686,28 @@
                           <button type="button" class="btn-secondary-utility stress-stop-button" id="stressStopBtn" disabled>Stop</button>
                         </div>
 
-                        <dl class="stress-metrics">
-                          <div>
+                        <dl class="stress-metrics" id="stressMetrics">
+                          <div data-stress-metric="elapsed">
                             <dt>Elapsed</dt>
                             <dd id="stressElapsed">0:00</dd>
                           </div>
-                          <div>
+                          <div data-stress-metric="workers">
                             <dt>Workers</dt>
                             <dd id="stressWorkerCount">0</dd>
                           </div>
-                          <div>
+                          <div data-stress-metric="gpu">
                             <dt>GPU</dt>
                             <dd id="stressGpuBackend">none</dd>
                           </div>
-                          <div>
+                          <div data-stress-metric="fps">
                             <dt>FPS</dt>
                             <dd id="stressFrameRate">0.0</dd>
                           </div>
-                          <div>
+                          <div data-stress-metric="dropped">
                             <dt>Dropped</dt>
                             <dd id="stressDroppedFrames">0</dd>
                           </div>
-                          <div>
+                          <div data-stress-metric="iterations">
                             <dt>CPU iterations</dt>
                             <dd id="stressIterations">0</dd>
                           </div>

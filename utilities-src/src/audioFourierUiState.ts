@@ -16,3 +16,10 @@ export function resolveAudioPlaybackButtonLabel(options: {
   return 'Play';
 }
 
+export function resolveAudioPlaybackButtonState(options: Parameters<typeof resolveAudioPlaybackButtonLabel>[0]) {
+  const label = resolveAudioPlaybackButtonLabel(options);
+  return {
+    icon: '\u25b6',
+    label
+  };
+}
