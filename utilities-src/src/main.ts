@@ -1408,7 +1408,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         try {
           const { DeathCalculatorController } = await import('./deathCalculatorController');
-          new DeathCalculatorController(deathCalculatorRoot).init();
+          const deathController = new DeathCalculatorController(deathCalculatorRoot);
+          deathCalculatorRoot.addEventListener('utility-deactivate', () => deathController.dispose());
+          deathController.init();
           initializedUtilities.add(utilityId);
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Death Calculator failed to initialize.';

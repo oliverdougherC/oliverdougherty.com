@@ -242,6 +242,39 @@ export class DeathCalculatorController {
   private activeQuestionId = QUESTION_DEFINITIONS[0]?.id ?? '';
   private activeScreen: DeathCalculatorScreen = 'intro';
   private countdownTimer = 0;
+  private formerSmokerSavedValue = '5';
+  private readonly keydownHandler = (event: KeyboardEvent) => {
+    if (event.key !== 'Enter' || event.repeat) {
+      return;
+    }
+    if (this.activeScreen !== 'question' || this.surveyScreen.hidden) {
+      return;
+    }
+
+    const target = event.target as HTMLElement;
+    if (
+      target !== document.body &&
+      target !== document.documentElement &&
+      !this.root.contains(target)
+    ) {
+      return;
+    }
+    if (target.closest?.('#deathBackBtn')) {
+      return;
+    }
+    if (target instanceof HTMLInputElement && target.type === 'checkbox') {
+      return;
+    }
+
+    event.preventDefault();
+    const visibleQuestions = this.getVisibleQuestions();
+    const activeIndex = this.getActiveQuestionIndex(visibleQuestions);
+    if (activeIndex < visibleQuestions.length - 1) {
+      this.goToNextQuestion();
+    } else {
+      void this.calculatePrediction();
+    }
+  };
   constructor(root: HTMLElement) {
     this.root = root;
     this.form = this.requireElement('deathSurveyForm');
@@ -297,38 +330,7 @@ export class DeathCalculatorController {
       this.syncQuestionUi();
     });
 
-    document.addEventListener('keydown', (event: KeyboardEvent) => {
-      if (event.key !== 'Enter' || event.repeat) {
-        return;
-      }
-      if (this.activeScreen !== 'question' || this.surveyScreen.hidden) {
-        return;
-      }
-
-      const target = event.target as HTMLElement;
-      if (
-        target !== document.body &&
-        target !== document.documentElement &&
-        !this.root.contains(target)
-      ) {
-        return;
-      }
-      if (target.closest?.('#deathBackBtn')) {
-        return;
-      }
-      if (target instanceof HTMLInputElement && target.type === 'checkbox') {
-        return;
-      }
-
-      event.preventDefault();
-      const visibleQuestions = this.getVisibleQuestions();
-      const activeIndex = this.getActiveQuestionIndex(visibleQuestions);
-      if (activeIndex < visibleQuestions.length - 1) {
-        this.goToNextQuestion();
-      } else {
-        void this.calculatePrediction();
-      }
-    });
+    document.addEventListener('keydown', this.keydownHandler);
 
     this.form.addEventListener('submit', (event) => {
       event.preventDefault();
@@ -395,8 +397,10 @@ export class DeathCalculatorController {
     const isFormerSmoker = this.isFormerSmoker();
     this.yearsSinceQuitField.hidden = !isFormerSmoker;
     this.yearsSinceQuitInput.required = isFormerSmoker;
-    if (!isFormerSmoker) {
-      this.yearsSinceQuitInput.value = '5';
+    if (isFormerSmoker) {
+      this.yearsSinceQuitInput.value = this.formerSmokerSavedValue;
+    } else {
+      this.formerSmokerSavedValue = this.yearsSinceQuitInput.value || '5';
     }
   }
 
@@ -523,6 +527,12 @@ export class DeathCalculatorController {
       this.renderImmortal();
       return;
     }
+    if (ageYears < 18) {
+      this.setScreen('error');
+      this.setStatus('This calculator is only available to adults 18 and older.');
+      this.syncQuestionUi();
+      return;
+    }
 
     try {
       this.setScreen('processing');
@@ -640,9 +650,15 @@ export class DeathCalculatorController {
     const labels = this.root.querySelectorAll('.death-result-label');
     labels.forEach((el) => ((el as HTMLElement).hidden = false));
 
+    this.formerSmokerSavedValue = '5';
     this.syncFormerSmokerField();
     this.setStatus('A local-only estimate built from U.S. life tables and public-health evidence.');
     this.setScreen('intro');
     this.syncQuestionUi();
+  }
+
+  public dispose() {
+    document.removeEventListener('keydown', this.keydownHandler);
+    this.stopCountdown();
   }
 }

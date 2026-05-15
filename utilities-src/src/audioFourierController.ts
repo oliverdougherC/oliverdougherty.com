@@ -217,6 +217,20 @@ export class AudioFourierController {
     this.componentSlider.addEventListener('input', () => this.handleSliderInput());
     this.bindDropzone();
 
+    this.root.addEventListener('utility-deactivate', () => this.pausePlayback());
+    window.addEventListener('hashchange', () => {
+      if (window.location.hash !== '#audio-fourier') {
+        this.pausePlayback();
+      }
+    });
+    window.addEventListener('pagehide', () => this.pausePlayback());
+    document.addEventListener('utility-activate', (event) => {
+      const stage = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-utility-id]') : null;
+      if (stage?.dataset.utilityId && stage.dataset.utilityId !== 'audio-fourier') {
+        this.pausePlayback();
+      }
+    });
+
     this.presetButtons.forEach((button) => {
       button.addEventListener('click', () => {
         const presetId = button.dataset.audioPreset as BuiltInAudioPresetId | undefined;

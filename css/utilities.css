@@ -2986,20 +2986,6 @@ html.utilities-returned .utilities-title {
 }
 
 /* Utility View */
-.utility-switcher {
-  position: relative;
-  opacity: 0;
-  pointer-events: none;
-  visibility: hidden;
-  transition: opacity 0.3s ease, visibility 0.3s ease;
-}
-
-html[data-active-utility] .utility-switcher {
-  opacity: 1;
-  pointer-events: auto;
-  visibility: visible;
-}
-
 #utilitiesUtilityView {
   align-items: stretch;
   justify-content: flex-start;
@@ -3008,72 +2994,6 @@ html[data-active-utility] .utility-switcher {
     0
     clamp(0.75rem, 1.4vh, 1rem);
   height: 100%;
-}
-
-.utility-switcher-trigger {
-  font: inherit;
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  color: var(--color-text-primary);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--utilities-border-soft);
-  border-radius: var(--radius-full);
-  padding: 0.5rem 1rem;
-  cursor: pointer;
-  transition: border-color var(--duration-fast) ease, background var(--duration-fast) ease;
-}
-
-.utility-switcher-trigger:hover,
-.utility-switcher-trigger[aria-expanded="true"] {
-  border-color: rgba(255, 255, 255, 0.25);
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.utility-switcher-dropdown {
-  position: absolute;
-  top: calc(100% + 0.5rem);
-  right: 0;
-  display: grid;
-  gap: 0.25rem;
-  min-width: 14rem;
-  padding: 0.5rem;
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--utilities-border-soft);
-  background: rgba(8, 8, 8, 0.85);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  box-shadow: 0 16px 40px -12px rgba(0, 0, 0, 0.8);
-  opacity: 0;
-  transform: translateY(-6px) scale(0.98);
-  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
-  visibility: hidden;
-  z-index: 10;
-}
-
-.utility-switcher-dropdown.is-open {
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  visibility: visible;
-}
-
-.utility-switcher-dropdown button {
-  font: inherit;
-  font-size: var(--text-sm);
-  text-align: left;
-  padding: 0.6rem 0.8rem;
-  border-radius: var(--radius-lg);
-  border: none;
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  transition: color var(--duration-fast) ease, background var(--duration-fast) ease;
-}
-
-.utility-switcher-dropdown button:hover,
-.utility-switcher-dropdown button:focus-visible {
-  outline: none;
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.06);
 }
 
 /* Stage wrapper */
