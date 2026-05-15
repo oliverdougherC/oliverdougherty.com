@@ -12,6 +12,7 @@ import {
   resolveEnergyBandGains,
   resolveEnergyMakeupGain,
   resolveEnvelopeViewportRange,
+  resolveHighEnergyVisualAmplitude,
   type MixedAudioEnvelope
 } from './audioFourierCore';
 import { resolveAudioPlaybackButtonState } from './audioFourierUiState';
@@ -1066,8 +1067,14 @@ export class AudioFourierController {
       const mixedMin = mixedEnvelope?.min[bucketIndex] ?? originalMin;
       const mixedMax = mixedEnvelope?.max[bucketIndex] ?? originalMax;
 
-      this.visualOriginalAmpScratch[pointIndex] = Math.max(Math.abs(originalMin), Math.abs(originalMax));
-      this.visualMixAmpScratch[pointIndex] = Math.max(Math.abs(mixedMin), Math.abs(mixedMax));
+      const originalAmplitude = Math.max(Math.abs(originalMin), Math.abs(originalMax));
+      const mixedAmplitude = Math.max(Math.abs(mixedMin), Math.abs(mixedMax));
+      this.visualOriginalAmpScratch[pointIndex] = originalAmplitude;
+      this.visualMixAmpScratch[pointIndex] = resolveHighEnergyVisualAmplitude(
+        originalAmplitude,
+        mixedAmplitude,
+        result.energyPercent
+      );
     }
 
     this.writeSmoothedEnvelope(this.visualOriginalAmpScratch, this.visualOriginalMinScratch, this.visualOriginalMaxScratch, visualPointCount);

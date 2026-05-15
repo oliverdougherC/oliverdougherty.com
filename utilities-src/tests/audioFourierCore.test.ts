@@ -10,6 +10,7 @@ import {
   resolveEnvelopeViewportRange,
   resolveEnvelopeBucketSampleCount,
   resolveEnergyMakeupGain,
+  resolveHighEnergyVisualAmplitude,
   resolveSampleEnvelope,
   resolveViewportRange,
   renderWindowedComponentCount
@@ -307,6 +308,13 @@ describe('audio Fourier core', () => {
     expectArrayCloseTo(firstOnly.max, [0.1, 0.5, 0.3]);
     expectArrayCloseTo(mixed.min, [-0.25, -0.55, -0.1]);
     expectArrayCloseTo(mixed.max, [0.3, 0.6, 0.35]);
+  });
+
+  it('visually clamps high-energy reconstruction amplitudes to the original envelope', () => {
+    expect(resolveHighEnergyVisualAmplitude(0.5, 0.8, 0.6)).toBeCloseTo(0.8, 6);
+    expect(resolveHighEnergyVisualAmplitude(0.5, 0.8, 0.825)).toBeCloseTo(0.65, 6);
+    expect(resolveHighEnergyVisualAmplitude(0.5, 0.8, 0.85)).toBeCloseTo(0.5, 6);
+    expect(resolveHighEnergyVisualAmplitude(0.5, 0.3, 0.95)).toBeCloseTo(0.3, 6);
   });
 
   it('keeps song-length proxy analysis bounded by frame options', () => {

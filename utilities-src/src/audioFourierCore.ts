@@ -144,6 +144,8 @@ const ENERGY_SLIDER_LOW_EXPONENT = Math.log(ENERGY_SLIDER_LOW_REFERENCE_VALUE / 
 const FFT_PROGRESS_THROTTLE = 64;
 const OVERLAP_ADD_NORMALIZATION_THRESHOLD = 0.000001;
 const DEFAULT_ENVELOPE_TARGET_POINTS_PER_SECOND = 420;
+const VISUAL_ORIGINAL_CLAMP_START = 0.8;
+const VISUAL_ORIGINAL_CLAMP_END = 0.85;
 
 /**
  * Maps a slider value to a component count using an exponential curve for perceptually uniform selection.
@@ -779,6 +781,28 @@ export function mixEnergyBandEnvelopes(
   }
 
   return destination;
+}
+
+export function resolveHighEnergyVisualAmplitude(
+  originalAmplitude: number,
+  reconstructedAmplitude: number,
+  energyPercent: number
+) {
+  const original = Math.max(0, originalAmplitude);
+  const reconstructed = Math.max(0, reconstructedAmplitude);
+  const bounded = Math.min(reconstructed, original);
+  const energy = clamp(energyPercent, 0, 1);
+
+  if (energy <= VISUAL_ORIGINAL_CLAMP_START) {
+    return reconstructed;
+  }
+  if (energy >= VISUAL_ORIGINAL_CLAMP_END) {
+    return bounded;
+  }
+
+  const phase = (energy - VISUAL_ORIGINAL_CLAMP_START) /
+    (VISUAL_ORIGINAL_CLAMP_END - VISUAL_ORIGINAL_CLAMP_START);
+  return reconstructed + (bounded - reconstructed) * phase;
 }
 
 /**
