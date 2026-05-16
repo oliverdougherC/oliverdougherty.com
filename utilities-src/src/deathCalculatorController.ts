@@ -5,7 +5,7 @@ import {
   formatPredictionDate,
   predictLongevity
 } from './longevityEngine';
-import type { LongevitySurveyAnswers, PredictionResult, SmokingStatus } from './longevityTypes';
+import type { FamilyMemberLongevityAnswer, LongevitySurveyAnswers, PredictionResult, SmokingStatus } from './longevityTypes';
 
 type DeathCalculatorScreen = 'intro' | 'question' | 'processing' | 'result' | 'error';
 
@@ -197,13 +197,38 @@ const QUESTION_DEFINITIONS: QuestionDefinition[] = [
     description: 'Family history is modeled lightly and never allowed to dominate the estimate.'
   },
   {
-    id: 'parentLongevityBand',
-    controls: ['deathParentLongevityBand'],
+    id: 'parentLongevity',
+    controls: ['deathMotherStatus', 'deathMotherAge', 'deathFatherStatus', 'deathFatherAge'],
     eyebrow: 'Question 25',
-    title: 'How would you describe your parents’ longevity pattern?',
-    description: 'Use the option that most closely matches the available history.'
+    title: 'Are your parents still alive?',
+    description: 'Enter each parent’s current age or age at death. Choose unknown if you do not know.'
+  },
+  {
+    id: 'grandparentLongevity',
+    controls: [
+      'deathMaternalGrandmotherStatus',
+      'deathMaternalGrandmotherAge',
+      'deathMaternalGrandfatherStatus',
+      'deathMaternalGrandfatherAge',
+      'deathPaternalGrandmotherStatus',
+      'deathPaternalGrandmotherAge',
+      'deathPaternalGrandfatherStatus',
+      'deathPaternalGrandfatherAge'
+    ],
+    eyebrow: 'Question 26',
+    title: 'What ages did your grandparents reach?',
+    description: 'Grandparent age history is weighted separately from parent history.'
   }
 ];
+
+const FAMILY_MEMBER_FIELDS = [
+  { key: 'mother', statusId: 'deathMotherStatus', ageId: 'deathMotherAge' },
+  { key: 'father', statusId: 'deathFatherStatus', ageId: 'deathFatherAge' },
+  { key: 'maternalGrandmother', statusId: 'deathMaternalGrandmotherStatus', ageId: 'deathMaternalGrandmotherAge' },
+  { key: 'maternalGrandfather', statusId: 'deathMaternalGrandfatherStatus', ageId: 'deathMaternalGrandfatherAge' },
+  { key: 'paternalGrandmother', statusId: 'deathPaternalGrandmotherStatus', ageId: 'deathPaternalGrandmotherAge' },
+  { key: 'paternalGrandfather', statusId: 'deathPaternalGrandfatherStatus', ageId: 'deathPaternalGrandfatherAge' }
+] as const;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -352,6 +377,15 @@ export class DeathCalculatorController {
       this.syncQuestionUi();
     });
 
+    FAMILY_MEMBER_FIELDS.forEach(({ statusId, ageId }) => {
+      this.requireElement<HTMLSelectElement>(statusId).addEventListener('change', () => {
+        this.syncFamilyAgeRequirements();
+      });
+      this.requireElement<HTMLInputElement>(ageId).addEventListener('input', () => {
+        this.syncFamilyAgeRequirements();
+      });
+    });
+
     document.addEventListener('keydown', this.keydownHandler);
 
     this.form.addEventListener('submit', (event) => {
@@ -485,6 +519,8 @@ export class DeathCalculatorController {
   }
 
   private validateQuestion(question: QuestionDefinition) {
+    this.syncFamilyAgeRequirements();
+
     for (const controlId of question.controls) {
       const control = this.requireElement<HTMLInputElement | HTMLSelectElement>(controlId);
       if (control.closest('[hidden]')) {
@@ -497,6 +533,30 @@ export class DeathCalculatorController {
     }
 
     return true;
+  }
+
+  private syncFamilyAgeRequirements() {
+    FAMILY_MEMBER_FIELDS.forEach(({ statusId, ageId }) => {
+      const statusControl = this.requireElement<HTMLSelectElement>(statusId);
+      const ageControl = this.requireElement<HTMLInputElement>(ageId);
+      const status = statusControl.value;
+      const needsAge = status === 'alive' || status === 'deceased';
+
+      ageControl.disabled = !needsAge;
+      ageControl.required = needsAge;
+      ageControl.setCustomValidity('');
+
+      if (!needsAge) {
+        ageControl.value = '';
+        ageControl.placeholder = 'Unknown';
+        return;
+      }
+
+      ageControl.placeholder = status === 'alive' ? 'Current age' : 'Age at death';
+      if (!ageControl.value.trim()) {
+        ageControl.setCustomValidity(status === 'alive' ? 'Enter their current age.' : 'Enter their age at death.');
+      }
+    });
   }
 
   private goToPreviousQuestion() {
@@ -617,7 +677,24 @@ export class DeathCalculatorController {
       hasChronicKidneyDisease: formData.get('hasChronicKidneyDisease') === 'on',
       hasSleepApnea: formData.get('hasSleepApnea') === 'on',
       hasEarlyFamilyCardioHistory: formData.get('hasEarlyFamilyCardioHistory') === 'on',
-      parentLongevityBand: String(formData.get('parentLongevityBand') ?? 'mixed') as LongevitySurveyAnswers['parentLongevityBand']
+      parentLongevityBand: 'mixed',
+      familyHistory: {
+        mother: this.collectFamilyMember('deathMotherStatus', 'deathMotherAge'),
+        father: this.collectFamilyMember('deathFatherStatus', 'deathFatherAge'),
+        maternalGrandmother: this.collectFamilyMember('deathMaternalGrandmotherStatus', 'deathMaternalGrandmotherAge'),
+        maternalGrandfather: this.collectFamilyMember('deathMaternalGrandfatherStatus', 'deathMaternalGrandfatherAge'),
+        paternalGrandmother: this.collectFamilyMember('deathPaternalGrandmotherStatus', 'deathPaternalGrandmotherAge'),
+        paternalGrandfather: this.collectFamilyMember('deathPaternalGrandfatherStatus', 'deathPaternalGrandfatherAge')
+      }
+    };
+  }
+
+  private collectFamilyMember(statusId: string, ageId: string): FamilyMemberLongevityAnswer {
+    const status = this.requireElement<HTMLSelectElement>(statusId).value as FamilyMemberLongevityAnswer['status'];
+    const age = parseNullableNumber(this.requireElement<HTMLInputElement>(ageId).value);
+    return {
+      status,
+      age: status === 'unknown' ? null : age
     };
   }
 
@@ -689,6 +766,7 @@ export class DeathCalculatorController {
     this.formerSmokerSavedValue = '5';
     this.beginButton.textContent = 'Begin?';
     this.syncFormerSmokerField();
+    this.syncFamilyAgeRequirements();
     this.setStatus('A local-only estimate built from U.S. life tables and public-health evidence.');
     this.setScreen('intro');
   }

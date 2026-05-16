@@ -1405,7 +1405,6 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
           const { DeathCalculatorController } = await import('./deathCalculatorController');
           const deathController = new DeathCalculatorController(deathCalculatorRoot);
-          deathCalculatorRoot.addEventListener('utility-deactivate', () => deathController.dispose());
           deathController.init();
           initializedUtilities.add(utilityId);
         } catch (error) {

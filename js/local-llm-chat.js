@@ -1,19 +1,22 @@
 import { LOCAL_LLM_CONFIG, WORKER_STATE } from './local-llm-config.js';
 
 const MAX_INPUT_CHARS = LOCAL_LLM_CONFIG.limits.maxInputChars;
-const READY_PROMPTS = [
-  'Ask the local model anything...',
-  'Draft a short explanation...',
-  'Summarize a thought...',
-  'Try a browser-only brainstorm...'
+const STATIC_READY_PLACEHOLDER = 'Oh, what to say...';
+const READY_SUGGESTIONS = [
+  'Perhaps a joke?',
+  'Maybe a riddle?',
+  'Summarize a topic perchance?',
+  'How about a short story?',
+  'Maybe something else entirely?'
 ];
+const LAST_READY_SUGGESTION = 'Maybe something else entirely?';
 
 const STATE_COPY = {
-  idle: `Load ${LOCAL_LLM_CONFIG.model.displayName} to start a private browser-only chat.`,
+  idle: 'Press "Load" to begin',
   checking: 'Checking WebGPU support.',
   loading: `Downloading ${LOCAL_LLM_CONFIG.model.displayName}.`,
   optimizing: 'Optimizing the model for WebGPU execution.',
-  ready: 'Ready. Messages stay in this browser.',
+  ready: 'Ready.',
   thinking: 'Thinking locally.',
   streaming: 'Streaming locally.',
   error: 'Local model unavailable.',
@@ -22,15 +25,25 @@ const STATE_COPY = {
 
 const LOAD_CONTROL = {
   idle: { text: 'Load', disabled: false },
-  checking: { text: 'Check', disabled: true, cls: 'local-llm-load-control--loading' },
-  loading: { text: '0%', disabled: true, cls: 'local-llm-load-control--loading' },
-  optimizing: { text: 'Tune', disabled: true, cls: 'local-llm-load-control--loading' },
-  ready: { text: 'Ready', disabled: true, cls: 'local-llm-load-control--ready' },
+  checking: { text: '', disabled: true, cls: 'local-llm-load-control--loading' },
+  loading: { text: '', disabled: true, cls: 'local-llm-load-control--loading' },
+  optimizing: { text: '', disabled: true, cls: 'local-llm-load-control--loading' },
+  ready: { text: 'Loaded', disabled: true, cls: 'local-llm-load-control--ready' },
   thinking: { text: 'Busy', disabled: true, cls: 'local-llm-load-control--ready' },
   streaming: { text: 'Busy', disabled: true, cls: 'local-llm-load-control--ready' },
   error: { text: 'Retry', disabled: false, cls: 'local-llm-load-control--error' },
   unsupported: { text: 'Retry', disabled: false, cls: 'local-llm-load-control--error' }
 };
+
+const LOAD_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const LOAD_SPINNER_STEP_MS = 90;
+const LOAD_SEQUENCE_STEP_MS = 1200;
+const LOAD_SEQUENCE_COPY = [
+  'Loading Bonsai 1.7B',
+  'This is a *teensy* LLM (~290 MB)',
+  'Runs entirely on your device',
+  "Don't worry, I won't cache it in your browser ;)"
+];
 
 class LocalLlmUtility {
   constructor(root) {
@@ -45,6 +58,7 @@ class LocalLlmUtility {
     this.numTokens = 0;
     this.promptTimer = null;
     this.promptIndex = 0;
+    this.readySuggestionOrder = buildReadySuggestionOrder();
     this.assistantDraft = null;
     this.diagnostics = null;
     this.typingTimer = null;
@@ -55,6 +69,12 @@ class LocalLlmUtility {
     this._deactivateHandler = null;
     this._inputFrameId = 0;
     this._lastAssistantWasInterrupted = false;
+    this.loadingSequenceTimer = null;
+    this.loadingSequenceIndex = 0;
+    this.loadingSequenceStartedAt = 0;
+    this.pendingReadyMessage = null;
+    this.loadSpinnerTimer = null;
+    this.loadSpinnerIndex = 0;
 
     this.mount();
     this.bindEvents();
@@ -75,8 +95,8 @@ class LocalLlmUtility {
                   <span class="local-llm-card utility-status-chip utility-status-chip--idle" id="localLlmStatusChip" style="margin-left: 0.5rem; padding: 0.22rem 0.55rem; border-radius: var(--radius-full); font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: var(--tracking-wide); text-transform: uppercase;">Idle</span>
                 </div>
                 <div class="local-llm-meta" aria-label="Model runtime details" style="color: var(--color-text-secondary); font-size: 0.78rem;">
-                  <span id="localLlmModelName">${escapeHtml(LOCAL_LLM_CONFIG.model.displayName)}</span> •
-                  <span id="localLlmBackend">WebGPU</span> •
+                  <span id="localLlmModelName">${escapeHtml(LOCAL_LLM_CONFIG.model.displayName)}</span>
+                  <span id="localLlmBackend">WebGPU</span>
                   <span><span id="localLlmTps">--</span> tok/s</span>
                 </div>
               </div>
@@ -108,7 +128,7 @@ class LocalLlmUtility {
               <label class="local-llm-label" for="localLlmInput">Message the local AI</label>
               <div class="local-llm-input-shell">
                 <textarea id="localLlmInput" class="control-input local-llm-input" rows="1" maxlength="${MAX_INPUT_CHARS}" placeholder="Load the model first." disabled></textarea>
-                <span class="local-llm-ready-prompt" id="localLlmReadyPrompt" aria-hidden="true">Load the model first.</span>
+                <span class="local-llm-ready-prompt" id="localLlmReadyPrompt" aria-hidden="true" hidden></span>
                 <span class="local-llm-char-count" id="localLlmCharCount" aria-hidden="true" hidden></span>
                 <span class="local-llm-typing" id="localLlmTyping" hidden><span class="local-llm-typing-dot"></span><span class="local-llm-typing-dot"></span><span class="local-llm-typing-dot"></span></span>
               </div>
@@ -175,13 +195,12 @@ class LocalLlmUtility {
         this.clearModelCache();
       }
     });
-    this._pagehideHandler = () => {
-      this.worker?.terminate();
-    };
+    this._pagehideHandler = () => this.endModelSession({ clearMessages: false, updateUi: false });
     this._deactivateHandler = () => {
       if (this.status === WORKER_STATE.THINKING || this.status === WORKER_STATE.STREAMING) {
         this.interruptGeneration();
       }
+      this.endModelSession({ clearMessages: false, updateUi: true });
     };
     window.addEventListener('pagehide', this._pagehideHandler);
     this.root.addEventListener('utility-deactivate', this._deactivateHandler);
@@ -230,6 +249,7 @@ class LocalLlmUtility {
     this.hideDiagnostics();
     this.stopPromptCycle();
     this.updateProgressBar();
+    this.startLoadingSequence();
     this.updateStatus(WORKER_STATE.CHECKING, 'Checking WebGPU support.');
     this.renderStatePanel();
 
@@ -258,15 +278,9 @@ class LocalLlmUtility {
     }
 
     if (message.type === 'ready') {
-      this.progress = 100;
-      this.backend = message.backend || 'webgpu';
-      this.modelReady = true;
+      this.progress = Math.max(this.progress, 96);
       this.updateProgressBar();
-      this.hideDiagnostics();
-      this.updateStatus(WORKER_STATE.READY, message.message || 'Ready.');
-      this.startPromptCycle();
-      this.input.focus({ preventScroll: true });
-      this.renderStatePanel();
+      this.queueReadyMessage(message);
       return;
     }
 
@@ -312,6 +326,7 @@ class LocalLlmUtility {
     }
 
     if (message.type === 'error') {
+      this.stopLoadingSequence({ clearPending: true });
       this.showLoadFailure(message);
       this.finishAssistantMessage('');
       return;
@@ -350,6 +365,78 @@ class LocalLlmUtility {
     this.renderStatePanel();
   }
 
+  startLoadingSequence() {
+    this.stopLoadingSequence({ clearPending: true });
+    this.loadingSequenceIndex = 0;
+    this.loadingSequenceStartedAt = performance.now();
+    this.root.dataset.localLlmLoadingStep = String(this.loadingSequenceIndex);
+    this.root.dataset.localLlmLoadingFloorMs = String(LOAD_SEQUENCE_STEP_MS);
+    this.scheduleLoadingSequenceStep();
+  }
+
+  scheduleLoadingSequenceStep() {
+    window.clearTimeout(this.loadingSequenceTimer);
+    this.loadingSequenceTimer = window.setTimeout(() => {
+      if (!this.loadingSequenceStartedAt) return;
+
+      if (this.loadingSequenceIndex < LOAD_SEQUENCE_COPY.length - 1) {
+        this.loadingSequenceIndex += 1;
+        this.root.dataset.localLlmLoadingStep = String(this.loadingSequenceIndex);
+        this.renderStatePanel();
+        this.updateProgressBar();
+        this.scheduleLoadingSequenceStep();
+        return;
+      }
+
+      this.loadingSequenceTimer = null;
+      this.flushPendingReadyIfSequenceComplete();
+    }, LOAD_SEQUENCE_STEP_MS);
+  }
+
+  stopLoadingSequence({ clearPending = false } = {}) {
+    window.clearTimeout(this.loadingSequenceTimer);
+    this.loadingSequenceTimer = null;
+    this.loadingSequenceIndex = 0;
+    this.loadingSequenceStartedAt = 0;
+    delete this.root.dataset.localLlmLoadingStep;
+    delete this.root.dataset.localLlmLoadingFloorMs;
+    if (!this.isBusy()) this.stopLoadSpinner();
+    if (clearPending) this.pendingReadyMessage = null;
+  }
+
+  isLoadingSequenceComplete() {
+    if (!this.loadingSequenceStartedAt) return true;
+    return performance.now() - this.loadingSequenceStartedAt >= LOAD_SEQUENCE_COPY.length * LOAD_SEQUENCE_STEP_MS;
+  }
+
+  getLoadingSequenceCopy() {
+    return LOAD_SEQUENCE_COPY[Math.max(0, Math.min(LOAD_SEQUENCE_COPY.length - 1, this.loadingSequenceIndex))];
+  }
+
+  queueReadyMessage(message) {
+    this.pendingReadyMessage = message || {};
+    this.flushPendingReadyIfSequenceComplete();
+  }
+
+  flushPendingReadyIfSequenceComplete() {
+    if (!this.pendingReadyMessage || !this.isLoadingSequenceComplete()) return;
+    this.applyReadyMessage(this.pendingReadyMessage);
+  }
+
+  applyReadyMessage(message) {
+    this.pendingReadyMessage = null;
+    this.stopLoadingSequence();
+    this.progress = 100;
+    this.backend = message.backend || 'webgpu';
+    this.modelReady = true;
+    this.hideDiagnostics();
+    this.updateStatus(WORKER_STATE.READY, message.message || 'Ready.');
+    this.updateProgressBar();
+    this.startPromptCycle();
+    this.input.focus({ preventScroll: true });
+    this.renderStatePanel();
+  }
+
   updateStatus(status, label = '') {
     this.status = status;
     this.root.dataset.localLlmStatus = status;
@@ -373,15 +460,13 @@ class LocalLlmUtility {
     this.progressWrap.hidden = !(this.isBusy(status) || status === WORKER_STATE.UNSUPPORTED);
 
     if (status === WORKER_STATE.READY) {
-      this.setReadyPrompt(READY_PROMPTS[this.promptIndex] || 'Say hello...');
+      this.setComposerPlaceholder(STATIC_READY_PLACEHOLDER);
     } else if (status === WORKER_STATE.ERROR || status === WORKER_STATE.UNSUPPORTED) {
       this.stopPromptCycle();
-      this.input.placeholder = 'The local model is not available here.';
-      this.readyPrompt.textContent = 'The local model is not available here.';
+      this.setComposerPlaceholder('The local model is not available here.');
     } else if (status === WORKER_STATE.IDLE) {
       this.stopPromptCycle();
-      this.input.placeholder = 'Load the model first.';
-      this.readyPrompt.textContent = 'Load the model first.';
+      this.setComposerPlaceholder('Load the model first.');
     } else if (status === WORKER_STATE.THINKING || status === WORKER_STATE.STREAMING) {
       this.stopPromptCycle();
     }
@@ -402,9 +487,35 @@ class LocalLlmUtility {
     this.startButton.classList.remove('local-llm-load-control--loading', 'local-llm-load-control--ready', 'local-llm-load-control--error');
     if (appearance.cls) this.startButton.classList.add(appearance.cls);
 
-    this.startText.textContent = this.status === WORKER_STATE.LOADING
-      ? `${Math.max(0, Math.min(100, this.progress))}%`
-      : appearance.text;
+    if (this.isBusy()) {
+      this.startText.textContent = LOAD_SPINNER_FRAMES[this.loadSpinnerIndex % LOAD_SPINNER_FRAMES.length];
+      this.startButton.setAttribute('aria-label', 'Loading the local model');
+      this.startLoadSpinner();
+    } else {
+      this.stopLoadSpinner();
+      this.startText.textContent = appearance.text;
+      this.startButton.setAttribute('aria-label', this.status === WORKER_STATE.IDLE ? 'Download and start the local model' : appearance.text);
+    }
+  }
+
+  startLoadSpinner() {
+    if (this.loadSpinnerTimer) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    this.loadSpinnerTimer = window.setInterval(() => {
+      if (!this.isBusy()) {
+        this.stopLoadSpinner();
+        return;
+      }
+      this.loadSpinnerIndex = (this.loadSpinnerIndex + 1) % LOAD_SPINNER_FRAMES.length;
+      this.startText.textContent = LOAD_SPINNER_FRAMES[this.loadSpinnerIndex];
+      this.applyProgressBarValue(this.getDisplayedProgressValue());
+    }, LOAD_SPINNER_STEP_MS);
+  }
+
+  stopLoadSpinner() {
+    window.clearInterval(this.loadSpinnerTimer);
+    this.loadSpinnerTimer = null;
+    this.loadSpinnerIndex = 0;
   }
 
   updateTelemetry() {
@@ -413,32 +524,61 @@ class LocalLlmUtility {
   }
 
   updateProgressBar() {
-    const value = Math.max(0, Math.min(100, this.progress));
+    const value = this.getDisplayedProgressValue();
+    this.applyProgressBarValue(value);
+    this.updateLoadControl();
+  }
+
+  getDisplayedProgressValue() {
+    const actual = Math.max(0, Math.min(100, this.progress));
+    if (!this.isBusy() || !this.loadingSequenceStartedAt) return actual;
+
+    const totalMs = LOAD_SEQUENCE_COPY.length * LOAD_SEQUENCE_STEP_MS;
+    const elapsedRatio = Math.max(0, Math.min(1, (performance.now() - this.loadingSequenceStartedAt) / totalMs));
+    const synthetic = 6 + elapsedRatio * 90;
+    return Math.max(actual, Math.min(96, Math.round(synthetic)));
+  }
+
+  applyProgressBarValue(value) {
+    value = Math.max(0, Math.min(100, Math.round(value)));
     this.progressBar.setAttribute('aria-valuenow', String(value));
     this.progressFill.style.width = `${value}%`;
     this.progressPercent.textContent = `${value}%`;
-    this.updateLoadControl();
   }
 
   renderStatePanel() {
     const hasMessages = this.messages.length > 0;
     const shouldShowPanel = !hasMessages || this.isBusy() || this.status === WORKER_STATE.ERROR || this.status === WORKER_STATE.UNSUPPORTED;
+    this.transcript.classList.toggle('local-llm-transcript--empty-panel', shouldShowPanel && !hasMessages);
     this.center.hidden = !shouldShowPanel;
     if (!shouldShowPanel) return;
 
-    const copy = STATE_COPY[this.status] || this.root.dataset.localLlmStatusMessage || 'Working locally.';
-    this.loadCopy.textContent = copy;
-    this.modelNote.textContent = `${LOCAL_LLM_CONFIG.model.displayName} (${LOCAL_LLM_CONFIG.model.sizeLabel}) · ${LOCAL_LLM_CONFIG.runtime.name} · private to this browser`;
+    const copy = this.status === WORKER_STATE.READY && !hasMessages
+      ? this.getReadySuggestion()
+      : this.isBusy()
+        ? this.getLoadingSequenceCopy()
+        : STATE_COPY[this.status] || this.root.dataset.localLlmStatusMessage || 'Working locally.';
+    this.loadCopy.innerHTML = renderSafeInlineText(copy);
+    const hideModelNote = this.status === WORKER_STATE.READY;
+    this.modelNote.hidden = hideModelNote;
+    this.modelNote.textContent = hideModelNote
+      ? ''
+      : `${LOCAL_LLM_CONFIG.model.displayName} (${LOCAL_LLM_CONFIG.model.sizeLabel}) · ${LOCAL_LLM_CONFIG.runtime.name} · private to this browser`;
     this.progressWrap.hidden = !(this.isBusy() || this.status === WORKER_STATE.UNSUPPORTED);
   }
 
   startPromptCycle() {
     this.stopPromptCycle();
+    this.readySuggestionOrder = buildReadySuggestionOrder();
     this.promptIndex = 0;
-    this.setReadyPrompt(READY_PROMPTS[this.promptIndex] || 'Say hello...');
+    this.renderStatePanel();
     this.promptTimer = window.setInterval(() => {
-      this.promptIndex = (this.promptIndex + 1) % READY_PROMPTS.length;
-      this.setReadyPrompt(READY_PROMPTS[this.promptIndex] || 'Say hello...');
+      this.promptIndex += 1;
+      if (this.promptIndex >= this.readySuggestionOrder.length) {
+        this.readySuggestionOrder = buildReadySuggestionOrder();
+        this.promptIndex = 0;
+      }
+      this.renderStatePanel();
     }, 4200);
   }
 
@@ -447,13 +587,17 @@ class LocalLlmUtility {
     this.promptTimer = null;
   }
 
-  setReadyPrompt(text) {
+  getReadySuggestion() {
+    return this.readySuggestionOrder[this.promptIndex] || LAST_READY_SUGGESTION;
+  }
+
+  setComposerPlaceholder(text) {
     this.input.placeholder = text;
-    this.readyPrompt.textContent = text;
+    if (this.readyPrompt) this.readyPrompt.textContent = '';
   }
 
   updatePromptVisibility() {
-    this.readyPrompt.hidden = this.input.value.length > 0 || this.status !== WORKER_STATE.READY;
+    if (this.readyPrompt) this.readyPrompt.hidden = true;
   }
 
   queueInputChromeUpdate() {
@@ -467,8 +611,13 @@ class LocalLlmUtility {
   }
 
   autoSizeInput() {
+    this.input.style.overflowY = 'hidden';
     this.input.style.height = 'auto';
-    this.input.style.height = `${Math.min(this.input.scrollHeight, 160)}px`;
+    const styles = window.getComputedStyle(this.input);
+    const borderHeight = this.input.offsetHeight - this.input.clientHeight;
+    const minHeight = Number.parseFloat(styles.minHeight) || 0;
+    const nextHeight = Math.max(minHeight, this.input.scrollHeight + borderHeight);
+    this.input.style.height = `${Math.min(nextHeight, 160)}px`;
   }
 
   updateCharCount() {
@@ -534,12 +683,14 @@ class LocalLlmUtility {
 
   appendAssistantToken(token) {
     this.ensureAssistantDraft();
+    const shouldStick = this.isMessageListNearBottom();
     this.assistantDraft.content += token;
-    this.updateAssistantElement();
+    this.updateAssistantElement(shouldStick);
   }
 
   finishAssistantMessage(finalText) {
     if (this.assistantDraft) {
+      const shouldStick = this.isMessageListNearBottom();
       if (finalText && cleanupModelText(finalText).length >= cleanupModelText(this.assistantDraft.content).length) {
         this.assistantDraft.content = finalText;
       }
@@ -549,11 +700,20 @@ class LocalLlmUtility {
       }
       if (!this.assistantDraft.content.trim()) {
         this.messages = this.messages.filter((message) => message !== this.assistantDraft);
+        this._lastAssistantElement?.remove();
+      } else {
+        this.updateAssistantElement(shouldStick);
       }
+      const trimmed = this.trimHistory(this.messages);
+      const didTrim = trimmed.length !== this.messages.length || trimmed.some((message, index) => message !== this.messages[index]);
+      this.messages = trimmed;
       this.assistantDraft = null;
-      this.messages = this.trimHistory(this.messages);
       this._lastAssistantWasInterrupted = false;
-      this.renderMessages();
+      if (didTrim) {
+        this.renderMessages({ animate: false, stickToBottom: shouldStick });
+      } else if (shouldStick) {
+        this.scrollMessagesToBottom();
+      }
       this.announceLastAssistantMessage();
     }
 
@@ -590,7 +750,9 @@ class LocalLlmUtility {
     return [...notices, ...chat];
   }
 
-  renderMessages() {
+  renderMessages(options = {}) {
+    const animate = options.animate !== false;
+    const stickToBottom = options.stickToBottom !== false;
     const fragment = document.createDocumentFragment();
     this._lastAssistantElement = null;
 
@@ -598,6 +760,7 @@ class LocalLlmUtility {
       const role = message.role === 'user' ? 'You' : message.role === 'notice' ? 'Note' : 'Local Assistant';
       const article = document.createElement('article');
       article.className = `local-llm-message local-llm-message--${message.role}`;
+      if (!animate) article.classList.add('local-llm-message--static');
       article.setAttribute('aria-label', role);
       article.innerHTML = `
         <div class="local-llm-message-role">${role}</div>
@@ -610,24 +773,31 @@ class LocalLlmUtility {
 
     this.messageList.innerHTML = '';
     this.messageList.appendChild(fragment);
-    this.scrollMessagesIfNeeded();
+    this.scrollMessagesIfNeeded(stickToBottom);
     this.renderStatePanel();
   }
 
-  updateAssistantElement() {
+  updateAssistantElement(stickToBottom = this.isMessageListNearBottom()) {
     if (!this._lastAssistantElement || !this.assistantDraft) return;
     const contentDiv = this._lastAssistantElement.querySelector('.local-llm-message-content');
     if (contentDiv) {
       contentDiv.innerHTML = renderSafeText(this.assistantDraft.content);
     }
-    this.scrollMessagesIfNeeded();
+    this.scrollMessagesIfNeeded(stickToBottom);
   }
 
-  scrollMessagesIfNeeded() {
-    const threshold = 96;
+  isMessageListNearBottom(threshold = 96) {
     const diff = this.messageList.scrollHeight - this.messageList.clientHeight - this.messageList.scrollTop;
-    if (diff <= threshold) {
-      this.messageList.scrollTop = this.messageList.scrollHeight;
+    return diff <= threshold;
+  }
+
+  scrollMessagesToBottom() {
+    this.messageList.scrollTop = this.messageList.scrollHeight;
+  }
+
+  scrollMessagesIfNeeded(shouldStick = this.isMessageListNearBottom()) {
+    if (shouldStick) {
+      this.scrollMessagesToBottom();
     }
   }
 
@@ -646,6 +816,7 @@ class LocalLlmUtility {
   }
 
   showLoadFailure(message) {
+    this.stopLoadingSequence({ clearPending: true });
     const fallback = buildFailureCopy(message, this.diagnostics);
     this.updateStatus(message.status || WORKER_STATE.ERROR, fallback.message);
     this.progress = 0;
@@ -685,7 +856,9 @@ class LocalLlmUtility {
     this.numTokens = 0;
     this.hideDiagnostics();
     this.stopPromptCycle();
+    this.stopLoadingSequence({ clearPending: true });
     this.worker?.postMessage({ type: 'reset' });
+    void this.clearBrowserModelCaches();
     this.updateTelemetry();
     this.updateStatus(this.modelReady ? WORKER_STATE.READY : WORKER_STATE.IDLE, this.modelReady ? 'Chat reset.' : STATE_COPY.idle);
     if (this.modelReady) this.startPromptCycle();
@@ -693,8 +866,7 @@ class LocalLlmUtility {
   }
 
   async clearModelCache() {
-    this.worker?.terminate();
-    this.worker = null;
+    this.terminateWorker({ clearCache: true, delayMs: 800 });
     this.modelReady = false;
     this.messages = [];
     this.assistantDraft = null;
@@ -703,8 +875,9 @@ class LocalLlmUtility {
     this.numTokens = 0;
     this.hideDiagnostics();
     this.stopPromptCycle();
+    this.stopLoadingSequence({ clearPending: true });
     this.renderMessages();
-    const cacheCleared = await deleteLocalModelCaches();
+    const cacheCleared = await this.clearBrowserModelCaches();
     if (!cacheCleared) {
       this.addSystemNotice('Cache deletion failed. The model may reload from cache. Try a hard refresh if issues persist.');
     }
@@ -723,17 +896,68 @@ class LocalLlmUtility {
       this._deactivateHandler = null;
     }
     if (this.worker) {
-      if (this._workerMessageHandler) this.worker.removeEventListener('message', this._workerMessageHandler);
-      if (this._workerErrorHandler) this.worker.removeEventListener('error', this._workerErrorHandler);
-      this.worker.terminate();
-      this.worker = null;
+      this.terminateWorker({ clearCache: true, delayMs: 800 });
+      void this.clearBrowserModelCaches();
     }
     if (this._inputFrameId) {
       window.cancelAnimationFrame(this._inputFrameId);
       this._inputFrameId = 0;
     }
     this.stopPromptCycle();
+    this.stopLoadingSequence({ clearPending: true });
     this.root.dataset.localLlmMounted = 'false';
+  }
+
+  endModelSession({ clearMessages = false, updateUi = true } = {}) {
+    this.terminateWorker({ clearCache: true, delayMs: 800 });
+    void this.clearBrowserModelCaches();
+    this.modelReady = false;
+    this.progress = 0;
+    this.tps = null;
+    this.numTokens = 0;
+    this.assistantDraft = null;
+    this.pendingReadyMessage = null;
+    this.stopPromptCycle();
+    this.stopLoadingSequence({ clearPending: true });
+    if (clearMessages) {
+      this.messages = [];
+      this.input.value = '';
+      this.renderMessages({ animate: false });
+    }
+    if (updateUi) {
+      this.updateProgressBar();
+      this.updateTelemetry();
+      this.updateStatus(WORKER_STATE.IDLE, STATE_COPY.idle);
+      this.renderStatePanel();
+    }
+  }
+
+  terminateWorker({ clearCache = false, delayMs = 0 } = {}) {
+    const worker = this.worker;
+    if (!worker) return;
+
+    if (clearCache) {
+      try {
+        worker.postMessage({ type: 'dispose', clearCache: true });
+      } catch {
+        // Best-effort teardown.
+      }
+    }
+
+    if (this._workerMessageHandler) worker.removeEventListener('message', this._workerMessageHandler);
+    if (this._workerErrorHandler) worker.removeEventListener('error', this._workerErrorHandler);
+    if (delayMs > 0) {
+      window.setTimeout(() => worker.terminate(), delayMs);
+    } else {
+      worker.terminate();
+    }
+    this.worker = null;
+  }
+
+  async clearBrowserModelCaches() {
+    const cacheCleared = await deleteLocalModelCaches();
+    this.root.dataset.localLlmCacheCleared = cacheCleared ? 'true' : 'false';
+    return cacheCleared;
   }
 }
 
@@ -806,7 +1030,7 @@ class LocalLlmMockWorker extends EventTarget {
   }
 
   mockGenerate() {
-    const text = 'This is a mocked Bonsai response from the browser-only assistant.';
+    const text = 'This is a mocked Bonsai response from the browser-only assistant.\n\nSolve $x^2 = 16$.\n\n$$\nx = \\pm \\sqrt{16}\n$$';
     this.emit({ type: 'status', state: WORKER_STATE.THINKING, message: 'Thinking locally.' });
     this.queue(() => this.emit({ type: 'start' }), 20);
     this.queue(() => this.emit({ type: 'status', state: WORKER_STATE.STREAMING, message: 'Streaming locally.' }), 30);
@@ -880,12 +1104,16 @@ function renderSafeText(markdown) {
       return `<pre><code>${escapeHtml(code)}</code></pre>`;
     }
 
-    const block = escapeHtml(rawBlock);
+    const displayMath = parseDisplayMathBlock(rawBlock);
+    if (displayMath !== null) {
+      return renderLocalLlmMath(displayMath, true);
+    }
+
     if (/^\s*[-*]\s/m.test(rawBlock)) {
       const items = rawBlock
         .split(/\n/)
         .filter((line) => /^\s*[-*]\s/.test(line))
-        .map((line) => `<li>${escapeHtml(line.replace(/^\s*[-*]\s*/, ''))}</li>`)
+        .map((line) => `<li>${renderInlineLocalLlmText(line.replace(/^\s*[-*]\s*/, ''))}</li>`)
         .join('');
       if (items) return `<ul>${items}</ul>`;
     }
@@ -894,21 +1122,297 @@ function renderSafeText(markdown) {
       const items = rawBlock
         .split(/\n/)
         .filter((line) => /^\s*\d+\.\s/.test(line))
-        .map((line) => `<li>${escapeHtml(line.replace(/^\s*\d+\.\s*/, ''))}</li>`)
+        .map((line) => `<li>${renderInlineLocalLlmText(line.replace(/^\s*\d+\.\s*/, ''))}</li>`)
         .join('');
       if (items) return `<ol>${items}</ol>`;
     }
 
-    const inline = block
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/~~([^~]+)~~/g, '<del>$1</del>')
-      .replace(/\n/g, '<br>');
-
-    return `<p>${inline}</p>`;
+    return `<p>${renderInlineLocalLlmText(rawBlock)}</p>`;
   });
 
   return blocks.join('');
+}
+
+const LATEX_COMMANDS = {
+  alpha: { tag: 'mi', value: 'α' },
+  beta: { tag: 'mi', value: 'β' },
+  gamma: { tag: 'mi', value: 'γ' },
+  delta: { tag: 'mi', value: 'δ' },
+  epsilon: { tag: 'mi', value: 'ε' },
+  theta: { tag: 'mi', value: 'θ' },
+  lambda: { tag: 'mi', value: 'λ' },
+  mu: { tag: 'mi', value: 'μ' },
+  pi: { tag: 'mi', value: 'π' },
+  sigma: { tag: 'mi', value: 'σ' },
+  phi: { tag: 'mi', value: 'φ' },
+  omega: { tag: 'mi', value: 'ω' },
+  Delta: { tag: 'mi', value: 'Δ' },
+  Omega: { tag: 'mi', value: 'Ω' },
+  pm: { tag: 'mo', value: '±' },
+  mp: { tag: 'mo', value: '∓' },
+  times: { tag: 'mo', value: '×' },
+  div: { tag: 'mo', value: '÷' },
+  cdot: { tag: 'mo', value: '⋅' },
+  le: { tag: 'mo', value: '≤' },
+  leq: { tag: 'mo', value: '≤' },
+  ge: { tag: 'mo', value: '≥' },
+  geq: { tag: 'mo', value: '≥' },
+  neq: { tag: 'mo', value: '≠' },
+  approx: { tag: 'mo', value: '≈' },
+  infty: { tag: 'mo', value: '∞' }
+};
+
+function parseDisplayMathBlock(rawBlock) {
+  const block = rawBlock.trim();
+  if (!block.startsWith('$$') || !block.endsWith('$$') || block.length <= 4) return null;
+  return block.slice(2, -2).trim();
+}
+
+function renderInlineLocalLlmText(text) {
+  return splitInlineLocalLlmSegments(text)
+    .map((segment) => {
+      if (segment.type === 'code') return `<code>${escapeHtml(segment.value)}</code>`;
+      if (segment.type === 'math') return renderLocalLlmMath(segment.value, false);
+      return renderMarkdownInlineText(segment.value);
+    })
+    .join('');
+}
+
+function renderMarkdownInlineText(text) {
+  return escapeHtml(text)
+    .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=([\s).,;:!?]|$))/g, '$1<em>$2</em>')
+    .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+    .replace(/\n/g, '<br>');
+}
+
+function splitInlineLocalLlmSegments(text) {
+  const segments = [];
+  let textStart = 0;
+  let index = 0;
+
+  const pushText = (end) => {
+    if (end > textStart) segments.push({ type: 'text', value: text.slice(textStart, end) });
+  };
+
+  while (index < text.length) {
+    const char = text[index];
+
+    if (char === '`') {
+      const close = text.indexOf('`', index + 1);
+      if (close > index + 1) {
+        pushText(index);
+        segments.push({ type: 'code', value: text.slice(index + 1, close) });
+        index = close + 1;
+        textStart = index;
+        continue;
+      }
+    }
+
+    if (char === '$' && text[index + 1] !== '$' && text[index - 1] !== '$' && !isEscapedAt(text, index)) {
+      const close = findClosingInlineMathDelimiter(text, index + 1);
+      if (close > index + 1) {
+        pushText(index);
+        segments.push({ type: 'math', value: text.slice(index + 1, close).trim() });
+        index = close + 1;
+        textStart = index;
+        continue;
+      }
+    }
+
+    index += 1;
+  }
+
+  pushText(text.length);
+  return segments;
+}
+
+function findClosingInlineMathDelimiter(text, start) {
+  for (let index = start; index < text.length; index += 1) {
+    if (text[index] === '\n') return -1;
+    if (text[index] === '$' && text[index + 1] !== '$' && text[index - 1] !== '$' && !isEscapedAt(text, index)) return index;
+  }
+  return -1;
+}
+
+function isEscapedAt(text, index) {
+  let slashCount = 0;
+  for (let cursor = index - 1; cursor >= 0 && text[cursor] === '\\'; cursor -= 1) slashCount += 1;
+  return slashCount % 2 === 1;
+}
+
+function renderLocalLlmMath(expression, display) {
+  const parser = new LocalLlmLatexParser(expression);
+  const body = parser.parse();
+  const displayAttribute = display ? ' display="block"' : '';
+  const className = display ? 'local-llm-math local-llm-math--display' : 'local-llm-math local-llm-math--inline';
+  const tag = display ? 'div' : 'span';
+
+  return `<${tag} class="${className}"><math xmlns="http://www.w3.org/1998/Math/MathML"${displayAttribute}><mrow>${body}</mrow></math></${tag}>`;
+}
+
+class LocalLlmLatexParser {
+  constructor(input) {
+    this.input = input;
+    this.index = 0;
+  }
+
+  parse() {
+    return this.parseExpression();
+  }
+
+  parseExpression(stopChar = '') {
+    const parts = [];
+    while (this.index < this.input.length) {
+      if (stopChar && this.input[this.index] === stopChar) break;
+      if (/\s/.test(this.input[this.index])) {
+        this.index += 1;
+        continue;
+      }
+
+      const atom = this.parseAtom();
+      if (atom) parts.push(this.parseScripts(atom));
+    }
+    return parts.join('');
+  }
+
+  parseAtom() {
+    const char = this.input[this.index];
+    if (!char) return '';
+
+    if (char === '{') {
+      this.index += 1;
+      const inner = this.parseExpression('}');
+      if (this.input[this.index] === '}') this.index += 1;
+      return `<mrow>${inner}</mrow>`;
+    }
+
+    if (char === '\\') return this.parseCommand();
+
+    if (/[0-9.]/.test(char)) return this.parseNumber();
+
+    if (/[a-zA-Z]/.test(char)) {
+      this.index += 1;
+      return `<mi>${escapeHtml(char)}</mi>`;
+    }
+
+    this.index += 1;
+    if (/^[=+\-*/()[\]|,.:;<>]$/.test(char)) return `<mo>${escapeHtml(char)}</mo>`;
+    return `<mtext>${escapeHtml(char)}</mtext>`;
+  }
+
+  parseScripts(base) {
+    let subscript = '';
+    let superscript = '';
+
+    while (this.input[this.index] === '^' || this.input[this.index] === '_') {
+      const marker = this.input[this.index];
+      this.index += 1;
+      const script = this.parseScriptArgument();
+      if (marker === '^') superscript = script;
+      if (marker === '_') subscript = script;
+    }
+
+    if (subscript && superscript) return `<msubsup>${base}${subscript}${superscript}</msubsup>`;
+    if (subscript) return `<msub>${base}${subscript}</msub>`;
+    if (superscript) return `<msup>${base}${superscript}</msup>`;
+    return base;
+  }
+
+  parseScriptArgument() {
+    this.skipWhitespace();
+    if (this.input[this.index] === '{') return this.parseAtom();
+    return this.parseAtom() || '<mrow></mrow>';
+  }
+
+  parseCommand() {
+    this.index += 1;
+    const start = this.index;
+    while (/[a-zA-Z]/.test(this.input[this.index] || '')) this.index += 1;
+    const command = this.input.slice(start, this.index);
+
+    if (!command) {
+      const char = this.input[this.index] || '';
+      this.index += 1;
+      return `<mo>${escapeHtml(char)}</mo>`;
+    }
+
+    if (command === 'left' || command === 'right') return '';
+
+    if (command === 'sqrt') {
+      this.skipOptionalBracketGroup();
+      return `<msqrt>${this.parseRequiredArgument()}</msqrt>`;
+    }
+
+    if (command === 'frac') {
+      const numerator = this.parseRequiredArgument();
+      const denominator = this.parseRequiredArgument();
+      return `<mfrac>${numerator}${denominator}</mfrac>`;
+    }
+
+    if (command === 'text') {
+      return `<mtext>${escapeHtml(this.readRawBraceGroup())}</mtext>`;
+    }
+
+    const symbol = LATEX_COMMANDS[command];
+    if (symbol) return `<${symbol.tag}>${escapeHtml(symbol.value)}</${symbol.tag}>`;
+    return `<mi>${escapeHtml(command)}</mi>`;
+  }
+
+  parseRequiredArgument() {
+    this.skipWhitespace();
+    if (this.input[this.index] === '{') return this.parseAtom();
+    return this.parseAtom() || '<mrow></mrow>';
+  }
+
+  parseNumber() {
+    const start = this.index;
+    while (/[0-9.]/.test(this.input[this.index] || '')) this.index += 1;
+    return `<mn>${escapeHtml(this.input.slice(start, this.index))}</mn>`;
+  }
+
+  readRawBraceGroup() {
+    this.skipWhitespace();
+    if (this.input[this.index] !== '{') return '';
+    this.index += 1;
+    let depth = 1;
+    const start = this.index;
+    while (this.index < this.input.length && depth > 0) {
+      if (this.input[this.index] === '{') depth += 1;
+      if (this.input[this.index] === '}') depth -= 1;
+      this.index += 1;
+    }
+    const end = depth === 0 ? this.index - 1 : this.index;
+    return this.input.slice(start, end);
+  }
+
+  skipOptionalBracketGroup() {
+    this.skipWhitespace();
+    if (this.input[this.index] !== '[') return;
+    this.index += 1;
+    while (this.index < this.input.length && this.input[this.index] !== ']') this.index += 1;
+    if (this.input[this.index] === ']') this.index += 1;
+  }
+
+  skipWhitespace() {
+    while (/\s/.test(this.input[this.index] || '')) this.index += 1;
+  }
+}
+
+function renderSafeInlineText(text) {
+  return escapeHtml(text)
+    .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=([\s).,;:!?]|$))/g, '$1<em>$2</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+function buildReadySuggestionOrder() {
+  const firstSuggestions = READY_SUGGESTIONS.filter((suggestion) => suggestion !== LAST_READY_SUGGESTION);
+  for (let index = firstSuggestions.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [firstSuggestions[index], firstSuggestions[swapIndex]] = [firstSuggestions[swapIndex], firstSuggestions[index]];
+  }
+  return [...firstSuggestions, LAST_READY_SUGGESTION];
 }
 
 function escapeHtml(value) {

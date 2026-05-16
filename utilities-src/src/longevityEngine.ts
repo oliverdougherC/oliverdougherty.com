@@ -1,5 +1,7 @@
 import type {
   CorrelationGroup,
+  FamilyGeneration,
+  FamilyMemberLongevityAnswer,
   HazardAdjustmentRule,
   LongevityDataset,
   LongevityImpactRow,
@@ -139,6 +141,61 @@ function createDriver(
     adjustedLogHazard: rawLogHazard,
     sourceIds
   };
+}
+
+function hasKnownFamilyAge(member: FamilyMemberLongevityAnswer) {
+  return member.status !== 'unknown' && member.age !== null && Number.isFinite(member.age);
+}
+
+function scoreFamilyMember(member: FamilyMemberLongevityAnswer, generation: FamilyGeneration) {
+  if (!hasKnownFamilyAge(member)) {
+    return 0;
+  }
+
+  const age = member.age ?? 0;
+  const isParent = generation === 'parent';
+
+  if (age < 65) {
+    return isParent ? 0.1 : 0.04;
+  }
+  if (age < 75) {
+    return isParent ? 0.06 : 0.025;
+  }
+  if (age >= 95) {
+    return isParent ? -0.09 : -0.045;
+  }
+  if (age >= 85) {
+    return isParent ? -0.055 : -0.025;
+  }
+  if (age >= 80) {
+    return isParent ? -0.02 : -0.01;
+  }
+
+  return 0;
+}
+
+function computeDetailedFamilyHistoryLogHazard(answers: LongevitySurveyAnswers) {
+  const family = answers.familyHistory;
+  if (!family) {
+    return null;
+  }
+
+  const members: Array<[FamilyMemberLongevityAnswer, FamilyGeneration]> = [
+    [family.mother, 'parent'],
+    [family.father, 'parent'],
+    [family.maternalGrandmother, 'grandparent'],
+    [family.maternalGrandfather, 'grandparent'],
+    [family.paternalGrandmother, 'grandparent'],
+    [family.paternalGrandfather, 'grandparent']
+  ];
+
+  const knownMembers = members.filter(([member]) => hasKnownFamilyAge(member));
+  if (knownMembers.length === 0) {
+    return null;
+  }
+
+  const rawScore = knownMembers.reduce((sum, [member, generation]) => sum + scoreFamilyMember(member, generation), 0);
+  return clamp(rawScore, -0.18, 0.18);
 }
 
 function applyCorrelationShrinkage(
@@ -412,13 +469,36 @@ function buildDrivers(answers: LongevitySurveyAnswers, dataset: LongevityDataset
     );
   }
 
-  const longevityBand = coefficients.familyHistory.parentLongevityBands.find(
-    (band) => band.id === answers.parentLongevityBand
-  );
-  if (longevityBand && longevityBand.logHazard !== 0) {
+  const detailedFamilyLogHazard = computeDetailedFamilyHistoryLogHazard(answers);
+  if (detailedFamilyLogHazard !== null && detailedFamilyLogHazard !== 0) {
+    const sourceIds =
+      coefficients.familyHistory.parentLongevityBands.find((band) => band.id === 'mixed')?.sourceIds ?? [];
     drivers.push(
-      createDriver('family.parentLongevity', longevityBand.label, 'family-history', 'family-history', longevityBand.logHazard, longevityBand.sourceIds)
+      createDriver(
+        'family.detailedLongevity',
+        'Parent and grandparent longevity history',
+        'family-history',
+        'family-history',
+        detailedFamilyLogHazard,
+        sourceIds
+      )
     );
+  } else if (detailedFamilyLogHazard === null) {
+    const longevityBand = coefficients.familyHistory.parentLongevityBands.find(
+      (band) => band.id === answers.parentLongevityBand
+    );
+    if (longevityBand && longevityBand.logHazard !== 0) {
+      drivers.push(
+        createDriver(
+          'family.parentLongevity',
+          longevityBand.label,
+          'family-history',
+          'family-history',
+          longevityBand.logHazard,
+          longevityBand.sourceIds
+        )
+      );
+    }
   }
 
   return {

@@ -15,9 +15,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@200;400;800&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="../../css/design-system.css?v=utilities-2026-04-09b">
-  <link rel="stylesheet" href="../../css/utilities.css?v=utilities-2026-05-16-hover-ring">
+  <link rel="stylesheet" href="../../css/utilities.css?v=utilities-2026-05-16-death-fixes">
   <link rel="stylesheet" href="../../css/cursor.css?v=utilities-2026-04-09b">
-  <link rel="stylesheet" href="../../css/local-llm-chat.css?v=utilities-2026-05-06b">
+  <link rel="stylesheet" href="../../css/local-llm-chat.css?v=utilities-2026-05-16-local-assistant-copy">
   <style>
     html, body {
       overflow: hidden;
@@ -610,16 +610,104 @@
                               </label>
                             </section>
 
-                            <section class="death-question-card" data-question-card="parentLongevityBand" hidden>
-                              <label class="control-field" for="deathParentLongevityBand">
-                                <span class="control-label">Parent longevity pattern</span>
-                                <select id="deathParentLongevityBand" name="parentLongevityBand" class="control-select" required>
-                                  <option value="both-under-75">Both parents died before 75</option>
-                                  <option value="mixed" selected>Mixed or unknown</option>
-                                  <option value="one-85-plus">One parent lived past 85</option>
-                                  <option value="both-85-plus">Both parents lived past 85</option>
-                                </select>
-                              </label>
+                            <section class="death-question-card" data-question-card="parentLongevity" hidden>
+                              <div class="death-family-grid">
+                                <div class="death-family-row">
+                                  <span class="death-family-member-name">Mother</span>
+                                  <label class="control-field death-family-status" for="deathMotherStatus">
+                                    <span class="control-label">Mother status</span>
+                                    <select id="deathMotherStatus" name="motherStatus" class="control-select" required>
+                                      <option value="unknown" selected>Unknown</option>
+                                      <option value="alive">Alive</option>
+                                      <option value="deceased">Died</option>
+                                    </select>
+                                  </label>
+                                  <label class="control-field death-family-age" for="deathMotherAge">
+                                    <span class="control-label">Mother age</span>
+                                    <input id="deathMotherAge" name="motherAge" class="control-input" type="number" min="0" max="122" step="1" placeholder="Unknown">
+                                  </label>
+                                </div>
+                                <div class="death-family-row">
+                                  <span class="death-family-member-name">Father</span>
+                                  <label class="control-field death-family-status" for="deathFatherStatus">
+                                    <span class="control-label">Father status</span>
+                                    <select id="deathFatherStatus" name="fatherStatus" class="control-select" required>
+                                      <option value="unknown" selected>Unknown</option>
+                                      <option value="alive">Alive</option>
+                                      <option value="deceased">Died</option>
+                                    </select>
+                                  </label>
+                                  <label class="control-field death-family-age" for="deathFatherAge">
+                                    <span class="control-label">Father age</span>
+                                    <input id="deathFatherAge" name="fatherAge" class="control-input" type="number" min="0" max="122" step="1" placeholder="Unknown">
+                                  </label>
+                                </div>
+                              </div>
+                            </section>
+
+                            <section class="death-question-card" data-question-card="grandparentLongevity" hidden>
+                              <div class="death-family-grid death-family-grid--grandparents">
+                                <div class="death-family-row">
+                                  <span class="death-family-member-name">Maternal grandmother</span>
+                                  <label class="control-field death-family-status" for="deathMaternalGrandmotherStatus">
+                                    <span class="control-label">Maternal grandmother status</span>
+                                    <select id="deathMaternalGrandmotherStatus" name="maternalGrandmotherStatus" class="control-select" required>
+                                      <option value="unknown" selected>Unknown</option>
+                                      <option value="alive">Alive</option>
+                                      <option value="deceased">Died</option>
+                                    </select>
+                                  </label>
+                                  <label class="control-field death-family-age" for="deathMaternalGrandmotherAge">
+                                    <span class="control-label">Maternal grandmother age</span>
+                                    <input id="deathMaternalGrandmotherAge" name="maternalGrandmotherAge" class="control-input" type="number" min="0" max="122" step="1" placeholder="Unknown">
+                                  </label>
+                                </div>
+                                <div class="death-family-row">
+                                  <span class="death-family-member-name">Maternal grandfather</span>
+                                  <label class="control-field death-family-status" for="deathMaternalGrandfatherStatus">
+                                    <span class="control-label">Maternal grandfather status</span>
+                                    <select id="deathMaternalGrandfatherStatus" name="maternalGrandfatherStatus" class="control-select" required>
+                                      <option value="unknown" selected>Unknown</option>
+                                      <option value="alive">Alive</option>
+                                      <option value="deceased">Died</option>
+                                    </select>
+                                  </label>
+                                  <label class="control-field death-family-age" for="deathMaternalGrandfatherAge">
+                                    <span class="control-label">Maternal grandfather age</span>
+                                    <input id="deathMaternalGrandfatherAge" name="maternalGrandfatherAge" class="control-input" type="number" min="0" max="122" step="1" placeholder="Unknown">
+                                  </label>
+                                </div>
+                                <div class="death-family-row">
+                                  <span class="death-family-member-name">Paternal grandmother</span>
+                                  <label class="control-field death-family-status" for="deathPaternalGrandmotherStatus">
+                                    <span class="control-label">Paternal grandmother status</span>
+                                    <select id="deathPaternalGrandmotherStatus" name="paternalGrandmotherStatus" class="control-select" required>
+                                      <option value="unknown" selected>Unknown</option>
+                                      <option value="alive">Alive</option>
+                                      <option value="deceased">Died</option>
+                                    </select>
+                                  </label>
+                                  <label class="control-field death-family-age" for="deathPaternalGrandmotherAge">
+                                    <span class="control-label">Paternal grandmother age</span>
+                                    <input id="deathPaternalGrandmotherAge" name="paternalGrandmotherAge" class="control-input" type="number" min="0" max="122" step="1" placeholder="Unknown">
+                                  </label>
+                                </div>
+                                <div class="death-family-row">
+                                  <span class="death-family-member-name">Paternal grandfather</span>
+                                  <label class="control-field death-family-status" for="deathPaternalGrandfatherStatus">
+                                    <span class="control-label">Paternal grandfather status</span>
+                                    <select id="deathPaternalGrandfatherStatus" name="paternalGrandfatherStatus" class="control-select" required>
+                                      <option value="unknown" selected>Unknown</option>
+                                      <option value="alive">Alive</option>
+                                      <option value="deceased">Died</option>
+                                    </select>
+                                  </label>
+                                  <label class="control-field death-family-age" for="deathPaternalGrandfatherAge">
+                                    <span class="control-label">Paternal grandfather age</span>
+                                    <input id="deathPaternalGrandfatherAge" name="paternalGrandfatherAge" class="control-input" type="number" min="0" max="122" step="1" placeholder="Unknown">
+                                  </label>
+                                </div>
+                              </div>
                             </section>
 
                             <div class="death-form-actions">
@@ -783,7 +871,7 @@
   <script src="../../js/main.js" defer></script>
   <script src="../../js/utilities-shell.js?v=utilities-2026-05-06-flair-fix" defer></script>
   <script src="../../js/starfield.js?v=utilities-2026-04-25b" defer></script>
-  <script type="module" src="./assets/utilities-app.js?v=utilities-2026-04-25b"></script>
+  <script type="module" src="./assets/utilities-app.js?v=utilities-2026-05-16-death-fixes"></script>
 
   <div class="cursor-dot" id="cursorDot"></div>
   <div class="cursor-circle" id="cursorCircle"></div>

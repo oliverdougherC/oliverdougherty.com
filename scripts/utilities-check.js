@@ -688,6 +688,9 @@ async function readLocalAssistantMetrics(page) {
     const input = rect('#localLlmInput');
     const status = document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus ?? '';
     const diagnostics = document.getElementById('localLlmDiagnostics');
+    const centerDeltaFromTranscriptMiddle = center && transcript
+      ? Math.abs(((center.top + center.bottom) / 2) - ((transcript.top + transcript.bottom) / 2))
+      : null;
 
     return {
       viewport: { width: window.innerWidth, height: window.innerHeight },
@@ -701,6 +704,7 @@ async function readLocalAssistantMetrics(page) {
       form,
       input,
       centerOverlapsForm: overlaps(center, form),
+      centerDeltaFromTranscriptMiddle,
       threadOverlapsForm: overlaps(thread, form),
       formOutsideShell: Boolean(
         form &&
@@ -714,6 +718,9 @@ async function readLocalAssistantMetrics(page) {
       resetText: document.getElementById('localLlmResetBtn')?.textContent?.trim() ?? '',
       messageText: document.getElementById('localLlmMessages')?.textContent?.trim() ?? '',
       loadCopyText: document.getElementById('localLlmLoadCopy')?.textContent?.trim() ?? '',
+      modelNoteText: document.getElementById('localLlmModelNote')?.textContent?.trim() ?? '',
+      inputPlaceholder: document.getElementById('localLlmInput')?.getAttribute('placeholder') ?? '',
+      readyPromptHidden: document.getElementById('localLlmReadyPrompt')?.hasAttribute('hidden') ?? true,
       headerText: document.querySelector('.local-llm-header')?.textContent?.trim() ?? '',
       tpsText: document.getElementById('localLlmTps')?.textContent?.trim() ?? '',
       diagnosticsHidden: diagnostics?.hasAttribute('hidden') ?? true,
@@ -726,7 +733,9 @@ function assertLocalAssistantLayout(metrics, label) {
   assert(metrics.scrollWidth === metrics.clientWidth, `[${label}] Local Assistant should not create horizontal overflow.`);
   assert(metrics.shell?.visible, `[${label}] Local Assistant shell should be visible.`);
   assert(metrics.transcript?.visible, `[${label}] Local Assistant transcript should be visible.`);
-  assert(metrics.thread?.visible, `[${label}] Local Assistant thread should be visible.`);
+  if (metrics.messageText) {
+    assert(metrics.thread?.visible, `[${label}] Local Assistant thread should be visible when messages are present.`);
+  }
   assert(metrics.form?.visible, `[${label}] Local Assistant composer should be visible.`);
   assert(metrics.input?.visible, `[${label}] Local Assistant input should be visible.`);
   assert(!metrics.transcriptZeroHeight, `[${label}] Local Assistant transcript should have usable height.`);
@@ -734,9 +743,93 @@ function assertLocalAssistantLayout(metrics, label) {
   assert(!metrics.threadOverlapsForm, `[${label}] Local Assistant thread overlaps the composer.`);
   assert(!metrics.formOutsideShell, `[${label}] Local Assistant composer escapes its shell.`);
   assert(metrics.shell.right <= metrics.viewport.width + 1, `[${label}] Local Assistant shell overflows viewport width.`);
+  assert(!/auto|scroll/i.test(metrics.input.overflowY), `[${label}] Local Assistant textarea should not expose a vertical scrollbar.`);
+  if (metrics.center?.visible && metrics.centerDeltaFromTranscriptMiddle !== null) {
+    const tolerance = Math.max(32, metrics.transcript.height * 0.12);
+    assert(
+      metrics.centerDeltaFromTranscriptMiddle <= tolerance,
+      `[${label}] Local Assistant center panel should be vertically centered.`
+    );
+  }
+}
+
+async function observeLocalAssistantLoadingSequence(page) {
+  const expected = [
+    'Loading Bonsai 1.7B',
+    'This is a teensy LLM (~290 MB)',
+    'Runs entirely on your device',
+    "Don't worry, I won't cache it in your browser ;)"
+  ];
+  const spinnerFrames = new Set(['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']);
+  const observations = [];
+  const busyControlTexts = [];
+  let readyAt = null;
+  let lastText = '';
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < 8000) {
+    const sample = await page.evaluate(() => {
+      const root = document.getElementById('localLlmUtilityApp');
+      return {
+        status: root?.dataset.localLlmStatus ?? '',
+        floorMs: Number(root?.dataset.localLlmLoadingFloorMs || '0'),
+        text: document.getElementById('localLlmLoadCopy')?.textContent?.trim() ?? '',
+        startText: document.querySelector('.local-llm-load-control-text')?.textContent?.trim() ?? ''
+      };
+    });
+
+    if (/^(checking|loading|optimizing)$/.test(sample.status) && sample.startText) {
+      busyControlTexts.push(sample.startText);
+    }
+
+    if (sample.text && sample.text !== lastText) {
+      observations.push({ text: sample.text, at: Date.now(), floorMs: sample.floorMs });
+      lastText = sample.text;
+    }
+
+    if (sample.status === 'ready') {
+      readyAt = Date.now();
+      break;
+    }
+
+    await page.waitForTimeout(35);
+  }
+
+  const floorMs = observations.find((entry) => entry.floorMs > 0)?.floorMs ?? 0;
+  const seen = observations
+    .map((entry) => entry.text)
+    .filter((text) => expected.includes(text));
+
+  assert(
+    expected.every((text, index) => seen[index] === text),
+    `Local Assistant loading sequence should appear in order. Saw: ${seen.join(' -> ') || 'none'}`
+  );
+  assert(
+    busyControlTexts.some((text) => spinnerFrames.has(text)),
+    `Local Assistant load control should use a braille spinner while busy. Saw: ${busyControlTexts.join(', ') || 'none'}`
+  );
+
+  for (let index = 0; index < expected.length; index += 1) {
+    const current = observations.find((entry) => entry.text === expected[index]);
+    const next = observations.find((entry) => entry.text === expected[index + 1]);
+    const endedAt = next?.at ?? readyAt;
+    assert(current && endedAt, `Local Assistant loading copy timing missing for "${expected[index]}".`);
+    assert(
+      endedAt - current.at >= Math.max(0, floorMs - 100),
+      `Local Assistant loading copy "${expected[index]}" changed too quickly.`
+    );
+  }
 }
 
 async function runLocalAssistantCheck(browser, pageUrl) {
+  const readySuggestions = [
+    'Perhaps a joke?',
+    'Maybe a riddle?',
+    'Summarize a topic perchance?',
+    'How about a short story?',
+    'Maybe something else entirely?'
+  ];
+
   for (const viewport of [
     { label: 'desktop', width: 1440, height: 1100 },
     { label: 'tablet', width: 820, height: 1180 },
@@ -753,20 +846,12 @@ async function runLocalAssistantCheck(browser, pageUrl) {
     try {
       await page.goto(pageUrl.replace(/#.*$/, '#local-assistant'), { waitUntil: 'networkidle' });
       await page.waitForSelector('#localLlmStartBtn', { timeout: 10000 });
-      assertLocalAssistantLayout(await readLocalAssistantMetrics(page), `local-assistant:${viewport.label}:idle`);
+      const idleMetrics = await readLocalAssistantMetrics(page);
+      assertLocalAssistantLayout(idleMetrics, `local-assistant:${viewport.label}:idle`);
+      assert(idleMetrics.loadCopyText === 'Press "Load" to begin', `[local-assistant:${viewport.label}] idle copy should be simplified.`);
 
       await page.click('#localLlmStartBtn');
-      await page.waitForFunction(
-        () => /^(loading|optimizing|ready)$/.test(document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus ?? ''),
-        null,
-        { timeout: 10000 }
-      );
-      const downloadingMetrics = await readLocalAssistantMetrics(page);
-      assertLocalAssistantLayout(downloadingMetrics, `local-assistant:${viewport.label}:downloading`);
-      assert(
-        /bonsai|webgpu|local|ready/i.test(downloadingMetrics.loadCopyText + ' ' + downloadingMetrics.headerText),
-        `[local-assistant:${viewport.label}] download copy should show the local model loading messages.`
-      );
+      await observeLocalAssistantLoadingSequence(page);
 
       await page.waitForFunction(
         () => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'ready',
@@ -777,7 +862,12 @@ async function runLocalAssistantCheck(browser, pageUrl) {
       assertLocalAssistantLayout(readyMetrics, `local-assistant:${viewport.label}:ready`);
       assert(readyMetrics.center?.visible, `[local-assistant:${viewport.label}] ready empty-state panel should remain visible before the first message.`);
       assert(readyMetrics.sendDisabled === false, `[local-assistant:${viewport.label}] send should enable after mocked load.`);
-      assert(readyMetrics.startText === 'Ready', `[local-assistant:${viewport.label}] load control should report Ready.`);
+      assert(readyMetrics.startText === 'Loaded', `[local-assistant:${viewport.label}] load control should report Loaded.`);
+      assert(readySuggestions.includes(readyMetrics.loadCopyText), `[local-assistant:${viewport.label}] ready panel should show a suggestion from the bank.`);
+      assert(readyMetrics.modelNoteText === '', `[local-assistant:${viewport.label}] ready panel should not show model/runtime details.`);
+      assert(readyMetrics.inputPlaceholder === 'Oh, what to say...', `[local-assistant:${viewport.label}] composer placeholder should be static.`);
+      assert(readyMetrics.readyPromptHidden === true, `[local-assistant:${viewport.label}] custom ready prompt overlay should stay hidden.`);
+      assert(!readyMetrics.headerText.includes('•'), `[local-assistant:${viewport.label}] header metadata should not duplicate separators.`);
 
       if (viewport.label === 'desktop') {
         await page.fill('#localLlmInput', 'Explain this local assistant in one sentence.');
@@ -789,6 +879,8 @@ async function runLocalAssistantCheck(browser, pageUrl) {
         );
         const generatedMetrics = await readLocalAssistantMetrics(page);
         assertLocalAssistantLayout(generatedMetrics, 'local-assistant:desktop:generated');
+        assert(Math.abs(generatedMetrics.form.height - readyMetrics.form.height) <= 2, 'Local Assistant composer height should remain stable after generation.');
+        assert(Math.abs(generatedMetrics.form.bottom - readyMetrics.form.bottom) <= 2, 'Local Assistant composer position should remain stable after generation.');
         assert(!generatedMetrics.center?.visible, 'Local Assistant center panel should stay hidden after generation.');
         assert(/Local Assistant/i.test(generatedMetrics.messageText), 'Local Assistant should render an assistant response.');
         assert(/\d|--/.test(generatedMetrics.tpsText), 'Local Assistant should expose token/sec telemetry.');
@@ -1995,7 +2087,19 @@ async function main() {
     await page.check('#deathEarlyFamilyCardio');
     await page.click('#deathNextBtn');
 
-    await page.selectOption('#deathParentLongevityBand', 'one-85-plus');
+    await page.selectOption('#deathMotherStatus', 'alive');
+    await page.fill('#deathMotherAge', '88');
+    await page.selectOption('#deathFatherStatus', 'deceased');
+    await page.fill('#deathFatherAge', '84');
+    await page.click('#deathNextBtn');
+
+    await page.selectOption('#deathMaternalGrandmotherStatus', 'deceased');
+    await page.fill('#deathMaternalGrandmotherAge', '96');
+    await page.selectOption('#deathMaternalGrandfatherStatus', 'deceased');
+    await page.fill('#deathMaternalGrandfatherAge', '82');
+    await page.selectOption('#deathPaternalGrandmotherStatus', 'deceased');
+    await page.fill('#deathPaternalGrandmotherAge', '90');
+    await page.selectOption('#deathPaternalGrandfatherStatus', 'unknown');
     await page.click('#deathCalculateBtn');
     await page.waitForFunction(() => document.getElementById('deathResultScreen')?.hasAttribute('hidden') === false);
 

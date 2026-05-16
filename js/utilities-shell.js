@@ -63,7 +63,7 @@
 
       var script = document.createElement('script');
       script.type = 'module';
-      script.src = '../../js/local-llm-chat.js?v=utilities-2026-05-06b';
+      script.src = '../../js/local-llm-chat.js?v=utilities-2026-05-16-local-assistant-copy';
       script.dataset.localLlmChat = 'true';
       script.onload = function() { resolve(); };
       script.onerror = function() {
