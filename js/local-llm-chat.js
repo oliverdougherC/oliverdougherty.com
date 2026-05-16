@@ -37,7 +37,7 @@ const LOAD_CONTROL = {
 
 const LOAD_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const LOAD_SPINNER_STEP_MS = 90;
-const LOAD_SEQUENCE_STEP_MS = 1200;
+const LOAD_SEQUENCE_STEP_MS = 2500;
 const LOAD_SEQUENCE_COPY = [
   'Loading Bonsai 1.7B',
   'This is a *teensy* LLM (~290 MB)',
@@ -558,7 +558,24 @@ class LocalLlmUtility {
       : this.isBusy()
         ? this.getLoadingSequenceCopy()
         : STATE_COPY[this.status] || this.root.dataset.localLlmStatusMessage || 'Working locally.';
-    this.loadCopy.innerHTML = renderSafeInlineText(copy);
+        
+    const safeCopy = renderSafeInlineText(copy);
+    if (this._currentCopyTarget !== safeCopy) {
+      this._currentCopyTarget = safeCopy;
+      if (this.loadCopy.innerHTML && !this.center.hidden && this.loadCopy.style.opacity !== '0') {
+        this.loadCopy.style.opacity = '0';
+        clearTimeout(this._copyTimer);
+        this._copyTimer = setTimeout(() => {
+          this.loadCopy.innerHTML = safeCopy;
+          this.loadCopy.style.opacity = '1';
+        }, 300);
+      } else {
+        clearTimeout(this._copyTimer);
+        this.loadCopy.innerHTML = safeCopy;
+        this.loadCopy.style.opacity = '1';
+      }
+    }
+
     const hideModelNote = this.status === WORKER_STATE.READY;
     this.modelNote.hidden = hideModelNote;
     this.modelNote.textContent = hideModelNote
@@ -579,7 +596,7 @@ class LocalLlmUtility {
         this.promptIndex = 0;
       }
       this.renderStatePanel();
-    }, 4200);
+    }, 5000);
   }
 
   stopPromptCycle() {

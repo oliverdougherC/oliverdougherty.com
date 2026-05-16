@@ -191,7 +191,7 @@
   display: grid;
   gap: 0.9rem;
   padding: 0 clamp(1rem, 2.4vw, 1.5rem);
-  overflow-y: auto;
+  overflow: hidden;
   text-align: center;
 }
 
@@ -206,6 +206,7 @@
   letter-spacing: 0;
   text-wrap: balance;
   text-align: center;
+  transition: opacity 0.3s ease;
 }
 
 .local-llm-model-note {
