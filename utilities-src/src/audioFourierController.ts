@@ -67,8 +67,12 @@ function asArrayBuffer(buffer: ArrayBufferLike): ArrayBuffer {
   return copy.buffer;
 }
 
+function viewToArrayBuffer(view: ArrayBufferView<ArrayBufferLike>) {
+  return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer;
+}
+
 function formatSeconds(value: number) {
-  if (value >= 60) {
+  if (value >= 30) {
     const minutes = Math.floor(value / 60);
     const seconds = Math.round(value % 60).toString().padStart(2, '0');
     return `${minutes}:${seconds}`;
@@ -91,7 +95,8 @@ const SMOOTHED_ENVELOPE_BLEND = 0.72;
 const VISUAL_CLOCK_RECONCILE_SECONDS = 0.08;
 
 export class AudioFourierController {
-  private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  private readonly reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  private reducedMotion = this.reducedMotionQuery.matches;
   private readonly viewportSeconds = 2;
   private readonly root: HTMLElement;
   private readonly input: HTMLInputElement;
@@ -136,6 +141,7 @@ export class AudioFourierController {
   private bandBuffers: AudioBuffer[] = [];
   private activeBandNodes: ActiveBandNode[] = [];
   private activeMasterGain: GainNode | null = null;
+  private masterGainControlReadyAt = 0;
   private mixedVisualEnvelope: MixedAudioEnvelope | null = null;
   private playbackStartedAt = 0;
   private playbackElapsedSeconds = 0;
@@ -151,6 +157,16 @@ export class AudioFourierController {
   private lastPlaybackProgressAt = 0;
   private state: AudioFourierState = 'idle';
   private sliderRafPending = false;
+  private resizeFrameId = 0;
+  private resizeObserver: ResizeObserver | null = null;
+  private readonly eventController = new AbortController();
+  private readonly reducedMotionChangeHandler = () => {
+    const prev = this.reducedMotion;
+    this.reducedMotion = this.reducedMotionQuery.matches;
+    if (prev !== this.reducedMotion) {
+      this.syncButtons();
+    }
+  };
   private readonly waveBackgroundCanvas: HTMLCanvasElement;
   private readonly spectrumBackgroundCanvas: HTMLCanvasElement;
   private readonly componentBackgroundCanvas: HTMLCanvasElement;
@@ -193,43 +209,39 @@ export class AudioFourierController {
     this.spectrumBackgroundCanvas = this.buildBackgroundCanvas(this.spectrumCanvas);
     this.componentBackgroundCanvas = this.buildBackgroundCanvas(this.componentCanvas);
 
-    const mql = window.matchMedia('(prefers-reduced-motion: reduce)');
-    mql.addEventListener('change', () => {
-      const prev = this.reducedMotion;
-      this.reducedMotion = mql.matches;
-      if (prev !== mql.matches) {
-        this.syncButtons();
-      }
+    this.reducedMotionQuery.addEventListener('change', this.reducedMotionChangeHandler, {
+      signal: this.eventController.signal
     });
   }
 
   init() {
-    this.input.addEventListener('change', () => this.handleFileSelection(this.input.files?.[0] ?? null));
+    const { signal } = this.eventController;
+    this.input.addEventListener('change', () => this.handleFileSelection(this.input.files?.[0] ?? null), { signal });
     this.generateButton.addEventListener('click', () => {
       void this.generate();
-    });
+    }, { signal });
     this.playButton.addEventListener('click', () => {
       void this.handlePlaybackButton();
-    });
-    this.pauseButton.addEventListener('click', () => this.pausePlayback());
-    this.resetButton.addEventListener('click', () => this.resetAll());
-    this.qualitySelect.addEventListener('change', () => this.invalidateComputedState('Quality changed. Generate again to rebuild the audio transform.'));
-    this.componentSlider.addEventListener('input', () => this.handleSliderInput());
+    }, { signal });
+    this.pauseButton.addEventListener('click', () => this.pausePlayback(), { signal });
+    this.resetButton.addEventListener('click', () => this.resetAll(), { signal });
+    this.qualitySelect.addEventListener('change', () => this.invalidateComputedState('Quality changed. Generate again to rebuild the audio transform.'), { signal });
+    this.componentSlider.addEventListener('input', () => this.handleSliderInput(), { signal });
     this.bindDropzone();
 
-    this.root.addEventListener('utility-deactivate', () => this.pausePlayback());
+    this.root.addEventListener('utility-deactivate', () => this.pausePlayback(), { signal });
     window.addEventListener('hashchange', () => {
       if (window.location.hash !== '#audio-fourier') {
         this.pausePlayback();
       }
-    });
-    window.addEventListener('pagehide', () => this.pausePlayback());
+    }, { signal });
+    window.addEventListener('pagehide', () => this.pausePlayback(), { signal });
     document.addEventListener('utility-activate', (event) => {
       const stage = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-utility-id]') : null;
       if (stage?.dataset.utilityId && stage.dataset.utilityId !== 'audio-fourier') {
         this.pausePlayback();
       }
-    });
+    }, { signal });
 
     this.presetButtons.forEach((button) => {
       button.addEventListener('click', () => {
@@ -238,7 +250,7 @@ export class AudioFourierController {
           return;
         }
         this.applyBuiltInPreset(presetId);
-      });
+      }, { signal });
     });
 
     this.componentSlider.disabled = true;
@@ -252,10 +264,13 @@ export class AudioFourierController {
     this.signalCountMetric.textContent = '--';
     this.syncSliderProgress();
     this.syncSelection();
+    this.installCanvasResizeObserver();
+    this.resizeCanvases();
     this.drawEmptyState();
   }
 
   private bindDropzone() {
+    const { signal } = this.eventController;
     const preventDefaults = (event: DragEvent) => {
       event.preventDefault();
       event.stopPropagation();
@@ -265,20 +280,75 @@ export class AudioFourierController {
       this.dropzone.addEventListener(eventName, (event) => {
         preventDefaults(event as DragEvent);
         this.dropzone.classList.add('drag-active');
-      });
+      }, { signal });
     });
 
     ['dragleave', 'drop'].forEach((eventName) => {
       this.dropzone.addEventListener(eventName, (event) => {
         preventDefaults(event as DragEvent);
         this.dropzone.classList.remove('drag-active');
-      });
+      }, { signal });
     });
 
     this.dropzone.addEventListener('drop', (event) => {
       const dragEvent = event as DragEvent;
       this.handleFileSelection(dragEvent.dataTransfer?.files?.[0] ?? null);
+    }, { signal });
+  }
+
+  private installCanvasResizeObserver() {
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', () => this.queueCanvasResize(), { signal: this.eventController.signal });
+      return;
+    }
+
+    this.resizeObserver = new ResizeObserver(() => this.queueCanvasResize());
+    this.resizeObserver.observe(this.waveCanvas);
+    this.resizeObserver.observe(this.spectrumCanvas);
+    this.resizeObserver.observe(this.componentCanvas);
+  }
+
+  private queueCanvasResize() {
+    if (this.resizeFrameId) {
+      return;
+    }
+
+    this.resizeFrameId = window.requestAnimationFrame(() => {
+      this.resizeFrameId = 0;
+      if (this.resizeCanvases()) {
+        if (this.activeResult) {
+          this.renderCurrentViewport();
+        } else {
+          this.drawEmptyState();
+        }
+      }
     });
+  }
+
+  private resizeCanvases() {
+    const resizedWave = this.resizeCanvasToDisplaySize(this.waveCanvas, this.waveBackgroundCanvas);
+    const resizedSpectrum = this.resizeCanvasToDisplaySize(this.spectrumCanvas, this.spectrumBackgroundCanvas);
+    const resizedComponent = this.resizeCanvasToDisplaySize(this.componentCanvas, this.componentBackgroundCanvas);
+    return resizedWave || resizedSpectrum || resizedComponent;
+  }
+
+  private resizeCanvasToDisplaySize(canvas: HTMLCanvasElement, background: HTMLCanvasElement) {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const width = Math.max(1, Math.round((rect.width || canvas.clientWidth || canvas.width) * dpr));
+    const height = Math.max(1, Math.round((rect.height || canvas.clientHeight || canvas.height) * dpr));
+    if (canvas.width === width && canvas.height === height) {
+      return false;
+    }
+
+    canvas.width = width;
+    canvas.height = height;
+    background.width = width;
+    background.height = height;
+    const context = background.getContext('2d')!;
+    context.fillStyle = '#000000';
+    context.fillRect(0, 0, width, height);
+    return true;
   }
 
   private get selectedQuality(): AudioFourierPresetId {
@@ -577,7 +647,7 @@ export class AudioFourierController {
   ): AudioFourierSourceTransfer {
     return {
       sampleRate,
-      channelBuffers: channels.map((channel) => asArrayBuffer(new Float32Array(channel).buffer)),
+      channelBuffers: channels.map((channel) => viewToArrayBuffer(channel)),
       label,
       sourceKind,
       builtInPresetId
@@ -728,7 +798,10 @@ export class AudioFourierController {
       sliderMaxValue
     );
     this.activeResult.bandGains = resolveEnergyBandGains(this.activeResult.energyPercent, this.activeResult.bandEnergyFractions);
-    this.activeResult.visualEnvelopeDirty = true;
+    this.activeResult.visualEnvelopeDirty = this.activeResult.energyPercent < FULL_ENERGY_VISUAL_THRESHOLD;
+    if (!this.activeResult.visualEnvelopeDirty) {
+      this.mixedVisualEnvelope = null;
+    }
     this.updateLiveBandGains();
     this.syncEnergyReadout();
 
@@ -841,7 +914,10 @@ export class AudioFourierController {
       return;
     }
 
-    if (this.playbackElapsedSeconds >= this.activeResult.metadata.proxyDurationSeconds) {
+    if (
+      this.state === 'complete' ||
+      this.playbackElapsedSeconds >= this.activeResult.metadata.proxyDurationSeconds * FULL_ENERGY_VISUAL_THRESHOLD
+    ) {
       this.playbackElapsedSeconds = 0;
     }
 
@@ -868,6 +944,7 @@ export class AudioFourierController {
     masterGain.gain.linearRampToValueAtTime(masterGainValue, startedAt + PLAYBACK_FADE_SECONDS);
     masterGain.connect(context.destination);
     this.activeMasterGain = masterGain;
+    this.masterGainControlReadyAt = startedAt + PLAYBACK_FADE_SECONDS;
     this.activeBandNodes = this.bandBuffers.map((buffer, index) => {
       const source = context.createBufferSource();
       const gain = context.createGain();
@@ -878,6 +955,10 @@ export class AudioFourierController {
       source.start(startedAt, offset);
       return { source, gain };
     });
+    if (this.activeBandNodes.length !== this.activeResult.bandGains.length) {
+      this.stopPlayback(false);
+      throw new Error('Audio band buffer count does not match the active gain count.');
+    }
 
     const firstNode = this.activeBandNodes[0];
     if (firstNode) {
@@ -949,8 +1030,9 @@ export class AudioFourierController {
       this.activeBandNodes[index].gain.gain.setTargetAtTime(this.activeResult.bandGains[index], context.currentTime, GAIN_RAMP_TIME_CONSTANT);
     }
     if (this.activeMasterGain) {
-      this.activeMasterGain.gain.cancelScheduledValues(context.currentTime);
-      this.activeMasterGain.gain.setTargetAtTime(resolveEnergyMakeupGain(this.activeResult.energyPercent), context.currentTime, MASTER_GAIN_RAMP_TIME_CONSTANT);
+      const updateTime = Math.max(context.currentTime, this.masterGainControlReadyAt);
+      this.activeMasterGain.gain.cancelScheduledValues(updateTime);
+      this.activeMasterGain.gain.setTargetAtTime(resolveEnergyMakeupGain(this.activeResult.energyPercent), updateTime, MASTER_GAIN_RAMP_TIME_CONSTANT);
     }
   }
 
@@ -1019,6 +1101,7 @@ export class AudioFourierController {
     this.clearCanvas(this.waveCanvas, this.waveContext);
     this.clearCanvas(this.spectrumCanvas, this.spectrumContext);
     this.clearCanvas(this.componentCanvas, this.componentContext);
+    this.drawCenteredLabel(this.waveCanvas, this.waveContext, 'Waveform will appear here');
     this.drawCenteredLabel(this.spectrumCanvas, this.spectrumContext, 'Energy bands will appear here');
     this.drawCenteredLabel(this.componentCanvas, this.componentContext, 'Active signal-energy readout');
   }
@@ -1271,7 +1354,9 @@ export class AudioFourierController {
     const barWidth = Math.max(3, (canvas.width - gap * (barCount - 1)) / barCount);
 
     for (let index = 0; index < barCount; index += 1) {
-      const height = Math.max(2, this.activeResult.bandEnergyFractions[index] * (canvas.height - 36));
+      const previousEnergy = index > 0 ? this.activeResult.bandEnergyFractions[index - 1] : 0;
+      const bandEnergy = Math.max(0, this.activeResult.bandEnergyFractions[index] - previousEnergy);
+      const height = Math.max(2, bandEnergy * barCount * (canvas.height - 36));
       const x = index * (barWidth + gap);
       const y = canvas.height - height;
       const gain = this.activeResult.bandGains[index];
@@ -1332,6 +1417,13 @@ export class AudioFourierController {
   }
 
   public destroy() {
+    this.eventController.abort();
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    if (this.resizeFrameId) {
+      window.cancelAnimationFrame(this.resizeFrameId);
+      this.resizeFrameId = 0;
+    }
     this.stopPlayback(true);
     this.abandonActiveComputation();
     this.audioContext?.close();

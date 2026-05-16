@@ -16,6 +16,8 @@ describe('retro VM support helpers', () => {
       hasDocument: true,
       hasWebAssembly: true,
       hasWorker: true,
+      hasFullscreen: true,
+      hasPointerLock: true,
       innerWidth: 390,
       maxTouchPoints: 5,
       matchMedia: coarseMatchMedia
@@ -34,6 +36,8 @@ describe('retro VM support helpers', () => {
       hasDocument: true,
       hasWebAssembly: true,
       hasWorker: true,
+      hasFullscreen: true,
+      hasPointerLock: true,
       innerWidth: 1440,
       maxTouchPoints: 0,
       matchMedia: desktopMatchMedia
@@ -41,6 +45,30 @@ describe('retro VM support helpers', () => {
 
     expect(support.supported).toBe(true);
     expect(support.reason).toMatch(/ready/i);
+    expect(support.hasFullscreen).toBe(true);
+    expect(support.hasPointerLock).toBe(true);
+  });
+
+  it('allows desktop launch with degraded fullscreen and pointer-lock copy', () => {
+    const desktopMatchMedia = (() => ({ matches: false } as MediaQueryList)) as unknown as (query: string) => MediaQueryList;
+
+    const support = detectRetroVmSupport({
+      hasWindow: true,
+      hasDocument: true,
+      hasWebAssembly: true,
+      hasWorker: true,
+      hasFullscreen: false,
+      hasPointerLock: false,
+      innerWidth: 1440,
+      maxTouchPoints: 0,
+      matchMedia: desktopMatchMedia
+    });
+
+    expect(support.supported).toBe(true);
+    expect(support.reason).toMatch(/fullscreen is unavailable/i);
+    expect(support.reason).toMatch(/pointer lock is unavailable/i);
+    expect(support.hasFullscreen).toBe(false);
+    expect(support.hasPointerLock).toBe(false);
   });
 
   it('transitions between launch, fullscreen, and reset states', () => {

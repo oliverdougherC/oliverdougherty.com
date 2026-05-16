@@ -17,6 +17,11 @@ require_tool() {
 require_tool docker
 require_tool rsvg-convert
 
+if [ ! -f "${SOURCE_ISO}" ]; then
+  echo "Missing Tiny Core base ISO: ${SOURCE_ISO}" >&2
+  exit 1
+fi
+
 if ! docker info >/dev/null 2>&1; then
   echo "docker is installed but the daemon is not available" >&2
   exit 1
@@ -53,7 +58,7 @@ docker run --rm \
     gzip -dc /tmp/iso/boot/core.gz | cpio -idmu --quiet
     cpio_status=$?
     set -e
-    if [ "$cpio_status" -gt 2 ]; then
+    if [ "$cpio_status" -ge 2 ]; then
       exit "$cpio_status"
     fi
 

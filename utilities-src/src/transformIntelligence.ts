@@ -87,7 +87,7 @@ function computeLocalContrast(pixels: Uint8ClampedArray, width: number, height: 
 }
 
 function buildSourceBucketCounts(source: PreparedImageData, quantizationBits: number) {
-  const shift = Math.max(1, 8 - Math.min(quantizationBits, 6));
+  const shift = 8 - quantizationBits;
   const counts = new Map<number, number>();
 
   for (let pixelIndex = 0; pixelIndex < source.width * source.height; pixelIndex += 1) {

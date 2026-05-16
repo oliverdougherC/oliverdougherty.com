@@ -6,6 +6,8 @@ export interface RetroVmSupport {
   supported: boolean;
   reason: string;
   isMobileLike: boolean;
+  hasFullscreen: boolean;
+  hasPointerLock: boolean;
 }
 
 export interface RetroVmNetworkConfig {

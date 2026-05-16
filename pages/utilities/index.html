@@ -522,6 +522,41 @@
                               </label>
                             </section>
 
+                            <section class="death-question-card" data-question-card="clinicalBiomarkers" hidden>
+                              <div class="death-card-grid death-card-grid--split">
+                                <label class="control-field" for="deathSystolicBloodPressure">
+                                  <span class="control-label">Systolic BP</span>
+                                  <input id="deathSystolicBloodPressure" name="systolicBloodPressure" class="control-input" type="number" min="70" max="260" step="1" placeholder="Optional">
+                                </label>
+                                <label class="control-field" for="deathDiastolicBloodPressure">
+                                  <span class="control-label">Diastolic BP</span>
+                                  <input id="deathDiastolicBloodPressure" name="diastolicBloodPressure" class="control-input" type="number" min="40" max="160" step="1" placeholder="Optional">
+                                </label>
+                              </div>
+                              <div class="death-card-grid death-card-grid--split">
+                                <label class="control-field" for="deathTotalCholesterol">
+                                  <span class="control-label">Total cholesterol</span>
+                                  <input id="deathTotalCholesterol" name="totalCholesterol" class="control-input" type="number" min="80" max="400" step="1" placeholder="Optional">
+                                </label>
+                                <label class="control-field" for="deathHdlCholesterol">
+                                  <span class="control-label">HDL cholesterol</span>
+                                  <input id="deathHdlCholesterol" name="hdlCholesterol" class="control-input" type="number" min="10" max="150" step="1" placeholder="Optional">
+                                </label>
+                              </div>
+                              <label class="control-field" for="deathRestingHeartRate">
+                                <span class="control-label">Resting heart rate</span>
+                                <input id="deathRestingHeartRate" name="restingHeartRate" class="control-input" type="number" min="35" max="180" step="1" placeholder="Optional">
+                              </label>
+                              <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathUsesBloodPressureMedication">
+                                <input id="deathUsesBloodPressureMedication" name="usesBloodPressureMedication" type="checkbox">
+                                <span>Blood pressure medication</span>
+                              </label>
+                              <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathUsesLipidMedication">
+                                <input id="deathUsesLipidMedication" name="usesLipidMedication" type="checkbox">
+                                <span>Cholesterol medication</span>
+                              </label>
+                            </section>
+
                             <section class="death-question-card" data-question-card="diabetesStatus" hidden>
                               <label class="control-field" for="deathDiabetesStatus">
                                 <span class="control-label">Diabetes status</span>
@@ -631,6 +666,8 @@
                               <span class="vm-status-dot"></span>
                               <span class="vm-toolbar-title" id="retroVmProgressText">Idle</span>
                               <span class="vm-toolbar-meta" id="retroVmProgressMeta" style="font-size: 0.7rem; color: rgba(255,255,255,0.4); margin-left: 0.5rem;">Tiny Core Linux 11</span>
+                              <span class="utility-status-chip utility-status-chip--idle" id="retroVmStatusChip">Idle</span>
+                              <span class="sr-only" id="retroVmStatusText" aria-live="polite">Launch a fresh local session when you are ready.</span>
                               <span class="vm-capture-badge" id="retroVmCaptureBadge" style="margin-left: auto; padding: 0.22rem 0.55rem; border-radius: var(--radius-full); border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: var(--color-text-secondary); font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: var(--tracking-wide); text-transform: uppercase;">Click desktop to capture mouse</span>
                               <span class="vm-screen-badge" id="retroVmScreenBadge" style="padding: 0.22rem 0.55rem; border-radius: var(--radius-full); border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: var(--color-text-muted); font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: var(--tracking-wide); text-transform: uppercase;">Local only</span>
 

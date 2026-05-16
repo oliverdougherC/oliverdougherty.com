@@ -16,7 +16,7 @@ export const RETRO_VM_CONFIG: RetroVmConfig = {
   cdromSizeBytes: 20_082_688,
   memorySize: 256 * MB,
   vgaMemorySize: 8 * MB,
-  bootOrder: 0x132,
+  bootOrder: 0x210,
   bootHintDelayMs: 4000,
   bootMenuPrompt: /Press ENTER to boot/i,
   copy: {
@@ -33,6 +33,7 @@ export const RETRO_VM_CONFIG: RetroVmConfig = {
     progressMeta: RETRO_VM_DISTRO
   },
   network: {
+    // Relay-backed networking is intentionally dormant until a relay URL is configured.
     enabled: false,
     relayUrl: null,
     nicType: 'ne2k',

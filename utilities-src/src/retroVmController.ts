@@ -1,5 +1,4 @@
 import {
-  RETRO_VM_CONFIG,
   buildRetroVmV86Options,
   isRetroVmNetworkReady,
   resolveRetroVmConfigFromDataset
@@ -10,7 +9,7 @@ import type { V86, V86DownloadProgress } from 'v86';
 import v86WasmUrl from 'v86/build/v86.wasm?url';
 import 'v86/build/v86-fallback.wasm?url';
 
-const FALLBACK_ISO_SIZE_BYTES = 128 * 1024 * 1024;
+const FAKE_ISO_SIZE_BYTES = 20_082_688;
 
 declare global {
   interface Window {
@@ -19,6 +18,7 @@ declare global {
 }
 
 interface EmulatorLike {
+  bus?: RawBus;
   add_listener(event: string, listener: (value?: unknown) => void): void;
   remove_listener(event: string, listener: (value?: unknown) => void): void;
   destroy(): Promise<void>;
@@ -32,8 +32,10 @@ interface EmulatorLike {
 }
 
 class FakeRetroVm implements EmulatorLike {
+  readonly bus: RawBus = {
+    send: () => {}
+  };
   private readonly listeners = new Map<string, Set<(value?: unknown) => void>>();
-  private static readonly fakeImageSizeBytes = RETRO_VM_CONFIG.cdromSizeBytes ?? FALLBACK_ISO_SIZE_BYTES;
 
   constructor() {
     window.setTimeout(() => {
@@ -42,8 +44,8 @@ class FakeRetroVm implements EmulatorLike {
         file_count: 1,
         file_name: 'fake.iso',
         lengthComputable: true,
-        total: FakeRetroVm.fakeImageSizeBytes,
-        loaded: FakeRetroVm.fakeImageSizeBytes
+        total: FAKE_ISO_SIZE_BYTES,
+        loaded: FAKE_ISO_SIZE_BYTES
       } satisfies V86DownloadProgress);
       this.emit('screen-set-size', [1024, 768, 32]);
       this.emit('emulator-ready');
@@ -91,6 +93,7 @@ class RetroVmMouseBridge {
   private readonly onCaptureStateChange: (captured: boolean) => void;
   private buttons = [false, false, false];
   private pointerLocked = false;
+  private absoluteMouseMoveAttached = false;
   private readonly onMouseMove = (event: MouseEvent) => {
     this.sendAbsolutePosition(event);
   };
@@ -123,7 +126,12 @@ class RetroVmMouseBridge {
     this.sendLockedDelta(event);
   };
   private readonly onPointerLockChange = () => {
+    if (window.__OD_RETRO_VM_TEST_MODE__) {
+      return;
+    }
+
     this.pointerLocked = document.pointerLockElement === this.root;
+    this.syncAbsoluteMouseMoveListener();
     this.onCaptureStateChange(this.pointerLocked);
   };
 
@@ -142,7 +150,7 @@ class RetroVmMouseBridge {
   }
 
   attach() {
-    this.root.addEventListener('mousemove', this.onMouseMove, { passive: false });
+    this.attachAbsoluteMouseMove();
     this.root.addEventListener('mousedown', this.onMouseDown, { passive: false });
     window.addEventListener('mouseup', this.onMouseUp, { passive: false });
     this.root.addEventListener('wheel', this.onWheel, { passive: false });
@@ -152,13 +160,39 @@ class RetroVmMouseBridge {
   }
 
   detach() {
-    this.root.removeEventListener('mousemove', this.onMouseMove);
+    this.detachAbsoluteMouseMove();
     this.root.removeEventListener('mousedown', this.onMouseDown);
     window.removeEventListener('mouseup', this.onMouseUp);
     this.root.removeEventListener('wheel', this.onWheel);
     this.root.removeEventListener('contextmenu', this.onContextMenu);
     document.removeEventListener('mousemove', this.onLockedMouseMove);
     document.removeEventListener('pointerlockchange', this.onPointerLockChange);
+  }
+
+  private attachAbsoluteMouseMove() {
+    if (this.absoluteMouseMoveAttached || this.pointerLocked) {
+      return;
+    }
+
+    this.root.addEventListener('mousemove', this.onMouseMove, { passive: false });
+    this.absoluteMouseMoveAttached = true;
+  }
+
+  private detachAbsoluteMouseMove() {
+    if (!this.absoluteMouseMoveAttached) {
+      return;
+    }
+
+    this.root.removeEventListener('mousemove', this.onMouseMove);
+    this.absoluteMouseMoveAttached = false;
+  }
+
+  private syncAbsoluteMouseMoveListener() {
+    if (this.pointerLocked) {
+      this.detachAbsoluteMouseMove();
+    } else {
+      this.attachAbsoluteMouseMove();
+    }
   }
 
   private updateButtons(event: MouseEvent, pressed: boolean) {
@@ -223,6 +257,7 @@ class RetroVmMouseBridge {
 
     if (window.__OD_RETRO_VM_TEST_MODE__) {
       this.pointerLocked = true;
+      this.syncAbsoluteMouseMoveListener();
       this.onCaptureStateChange(true);
       return;
     }
@@ -243,12 +278,14 @@ class RetroVmMouseBridge {
   async releasePointerLock() {
     if (window.__OD_RETRO_VM_TEST_MODE__) {
       this.pointerLocked = false;
+      this.syncAbsoluteMouseMoveListener();
       this.onCaptureStateChange(false);
       return;
     }
 
     if (!this.pointerLocked || document.pointerLockElement !== this.root) {
       this.pointerLocked = false;
+      this.syncAbsoluteMouseMoveListener();
       this.onCaptureStateChange(false);
       return;
     }
@@ -280,9 +317,10 @@ export class RetroVmController {
 
   private emulator: EmulatorLike | null = null;
   private state: RetroVmState = 'idle';
-  private progress: RetroVmProgress = { loadedBytes: 0, totalBytes: RETRO_VM_CONFIG.cdromSizeBytes };
+  private progress: RetroVmProgress = { loadedBytes: 0, totalBytes: null };
   private readonly support = detectRetroVmSupport();
   private bootHintTimer = 0;
+  private resizeFrameId = 0;
   private guestSize = { width: 640, height: 480 };
   private graphicalModeActive = false;
   private captureState: 'uncaptured' | 'captured' = 'uncaptured';
@@ -303,7 +341,10 @@ export class RetroVmController {
       this.setState(transitionRetroVmState(this.state, 'exit-fullscreen'));
       void this.mouseBridge.releasePointerLock();
     }
-    this.syncGuestFit();
+    this.queueGuestFitSync();
+  };
+  private readonly resizeHandler = () => {
+    this.queueGuestFitSync();
   };
   private readonly onScreenSize = (value?: unknown) => {
     const payload = Array.isArray(value) ? value : null;
@@ -339,9 +380,9 @@ export class RetroVmController {
     window.clearTimeout(this.bootHintTimer);
     void this.autoAdvanceBootMenu();
     this.bootHintTimer = window.setTimeout(() => {
-      if (this.state === 'running') {
+      if (this.state === 'running' && this.graphicalModeActive) {
         this.setVmStatusLine(
-          `The guest is running locally now. ${this.config.guestName} will finish loading its desktop after the initial boot chatter.`
+          `${this.config.guestName} is running locally. The desktop can still finish painting after the BIOS hands off.`
         );
       }
     }, this.config.bootHintDelayMs);
@@ -392,14 +433,14 @@ export class RetroVmController {
     window.addEventListener('pagehide', this.beforeUnloadHandler);
     document.addEventListener('keydown', this.keyDownHandler);
     document.addEventListener('fullscreenchange', this.fullscreenChangeHandler);
-    window.addEventListener('resize', this.fullscreenChangeHandler);
+    window.addEventListener('resize', this.resizeHandler);
 
     this.applyRuntimeLabels();
     this.screenContainer.tabIndex = 0;
     this.mouseBridge.attach();
     if (typeof ResizeObserver !== 'undefined') {
       this.resizeObserver = new ResizeObserver(() => {
-        this.syncGuestFit();
+        this.queueGuestFitSync();
       });
       this.resizeObserver.observe(this.screenContainer);
     }
@@ -495,7 +536,11 @@ export class RetroVmController {
   }
 
   private async enterFullscreen() {
-    if (!this.emulator || !document.fullscreenEnabled) {
+    if (
+      !this.emulator ||
+      !document.fullscreenEnabled ||
+      (this.state !== 'running' && this.state !== 'fullscreen')
+    ) {
       return;
     }
 
@@ -534,18 +579,23 @@ export class RetroVmController {
       return;
     }
 
-    this.setState(transitionRetroVmState(this.state, 'reset'));
-    await this.exitFullscreenIfNeeded();
-    await this.mouseBridge.releasePointerLock();
-    await this.destroySession();
-    this.placeholder.classList.remove('is-hidden');
-    this.progress = { loadedBytes: 0, totalBytes: this.config.cdromSizeBytes };
-    this.root.dataset.vmBooted = 'false';
-    this.root.dataset.vmGraphical = 'false';
-    this.graphicalModeActive = false;
-    this.setCaptureState('uncaptured');
-    this.screenContainer.innerHTML = '';
-    this.setState(transitionRetroVmState(this.state, 'reset-complete'));
+    try {
+      this.setState(transitionRetroVmState(this.state, 'reset'));
+      await this.exitFullscreenIfNeeded();
+      await this.mouseBridge.releasePointerLock();
+      await this.destroySession();
+      this.placeholder.classList.remove('is-hidden');
+      this.progress = { loadedBytes: 0, totalBytes: this.config.cdromSizeBytes };
+      this.root.dataset.vmBooted = 'false';
+      this.root.dataset.vmGraphical = 'false';
+      this.graphicalModeActive = false;
+      this.setCaptureState('uncaptured');
+      this.screenContainer.innerHTML = '';
+      this.setState(transitionRetroVmState(this.state, 'reset-complete'));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The VM could not be reset.';
+      this.setState('error', message);
+    }
   }
 
   private async destroySession() {
@@ -573,9 +623,9 @@ export class RetroVmController {
         timeout_msec: 30_000
       });
       if (menuVisible) {
-        this.dispatchEnterKey();
+        void this.dispatchEnterKey();
         window.setTimeout(() => {
-          this.dispatchEnterKey();
+          void this.dispatchEnterKey();
         }, 900);
       }
     } catch {
@@ -583,18 +633,9 @@ export class RetroVmController {
     }
   }
 
-  private dispatchEnterKey() {
-    const target = this.screenContainer;
-    target.focus();
-    const eventInit: KeyboardEventInit = {
-      key: 'Enter',
-      code: 'Enter',
-      bubbles: true,
-      cancelable: true
-    };
-    target.dispatchEvent(new KeyboardEvent('keydown', eventInit));
-    target.dispatchEvent(new KeyboardEvent('keypress', eventInit));
-    target.dispatchEvent(new KeyboardEvent('keyup', eventInit));
+  private async dispatchEnterKey() {
+    this.screenContainer.focus();
+    await this.emulator?.keyboard_send_keys([28]);
   }
 
   private syncGraphicalMode() {
@@ -648,9 +689,19 @@ export class RetroVmController {
     this.screenContainer.style.setProperty('--vm-guest-height', `${viewport.height}px`);
   }
 
+  private queueGuestFitSync() {
+    if (this.resizeFrameId) {
+      return;
+    }
+
+    this.resizeFrameId = window.requestAnimationFrame(() => {
+      this.resizeFrameId = 0;
+      this.syncGuestFit();
+    });
+  }
+
   private getBus(): RawBus | null {
-    const raw = this.emulator as unknown as { bus?: RawBus } | null;
-    return raw?.bus ?? null;
+    return this.emulator?.bus ?? null;
   }
 
   private getDefaultSupportNote() {
@@ -737,7 +788,13 @@ export class RetroVmController {
     this.progressText.textContent = view.progressText;
     this.applyRuntimeLabels();
     if (this.state !== 'error' && this.state !== 'unsupported') {
-      this.supportNote.textContent = this.getDefaultSupportNote();
+      if (this.state === 'loading' || this.state === 'resetting') {
+        this.supportNote.textContent = view.statusText;
+      } else {
+        this.supportNote.textContent = this.support.reason === 'Ready to launch.'
+          ? this.getDefaultSupportNote()
+          : this.support.reason;
+      }
     }
     const percent = this.progress.totalBytes && this.progress.totalBytes > 0
       ? Math.max(0, Math.min(100, (this.progress.loadedBytes / this.progress.totalBytes) * 100))
@@ -751,9 +808,26 @@ export class RetroVmController {
     }
     this.launchButton.disabled = !this.support.supported || Boolean(this.emulator) || this.state === 'loading' || this.state === 'fullscreen';
     this.resetButton.disabled = !this.support.supported || (!this.emulator && this.state !== 'error');
-    this.fullscreenButton.disabled = !this.emulator || !document.fullscreenEnabled;
+    this.fullscreenButton.disabled =
+      !this.emulator || !document.fullscreenEnabled || (this.state !== 'running' && this.state !== 'fullscreen');
     this.pasteButton.disabled = !this.emulator;
     this.root.dataset.vmRunning = this.emulator ? 'true' : 'false';
     this.applyInteractionStatusCopy();
+  }
+
+  dispose() {
+    window.clearTimeout(this.bootHintTimer);
+    if (this.resizeFrameId) {
+      window.cancelAnimationFrame(this.resizeFrameId);
+      this.resizeFrameId = 0;
+    }
+    window.removeEventListener('pagehide', this.beforeUnloadHandler);
+    window.removeEventListener('resize', this.resizeHandler);
+    document.removeEventListener('keydown', this.keyDownHandler);
+    document.removeEventListener('fullscreenchange', this.fullscreenChangeHandler);
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    this.mouseBridge.detach();
+    void this.destroySession();
   }
 }

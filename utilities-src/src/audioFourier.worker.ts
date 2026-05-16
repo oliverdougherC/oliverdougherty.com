@@ -112,15 +112,33 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
     assertNotCancelled(request.requestId);
 
     const envelopeBucketSampleCount = resolveEnvelopeBucketSampleCount(prepared.sampleRate);
+    postMessage({
+      type: 'audio-fourier-progress',
+      requestId: request.requestId,
+      progress: 0.96,
+      message: 'Building waveform envelopes...'
+    });
     const originalEnvelope = buildSampleEnvelope(analysis.samples, envelopeBucketSampleCount);
+    assertNotCancelled(request.requestId);
     const bandEnvelopes = buildEnergyBandEnvelopes(
       bands.bandSamples,
       bands.sampleCount,
       bands.bandCount,
       envelopeBucketSampleCount
     );
+    assertNotCancelled(request.requestId);
 
     const totalMs = now() - startedAt;
+    const bandSamplesBuffer = asArrayBuffer(bands.bandSamples.buffer);
+    const originalEnvelopeMinBuffer = asArrayBuffer(originalEnvelope.min.buffer);
+    const originalEnvelopeMaxBuffer = asArrayBuffer(originalEnvelope.max.buffer);
+    const bandEnvelopeMinBuffer = asArrayBuffer(bandEnvelopes.min.buffer);
+    const bandEnvelopeMaxBuffer = asArrayBuffer(bandEnvelopes.max.buffer);
+    const bandEndComponentCountsBuffer = asArrayBuffer(bands.bandEndComponentCounts.buffer);
+    const bandEnergyFractionsBuffer = asArrayBuffer(bands.bandEnergyFractions.buffer);
+    const componentFrequenciesBuffer = asArrayBuffer(analysis.componentFrequencies.buffer);
+    const componentAmplitudesBuffer = asArrayBuffer(analysis.componentAmplitudes.buffer);
+    const componentPhasesBuffer = asArrayBuffer(analysis.componentPhases.buffer);
 
     postMessage(
       {
@@ -151,28 +169,28 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
             total: totalMs
           }
         },
-        bandSamples: asArrayBuffer(bands.bandSamples.buffer),
-        originalEnvelopeMin: asArrayBuffer(originalEnvelope.min.buffer),
-        originalEnvelopeMax: asArrayBuffer(originalEnvelope.max.buffer),
-        bandEnvelopeMin: asArrayBuffer(bandEnvelopes.min.buffer),
-        bandEnvelopeMax: asArrayBuffer(bandEnvelopes.max.buffer),
-        bandEndComponentCounts: asArrayBuffer(bands.bandEndComponentCounts.buffer),
-        bandEnergyFractions: asArrayBuffer(bands.bandEnergyFractions.buffer),
-        componentFrequencies: asArrayBuffer(analysis.componentFrequencies.buffer),
-        componentAmplitudes: asArrayBuffer(analysis.componentAmplitudes.buffer),
-        componentPhases: asArrayBuffer(analysis.componentPhases.buffer)
+        bandSamples: bandSamplesBuffer,
+        originalEnvelopeMin: originalEnvelopeMinBuffer,
+        originalEnvelopeMax: originalEnvelopeMaxBuffer,
+        bandEnvelopeMin: bandEnvelopeMinBuffer,
+        bandEnvelopeMax: bandEnvelopeMaxBuffer,
+        bandEndComponentCounts: bandEndComponentCountsBuffer,
+        bandEnergyFractions: bandEnergyFractionsBuffer,
+        componentFrequencies: componentFrequenciesBuffer,
+        componentAmplitudes: componentAmplitudesBuffer,
+        componentPhases: componentPhasesBuffer
       },
       [
-        asArrayBuffer(bands.bandSamples.buffer),
-        asArrayBuffer(originalEnvelope.min.buffer),
-        asArrayBuffer(originalEnvelope.max.buffer),
-        asArrayBuffer(bandEnvelopes.min.buffer),
-        asArrayBuffer(bandEnvelopes.max.buffer),
-        asArrayBuffer(bands.bandEndComponentCounts.buffer),
-        asArrayBuffer(bands.bandEnergyFractions.buffer),
-        asArrayBuffer(analysis.componentFrequencies.buffer),
-        asArrayBuffer(analysis.componentAmplitudes.buffer),
-        asArrayBuffer(analysis.componentPhases.buffer)
+        bandSamplesBuffer,
+        originalEnvelopeMinBuffer,
+        originalEnvelopeMaxBuffer,
+        bandEnvelopeMinBuffer,
+        bandEnvelopeMaxBuffer,
+        bandEndComponentCountsBuffer,
+        bandEnergyFractionsBuffer,
+        componentFrequenciesBuffer,
+        componentAmplitudesBuffer,
+        componentPhasesBuffer
       ]
       // None of the above ArrayBuffers share backing stores: bands.* and envelopes are freshly allocated, and the component arrays (frequencies/amplitudes/phases) own their buffers from the analysis constructor.
     );

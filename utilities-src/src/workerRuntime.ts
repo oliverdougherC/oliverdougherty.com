@@ -14,6 +14,10 @@ function asArrayBuffer(buffer: ArrayBufferLike) {
   return buffer as ArrayBuffer;
 }
 
+function sliceArrayBufferView(view: ArrayBufferView<ArrayBufferLike>) {
+  return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer;
+}
+
 export interface PreparedBitmapResult {
   source: PreparedImageData;
   target: PreparedImageData;
@@ -42,7 +46,7 @@ function deflatePreparedImage(
   return {
     width: image.width,
     height: image.height,
-    pixels: asArrayBuffer(image.pixels.buffer),
+    pixels: sliceArrayBufferView(image.pixels),
     originalWidth,
     originalHeight,
     scaled
@@ -140,9 +144,6 @@ export function createWorkerRequestHandler(options: {
                 ? { start: 0.26, span: 0.22 }
                 : { start: 0.48, span: 0.52 };
           postProgress(stage, stageWeight.start + progress * stageWeight.span, message);
-        },
-        onProgress(completed, total) {
-          postProgress('assigning', 0.48 + (completed / total) * 0.52, `Assigning donors… ${completed}/${total}`);
         }
       });
 

@@ -195,6 +195,16 @@ describe('audio Fourier core', () => {
     expect(result.playbackSamples.length).toBe(512);
   });
 
+  it('interpolates display frames when the display has more points than the signal', () => {
+    const analysis = buildWindowedFourierAnalysis(new Float32Array([0, 10]), 2, {
+      frameSize: 2,
+      hopSize: 1,
+      displaySampleCount: 5
+    });
+
+    expectArrayCloseTo(analysis.finalDisplayFrame, [0, 2.5, 5, 7.5, 10]);
+  });
+
   it('builds analysis with only one frame when samples length is less than frameSize', () => {
     const sampleRate = 256;
     const samples = new Float32Array(32);
@@ -308,6 +318,15 @@ describe('audio Fourier core', () => {
     expectArrayCloseTo(firstOnly.max, [0.1, 0.5, 0.3]);
     expectArrayCloseTo(mixed.min, [-0.25, -0.55, -0.1]);
     expectArrayCloseTo(mixed.max, [0.3, 0.6, 0.35]);
+    expect(mixed.approximate).toBe(true);
+  });
+
+  it('keeps energy band envelope dimensions valid for zero requested bands', () => {
+    const envelopes = buildEnergyBandEnvelopes(new Float32Array([0.1, -0.2, 0.3]), 3, 0, 2);
+
+    expect(envelopes.bandCount).toBe(1);
+    expect(envelopes.min).toHaveLength(envelopes.bucketCount);
+    expect(envelopes.max).toHaveLength(envelopes.bucketCount);
   });
 
   it('visually clamps high-energy reconstruction amplitudes to the original envelope', () => {

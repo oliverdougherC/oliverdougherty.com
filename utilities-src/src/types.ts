@@ -1,3 +1,5 @@
+import type { TransformImageAnalysis } from './transformIntelligence';
+
 export type TransformPresetId = 'fast' | 'balanced' | 'detailed';
 export type TransformMatcherStrategy = 'single-optimized' | 'parallel-experimental';
 
@@ -61,6 +63,7 @@ export interface TransformComputationResult {
   source: PreparedImageData;
   target: PreparedImageData;
   assignment: Uint32Array;
+  analysis: TransformImageAnalysis;
   pixelCount: number;
   timingsMs: TransformStageTimingsMs;
   matcherStrategy: TransformMatcherStrategy;

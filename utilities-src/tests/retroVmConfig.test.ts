@@ -5,6 +5,7 @@ describe('retro VM config', () => {
     expect(RETRO_VM_CONFIG.distro).toBe('Tiny Core Linux 11');
     expect(RETRO_VM_CONFIG.guestName).toBe('Tiny Core');
     expect(RETRO_VM_CONFIG.network.enabled).toBe(false);
+    expect(RETRO_VM_CONFIG.bootOrder).toBe(0x210);
     expect(RETRO_VM_CONFIG.copy.assetLabel).toMatch(/Tiny Core Linux 11/i);
     expect(RETRO_VM_CONFIG.copy.screenBadgeOffline).toMatch(/Local only/i);
   });
@@ -34,6 +35,7 @@ describe('retro VM config', () => {
     });
     const offlineOptions = buildRetroVmV86Options(offlineConfig, screenContainer, '/vm.wasm');
     expect(offlineOptions.net_device).toBeUndefined();
+    expect(offlineOptions.boot_order).toBe(0x210);
 
     const onlineConfig = resolveRetroVmConfigFromDataset({
       vmNetworkEnabled: 'true',

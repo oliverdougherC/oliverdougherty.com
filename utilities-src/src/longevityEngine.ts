@@ -10,7 +10,7 @@ import type {
   RangeHazardBand
 } from './longevityTypes';
 
-const DAYS_PER_YEAR = 365.2425;
+export const DAYS_PER_YEAR = 365.2425;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const SURVIVAL_PERCENTILES = {
   p10: 0.9,
@@ -56,12 +56,30 @@ function interpolateAnnualHazard(entries: MortalityBaselineEntry[], ageYears: nu
 
   const lowerAge = Math.floor(ageYears);
   const upperAge = Math.min(lowerAge + 1, lastEntry.age);
-  const lowerEntry = entries.find((entry) => entry.age === lowerAge) ?? lastEntry;
-  const upperEntry = entries.find((entry) => entry.age === upperAge) ?? lastEntry;
+  const lowerEntry = findEntryByAge(entries, lowerAge) ?? lastEntry;
+  const upperEntry = findEntryByAge(entries, upperAge) ?? lastEntry;
   const factor = ageYears - lowerAge;
   const lowerHazard = Math.log(annualHazardFromQx(lowerEntry.qx));
   const upperHazard = Math.log(annualHazardFromQx(upperEntry.qx));
   return Math.exp(lerp(lowerHazard, upperHazard, factor));
+}
+
+function findEntryByAge(entries: MortalityBaselineEntry[], age: number) {
+  let low = 0;
+  let high = entries.length - 1;
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const entryAge = entries[mid].age;
+    if (entryAge === age) {
+      return entries[mid];
+    }
+    if (entryAge < age) {
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return null;
 }
 
 export function computeMortalityProjectionFactor(
@@ -83,8 +101,8 @@ export function computeMortalityProjectionFactor(
 function interpolateRemainingLifeExpectancy(entries: MortalityBaselineEntry[], ageYears: number) {
   const lowerAge = Math.floor(ageYears);
   const upperAge = Math.min(lowerAge + 1, entries[entries.length - 1].age);
-  const lowerEntry = entries.find((entry) => entry.age === lowerAge) ?? entries[entries.length - 1];
-  const upperEntry = entries.find((entry) => entry.age === upperAge) ?? entries[entries.length - 1];
+  const lowerEntry = findEntryByAge(entries, lowerAge) ?? entries[entries.length - 1];
+  const upperEntry = findEntryByAge(entries, upperAge) ?? entries[entries.length - 1];
   const factor = clamp(ageYears - lowerAge, 0, 1);
   return lerp(lowerEntry.ex, upperEntry.ex, factor);
 }
@@ -637,17 +655,13 @@ export function formatCountdown(targetTimestamp: number, nowTimestamp: number = 
     };
   }
 
-  let anchor = new Date(nowTimestamp);
   const target = new Date(targetTimestamp);
-  let years = 0;
-
-  while (true) {
-    const nextYear = addUtcYears(anchor, 1);
-    if (nextYear.getTime() > target.getTime()) {
-      break;
-    }
-    anchor = nextYear;
-    years += 1;
+  const now = new Date(nowTimestamp);
+  let years = target.getUTCFullYear() - now.getUTCFullYear();
+  let anchor = addUtcYears(now, years);
+  if (anchor.getTime() > target.getTime()) {
+    years -= 1;
+    anchor = addUtcYears(now, years);
   }
 
   let remainingMs = target.getTime() - anchor.getTime();

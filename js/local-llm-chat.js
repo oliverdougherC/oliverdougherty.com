@@ -51,6 +51,10 @@ class LocalLlmUtility {
     this._lastAssistantElement = null;
     this._workerMessageHandler = null;
     this._workerErrorHandler = null;
+    this._pagehideHandler = null;
+    this._deactivateHandler = null;
+    this._inputFrameId = 0;
+    this._lastAssistantWasInterrupted = false;
 
     this.mount();
     this.bindEvents();
@@ -153,11 +157,7 @@ class LocalLlmUtility {
         this.sendMessage();
       }
     });
-    this.input.addEventListener('input', () => {
-      this.updatePromptVisibility();
-      this.autoSizeInput();
-      this.updateCharCount();
-    });
+    this.input.addEventListener('input', () => this.queueInputChromeUpdate());
     this.input.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && (!event.shiftKey || event.ctrlKey || event.metaKey)) {
         event.preventDefault();
@@ -175,14 +175,16 @@ class LocalLlmUtility {
         this.clearModelCache();
       }
     });
-    window.addEventListener('pagehide', () => {
+    this._pagehideHandler = () => {
       this.worker?.terminate();
-    });
-    this.root.addEventListener('utility-deactivate', () => {
+    };
+    this._deactivateHandler = () => {
       if (this.status === WORKER_STATE.THINKING || this.status === WORKER_STATE.STREAMING) {
         this.interruptGeneration();
       }
-    });
+    };
+    window.addEventListener('pagehide', this._pagehideHandler);
+    this.root.addEventListener('utility-deactivate', this._deactivateHandler);
   }
 
   ensureWorker() {
@@ -212,7 +214,14 @@ class LocalLlmUtility {
   }
 
   startChat() {
-    if (this.status === WORKER_STATE.READY || this.isBusy()) return;
+    if (this.status === WORKER_STATE.READY) {
+      this.updateStatus(WORKER_STATE.READY, 'Ready. Type a message to use the local model.');
+      this.input.focus({ preventScroll: true });
+      this.renderStatePanel();
+      return;
+    }
+
+    if (this.isBusy()) return;
 
     this.progress = 0;
     this.tps = null;
@@ -415,7 +424,6 @@ class LocalLlmUtility {
     const hasMessages = this.messages.length > 0;
     const shouldShowPanel = !hasMessages || this.isBusy() || this.status === WORKER_STATE.ERROR || this.status === WORKER_STATE.UNSUPPORTED;
     this.center.hidden = !shouldShowPanel;
-    this.center.classList.toggle('local-llm-center--hidden', !shouldShowPanel);
     if (!shouldShowPanel) return;
 
     const copy = STATE_COPY[this.status] || this.root.dataset.localLlmStatusMessage || 'Working locally.';
@@ -446,6 +454,16 @@ class LocalLlmUtility {
 
   updatePromptVisibility() {
     this.readyPrompt.hidden = this.input.value.length > 0 || this.status !== WORKER_STATE.READY;
+  }
+
+  queueInputChromeUpdate() {
+    if (this._inputFrameId) return;
+    this._inputFrameId = window.requestAnimationFrame(() => {
+      this._inputFrameId = 0;
+      this.updatePromptVisibility();
+      this.autoSizeInput();
+      this.updateCharCount();
+    });
   }
 
   autoSizeInput() {
@@ -504,7 +522,7 @@ class LocalLlmUtility {
     this.updateStatus(WORKER_STATE.THINKING, 'Thinking locally.');
     this.renderStatePanel();
     this.showTypingAfterDelay();
-    this.worker.postMessage({ type: 'generate', messages: this.messages.filter((message) => message.role !== 'notice') });
+    this.worker.postMessage({ type: 'generate', messages: compactMessagesForWorker(this.messages) });
   }
 
   ensureAssistantDraft() {
@@ -534,6 +552,7 @@ class LocalLlmUtility {
       }
       this.assistantDraft = null;
       this.messages = this.trimHistory(this.messages);
+      this._lastAssistantWasInterrupted = false;
       this.renderMessages();
       this.announceLastAssistantMessage();
     }
@@ -551,6 +570,7 @@ class LocalLlmUtility {
     if (this.assistantDraft) {
       this.assistantDraft.content = cleanupModelText(this.assistantDraft.content) || 'Generation stopped.';
       this.assistantDraft = null;
+      this._lastAssistantWasInterrupted = true;
       this.renderMessages();
       this.announceLastAssistantMessage();
     }
@@ -614,7 +634,10 @@ class LocalLlmUtility {
   announceLastAssistantMessage() {
     const liveRegion = this.root.querySelector('#localLlmLiveRegion');
     const last = this.messages.filter((message) => message.role === 'assistant').pop();
-    if (liveRegion && last) liveRegion.textContent = last.content;
+    if (liveRegion && last) {
+      liveRegion.textContent = this._lastAssistantWasInterrupted ? `${last.content} (stopped)` : last.content;
+    }
+    this._lastAssistantWasInterrupted = false;
   }
 
   addSystemNotice(content) {
@@ -688,6 +711,29 @@ class LocalLlmUtility {
     this.updateProgressBar();
     this.updateStatus(WORKER_STATE.IDLE, 'Model cache reset. Start again to reload locally.');
     this.renderStatePanel();
+  }
+
+  dispose() {
+    if (this._pagehideHandler) {
+      window.removeEventListener('pagehide', this._pagehideHandler);
+      this._pagehideHandler = null;
+    }
+    if (this._deactivateHandler) {
+      this.root.removeEventListener('utility-deactivate', this._deactivateHandler);
+      this._deactivateHandler = null;
+    }
+    if (this.worker) {
+      if (this._workerMessageHandler) this.worker.removeEventListener('message', this._workerMessageHandler);
+      if (this._workerErrorHandler) this.worker.removeEventListener('error', this._workerErrorHandler);
+      this.worker.terminate();
+      this.worker = null;
+    }
+    if (this._inputFrameId) {
+      window.cancelAnimationFrame(this._inputFrameId);
+      this._inputFrameId = 0;
+    }
+    this.stopPromptCycle();
+    this.root.dataset.localLlmMounted = 'false';
   }
 }
 
@@ -814,37 +860,48 @@ function cleanupModelText(text) {
     .trim();
 }
 
+function compactMessagesForWorker(messages) {
+  return messages
+    .filter((message) => message && message.role !== 'notice' && typeof message.content === 'string')
+    .map((message) => ({
+      role: message.role === 'assistant' ? 'assistant' : 'user',
+      content: cleanupModelText(message.content).slice(0, LOCAL_LLM_CONFIG.limits.maxMessageChars)
+    }))
+    .filter((message) => message.content.trim());
+}
+
 function renderSafeText(markdown) {
   const source = cleanupModelText(markdown);
   if (!source) return '';
 
   const blocks = source.split(/\n{2,}/).map((rawBlock) => {
-    const block = escapeHtml(rawBlock);
     if (/^```/.test(rawBlock.trim())) {
-      return `<pre><code>${block.replace(/^```[a-z0-9-]*\n?/i, '').replace(/```$/i, '')}</code></pre>`;
+      const code = rawBlock.trim().replace(/^```[^\r\n]*(?:\r?\n)?/, '').replace(/(?:\r?\n)?```$/, '');
+      return `<pre><code>${escapeHtml(code)}</code></pre>`;
     }
 
+    const block = escapeHtml(rawBlock);
     if (/^\s*[-*]\s/m.test(rawBlock)) {
-      const items = block
+      const items = rawBlock
         .split(/\n/)
         .filter((line) => /^\s*[-*]\s/.test(line))
-        .map((line) => `<li>${line.replace(/^\s*[-*]\s*/, '')}</li>`)
+        .map((line) => `<li>${escapeHtml(line.replace(/^\s*[-*]\s*/, ''))}</li>`)
         .join('');
-      return `<ul>${items}</ul>`;
+      if (items) return `<ul>${items}</ul>`;
     }
 
     if (/^\s*\d+\.\s/m.test(rawBlock)) {
-      const items = block
+      const items = rawBlock
         .split(/\n/)
         .filter((line) => /^\s*\d+\.\s/.test(line))
-        .map((line) => `<li>${line.replace(/^\s*\d+\.\s*/, '')}</li>`)
+        .map((line) => `<li>${escapeHtml(line.replace(/^\s*\d+\.\s*/, ''))}</li>`)
         .join('');
-      return `<ol>${items}</ol>`;
+      if (items) return `<ol>${items}</ol>`;
     }
 
     const inline = block
       .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
       .replace(/~~([^~]+)~~/g, '<del>$1</del>')
       .replace(/\n/g, '<br>');
 
@@ -855,6 +912,7 @@ function renderSafeText(markdown) {
 }
 
 function escapeHtml(value) {
+  // Backticks are intentionally left literal so inline-code markdown can be parsed after escaping.
   return String(value || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

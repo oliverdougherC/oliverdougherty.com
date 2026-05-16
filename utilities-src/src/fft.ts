@@ -57,14 +57,12 @@ export function fftInto(
   for (let blockSize = 2; blockSize <= size; blockSize <<= 1) {
     const halfBlockSize = blockSize >> 1;
     const angleStep = (inverse ? 2 : -2) * Math.PI / blockSize;
-    const stepReal = Math.cos(angleStep);
-    const stepImag = Math.sin(angleStep);
 
     for (let blockStart = 0; blockStart < size; blockStart += blockSize) {
-      let rotationReal = 1;
-      let rotationImag = 0;
-
       for (let offset = 0; offset < halfBlockSize; offset += 1) {
+        const angle = angleStep * offset;
+        const rotationReal = Math.cos(angle);
+        const rotationImag = Math.sin(angle);
         const left = blockStart + offset;
         const right = left + halfBlockSize;
         const rightReal = real[right] * rotationReal - imag[right] * rotationImag;
@@ -74,10 +72,6 @@ export function fftInto(
         imag[right] = imag[left] - rightImag;
         real[left] += rightReal;
         imag[left] += rightImag;
-
-        const nextRotationReal = rotationReal * stepReal - rotationImag * stepImag;
-        rotationImag = rotationReal * stepImag + rotationImag * stepReal;
-        rotationReal = nextRotationReal;
       }
     }
   }

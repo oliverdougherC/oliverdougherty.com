@@ -12,7 +12,6 @@ import {
 import {
   createTransformAnimationState,
   renderTransformAnimationPixels,
-  resolveAccentParticlesFrame,
   type TransformAnimationState
 } from './transformAnimation';
 import { resolveOutputDimensions, transformPreparedImages } from './transformCore';
@@ -1128,10 +1127,14 @@ class UtilitiesApp {
       return;
     }
 
+    if (!this.animationFramePixels || this.animationFramePixels.length !== this.animationState.finalPixels.length) {
+      this.animationFramePixels = new Uint8ClampedArray(this.animationState.finalPixels.length);
+    }
+
     const framePixels = renderTransformAnimationPixels(
       this.animationState,
       phase,
-      this.animationFramePixels ?? undefined
+      this.animationFramePixels
     );
     const imageDataPixels =
       framePixels.buffer instanceof ArrayBuffer ? framePixels : new Uint8ClampedArray(framePixels);
@@ -1142,19 +1145,6 @@ class UtilitiesApp {
     );
 
     this.overlayContext.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
-
-    for (const particle of resolveAccentParticlesFrame(this.animationState, phase)) {
-      this.overlayContext.save();
-      this.overlayContext.globalAlpha = particle.alpha;
-      this.overlayContext.fillStyle = particle.color;
-      this.overlayContext.fillRect(
-        Math.round(particle.x - particle.size / 2),
-        Math.round(particle.y - particle.size / 2),
-        particle.size,
-        particle.size
-      );
-      this.overlayContext.restore();
-    }
   }
 
   private handlePlaybackButton() {
@@ -1334,10 +1324,16 @@ class UtilitiesApp {
       throw new Error('Unable to create a canvas for image preparation.');
     }
 
+    const scale = Math.max(width / bitmap.width, height / bitmap.height);
+    const drawnWidth = bitmap.width * scale;
+    const drawnHeight = bitmap.height * scale;
+    const drawnX = (width - drawnWidth) / 2;
+    const drawnY = (height - drawnHeight) / 2;
+
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = 'high';
     context.clearRect(0, 0, width, height);
-    context.drawImage(bitmap, 0, 0, width, height);
+    context.drawImage(bitmap, drawnX, drawnY, drawnWidth, drawnHeight);
     const imageData = context.getImageData(0, 0, width, height);
 
     return {

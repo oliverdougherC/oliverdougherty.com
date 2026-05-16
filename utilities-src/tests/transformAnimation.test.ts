@@ -1,8 +1,7 @@
 import { getPreset } from '@utilities/presets';
 import {
   createTransformAnimationState,
-  renderTransformAnimationPixels,
-  resolveAccentParticlesFrame
+  renderTransformAnimationPixels
 } from '@utilities/transformAnimation';
 import { buildTransformRenderPlan } from '@utilities/transformRenderPlan';
 import { transformPreparedImages } from '@utilities/transformCore';
@@ -47,6 +46,10 @@ function totalAbsoluteDifference(left: Uint8ClampedArray, right: Uint8ClampedArr
   return difference;
 }
 
+function renderFrame(state: ReturnType<typeof createTransformAnimationState>, phase: number) {
+  return renderTransformAnimationPixels(state, phase, new Uint8ClampedArray(state.finalPixels.length));
+}
+
 describe('transform animation', () => {
   it('starts from the source image and ends on the final reconstruction', () => {
     const source = imageFromRgbTriples(
@@ -84,8 +87,8 @@ describe('transform animation', () => {
       preset: getPreset('fast')
     });
 
-    expect(Array.from(renderTransformAnimationPixels(state, 0))).toEqual(Array.from(source.pixels));
-    expect(Array.from(renderTransformAnimationPixels(state, 1))).toEqual(Array.from(finalPixels));
+    expect(Array.from(renderFrame(state, 0))).toEqual(Array.from(source.pixels));
+    expect(Array.from(renderFrame(state, 1))).toEqual(Array.from(finalPixels));
   });
 
   it('reveals the final arrangement before the animation completes', () => {
@@ -114,7 +117,7 @@ describe('transform animation', () => {
       preset: getPreset('fast')
     });
 
-    const midFrame = renderTransformAnimationPixels(state, 0.75);
+    const midFrame = renderFrame(state, 0.75);
     const matchingSourcePixels = countMatchingPixels(midFrame, source.pixels);
     const differenceToSource = totalAbsoluteDifference(midFrame, source.pixels);
     const differenceToFinal = totalAbsoluteDifference(midFrame, finalPixels);
@@ -150,7 +153,7 @@ describe('transform animation', () => {
       preset: getPreset('fast')
     });
 
-    const lateFrame = renderTransformAnimationPixels(state, 0.92);
+    const lateFrame = renderFrame(state, 0.92);
 
     expect(totalAbsoluteDifference(lateFrame, finalPixels)).toBeGreaterThan(0);
     expect(totalAbsoluteDifference(lateFrame, source.pixels)).toBeGreaterThan(0);
@@ -186,12 +189,12 @@ describe('transform animation', () => {
     });
 
     for (const phase of [0.85, 0.88, 0.9, 0.92, 0.95, 0.98]) {
-      const frame = renderTransformAnimationPixels(state, phase);
+      const frame = renderFrame(state, phase);
       expect(totalAbsoluteDifference(frame, finalPixels)).toBeGreaterThan(0);
     }
   });
 
-  it('does not rely on a separate accent-particle overlay', () => {
+  it('requires callers to reuse the destination frame buffer', () => {
     const source = imageFromRgbTriples(
       [
         [255, 0, 0],
@@ -226,8 +229,15 @@ describe('transform animation', () => {
       preset: getPreset('fast')
     });
 
-    expect(state.accentParticles).toEqual([]);
-    expect(resolveAccentParticlesFrame(state, 0.7)).toEqual([]);
+    const frameBuffer = new Uint8ClampedArray(renderPlan.finalPixels.length);
+    const firstFrame = renderTransformAnimationPixels(state, 0.25, frameBuffer);
+    const secondFrame = renderTransformAnimationPixels(state, 0.7, frameBuffer);
+
+    expect(firstFrame).toBe(frameBuffer);
+    expect(secondFrame).toBe(frameBuffer);
+    expect(() => renderTransformAnimationPixels(state, 0.5, new Uint8ClampedArray(1))).toThrow(
+      'Animation destination buffer'
+    );
   });
 
   it('tints cheated pixels toward the arrival color during flight', () => {
@@ -265,8 +275,8 @@ describe('transform animation', () => {
       preset: getPreset('fast')
     });
 
-    const midFlight = renderTransformAnimationPixels(state, 0.55);
-    const lateFlight = renderTransformAnimationPixels(state, 0.9);
+    const midFlight = renderFrame(state, 0.55);
+    const lateFlight = renderFrame(state, 0.9);
 
     expect(totalAbsoluteDifference(midFlight, source.pixels)).toBeGreaterThan(0);
     expect(totalAbsoluteDifference(lateFlight, renderPlan.finalPixels)).toBeLessThan(

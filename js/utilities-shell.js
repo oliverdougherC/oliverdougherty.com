@@ -66,7 +66,11 @@
       script.src = '../../js/local-llm-chat.js?v=utilities-2026-05-06b';
       script.dataset.localLlmChat = 'true';
       script.onload = function() { resolve(); };
-      script.onerror = function() { reject(new Error('Unable to load Local Assistant.')); };
+      script.onerror = function() {
+        localAssistantScriptPromise = null;
+        script.remove();
+        reject(new Error('Unable to load Local Assistant.'));
+      };
       document.body.appendChild(script);
     });
     return localAssistantScriptPromise;

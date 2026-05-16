@@ -13,6 +13,24 @@ export class TransformError extends Error {
   }
 }
 
+export class TransformDimensionMismatchError extends TransformError {
+  readonly sourceWidth: number;
+  readonly sourceHeight: number;
+  readonly targetWidth: number;
+  readonly targetHeight: number;
+
+  constructor(source: PreparedImageData, target: PreparedImageData) {
+    super(
+      `Source and target working dimensions must match. Source is ${source.width}x${source.height}; target is ${target.width}x${target.height}.`
+    );
+    this.name = 'TransformDimensionMismatchError';
+    this.sourceWidth = source.width;
+    this.sourceHeight = source.height;
+    this.targetWidth = target.width;
+    this.targetHeight = target.height;
+  }
+}
+
 export interface TransformHooks {
   onProgress?: (completed: number, total: number) => void;
   onStageProgress?: (
@@ -238,10 +256,7 @@ function buildGroupedDonorState(
       bucketGroups.set(quantizedBucketKey, [groupIndex]);
     }
 
-    donors.sort((left, right) => {
-      const delta = usefulnessBySource[left] - usefulnessBySource[right];
-      return delta === 0 ? left - right : delta;
-    });
+    sortDonorsByUsefulness(donors, usefulnessBySource);
 
     groupRgbValues[groupIndex] = rgb;
     groupNearWhiteByGroup[groupIndex] = nearWhiteBySource[donors[0]] ?? 0;
@@ -276,9 +291,42 @@ function buildGroupedDonorState(
   };
 }
 
+function compareDonorsByUsefulness(
+  left: number,
+  right: number,
+  usefulnessBySource: Float32Array
+) {
+  const delta = usefulnessBySource[left] - usefulnessBySource[right];
+  return delta === 0 ? left - right : delta;
+}
+
+function sortDonorsByUsefulness(donors: number[], usefulnessBySource: Float32Array) {
+  if (donors.length <= 32) {
+    for (let index = 1; index < donors.length; index += 1) {
+      const donor = donors[index];
+      let insertionIndex = index - 1;
+      while (
+        insertionIndex >= 0 &&
+        compareDonorsByUsefulness(donors[insertionIndex], donor, usefulnessBySource) > 0
+      ) {
+        donors[insertionIndex + 1] = donors[insertionIndex];
+        insertionIndex -= 1;
+      }
+      donors[insertionIndex + 1] = donor;
+    }
+    return;
+  }
+
+  donors.sort((left, right) => compareDonorsByUsefulness(left, right, usefulnessBySource));
+}
+
 function validateMatchingInputs(sourcePacked: Uint32Array, targetPacked: Uint32Array, quantizationBits: number) {
   if (sourcePacked.length !== targetPacked.length) {
     throw new TransformError('Source and target images must have the same pixel count.');
+  }
+
+  if (sourcePacked.length === 0) {
+    throw new TransformError('Images must contain at least one pixel.');
   }
 
   if (quantizationBits < 4 || quantizationBits > 8) {
@@ -301,15 +349,47 @@ function forEachShellBucket(
   const blueMin = Math.max(0, centerBlue - radius);
   const blueMax = Math.min(bucketCount - 1, centerBlue + radius);
 
-  for (let red = redMin; red <= redMax; red += 1) {
+  if (radius === 0) {
+    callback((centerRed << 16) | (centerGreen << 8) | centerBlue);
+    return;
+  }
+
+  const redFaces = [centerRed - radius, centerRed + radius].filter(
+    (red) => red >= 0 && red < bucketCount
+  );
+  const greenFaces = [centerGreen - radius, centerGreen + radius].filter(
+    (green) => green >= 0 && green < bucketCount
+  );
+  const blueFaces = [centerBlue - radius, centerBlue + radius].filter(
+    (blue) => blue >= 0 && blue < bucketCount
+  );
+
+  for (const red of redFaces) {
     for (let green = greenMin; green <= greenMax; green += 1) {
       for (let blue = blueMin; blue <= blueMax; blue += 1) {
-        const shellDistance = Math.max(
-          Math.abs(red - centerRed),
-          Math.abs(green - centerGreen),
-          Math.abs(blue - centerBlue)
-        );
-        if (shellDistance !== radius) {
+        callback((red << 16) | (green << 8) | blue);
+      }
+    }
+  }
+
+  for (const green of greenFaces) {
+    for (let red = redMin; red <= redMax; red += 1) {
+      if (Math.abs(red - centerRed) === radius) {
+        continue;
+      }
+      for (let blue = blueMin; blue <= blueMax; blue += 1) {
+        callback((red << 16) | (green << 8) | blue);
+      }
+    }
+  }
+
+  for (const blue of blueFaces) {
+    for (let red = redMin; red <= redMax; red += 1) {
+      if (Math.abs(red - centerRed) === radius) {
+        continue;
+      }
+      for (let green = greenMin; green <= greenMax; green += 1) {
+        if (Math.abs(green - centerGreen) === radius) {
           continue;
         }
         callback((red << 16) | (green << 8) | blue);
@@ -549,7 +629,7 @@ export function findBestAvailableSourceIndex(
   let bestIndex = -1;
   let bestDistance = Number.POSITIVE_INFINITY;
 
-  for (let radius = 0; radius < context.bucketCount && bestIndex === -1; radius += 1) {
+  for (let radius = 0; radius < context.bucketCount; radius += 1) {
     forEachShellBucket(centerRed, centerGreen, centerBlue, radius, context.bucketCount, (key) => {
       const candidates = context.buckets.get(key);
       if (!candidates) {
@@ -709,7 +789,7 @@ function findBestGroupedSourceIndex(
       }
     }
   } else {
-    for (let radius = 0; radius < context.bucketCount && bestIndex === -1; radius += 1) {
+    for (let radius = 0; radius < context.bucketCount; radius += 1) {
       forEachShellBucket(centerRed, centerGreen, centerBlue, radius, context.bucketCount, (key) => {
         const bucketIndex = context.bucketEntryIndexByKey.get(key);
         if (bucketIndex === undefined) {
@@ -929,14 +1009,16 @@ function computePackedPixelAssignment(
 }
 
 export function mergeRankedCandidatesIntoAssignment(
-  context: MatchingSearchContext,
+  context: MatchingSearchContext | { sourceLength: number; targetLength: number },
   targetOrder: Uint32Array,
   rankedCandidatesByTarget: Array<RankedCandidate[] | undefined>,
   hooks?: TransformHooks
 ) {
-  const assignment = new Uint32Array(context.targetPacked.length);
-  const used = new Uint8Array(context.sourcePacked.length);
-  const freeList = createFreeList(context.sourcePacked.length);
+  const sourceLength = 'sourcePacked' in context ? context.sourcePacked.length : context.sourceLength;
+  const targetLength = 'targetPacked' in context ? context.targetPacked.length : context.targetLength;
+  const assignment = new Uint32Array(targetLength);
+  const used = new Uint8Array(sourceLength);
+  const freeList = createFreeList(sourceLength);
   let shortlistHitCount = 0;
   let fallbackCount = 0;
 
@@ -1027,7 +1109,7 @@ export function transformPreparedImages(
   hooks?: TransformHooks
 ): TransformComputationResult {
   if (source.width !== target.width || source.height !== target.height) {
-    throw new TransformError('Source and target working dimensions must match.');
+    throw new TransformDimensionMismatchError(source, target);
   }
 
   const totalStartedAt = nowMs();
@@ -1060,6 +1142,7 @@ export function transformPreparedImages(
     source,
     target,
     assignment: packedMatch.assignment,
+    analysis,
     pixelCount: packedMatch.assignment.length,
     timingsMs,
     matcherStrategy: 'single-optimized',

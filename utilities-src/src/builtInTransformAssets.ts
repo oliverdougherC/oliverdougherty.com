@@ -1,22 +1,19 @@
+import { TRANSFORM_DEMO_ASSET_URLS } from './uiState';
+
 function createCacheKey(presetId: string, sourceUrl: string, targetUrl: string) {
   return `${presetId}::${sourceUrl}::${targetUrl}`;
 }
 
-const PATTERN_URL = '../../assets/utilities/image-transform/pattern.png';
-const FACE_URL = '../../assets/utilities/image-transform/face.png';
-const LUCKI_URL = '../../assets/utilities/image-transform/lucki.jpeg';
-const KEEF_URL = '../../assets/utilities/image-transform/keef.jpeg';
-
 export const PRECOMPUTED_BUILT_IN_TRANSFORM_ASSETS: Record<string, string> = {
-  [createCacheKey('balanced', PATTERN_URL, FACE_URL)]: new URL(
+  [createCacheKey('balanced', TRANSFORM_DEMO_ASSET_URLS.pattern, TRANSFORM_DEMO_ASSET_URLS.face)]: new URL(
     './data/precomputed-transforms/pattern-face-balanced.json',
     import.meta.url
   ).href,
-  [createCacheKey('balanced', PATTERN_URL, LUCKI_URL)]: new URL(
+  [createCacheKey('balanced', TRANSFORM_DEMO_ASSET_URLS.pattern, TRANSFORM_DEMO_ASSET_URLS.lucki)]: new URL(
     './data/precomputed-transforms/source-target-balanced.json',
     import.meta.url
   ).href,
-  [createCacheKey('balanced', PATTERN_URL, KEEF_URL)]: new URL(
+  [createCacheKey('balanced', TRANSFORM_DEMO_ASSET_URLS.pattern, TRANSFORM_DEMO_ASSET_URLS.keef)]: new URL(
     './data/precomputed-transforms/face-pattern-balanced.json',
     import.meta.url
   ).href

@@ -52,6 +52,16 @@ describe('audio playback UI state', () => {
         elapsedSeconds: 1,
         isComplete: true,
       })
-    ).toEqual({ icon: '\u25b6', label: 'Replay' });
+    ).toEqual({ icon: '\u21bb', label: 'Replay' });
+
+    expect(
+      resolveAudioPlaybackButtonState({
+        hasResult: true,
+        isProcessing: false,
+        isPlaying: true,
+        elapsedSeconds: 1,
+        isComplete: false,
+      })
+    ).toEqual({ icon: '\u23f8', label: 'Play' });
   });
 });

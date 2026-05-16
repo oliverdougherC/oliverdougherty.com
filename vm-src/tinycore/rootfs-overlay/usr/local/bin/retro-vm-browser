@@ -1,2 +1,16 @@
 #!/bin/sh
-exec aterm -title "Retro Browser Slot" -geometry 92x24+52+96 -e /bin/sh -lc 'clear; cat /usr/local/share/retro-vm/browser.txt; printf "\n"; exec sh'
+TITLE="Retro Browser Slot"
+GEOMETRY="92x24+52+96"
+COMMAND='clear; cat /usr/local/share/retro-vm/browser.txt; printf "\n"; exec sh'
+
+if command -v aterm >/dev/null 2>&1; then
+  exec aterm -title "$TITLE" -geometry "$GEOMETRY" -e /bin/sh -lc "$COMMAND"
+fi
+
+if command -v xterm >/dev/null 2>&1; then
+  exec xterm -title "$TITLE" -geometry "$GEOMETRY" -e /bin/sh -lc "$COMMAND"
+fi
+
+clear
+cat /usr/local/share/retro-vm/browser.txt
+printf "\nInstall aterm or xterm to open this note in its own window.\n"

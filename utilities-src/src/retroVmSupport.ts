@@ -17,6 +17,8 @@ export function detectRetroVmSupport(input: {
   hasDocument?: boolean;
   hasWebAssembly?: boolean;
   hasWorker?: boolean;
+  hasFullscreen?: boolean;
+  hasPointerLock?: boolean;
   innerWidth?: number;
   maxTouchPoints?: number;
   matchMedia?: (query: string) => MediaQueryList;
@@ -25,6 +27,12 @@ export function detectRetroVmSupport(input: {
   const hasDocument = input.hasDocument ?? typeof document !== 'undefined';
   const hasWebAssembly = input.hasWebAssembly ?? typeof WebAssembly !== 'undefined';
   const hasWorker = input.hasWorker ?? typeof Worker !== 'undefined';
+  const requestPointerLock =
+    typeof HTMLElement !== 'undefined' ? HTMLElement.prototype.requestPointerLock : undefined;
+  const hasFullscreen =
+    input.hasFullscreen ??
+    (hasDocument && typeof document.fullscreenEnabled === 'boolean' ? document.fullscreenEnabled : false);
+  const hasPointerLock = input.hasPointerLock ?? typeof requestPointerLock === 'function';
   const innerWidth = input.innerWidth ?? (hasWindow ? window.innerWidth : 0);
   const maxTouchPoints = input.maxTouchPoints ?? (hasWindow ? navigator.maxTouchPoints : 0);
   const matchMediaImpl = input.matchMedia ?? (hasWindow ? window.matchMedia.bind(window) : undefined);
@@ -37,7 +45,9 @@ export function detectRetroVmSupport(input: {
     return {
       supported: false,
       reason: 'This VM needs a normal browser window to initialize.',
-      isMobileLike: false
+      isMobileLike: false,
+      hasFullscreen: false,
+      hasPointerLock: false
     };
   }
 
@@ -45,7 +55,9 @@ export function detectRetroVmSupport(input: {
     return {
       supported: false,
       reason: 'Your browser is missing the WebAssembly or worker features this emulator needs.',
-      isMobileLike
+      isMobileLike,
+      hasFullscreen,
+      hasPointerLock
     };
   }
 
@@ -53,14 +65,26 @@ export function detectRetroVmSupport(input: {
     return {
       supported: false,
       reason: 'The retro VM is desktop-first in v1. Use a keyboard-and-mouse browser window for the full experience.',
-      isMobileLike: true
+      isMobileLike: true,
+      hasFullscreen,
+      hasPointerLock
     };
+  }
+
+  const degradedReasons: string[] = [];
+  if (!hasFullscreen) {
+    degradedReasons.push('Fullscreen is unavailable, so use the embedded viewport.');
+  }
+  if (!hasPointerLock) {
+    degradedReasons.push('Pointer lock is unavailable, so mouse capture falls back to absolute positioning.');
   }
 
   return {
     supported: true,
-    reason: 'Ready to launch.',
-    isMobileLike: false
+    reason: degradedReasons.length > 0 ? `Ready to launch. ${degradedReasons.join(' ')}` : 'Ready to launch.',
+    isMobileLike: false,
+    hasFullscreen,
+    hasPointerLock
   };
 }
 

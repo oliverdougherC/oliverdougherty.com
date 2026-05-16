@@ -1479,7 +1479,7 @@ async function main() {
     assert(/80% signal energy/.test(generatedReadyState.componentReadout), 'Audio Fourier midpoint should land near the auditory midpoint.');
     assert(generatedReadyState.signalStrength === '80%', 'Audio Fourier signal strength card should show the midpoint energy.');
     assert(/\d[\d,]* \/ \d[\d,]*/.test(generatedReadyState.signalCount), 'Audio Fourier signal count card should show active and total signals.');
-    assert(generatedReadyState.playText === '▶', 'Audio Fourier play control should remain icon-only.');
+    assert(generatedReadyState.playText === '⏸', 'Audio Fourier play control should remain icon-only and show pause while playing.');
     assert(generatedReadyState.playLabel === 'Play', 'Audio Fourier play control should expose an accessible Play label while playing.');
     assert(generatedReadyState.telemetry.requestId, 'Audio Fourier telemetry should include the completed request id.');
     assert(generatedReadyState.telemetry.totalMs > 0, 'Audio Fourier telemetry should include total processing time.');
@@ -1965,6 +1965,13 @@ async function main() {
     await page.click('#deathNextBtn');
 
     await page.check('#deathHasHypertension');
+    await page.click('#deathNextBtn');
+
+    await page.fill('#deathSystolicBloodPressure', '122');
+    await page.fill('#deathDiastolicBloodPressure', '78');
+    await page.fill('#deathTotalCholesterol', '185');
+    await page.fill('#deathHdlCholesterol', '58');
+    await page.fill('#deathRestingHeartRate', '64');
     await page.click('#deathNextBtn');
 
     await page.selectOption('#deathDiabetesStatus', 'prediabetes');

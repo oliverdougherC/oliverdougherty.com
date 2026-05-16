@@ -8,10 +8,6 @@ let loadPromise = null;
 let state = WORKER_STATE.IDLE;
 let activeGeneration = 0;
 
-for (const method of ['debug', 'info']) {
-  self.console[method] = () => {};
-}
-
 self.addEventListener('message', (event) => {
   const message = event.data || {};
 
@@ -87,15 +83,20 @@ async function loadModelInternal() {
   stoppingCriteria = new InterruptableStoppingCriteria();
 
   setState(WORKER_STATE.LOADING, `Downloading ${LOCAL_LLM_CONFIG.model.displayName}.`);
-  generator = await pipeline('text-generation', LOCAL_LLM_CONFIG.model.id, {
-    device: LOCAL_LLM_CONFIG.runtime.device,
-    dtype: LOCAL_LLM_CONFIG.runtime.dtype,
-    progress_callback: postTransformersProgress
-  });
+  const restoreConsole = suppressConsoleNoise();
+  try {
+    generator = await pipeline('text-generation', LOCAL_LLM_CONFIG.model.id, {
+      device: LOCAL_LLM_CONFIG.runtime.device,
+      dtype: LOCAL_LLM_CONFIG.runtime.dtype,
+      progress_callback: postTransformersProgress
+    });
 
-  setState(WORKER_STATE.OPTIMIZING, 'Optimizing Bonsai for WebGPU execution.');
-  const warmupInputs = generator.tokenizer('a');
-  await generator.model.generate({ ...warmupInputs, max_new_tokens: 1 });
+    setState(WORKER_STATE.OPTIMIZING, 'Optimizing Bonsai for WebGPU execution.');
+    const warmupInputs = generator.tokenizer('a');
+    await generator.model.generate({ ...warmupInputs, max_new_tokens: 1 });
+  } finally {
+    restoreConsole();
+  }
 
   postReady();
 }
@@ -310,6 +311,19 @@ function configureTransformers(module) {
   env.useBrowserCache = true;
 }
 
+function suppressConsoleNoise() {
+  const original = {
+    debug: self.console.debug,
+    info: self.console.info
+  };
+  self.console.debug = () => {};
+  self.console.info = () => {};
+  return () => {
+    self.console.debug = original.debug;
+    self.console.info = original.info;
+  };
+}
+
 function postTransformersProgress(progress) {
   const percent = Number.isFinite(progress?.progress)
     ? Math.max(0, Math.min(99, Number(progress.progress)))
@@ -320,7 +334,7 @@ function postTransformersProgress(progress) {
 
   postMessage({
     type: 'progress',
-    state: normalized === 'loading' ? WORKER_STATE.OPTIMIZING : WORKER_STATE.LOADING,
+    state: normalized === 'downloading' ? WORKER_STATE.LOADING : WORKER_STATE.OPTIMIZING,
     runtime: LOCAL_LLM_CONFIG.runtime.name,
     file: typeof progress?.file === 'string' ? progress.file : LOCAL_LLM_CONFIG.model.id,
     progress: percent,

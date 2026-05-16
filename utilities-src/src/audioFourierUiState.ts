@@ -19,7 +19,7 @@ export function resolveAudioPlaybackButtonLabel(options: {
 export function resolveAudioPlaybackButtonState(options: Parameters<typeof resolveAudioPlaybackButtonLabel>[0]) {
   const label = resolveAudioPlaybackButtonLabel(options);
   return {
-    icon: '\u25b6',
+    icon: options.isPlaying ? '\u23f8' : options.isComplete ? '\u21bb' : '\u25b6',
     label
   };
 }

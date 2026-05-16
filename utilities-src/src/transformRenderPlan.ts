@@ -1,4 +1,4 @@
-import { analyzeTransformImages, weightedRgbDistance } from './transformIntelligence';
+import { analyzeTransformImages, weightedRgbDistance, type TransformImageAnalysis } from './transformIntelligence';
 import { packRgbPixels } from './transformCore';
 import type { PreparedImageData } from './types';
 
@@ -20,9 +20,9 @@ export function buildTransformRenderPlan(
   source: PreparedImageData,
   target: PreparedImageData,
   assignment: Uint32Array,
-  quantizationBits: number
+  quantizationBits: number,
+  analysis: TransformImageAnalysis = analyzeTransformImages(source, target, quantizationBits)
 ): TransformRenderPlan {
-  const analysis = analyzeTransformImages(source, target, quantizationBits);
   const sourcePacked = packRgbPixels(source.pixels);
   const targetPacked = packRgbPixels(target.pixels);
   const finalPixels = new Uint8ClampedArray(target.pixels.length);

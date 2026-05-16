@@ -11,10 +11,6 @@ export interface TransformAnimationInput {
   preset: TransformPreset;
 }
 
-export interface MotionAccentParticle {
-  size: number;
-}
-
 export interface TransformAnimationState {
   width: number;
   height: number;
@@ -23,20 +19,11 @@ export interface TransformAnimationState {
   targetIndexBySource: Uint32Array;
   tintStrengthBySource: Float32Array;
   cheatedTargetPixels: Uint8Array;
-  accentParticles: MotionAccentParticle[];
   positionPriorityScratch: Float32Array;
   sourceXBySource: Uint16Array;
   sourceYBySource: Uint16Array;
   targetXBySource: Uint16Array;
   targetYBySource: Uint16Array;
-}
-
-export interface AccentParticleFrame {
-  color: string;
-  x: number;
-  y: number;
-  alpha: number;
-  size: number;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -103,7 +90,6 @@ export function createTransformAnimationState(input: TransformAnimationInput): T
     targetIndexBySource,
     tintStrengthBySource: buildTintStrengthBySource(targetIndexBySource, input.tintStrengthByTarget),
     cheatedTargetPixels: input.cheatedTargetPixels,
-    accentParticles: [],
     positionPriorityScratch: new Float32Array(input.assignment.length),
     sourceXBySource,
     sourceYBySource,
@@ -115,8 +101,12 @@ export function createTransformAnimationState(input: TransformAnimationInput): T
 export function renderTransformAnimationPixels(
   state: TransformAnimationState,
   phase: number,
-  destination: Uint8ClampedArray<ArrayBufferLike> = new Uint8ClampedArray(state.finalPixels.length)
+  destination: Uint8ClampedArray<ArrayBufferLike>
 ) {
+  if (destination.length !== state.finalPixels.length) {
+    throw new Error('Animation destination buffer must match the final pixel buffer length.');
+  }
+
   const resolvedPhase = clamp(phase, 0, 1);
 
   if (resolvedPhase <= 0) {
@@ -146,7 +136,12 @@ export function renderTransformAnimationPixels(
     const boundedX = clamp(currentX, 0, state.width - 1);
     const boundedY = clamp(currentY, 0, state.height - 1);
     const destinationIndex = boundedY * state.width + boundedX;
-    const drawPriority = resolvedPhase + (sourceIndex === targetIndex ? 0.001 : 0);
+    const travelDistance = Math.abs(targetX - sourceX) + Math.abs(targetY - sourceY);
+    const drawPriority =
+      (sourceIndex === targetIndex ? 4 : 0) +
+      1 / (travelDistance + 1) +
+      state.tintStrengthBySource[sourceIndex] * 0.01 +
+      sourceIndex / (state.targetIndexBySource.length * 1_000_000);
 
     if (drawPriority < state.positionPriorityScratch[destinationIndex]) {
       continue;
@@ -175,8 +170,4 @@ export function renderTransformAnimationPixels(
   }
 
   return destination;
-}
-
-export function resolveAccentParticlesFrame(_state: TransformAnimationState, _phase: number): AccentParticleFrame[] {
-  return [];
 }

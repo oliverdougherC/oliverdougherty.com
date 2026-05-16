@@ -1,6 +1,5 @@
 import type { TransformImageAnalysis } from './transformIntelligence';
 import {
-  createMatchingSearchContext,
   mergeRankedCandidatesIntoAssignment,
   type RankedCandidate,
   type TransformHooks
@@ -10,6 +9,7 @@ import type { MatchingWorkerRequest, MatchingWorkerResponse } from './matchingWo
 export const PARALLEL_MATCH_MIN_PIXELS = 160_000;
 export const PARALLEL_MATCH_CANDIDATE_LIMIT = 8;
 const PARALLEL_MATCH_MAX_WORKERS = 8;
+const DEFAULT_RANKING_WORKER_TIMEOUT_MS = 30_000;
 export const EXPERIMENTAL_PARALLEL_MATCHER_ENABLED = false;
 
 export interface MatchingWorkerLike {
@@ -40,6 +40,7 @@ export interface ParallelMatchRequest {
   analysis: TransformImageAnalysis;
   createWorker: () => MatchingWorkerLike;
   workerCount: number;
+  workerTimeoutMs?: number;
   hooks?: ParallelMatchProgressHooks;
 }
 
@@ -84,11 +85,27 @@ function splitTargetOrderIntoChunks(targetOrder: Uint32Array, workerCount: numbe
 
 function runRankingWorker(
   createWorker: () => MatchingWorkerLike,
-  request: MatchingWorkerRequest
+  request: MatchingWorkerRequest,
+  timeoutMs = DEFAULT_RANKING_WORKER_TIMEOUT_MS
 ) {
   return new Promise<MatchingWorkerResponse>((resolve, reject) => {
     const worker = createWorker();
+    let settled = false;
+    const timeoutId = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      worker.removeEventListener?.('message', handleMessage);
+      worker.terminate();
+      reject(new Error('Matching worker timed out.'));
+    }, timeoutMs);
     const handleMessage = (event: MessageEvent<MatchingWorkerResponse>) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutId);
       worker.removeEventListener?.('message', handleMessage);
       worker.terminate();
       resolve(event.data);
@@ -98,6 +115,10 @@ function runRankingWorker(
       worker.addEventListener('message', handleMessage, { once: true });
       worker.postMessage(request);
     } catch (error) {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeoutId);
+      }
       worker.removeEventListener?.('message', handleMessage);
       worker.terminate();
       reject(error);
@@ -119,15 +140,19 @@ export async function matchPackedPixelsInParallel(request: ParallelMatchRequest)
         throw new Error('Transform cancelled.');
       }
 
-      const response = await runRankingWorker(request.createWorker, {
-        type: 'rank',
-        sourcePacked: request.sourcePacked,
-        targetPacked: request.targetPacked,
-        quantizationBits: request.quantizationBits,
-        targetIndices,
-        limit: PARALLEL_MATCH_CANDIDATE_LIMIT,
-        analysis: request.analysis
-      });
+      const response = await runRankingWorker(
+        request.createWorker,
+        {
+          type: 'rank',
+          sourcePacked: request.sourcePacked,
+          targetPacked: request.targetPacked,
+          quantizationBits: request.quantizationBits,
+          targetIndices,
+          limit: PARALLEL_MATCH_CANDIDATE_LIMIT,
+          analysis: request.analysis
+        },
+        request.workerTimeoutMs
+      );
 
       if (response.type === 'error') {
         throw new Error(response.message);
@@ -168,15 +193,11 @@ export async function matchPackedPixelsInParallel(request: ParallelMatchRequest)
     }
   }
 
-  const context = createMatchingSearchContext(
-    request.sourcePacked,
-    request.targetPacked,
-    request.quantizationBits,
-    request.analysis
-  );
-
   const merged = mergeRankedCandidatesIntoAssignment(
-    context,
+    {
+      sourceLength: request.sourcePacked.length,
+      targetLength: request.targetPacked.length
+    },
     request.targetOrder,
     rankedCandidatesByTarget,
     {

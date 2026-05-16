@@ -61,6 +61,7 @@ export interface MixedAudioEnvelope {
   bucketSampleCount: number;
   bucketCount: number;
   sampleCount: number;
+  approximate: boolean;
 }
 
 export interface EnvelopeViewportRange {
@@ -88,7 +89,7 @@ function createHannWindow(size: number) {
     return window;
   }
   if (size === 2) {
-    // Both endpoints must be zero for a valid Hann window.
+    window[1] = 1;
     return window;
   }
   for (let index = 0; index < size; index += 1) {
@@ -100,6 +101,20 @@ function createHannWindow(size: number) {
 function downsampleForDisplay(samples: Float32Array, displaySampleCount: number) {
   const output = new Float32Array(displaySampleCount);
   const scale = samples.length / displaySampleCount;
+
+  if (scale < 1) {
+    const maxSourceIndex = Math.max(0, samples.length - 1);
+    for (let index = 0; index < displaySampleCount; index += 1) {
+      const sourcePosition = displaySampleCount === 1
+        ? 0
+        : (index / (displaySampleCount - 1)) * maxSourceIndex;
+      const leftIndex = Math.floor(sourcePosition);
+      const rightIndex = Math.min(maxSourceIndex, leftIndex + 1);
+      const phase = sourcePosition - leftIndex;
+      output[index] = samples[leftIndex] + (samples[rightIndex] - samples[leftIndex]) * phase;
+    }
+    return output;
+  }
 
   for (let index = 0; index < displaySampleCount; index += 1) {
     const start = Math.floor(index * scale);
@@ -248,7 +263,8 @@ export function resolveEnergyBandGains(energyPercent: number, bandEnergyFraction
     if (target >= next) {
       gains[index] = 1;
     } else if (target > previous) {
-      gains[index] = (target - previous) / Math.max(0.000001, next - previous);
+      const energyFraction = (target - previous) / Math.max(0.000001, next - previous);
+      gains[index] = Math.sqrt(clamp(energyFraction, 0, 1));
     } else {
       gains[index] = 0;
     }
@@ -394,57 +410,7 @@ export function reconstructWindowedComponentCount(
     return new Float32Array(analysis.samples);
   }
 
-  const scratch = createReconstructionScratch(analysis);
-  const { window, spectraReal, spectraImag, output, normalization, fftWorkspace } = scratch;
-  spectraReal.fill(0);
-  spectraImag.fill(0);
-  output.fill(0);
-  normalization.fill(0);
-
-  const frameSize = analysis.frameSize;
-  const hopSize = analysis.hopSize;
-  const binCount = analysis.binCount;
-
-  for (let orderedIndex = 0; orderedIndex < resolvedCount; orderedIndex += 1) {
-    const coefficientIndex = analysis.componentOrder[orderedIndex];
-    const frameIndex = Math.floor(coefficientIndex / binCount);
-    const bin = coefficientIndex % binCount;
-    const frameOffset = frameIndex * frameSize;
-    const real = analysis.coeffReal[coefficientIndex];
-    const imag = analysis.coeffImag[coefficientIndex];
-    spectraReal[frameOffset + bin] = real;
-    spectraImag[frameOffset + bin] = imag;
-    if (bin > 0 && bin < binCount - 1) {
-      spectraReal[frameOffset + frameSize - bin] = real;
-      spectraImag[frameOffset + frameSize - bin] = -imag;
-    }
-  }
-
-  for (let frameIndex = 0; frameIndex < analysis.frameCount; frameIndex += 1) {
-    const frameOffset = frameIndex * frameSize;
-    const time = fftInto(
-      spectraReal.subarray(frameOffset, frameOffset + frameSize),
-      spectraImag.subarray(frameOffset, frameOffset + frameSize),
-      true,
-      fftWorkspace
-    ).real;
-    const sampleStart = frameIndex * hopSize;
-
-    for (let offset = 0; offset < frameSize; offset += 1) {
-      const sampleIndex = sampleStart + offset;
-      const windowValue = window[offset];
-      output[sampleIndex] += time[offset] * windowValue;
-      normalization[sampleIndex] += windowValue * windowValue;
-    }
-  }
-
-  const trimmed = new Float32Array(analysis.samples.length);
-  for (let index = 0; index < trimmed.length; index += 1) {
-    const norm = normalization[index];
-         trimmed[index] = norm > OVERLAP_ADD_NORMALIZATION_THRESHOLD ? output[index] / norm : output[index];
-  }
-
-  return trimmed;
+  return reconstructWindowedComponentRange(analysis, 0, resolvedCount, createReconstructionScratch(analysis));
 }
 
 function createReconstructionScratch(analysis: WindowedFourierAnalysis): ReconstructionScratch {
@@ -471,14 +437,15 @@ export function reconstructWindowedComponentRange(
   analysis: WindowedFourierAnalysis,
   startComponentIndex: number,
   endComponentIndex: number,
-  scratch = createReconstructionScratch(analysis)
+  scratch?: ReconstructionScratch
 ): Float32Array {
   const start = clamp(Math.round(startComponentIndex), 0, analysis.componentOrder.length);
   const end = clamp(Math.round(endComponentIndex), start, analysis.componentOrder.length);
   const frameSize = analysis.frameSize;
   const hopSize = analysis.hopSize;
   const binCount = analysis.binCount;
-  const { window, spectraReal, spectraImag, output, normalization, fftWorkspace } = scratch;
+  const resolvedScratch = scratch ?? createReconstructionScratch(analysis);
+  const { window, spectraReal, spectraImag, output, normalization, fftWorkspace } = resolvedScratch;
   spectraReal.fill(0);
   spectraImag.fill(0);
   output.fill(0);
@@ -694,7 +661,7 @@ export function buildEnergyBandEnvelopes(
   bandCount: number,
   bucketSampleCount: number
 ) {
-  const resolvedBandCount = Math.max(0, Math.round(bandCount));
+  const resolvedBandCount = Math.max(1, Math.round(bandCount));
   const resolvedBucketSampleCount = Math.max(1, Math.round(bucketSampleCount));
   const bucketCount = Math.max(1, Math.ceil(sampleCount / resolvedBucketSampleCount));
   const min = new Float32Array(resolvedBandCount * bucketCount);
@@ -749,7 +716,8 @@ export function mixEnergyBandEnvelopes(
     max: new Float32Array(bucketCount),
     bucketSampleCount,
     bucketCount,
-    sampleCount
+    sampleCount,
+    approximate: true
   }
 ): MixedAudioEnvelope {
   if (destination.min.length !== bucketCount || destination.max.length !== bucketCount) {
@@ -758,7 +726,8 @@ export function mixEnergyBandEnvelopes(
       max: new Float32Array(bucketCount),
       bucketSampleCount,
       bucketCount,
-      sampleCount
+      sampleCount,
+      approximate: true
     };
   }
 
@@ -767,6 +736,7 @@ export function mixEnergyBandEnvelopes(
   destination.bucketSampleCount = bucketSampleCount;
   destination.bucketCount = bucketCount;
   destination.sampleCount = sampleCount;
+  destination.approximate = true;
 
   for (let bandIndex = 0; bandIndex < gains.length; bandIndex += 1) {
     const gain = Math.max(0, gains[bandIndex]);
