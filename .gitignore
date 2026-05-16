@@ -21,5 +21,6 @@ server.pid
 *.log
 *.pid
 npm-debug.log*
+old-todos/
 
 /image-transform/
