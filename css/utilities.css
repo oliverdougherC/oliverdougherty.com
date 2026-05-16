@@ -1866,10 +1866,17 @@
 .death-flow-meta,
 .death-flow-copy,
 .death-progress-stack,
-.death-survey-form,
 .death-question-card,
 .death-result-block {
   display: grid;
+  gap: var(--space-3);
+}
+
+.death-survey-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   gap: var(--space-3);
 }
 
@@ -1887,13 +1894,13 @@
 }
 
 .death-screen {
-  width: min(100%, 46rem);
+  width: min(100%, 64rem);
   flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
   max-height: 100%;
-  overflow: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
   padding-block: 0.5rem;
 }
@@ -1977,7 +1984,7 @@
   font-weight: 400;
   line-height: 0.96;
   letter-spacing: -0.02em;
-  max-width: 20ch;
+  max-width: 40ch;
   margin: 0 auto;
 }
 
@@ -2005,8 +2012,9 @@
 }
 
 .death-question-card {
-  align-content: start;
-  min-height: 15rem;
+  align-content: center;
+  min-height: 0;
+  flex: 1;
   padding: clamp(0.8rem, 2vw, 1.2rem) 0;
   border-radius: 0;
   border: none;
@@ -2017,10 +2025,18 @@
   align-items: center;
 }
 
+.death-question-card[data-question-card="clinicalBiomarkers"],
+.death-question-card[data-question-card="grandparentLongevity"] {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+  align-content: start;
+}
+
 .death-family-grid {
   display: grid;
   gap: 0.8rem;
-  width: min(100%, 34rem);
+  width: min(100%, 56rem);
 }
 
 .death-family-row {
@@ -2055,7 +2071,7 @@
 
 .death-question-card .control-field {
   width: 100%;
-  max-width: 24rem;
+  max-width: 48rem;
   text-align: center;
 }
 
@@ -2099,7 +2115,7 @@
   flex-direction: column;
   gap: 1rem;
   width: 100%;
-  max-width: 24rem;
+  max-width: 48rem;
 }
 
 .death-question-card .control-input,
