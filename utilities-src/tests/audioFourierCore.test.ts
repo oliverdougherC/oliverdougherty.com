@@ -13,7 +13,8 @@ import {
   resolveHighEnergyVisualAmplitude,
   resolveSampleEnvelope,
   resolveViewportRange,
-  renderWindowedComponentCount
+  renderWindowedComponentCount,
+  writeSmoothedEnvelopeAmplitudes
 } from '@utilities/audioFourierCore';
 
 function maxDifference(left: Float32Array, right: Float32Array) {
@@ -60,6 +61,17 @@ describe('audio Fourier core', () => {
     expect(singleEnvelope.max).toBeCloseTo(0.7, 6);
     expect(clampedEnvelope.min).toBeCloseTo(-0.4, 6);
     expect(clampedEnvelope.max).toBeCloseTo(0.7, 6);
+  });
+
+  it('smooths full-song envelope amplitudes without mutating the source buffer', () => {
+    const amplitudes = new Float32Array([0, 1, 0, 0.5, 0]);
+    const smoothed = writeSmoothedEnvelopeAmplitudes(amplitudes);
+
+    expectArrayCloseTo(amplitudes, [0, 1, 0, 0.5, 0]);
+    expect(smoothed[0]).toBeGreaterThan(0);
+    expect(smoothed[1]).toBeGreaterThanOrEqual(0.72);
+    expect(smoothed[2]).toBeGreaterThan(smoothed[0]);
+    expect(smoothed[3]).toBeGreaterThanOrEqual(0.36);
   });
 
   it('orders dominant tones early in the windowed component list', () => {

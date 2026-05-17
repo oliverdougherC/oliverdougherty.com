@@ -13,6 +13,7 @@ const {
 const ROOT = path.resolve(__dirname, '..');
 const DEFAULT_BASE_URL = 'http://127.0.0.1:4175';
 const BASE_URL = process.env.UTILITIES_CHECK_URL || DEFAULT_BASE_URL;
+const AUDIO_PLAY_SELECTOR = '#audioFourierPlayPauseBtn, #audioFourierPlayBtn';
 
 function formatMs(value) {
   return `${Number(value).toFixed(1)}ms`;
@@ -180,11 +181,12 @@ async function navigateUtility(page, baseUrl, utilityId) {
   );
 }
 
-async function measureAudioPlaybackResponsiveness(page) {
+async function measureAudioPlaybackResponsiveness(page, options = {}) {
+  const durationMs = options.durationMs ?? 2200;
   await page.waitForFunction(
     () => {
       const root = document.getElementById('audioFourierApp');
-      const play = document.getElementById('audioFourierPlayBtn');
+      const play = document.getElementById('audioFourierPlayPauseBtn') ?? document.getElementById('audioFourierPlayBtn');
       return root?.dataset.audioState === 'animating' || (play && !play.hasAttribute('disabled'));
     },
     { timeout: 10000 }
@@ -192,13 +194,13 @@ async function measureAudioPlaybackResponsiveness(page) {
 
   const state = await page.evaluate(() => document.getElementById('audioFourierApp')?.dataset.audioState ?? '');
   if (state !== 'animating') {
-    await page.click('#audioFourierPlayBtn');
+    await page.click(AUDIO_PLAY_SELECTOR);
     await page.waitForFunction(() => document.getElementById('audioFourierApp')?.dataset.audioState === 'animating', {
       timeout: 10000
     });
   }
 
-  return page.evaluate(async () => {
+  return page.evaluate(async (probeDurationMs) => {
     const samples = [];
     const slider = document.getElementById('audioFourierComponentSlider');
     const sliderValues = [8, 25, 60, 95, 40, 75, 15, 85];
@@ -215,7 +217,7 @@ async function measureAudioPlaybackResponsiveness(page) {
           slider.dispatchEvent(new InputEvent('input', { bubbles: true }));
           sliderEvents += 1;
         }
-        if (timestamp - startedAt >= 2000) {
+        if (timestamp - startedAt >= probeDurationMs) {
           resolve();
           return;
         }
@@ -225,15 +227,29 @@ async function measureAudioPlaybackResponsiveness(page) {
     });
 
     const sorted = samples.slice(1).sort((left, right) => left - right);
-    const p95 = sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] : 0;
+    const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 16.7;
+    const resolvePercentile = (percentileValue) => {
+      if (sorted.length === 0) {
+        return 0;
+      }
+      const index = Math.min(sorted.length - 1, Math.floor(sorted.length * percentileValue));
+      return sorted[index];
+    };
+    const p95 = resolvePercentile(0.95);
+    const p99 = resolvePercentile(0.99);
+    const worst = sorted.length ? sorted[sorted.length - 1] : 0;
+    const droppedFrames = sorted.filter((sample) => sample > Math.max(24, median * 1.8)).length;
     const elapsedSeconds = Math.max(0.001, (performance.now() - startedAt) / 1000);
     return {
       rafFps: samples.length / elapsedSeconds,
       rafP95FrameMs: p95,
+      rafP99FrameMs: p99,
+      rafWorstFrameMs: worst,
       rafSampleCount: samples.length,
+      droppedFrames,
       sliderEvents
     };
-  });
+  }, durationMs);
 }
 
 async function runCase(page, name, sourcePath, targetPath) {
@@ -340,6 +356,16 @@ async function main() {
       await runAudioPresetCase(page, 'audio-built-in-song', 'best-friends'),
       await runAudioUploadCase(page, 'audio-upload-wav', audioPath)
     ];
+    const tallAudioPage = await browser.newPage({
+      viewport: { width: 2160, height: 1800 },
+      deviceScaleFactor: 2
+    });
+    try {
+      await navigateUtility(tallAudioPage, baseUrl, 'audio-fourier');
+      audioResults.push(await runAudioPresetCase(tallAudioPage, 'audio-built-in-song-tall-dpr', 'best-friends'));
+    } finally {
+      await tallAudioPage.close();
+    }
 
     const lines = [
       'Utilities performance snapshot',
@@ -354,16 +380,26 @@ async function main() {
 
     for (const result of audioResults) {
       lines.push(
-        `${result.name}: wall=${formatMs(result.wallMs)} total=${formatMs(result.totalMs)} proxy=${formatMs(result.proxyMs)} analysis=${formatMs(result.analysisMs)} bands=${formatMs(result.bandMs)} bandCount=${result.bandCount} components=${result.componentCount} sampleRate=${result.sampleRate.toFixed(1)} proxyDuration=${result.proxyDuration.toFixed(1)}s playbackRaf=${formatFps(result.rafFps)} playbackP95=${formatMs(result.rafP95FrameMs)} rafSamples=${result.rafSampleCount} sliderEvents=${result.sliderEvents}`
+        `${result.name}: wall=${formatMs(result.wallMs)} total=${formatMs(result.totalMs)} proxy=${formatMs(result.proxyMs)} analysis=${formatMs(result.analysisMs)} bands=${formatMs(result.bandMs)} bandCount=${result.bandCount} components=${result.componentCount} sampleRate=${result.sampleRate.toFixed(1)} proxyDuration=${result.proxyDuration.toFixed(1)}s playbackRaf=${formatFps(result.rafFps)} playbackP95=${formatMs(result.rafP95FrameMs)} playbackP99=${formatMs(result.rafP99FrameMs)} playbackWorst=${formatMs(result.rafWorstFrameMs)} droppedFrames=${result.droppedFrames} rafSamples=${result.rafSampleCount} sliderEvents=${result.sliderEvents}`
       );
     }
 
     console.log(lines.join('\n'));
 
-    const slowPlayback = audioResults.find((result) => result.rafP95FrameMs > 50);
+    const undersampledPlayback = audioResults.find((result) => result.rafSampleCount < 110);
+    if (undersampledPlayback) {
+      throw new Error(
+        `${undersampledPlayback.name} playback responsiveness probe captured too few RAF samples: ${undersampledPlayback.rafSampleCount} < 110.`
+      );
+    }
+    const slowPlayback = audioResults.find((result) => (
+      result.rafP95FrameMs > 20 ||
+      result.rafP99FrameMs > 33 ||
+      result.rafWorstFrameMs > 50
+    ));
     if (slowPlayback) {
       throw new Error(
-        `${slowPlayback.name} playback responsiveness regressed: p95 RAF frame ${formatMs(slowPlayback.rafP95FrameMs)} exceeds 50ms.`
+        `${slowPlayback.name} playback responsiveness regressed: p95=${formatMs(slowPlayback.rafP95FrameMs)} p99=${formatMs(slowPlayback.rafP99FrameMs)} worst=${formatMs(slowPlayback.rafWorstFrameMs)} exceeds the Fourier playback budget.`
       );
     }
     const missingSliderStress = audioResults.find((result) => result.sliderEvents < 10);

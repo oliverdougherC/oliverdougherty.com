@@ -159,6 +159,7 @@ const ENERGY_SLIDER_LOW_EXPONENT = Math.log(ENERGY_SLIDER_LOW_REFERENCE_VALUE / 
 const FFT_PROGRESS_THROTTLE = 64;
 const OVERLAP_ADD_NORMALIZATION_THRESHOLD = 0.000001;
 const DEFAULT_ENVELOPE_TARGET_POINTS_PER_SECOND = 420;
+const DEFAULT_SMOOTHED_ENVELOPE_BLEND = 0.72;
 const VISUAL_ORIGINAL_CLAMP_START = 0.8;
 const VISUAL_ORIGINAL_CLAMP_END = 0.85;
 
@@ -749,6 +750,31 @@ export function mixEnergyBandEnvelopes(
     }
   }
 
+  return destination;
+}
+
+export function writeSmoothedEnvelopeAmplitudes(
+  amplitudes: Float32Array,
+  destination: Float32Array = new Float32Array(amplitudes.length),
+  count = amplitudes.length,
+  smoothedEnvelopeBlend = DEFAULT_SMOOTHED_ENVELOPE_BLEND
+) {
+  const resolvedCount = Math.max(0, Math.min(count, amplitudes.length, destination.length));
+  for (let index = 0; index < resolvedCount; index += 1) {
+    const rawAmplitude = Math.max(0, amplitudes[index] || 0);
+    let weightedSum = 0;
+    let weightTotal = 0;
+
+    for (let offset = -2; offset <= 2; offset += 1) {
+      const sampleIndex = clamp(index + offset, 0, resolvedCount - 1);
+      const weight = 3 - Math.abs(offset);
+      weightedSum += Math.max(0, amplitudes[sampleIndex] || 0) * weight;
+      weightTotal += weight;
+    }
+
+    const smoothedAmplitude = weightedSum / Math.max(1, weightTotal);
+    destination[index] = Math.max(rawAmplitude * smoothedEnvelopeBlend, smoothedAmplitude);
+  }
   return destination;
 }
 
