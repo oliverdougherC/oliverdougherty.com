@@ -18,6 +18,7 @@ import { resolveOutputDimensions, transformPreparedImages } from './transformCor
 import type { PreparedImageTransfer, TransformMetadata, TransformPresetId } from './types';
 import { DEMOS, type ImageSelection, type SelectionKind, type StateKind } from './uiState';
 import type { WorkerRequest, WorkerResponse, WorkerSuccessMessage } from './workerTypes';
+import { clamp } from './math';
 
 interface HydratedTransfer {
   width: number;
@@ -34,10 +35,6 @@ interface ActiveTransform {
 
 function asArrayBuffer(buffer: ArrayBufferLike) {
   return buffer as ArrayBuffer;
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
 }
 
 class UtilitiesApp {

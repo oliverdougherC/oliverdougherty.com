@@ -1,4 +1,4 @@
-import type { RetroVmProgress, RetroVmState, RetroVmStatusView, RetroVmSupport } from './retroVmTypes';
+import type { RetroVmEvent, RetroVmProgress, RetroVmState, RetroVmStatusView, RetroVmSupport } from './retroVmTypes';
 
 function readMatchMedia(matchMediaImpl: ((query: string) => MediaQueryList) | undefined, query: string) {
   if (!matchMediaImpl) {
@@ -109,6 +109,10 @@ export function formatRetroVmProgress(progress: RetroVmProgress) {
   return 'Waiting to start.';
 }
 
+function assertNever(value: never): never {
+  throw new Error(`Unexpected value: ${value}`);
+}
+
 export function resolveRetroVmStatusView(
   state: RetroVmState,
   progress: RetroVmProgress,
@@ -170,7 +174,7 @@ export function resolveRetroVmStatusView(
   }
 }
 
-export function transitionRetroVmState(current: RetroVmState, event: 'launch' | 'ready' | 'enter-fullscreen' | 'exit-fullscreen' | 'reset' | 'reset-complete' | 'error' | 'unsupported'): RetroVmState {
+export function transitionRetroVmState(current: RetroVmState, event: RetroVmEvent): RetroVmState {
   switch (event) {
     case 'unsupported':
       return 'unsupported';
@@ -188,5 +192,7 @@ export function transitionRetroVmState(current: RetroVmState, event: 'launch' | 
       return current === 'unsupported' ? current : 'idle';
     case 'error':
       return 'error';
+    default:
+      return assertNever(event);
   }
 }

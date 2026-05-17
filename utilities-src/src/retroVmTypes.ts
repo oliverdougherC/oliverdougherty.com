@@ -1,4 +1,5 @@
 export type RetroVmState = 'idle' | 'loading' | 'running' | 'fullscreen' | 'resetting' | 'error' | 'unsupported';
+export type RetroVmEvent = 'launch' | 'ready' | 'enter-fullscreen' | 'exit-fullscreen' | 'reset' | 'reset-complete' | 'error' | 'unsupported';
 export type RetroVmNicType = 'ne2k' | 'virtio';
 export type RetroVmDnsMethod = 'static' | 'doh';
 

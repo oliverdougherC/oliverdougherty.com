@@ -110,8 +110,10 @@ interface PackedMatchComputation {
   assignMs: number;
 }
 
-const INITIAL_SHORTLIST_SIZE = 8;
 const PROGRESS_REPORT_INTERVAL = 256;
+const SCORE_USEFULNESS_NEED = 50_000;
+const SCORE_NEAR_WHITE_NEED = 34_000;
+const SCORE_USEFULNESS_FLAT_BRIGHT = 14_000;
 
 function nowMs() {
   return performance.now();
@@ -407,9 +409,9 @@ function scoreCandidateDistance(context: MatchingSearchContext, sourceIndex: num
     const targetNeed = context.analysis.targetNeedByIndex[targetIndex];
     const targetFlatBright = context.analysis.targetNearWhiteByIndex[targetIndex] * (1 - targetNeed);
 
-    distance += (1 - donorUsefulness) * targetNeed * 50_000;
-    distance += donorNearWhite * targetNeed * 34_000;
-    distance += donorUsefulness * targetFlatBright * 14_000;
+    distance += (1 - donorUsefulness) * targetNeed * SCORE_USEFULNESS_NEED;
+    distance += donorNearWhite * targetNeed * SCORE_NEAR_WHITE_NEED;
+    distance += donorUsefulness * targetFlatBright * SCORE_USEFULNESS_FLAT_BRIGHT;
   }
 
   return distance;
@@ -482,8 +484,8 @@ export function createMatchingSearchContext(
       (targetBucketRed[targetIndex] << 16) |
       (targetBucketGreen[targetIndex] << 8) |
       targetBucketBlue[targetIndex];
-    targetUsefulnessCoefficient[targetIndex] = -targetNeed * 50_000 + targetFlatBright * 14_000;
-    targetNearWhiteCoefficient[targetIndex] = targetNeed * 34_000;
+    targetUsefulnessCoefficient[targetIndex] = -targetNeed * SCORE_USEFULNESS_NEED + targetFlatBright * SCORE_USEFULNESS_FLAT_BRIGHT;
+    targetNearWhiteCoefficient[targetIndex] = targetNeed * SCORE_NEAR_WHITE_NEED;
     targetPreferMaxUsefulness[targetIndex] = targetUsefulnessCoefficient[targetIndex] < 0 ? 1 : 0;
   }
 

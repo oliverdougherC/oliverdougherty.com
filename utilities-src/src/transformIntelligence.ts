@@ -8,9 +8,7 @@ export interface TransformImageAnalysis {
   targetPriorityByIndex: Float32Array;
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
+import { clamp } from './math';
 
 function quantizeColorKey(red: number, green: number, blue: number, shift: number) {
   return ((red >> shift) << 16) | ((green >> shift) << 8) | (blue >> shift);

@@ -8,9 +8,9 @@ export interface TransformRenderPlan {
   cheatedTargetPixels: Uint8Array;
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
+const MAX_WEIGHTED_RGB_DISTANCE = 82_000;
+
+import { clamp } from './math';
 
 function mixChannel(sourceValue: number, targetValue: number, tintStrength: number) {
   return Math.round(sourceValue + (targetValue - sourceValue) * tintStrength);
@@ -38,7 +38,7 @@ export function buildTransformRenderPlan(
     const targetNeed = analysis.targetNeedByIndex[targetIndex];
     const targetNearWhite = analysis.targetNearWhiteByIndex[targetIndex];
     const colorDistance = weightedRgbDistance(sourcePacked[sourceIndex], targetPacked[targetIndex]);
-    const distanceNormalized = clamp(colorDistance / 82_000, 0, 1);
+    const distanceNormalized = clamp(colorDistance / MAX_WEIGHTED_RGB_DISTANCE, 0, 1);
     const donorDeficit = 1 - sourceUsefulness;
     const whiteMismatch = sourceNearWhite * (1 - targetNearWhite);
     let tintStrength = clamp(

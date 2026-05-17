@@ -453,7 +453,6 @@ export class RetroVmController {
     }
 
     this.root.dataset.vmSupported = 'true';
-    this.applyRuntimeLabels();
     this.supportNote.textContent = this.getDefaultSupportNote();
     this.syncUi();
   }
