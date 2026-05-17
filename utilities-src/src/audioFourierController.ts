@@ -102,8 +102,7 @@ export class AudioFourierController {
   private readonly input: HTMLInputElement;
   private readonly qualitySelect: HTMLSelectElement;
   private readonly generateButton: HTMLButtonElement;
-  private readonly playButton: HTMLButtonElement;
-  private readonly pauseButton: HTMLButtonElement;
+  private readonly playPauseButton: HTMLButtonElement;
   private readonly resetButton: HTMLButtonElement;
   private readonly componentSlider: HTMLInputElement;
   private readonly componentReadout: HTMLElement;
@@ -176,8 +175,7 @@ export class AudioFourierController {
     this.input = this.requireElement('audioFourierInput');
     this.qualitySelect = this.requireElement('audioFourierQuality');
     this.generateButton = this.requireElement('audioFourierGenerateBtn');
-    this.playButton = this.requireElement('audioFourierPlayBtn');
-    this.pauseButton = this.requireElement('audioFourierPauseBtn');
+    this.playPauseButton = this.requireElement('audioFourierPlayPauseBtn');
     this.resetButton = this.requireElement('audioFourierResetBtn');
     this.componentSlider = this.requireElement('audioFourierComponentSlider');
     this.componentReadout = this.requireElement('audioFourierComponentReadout');
@@ -220,10 +218,7 @@ export class AudioFourierController {
     this.generateButton.addEventListener('click', () => {
       void this.generate();
     }, { signal });
-    this.playButton.addEventListener('click', () => {
-      void this.handlePlaybackButton();
-    }, { signal });
-    this.pauseButton.addEventListener('click', () => this.pausePlayback(), { signal });
+    this.playPauseButton.addEventListener('click', () => this.handlePlayPauseClick(), { signal });
     this.resetButton.addEventListener('click', () => this.resetAll(), { signal });
     this.qualitySelect.addEventListener('change', () => this.invalidateComputedState('Quality changed. Generate again to rebuild the audio transform.'), { signal });
     this.componentSlider.addEventListener('input', () => this.handleSliderInput(), { signal });
@@ -437,9 +432,7 @@ export class AudioFourierController {
     this.generateButton.disabled = isProcessing;
     this.qualitySelect.disabled = isProcessing;
     this.componentSlider.disabled = !hasResult || isProcessing;
-    this.playButton.disabled = !hasResult || isProcessing || isPlaying;
-    this.pauseButton.disabled = !hasResult || !isPlaying;
-    this.resetButton.disabled = isProcessing && !hasResult;
+    this.playPauseButton.disabled = !hasResult || isProcessing;
     const playbackButton = resolveAudioPlaybackButtonState({
       hasResult,
       isProcessing,
@@ -447,9 +440,9 @@ export class AudioFourierController {
       elapsedSeconds: this.playbackElapsedSeconds,
       isComplete: this.state === 'complete'
     });
-    this.playButton.textContent = playbackButton.icon;
-    this.playButton.setAttribute('aria-label', playbackButton.label);
-    this.playButton.title = playbackButton.label;
+    this.playPauseButton.textContent = playbackButton.icon;
+    this.playPauseButton.setAttribute('aria-label', playbackButton.label);
+    this.playPauseButton.title = playbackButton.label;
   }
 
   private setState(state: AudioFourierState, text: string) {
@@ -909,7 +902,12 @@ export class AudioFourierController {
     }
   }
 
-  private async handlePlaybackButton() {
+  private async handlePlayPauseClick() {
+    if (this.state === 'animating') {
+      this.pausePlayback();
+      return;
+    }
+
     if (!this.activeResult) {
       return;
     }
