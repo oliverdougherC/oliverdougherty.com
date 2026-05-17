@@ -1172,6 +1172,10 @@ export class AudioFourierController {
     this.writeSmoothedEnvelope(this.visualOriginalAmpScratch, this.visualOriginalMinScratch, this.visualOriginalMaxScratch, visualPointCount);
     this.writeSmoothedEnvelope(this.visualMixAmpScratch, this.visualMixMinScratch, this.visualMixMaxScratch, visualPointCount);
 
+    const playheadX = livePlayback
+      ? clamp((currentSeconds * result.metadata.proxySampleRate - range.startSample) / range.viewportSampleCount * this.waveCanvas.width, 0, this.waveCanvas.width)
+      : null;
+
     this.drawWaveFrame(
       this.visualOriginalMinScratch,
       this.visualOriginalMaxScratch,
@@ -1182,7 +1186,8 @@ export class AudioFourierController {
       range.startSample,
       range.viewportSampleCount,
       result.metadata.envelopeBucketSampleCount,
-      isFullEnergy
+      isFullEnergy,
+      playheadX
     );
   }
 
@@ -1215,7 +1220,8 @@ export class AudioFourierController {
     startSample: number,
     viewportSampleCount: number,
     bucketSampleCount: number,
-    isFullEnergy = false
+    isFullEnergy = false,
+    playheadX: number | null = null
   ) {
     this.clearCanvas(this.waveCanvas, this.waveContext);
     if (!isFullEnergy) {
@@ -1246,6 +1252,26 @@ export class AudioFourierController {
       2.5,
       true
     );
+    if (playheadX !== null) {
+      this.drawPlayhead(playheadX);
+    }
+  }
+
+  private drawPlayhead(x: number) {
+    const canvas = this.waveCanvas;
+    const context = this.waveContext;
+    const clampedX = clamp(x, 0, canvas.width);
+
+    context.save();
+    context.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    context.lineWidth = 2;
+    context.shadowColor = 'rgba(255, 255, 255, 0.6)';
+    context.shadowBlur = 8;
+    context.beginPath();
+    context.moveTo(clampedX, 0);
+    context.lineTo(clampedX, canvas.height);
+    context.stroke();
+    context.restore();
   }
 
   private writeSmoothedEnvelope(
