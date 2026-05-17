@@ -102,20 +102,35 @@ function buildSourceBucketCounts(source: PreparedImageData, quantizationBits: nu
   return { counts, shift };
 }
 
-export function weightedRgbDistance(left: number, right: number) {
-  const leftRed = (left >> 16) & 0xff;
-  const leftGreen = (left >> 8) & 0xff;
-  const leftBlue = left & 0xff;
-  const rightRed = (right >> 16) & 0xff;
-  const rightGreen = (right >> 8) & 0xff;
-  const rightBlue = right & 0xff;
-
+export function weightedRgbDistanceFromChannels(
+  leftRed: number,
+  leftGreen: number,
+  leftBlue: number,
+  rightRed: number,
+  rightGreen: number,
+  rightBlue: number
+) {
   const redMean = (leftRed + rightRed) >> 1;
   const deltaRed = leftRed - rightRed;
   const deltaGreen = leftGreen - rightGreen;
   const deltaBlue = leftBlue - rightBlue;
 
-  return (((512 + redMean) * deltaRed * deltaRed) >> 8) + 4 * deltaGreen * deltaGreen + (((767 - redMean) * deltaBlue * deltaBlue) >> 8);
+  return (
+    (((512 + redMean) * deltaRed * deltaRed) >> 8) +
+    4 * deltaGreen * deltaGreen +
+    (((767 - redMean) * deltaBlue * deltaBlue) >> 8)
+  );
+}
+
+export function weightedRgbDistance(left: number, right: number) {
+  return weightedRgbDistanceFromChannels(
+    (left >> 16) & 0xff,
+    (left >> 8) & 0xff,
+    left & 0xff,
+    (right >> 16) & 0xff,
+    (right >> 8) & 0xff,
+    right & 0xff
+  );
 }
 
 export function analyzeTransformImages(

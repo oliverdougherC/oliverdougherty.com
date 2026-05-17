@@ -282,6 +282,36 @@ describe('transform core', () => {
     );
   });
 
+  it('rejects quantization bits below 4', () => {
+    const packed = packRgbPixels(
+      imageFromRgbTriples([[0, 0, 0]], 1, 1).pixels
+    );
+    expect(() => createMatchingSearchContext(packed, packed, 2)).toThrow(
+      'Quantization bits must stay between 4 and 8'
+    );
+  });
+
+  it('rejects quantization bits above 8', () => {
+    const packed = packRgbPixels(
+      imageFromRgbTriples([[0, 0, 0]], 1, 1).pixels
+    );
+    expect(() => createMatchingSearchContext(packed, packed, 10)).toThrow(
+      'Quantization bits must stay between 4 and 8'
+    );
+  });
+
+  it('rejects mismatched source and target pixel counts', () => {
+    const sourcePacked = packRgbPixels(
+      imageFromRgbTriples([[0, 0, 0], [255, 255, 255]], 2, 1).pixels
+    );
+    const targetPacked = packRgbPixels(
+      imageFromRgbTriples([[128, 128, 128]], 1, 1).pixels
+    );
+    expect(() => createMatchingSearchContext(sourcePacked, targetPacked, 5)).toThrow(
+      'Source and target images must have the same pixel count'
+    );
+  });
+
   it('reports structured dimension mismatch details', () => {
     const source = imageFromRgbTriples([[0, 0, 0]], 1, 1);
     const target = imageFromRgbTriples(

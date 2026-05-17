@@ -1,4 +1,9 @@
-import { analyzeTransformImages, type TransformImageAnalysis } from './transformIntelligence';
+import {
+  analyzeTransformImages,
+  weightedRgbDistance,
+  weightedRgbDistanceFromChannels,
+  type TransformImageAnalysis
+} from './transformIntelligence';
 import type {
   PreparedImageData,
   TransformComputationResult,
@@ -154,45 +159,7 @@ function bucketKey(rgb: number, shift: number) {
   return (red << 16) | (green << 8) | blue;
 }
 
-function weightedDistance(left: number, right: number) {
-  const leftRed = (left >> 16) & 0xff;
-  const leftGreen = (left >> 8) & 0xff;
-  const leftBlue = left & 0xff;
-  const rightRed = (right >> 16) & 0xff;
-  const rightGreen = (right >> 8) & 0xff;
-  const rightBlue = right & 0xff;
 
-  const redMean = (leftRed + rightRed) >> 1;
-  const deltaRed = leftRed - rightRed;
-  const deltaGreen = leftGreen - rightGreen;
-  const deltaBlue = leftBlue - rightBlue;
-
-  return (
-    (((512 + redMean) * deltaRed * deltaRed) >> 8) +
-    4 * deltaGreen * deltaGreen +
-    (((767 - redMean) * deltaBlue * deltaBlue) >> 8)
-  );
-}
-
-function weightedDistanceFromChannels(
-  leftRed: number,
-  leftGreen: number,
-  leftBlue: number,
-  rightRed: number,
-  rightGreen: number,
-  rightBlue: number
-) {
-  const redMean = (leftRed + rightRed) >> 1;
-  const deltaRed = leftRed - rightRed;
-  const deltaGreen = leftGreen - rightGreen;
-  const deltaBlue = leftBlue - rightBlue;
-
-  return (
-    (((512 + redMean) * deltaRed * deltaRed) >> 8) +
-    4 * deltaGreen * deltaGreen +
-    (((767 - redMean) * deltaBlue * deltaBlue) >> 8)
-  );
-}
 
 function buildBucketMap(sourcePacked: Uint32Array, quantizationBits: number) {
   const shift = 8 - quantizationBits;
@@ -401,7 +368,7 @@ function forEachShellBucket(
 }
 
 function scoreCandidateDistance(context: MatchingSearchContext, sourceIndex: number, targetIndex: number) {
-  let distance = weightedDistance(context.sourcePacked[sourceIndex], context.targetPacked[targetIndex]);
+  let distance = weightedRgbDistance(context.sourcePacked[sourceIndex], context.targetPacked[targetIndex]);
 
   if (context.analysis) {
     const donorUsefulness = context.analysis.sourceUsefulnessByIndex[sourceIndex];
@@ -773,7 +740,7 @@ function findBestGroupedSourceIndex(
         evaluatedGroupCount += 1;
         evaluatedCandidateCount += 1;
 
-        let distance = weightedDistanceFromChannels(
+        let distance = weightedRgbDistanceFromChannels(
           context.groupRed[groupIndex],
           context.groupGreen[groupIndex],
           context.groupBlue[groupIndex],
@@ -819,7 +786,7 @@ function findBestGroupedSourceIndex(
           evaluatedGroupCount += 1;
           evaluatedCandidateCount += 1;
 
-          let distance = weightedDistanceFromChannels(
+          let distance = weightedRgbDistanceFromChannels(
             context.groupRed[groupIndex],
             context.groupGreen[groupIndex],
             context.groupBlue[groupIndex],

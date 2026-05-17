@@ -1,6 +1,6 @@
-import type { TransformPreset, TransformPresetId } from './types';
+import { type TransformPreset, type TransformPresetId } from './types';
 
-export const TRANSFORM_PRESETS: Record<TransformPresetId, TransformPreset> = {
+export const TRANSFORM_PRESETS = {
   fast: {
     id: 'fast',
     label: 'Fast',
@@ -25,8 +25,10 @@ export const TRANSFORM_PRESETS: Record<TransformPresetId, TransformPreset> = {
     animationDurationMs: 4000,
     animationParticleBudget: 2600
   }
-};
+} as const satisfies Record<TransformPresetId, TransformPreset>;
 
 export function getPreset(presetId: TransformPresetId): TransformPreset {
   return TRANSFORM_PRESETS[presetId];
 }
+
+export const VALID_PRESET_IDS = Object.keys(TRANSFORM_PRESETS) as TransformPresetId[];

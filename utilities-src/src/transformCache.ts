@@ -74,7 +74,7 @@ export function buildBuiltInTransformCacheKey(
     return null;
   }
 
-  return `${presetId}::${sourceSelection.url}::${targetSelection.url}`;
+  return `${presetId}\u001f${sourceSelection.url}\u001f${targetSelection.url}`;
 }
 
 export function cloneWorkerSuccessMessage(

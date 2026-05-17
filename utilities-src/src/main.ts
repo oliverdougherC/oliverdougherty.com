@@ -38,7 +38,8 @@ function asArrayBuffer(buffer: ArrayBufferLike) {
 }
 
 class UtilitiesApp {
-  private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  private readonly reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
   private readonly root: HTMLElement;
   private readonly sourceInput: HTMLInputElement;
   private readonly targetInput: HTMLInputElement;
@@ -169,6 +170,10 @@ class UtilitiesApp {
         }
         this.applyDemo(demoKey);
       });
+    });
+
+    this.reducedMotionQuery.addEventListener('change', (e: MediaQueryListEvent) => {
+      this.reducedMotion = e.matches;
     });
 
     this.bindDropzone(this.sourceDropzone, 'source');
@@ -1170,7 +1175,6 @@ class UtilitiesApp {
 
   private playAnimation() {
     if (!this.activeTransform || this.reducedMotion) {
-      this.syncButtons();
       return;
     }
 
