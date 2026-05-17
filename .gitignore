@@ -24,3 +24,15 @@ npm-debug.log*
 old-todos/
 
 /image-transform/
+
+# Generated Vite sub-assets (workers, chunks) — rebuilt by npm run utilities:build / game:build
+pages/utilities/assets/assets/
+pages/game/assets/*.js
+pages/game/assets/*.css
+pages/game/assets/*.map
+
+# Backups and drafts
+*_old.html
+
+# TypeScript build artifacts
+*.tsbuildinfo

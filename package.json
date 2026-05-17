@@ -4,6 +4,7 @@
   "private": true,
   "description": "oliverdougherty.com static site",
   "scripts": {
+    "setup": "bash scripts/setup.sh",
     "optimize-images": "node scripts/optimize-images.js",
     "build:deploy": "node scripts/build-deploy.js",
     "utilities:build": "vite build --config config/vite.utilities.mts",

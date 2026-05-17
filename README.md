@@ -17,11 +17,47 @@ Static portfolio site for me (Oliver Dougherty, duh).
 - `scripts/` — Image processing, linting, build deploy, Playwright testing
 - `docs/` — Architecture documentation and content workflows
 
-## setup
+## Quick start
+
+**Prerequisites:** Node.js 22+, npm, git
 
 ```bash
-npm install
+# Clone
+git clone git@github.com:oliverdougherty/oliverdougherty.com.git
+cd oliverdougherty.com
+
+# One-command setup (installs deps, builds bundles, runs quality checks)
+npm run setup
 ```
+
+Then serve locally:
+
+```bash
+npx serve -l 3000
+```
+
+Open `http://localhost:3000`. Done.
+
+### Step-by-step (if you prefer manual control)
+
+```bash
+git clone git@github.com:oliverdougherty/oliverdougherty.com.git
+cd oliverdougherty.com
+
+npm install              # dependencies
+npm run utilities:build  # build utilities dashboard
+npm run game:build       # build game
+```
+
+### IDE setup — WebStorm / VS Code
+
+1. Open the repo root in your IDE
+2. `npm run setup` from the IDE terminal
+3. No additional configuration needed
+
+**Dev servers:**
+- **Site:** `npx serve -l 3000` — static file server, open `http://localhost:3000`
+- **Game (hot reload):** `npm run game:dev` — Vite dev server on port 5174
 
 ## Common commands
 
