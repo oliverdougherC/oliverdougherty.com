@@ -567,7 +567,7 @@ class LocalLlmUtility {
       : this.isBusy()
         ? this.getLoadingSequenceCopy()
         : STATE_COPY[this.status] || this.root.dataset.localLlmStatusMessage || 'Working locally.';
-        
+
     const safeCopy = renderSafeInlineText(copy);
     if (this._currentCopyTarget !== safeCopy) {
       this._currentCopyTarget = safeCopy;
