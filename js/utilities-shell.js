@@ -13,7 +13,7 @@
     'image-transform': 'image-transform',
     'audio-fourier': 'audio-fourier',
     'local-assistant': 'local-assistant',
-    'death-calculator': 'death-calculator',
+    // 'death-calculator': 'death-calculator',
     'virtual-machine': 'virtual-machine',
     'stress-test': 'stress-test',
   };

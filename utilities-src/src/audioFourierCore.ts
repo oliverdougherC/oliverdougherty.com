@@ -324,7 +324,6 @@ export function buildWindowedFourierAnalysis(
   const fftWorkspace = createFftWorkspace(frameSize);
 
   for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
-    frameInput.fill(0);
     const frameStart = frameIndex * hopSize;
     for (let offset = 0; offset < frameSize; offset += 1) {
       const sampleIndex = frameStart + offset;

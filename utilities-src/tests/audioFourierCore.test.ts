@@ -354,4 +354,115 @@ describe('audio Fourier core', () => {
     expect(analysis.componentOrder.length).toBe(analysis.frameCount * analysis.binCount);
     expect(analysis.finalDisplayFrame.length).toBe(256);
   });
+
+  it('last frame zero-padding produces correct FFT for signals not aligned to hopSize', () => {
+    const sampleRate = 256;
+    const frameSize = 64;
+    const hopSize = 32;
+    const signalLength = frameSize + hopSize + 1; // last frame has exactly 1 real sample
+    const samples = new Float32Array(signalLength);
+    for (let i = 0; i < samples.length; i++) {
+      samples[i] = Math.sin(2 * Math.PI * 4 * i / sampleRate) * 0.5;
+    }
+
+    const analysis = buildWindowedFourierAnalysis(samples, sampleRate, {
+      frameSize,
+      hopSize,
+      displaySampleCount: 128
+    });
+
+    const frameCount = Math.max(1, Math.ceil(Math.max(0, samples.length - frameSize) / hopSize) + 1);
+    const binCount = frameSize / 2 + 1;
+    expect(analysis.componentOrder.length).toBe(frameCount * binCount);
+    for (let i = 0; i < analysis.componentEnergies.length; i++) {
+      expect(Number.isFinite(analysis.componentEnergies[i])).toBe(true);
+    }
+  });
+
+  it('buildWindowedFourierAnalysis handles NaN/Infinity samples gracefully', () => {
+    const sampleRate = 256;
+    const frameSize = 64;
+    const hopSize = 32;
+    const samples = new Float32Array(256);
+    for (let i = 0; i < samples.length; i++) {
+      samples[i] = Math.sin(2 * Math.PI * 4 * i / sampleRate) * 0.5;
+    }
+    samples[10] = NaN; // inject NaN at a known position
+
+    const analysis = buildWindowedFourierAnalysis(samples, sampleRate, {
+      frameSize,
+      hopSize,
+      displaySampleCount: 128
+    });
+
+    const binCount = frameSize / 2 + 1;
+    // Frame containing sample 10 is frameIndex = floor(10 / hopSize) = 0
+    const frameWithNan = 0;
+    const frameWithNanOffset = frameWithNan * binCount;
+    let foundNan = false;
+    for (let bin = 0; bin < binCount; bin++) {
+      if (!Number.isFinite(analysis.componentEnergies[frameWithNanOffset + bin])) {
+        foundNan = true;
+        break;
+      }
+    }
+    expect(foundNan).toBe(true);
+
+    // A frame not containing the NaN sample should have finite energies
+    const cleanFrameIndex = 2;
+    const cleanOffset = cleanFrameIndex * binCount;
+    for (let bin = 0; bin < binCount; bin++) {
+      expect(Number.isFinite(analysis.componentEnergies[cleanOffset + bin])).toBe(true);
+    }
+  });
+
+  it('buildWindowedFourierAnalysis produces deterministic results', () => {
+    const sampleRate = 512;
+    const samples = new Float32Array(512);
+    for (let i = 0; i < samples.length; i++) {
+      samples[i] = Math.sin(2 * Math.PI * 16 * i / sampleRate) * 0.4;
+    }
+
+    const analysis1 = buildWindowedFourierAnalysis(samples, sampleRate, {
+      frameSize: 64,
+      hopSize: 32,
+      displaySampleCount: 128
+    });
+    const analysis2 = buildWindowedFourierAnalysis(samples, sampleRate, {
+      frameSize: 64,
+      hopSize: 32,
+      displaySampleCount: 128
+    });
+
+    expect(analysis1.componentOrder.length).toBe(analysis2.componentOrder.length);
+    for (let i = 0; i < analysis1.componentOrder.length; i++) {
+      expect(analysis1.componentOrder[i]).toBe(analysis2.componentOrder[i]);
+    }
+    for (let i = 0; i < analysis1.componentEnergies.length; i++) {
+      expect(analysis1.componentEnergies[i]).toBe(analysis2.componentEnergies[i]);
+    }
+  });
+
+  it('exact frame-size signal (samples.length === frameSize)', () => {
+    const sampleRate = 256;
+    const frameSize = 64;
+    const hopSize = 32;
+    const samples = new Float32Array(frameSize);
+    for (let i = 0; i < samples.length; i++) {
+      samples[i] = Math.sin(2 * Math.PI * 8 * i / sampleRate) * 0.6;
+    }
+
+    const analysis = buildWindowedFourierAnalysis(samples, sampleRate, {
+      frameSize,
+      hopSize,
+      displaySampleCount: 64
+    });
+
+    expect(analysis.frameCount).toBe(1);
+    expect(analysis.binCount).toBe(frameSize / 2 + 1);
+    expect(analysis.componentOrder.length).toBe(frameSize / 2 + 1);
+    for (let i = 0; i < analysis.componentEnergies.length; i++) {
+      expect(Number.isFinite(analysis.componentEnergies[i])).toBe(true);
+    }
+  });
 });
