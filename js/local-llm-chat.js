@@ -10,6 +10,11 @@ const READY_SUGGESTIONS = [
   'Maybe something else entirely?'
 ];
 const LAST_READY_SUGGESTION = 'Maybe something else entirely?';
+const RE_RENDER_CODE_FENCE = /^```/;
+const RE_RENDER_UNORDERED_LIST = /^\s*[-*]/m;
+const RE_RENDER_UNORDERED_LINE = /^\s*[-*]\s/;
+const RE_RENDER_ORDERED_LIST = /^\s*\d+\.\s/m;
+const RE_RENDER_ORDERED_LINE = /^\s*\d+\.\s/;
 
 const STATE_COPY = {
   idle: 'Press "Load" to begin',
@@ -333,6 +338,10 @@ class LocalLlmUtility {
     }
 
     if (message.type === 'disposed') {
+      if (this.assistantDraft) {
+        this.messages = this.messages.filter((msg) => msg !== this.assistantDraft);
+        this.assistantDraft = null;
+      }
       this.worker = null;
       this.modelReady = false;
       this.updateStatus(WORKER_STATE.IDLE, 'Model cache reset. Start again to reload locally.');
@@ -1116,7 +1125,7 @@ function renderSafeText(markdown) {
   if (!source) return '';
 
   const blocks = source.split(/\n{2,}/).map((rawBlock) => {
-    if (/^```/.test(rawBlock.trim())) {
+    if (RE_RENDER_CODE_FENCE.test(rawBlock.trim())) {
       const code = rawBlock.trim().replace(/^```[^\r\n]*(?:\r?\n)?/, '').replace(/(?:\r?\n)?```$/, '');
       return `<pre><code>${escapeHtml(code)}</code></pre>`;
     }
@@ -1126,20 +1135,20 @@ function renderSafeText(markdown) {
       return renderLocalLlmMath(displayMath, true);
     }
 
-    if (/^\s*[-*]\s/m.test(rawBlock)) {
+    if (RE_RENDER_UNORDERED_LIST.test(rawBlock)) {
       const items = rawBlock
         .split(/\n/)
-        .filter((line) => /^\s*[-*]\s/.test(line))
-        .map((line) => `<li>${renderInlineLocalLlmText(line.replace(/^\s*[-*]\s*/, ''))}</li>`)
+        .filter((line) => RE_RENDER_UNORDERED_LINE.test(line))
+        .map((line) => `<li>${renderInlineLocalLlmText(line.replace(RE_RENDER_UNORDERED_LINE, ''))}</li>`)
         .join('');
       if (items) return `<ul>${items}</ul>`;
     }
 
-    if (/^\s*\d+\.\s/m.test(rawBlock)) {
+    if (RE_RENDER_ORDERED_LIST.test(rawBlock)) {
       const items = rawBlock
         .split(/\n/)
-        .filter((line) => /^\s*\d+\.\s/.test(line))
-        .map((line) => `<li>${renderInlineLocalLlmText(line.replace(/^\s*\d+\.\s*/, ''))}</li>`)
+        .filter((line) => RE_RENDER_ORDERED_LINE.test(line))
+        .map((line) => `<li>${renderInlineLocalLlmText(line.replace(RE_RENDER_ORDERED_LINE, ''))}</li>`)
         .join('');
       if (items) return `<ol>${items}</ol>`;
     }

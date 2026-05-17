@@ -639,7 +639,7 @@ export class RetroVmController {
 
   private syncGraphicalMode() {
     const canvas = this.screenContainer.querySelector('canvas');
-    const canvasVisible = canvas instanceof HTMLCanvasElement && getComputedStyle(canvas).display !== 'none';
+    const canvasVisible = canvas instanceof HTMLCanvasElement && !canvas.hidden && canvas.offsetParent !== null;
     this.graphicalModeActive = canvasVisible;
     this.root.dataset.vmGraphical = canvasVisible ? 'true' : 'false';
     if (!canvasVisible) {
@@ -805,7 +805,7 @@ export class RetroVmController {
     if (this.progressFill) {
       this.progressFill.style.width = `${percent}%`;
     }
-    this.launchButton.disabled = !this.support.supported || Boolean(this.emulator) || this.state === 'loading' || this.state === 'fullscreen';
+    this.launchButton.disabled = !this.support.supported || Boolean(this.emulator) || this.state === 'loading' || this.state === 'resetting' || this.state === 'fullscreen';
     this.resetButton.disabled = !this.support.supported || (!this.emulator && this.state !== 'error');
     this.fullscreenButton.disabled =
       !this.emulator || !document.fullscreenEnabled || (this.state !== 'running' && this.state !== 'fullscreen');
