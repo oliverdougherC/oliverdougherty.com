@@ -87,7 +87,7 @@ npm run optimize-images
 ### Utilities
 
 - `npm run utilities:build` — Rebuild shipped bundle into `pages/utilities/assets/`
-- `npm run utilities:check` — TypeScript check + 17 unit tests
+- `npm run utilities:check` — TypeScript check + 21 unit tests
 - `npm run utilities:browser-check` — Playwright regression (Image Transform, Audio Fourier, Retro VM, Local Assistant, Stress Test)
 - `npm run utilities:perf` — Transform timing probe (image + audio)
 - `npm run utilities:cache:build` — Precompute built-in transform cache JSON
