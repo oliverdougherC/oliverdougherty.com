@@ -35,9 +35,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run game:typecheck
+      - run: npm run utilities:typecheck
 
   test:
-    name: Game Tests
+    name: Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,6 +48,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run game:test
+      - run: npm run utilities:test
 
   build:
     name: Build
@@ -59,5 +61,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run utilities:build
       - run: npm run game:build
       - run: npm run smoke

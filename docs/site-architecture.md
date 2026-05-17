@@ -13,7 +13,7 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `pages/gallery/index.html`: editorial photo gallery powered by JSON metadata in `assets/photos/`.
 - `pages/archive/index.html`: archive index for technical writeups.
 - `pages/archive/*/*.html`: article-style archive pages using the abstract/article layout.
-- `pages/dashboard/index.html`: utilities page shell.
+- `pages/dashboard/index.html`: utilities page shell (alias; actual path is `pages/utilities/index.html`).
 - `pages/game/index.html`: generated entrypoint for the shipped game build.
 
 ## Shared browser layer
@@ -23,6 +23,11 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `js/year.js`: footer year updates and color-mode toggle handling.
 - `js/archive.js`: archive index filtering/search.
 - `js/gallery.js`: metadata-driven gallery rendering and lightbox behavior.
+- `js/starfield.js`: landing page background starfield animation.
+- `js/utilities-shell.js`: tabbed utilities dashboard shell (routing between utility panels).
+- `js/local-llm-chat.js`: Local LLM chat UI controller.
+- `js/local-llm-config.js`: Local LLM configuration (models, endpoints, worker settings).
+- `js/local-llm-worker.js`: Web Worker for Local LLM inference.
 - `utilities-src/src/main.ts`: editable utilities page controller and DOM orchestration.
 - `utilities-src/src/transformCore.ts`: utilities matching pipeline and donor assignment logic.
 - `utilities-src/src/workerRuntime.ts`: shared worker/main-thread execution runtime for utilities transforms.
@@ -31,10 +36,12 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 ## Shared styling
 
 - `css/design-system.css`: cross-site tokens and shared component styles.
+- `css/schematic.css`: landing page schematic mode styles (scoped to `body.schematic-mode`).
 - `css/mobile.css`: dedicated mobile-site styles for `/mobile/` only.
 - `css/landing.css`, `css/gallery.css`, `css/archive.css`, `css/resume.css`, `css/utilities.css`: page-family styles.
 - `css/abstract.css`: article/report layout used by archive detail pages.
 - `css/cursor.css`: shared cursor presentation.
+- `css/local-llm-chat.css`: Local LLM chat UI styles.
 
 ## Verification scripts
 

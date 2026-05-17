@@ -23,7 +23,7 @@ Static portfolio site for me (Oliver Dougherty, duh).
 
 ```bash
 # Clone
-git clone git@github.com:oliverdougherty/oliverdougherty.com.git
+git clone git@github.com:oliverdougherC/Oliver-Unified.git
 cd oliverdougherty.com
 
 # One-command setup (installs deps, builds bundles, runs quality checks)
@@ -41,7 +41,7 @@ Open `http://localhost:3000`. Done.
 ### Step-by-step (if you prefer manual control)
 
 ```bash
-git clone git@github.com:oliverdougherty/oliverdougherty.com.git
+git clone git@github.com:oliverdougherC/Oliver-Unified.git
 cd oliverdougherty.com
 
 npm install              # dependencies
