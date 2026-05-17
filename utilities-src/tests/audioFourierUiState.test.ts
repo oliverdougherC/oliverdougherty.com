@@ -7,7 +7,6 @@ describe('audio playback UI state', () => {
         hasResult: true,
         isProcessing: false,
         isPlaying: false,
-        elapsedSeconds: 0,
         isComplete: false,
       })
     ).toBe('Play');
@@ -17,7 +16,6 @@ describe('audio playback UI state', () => {
         hasResult: true,
         isProcessing: false,
         isPlaying: false,
-        elapsedSeconds: 1,
         isComplete: false,
       })
     ).toBe('Play');
@@ -27,7 +25,6 @@ describe('audio playback UI state', () => {
         hasResult: true,
         isProcessing: false,
         isPlaying: false,
-        elapsedSeconds: 1,
         isComplete: true,
       })
     ).toBe('Replay');
@@ -39,7 +36,6 @@ describe('audio playback UI state', () => {
         hasResult: true,
         isProcessing: false,
         isPlaying: false,
-        elapsedSeconds: 0,
         isComplete: false,
       })
     ).toEqual({ icon: '\u25b6', label: 'Play' });
@@ -49,17 +45,15 @@ describe('audio playback UI state', () => {
         hasResult: true,
         isProcessing: false,
         isPlaying: false,
-        elapsedSeconds: 1,
         isComplete: true,
       })
-    ).toEqual({ icon: '\u21bb', label: 'Replay' });
+    ).toEqual({ icon: '\u21BB', label: 'Replay' });
 
     expect(
       resolveAudioPlaybackButtonState({
         hasResult: true,
         isProcessing: false,
         isPlaying: true,
-        elapsedSeconds: 1,
         isComplete: false,
       })
     ).toEqual({ icon: '\u23f8', label: 'Play' });

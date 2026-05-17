@@ -242,6 +242,11 @@ class UtilitiesApp {
       return;
     }
 
+    if (!file.type.startsWith('image/')) {
+      this.setProgress(0, 'Unsupported file type.', 'Please select an image file.');
+      return;
+    }
+
     const nextSelection: ImageSelection = {
       kind: 'file',
       label: file.name,

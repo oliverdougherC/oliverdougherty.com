@@ -2,7 +2,6 @@ export function resolveAudioPlaybackButtonLabel(options: {
   hasResult: boolean;
   isProcessing: boolean;
   isPlaying: boolean;
-  elapsedSeconds: number;
   isComplete: boolean;
 }) {
   if (!options.hasResult || options.isProcessing || options.isPlaying) {

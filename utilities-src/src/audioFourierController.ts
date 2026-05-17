@@ -433,7 +433,6 @@ export class AudioFourierController {
       hasResult,
       isProcessing,
       isPlaying,
-      elapsedSeconds: this.playbackElapsedSeconds,
       isComplete: this.state === 'complete'
     });
     this.playPauseButton.textContent = playbackButton.icon;
