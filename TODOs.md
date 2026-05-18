@@ -6,14 +6,14 @@
 
 ## High Severity
 
-- [ ] **PERF-01** `transformCore.ts:196-210` -- Replace `Map<number, number[]>` + `push()` in `buildBucketMap` with pre-allocated typed arrays for large images. On 512x512 images (262K pixels), the Map overhead + dynamic resizing adds 50-100ms.
+- [x] **PERF-01** `transformCore.ts:196-210` -- ~~Replace `Map<number, number[]>` + `push()` in `buildBucketMap` with pre-allocated typed arrays for large images. On 512x512 images (262K pixels), the Map overhead + dynamic resizing adds 50-100ms.~~ **Done.** Replaced the separate source bucket map with a one-pass typed source donor index using bucket/source and bucket/group index arrays. Verified with `npm run utilities:typecheck`, `npm run utilities:test` (137 tests), and image-transform perf output from `npm run utilities:perf` (`rank=12.1ms/12.8ms/32.2ms` for representative, white-heavy, and high-detail cases).
 
 ## Medium Severity
 
 - [x] **SEC-02** `main.ts:243-265` -- ~~Add MIME type validation in `handleFileSelection`. Reject files where `!file.type.startsWith('image/')` before processing.~~ **Done.** Added MIME type guard that shows progress error for non-image files. All 133 tests pass.
 - [ ] **BUG-02** `parallelMatcher.ts:161-166` -- Fix racy progress tracking in `runRankingWorker`. `completedShortlists` increments inside `Promise.all` + `map`, so cumulative counts may not be monotonically increasing as callers might expect.
 - [ ] **BUG-06** `main.ts:696-776` -- NOTE: Partially fixed. `runOnMainThread` now calls `sourceBitmap.close()` / `targetBitmap.close()` (lines 784-785) for the main thread path. However, on the `OffscreenCanvas` path (line 739-750), `ImageBitmap`s are transferred to the worker and never closed—which is correct since the worker owns them post-transfer.
-- [ ] **PERF-02** `transformCore.ts:218-227` -- Merge two passes over source pixels (`buildBucketMap` + `buildGroupedDonorState`) into a single pass to eliminate redundant Map construction.
+- [x] **PERF-02** `transformCore.ts:218-227` -- ~~Merge two passes over source pixels (`buildBucketMap` + `buildGroupedDonorState`) into a single pass to eliminate redundant Map construction.~~ **Done.** `buildSourceDonorIndex` now classifies each source pixel once, builds exact-RGB donor groups, and emits the typed lookup structures used by both candidate collection and grouped assignment. Verified with `npm run utilities:typecheck`, `npm run utilities:test` (137 tests), and image-transform perf output from `npm run utilities:perf`; the full perf command still exits nonzero on the unrelated `audio-built-in-song-tall-dpr` RAF sample budget.
 - [ ] **PERF-03** `transformIntelligence.ts:29-87` -- Optimize `computeLocalContrast` inner loop by unrolling neighbor checks and handling boundary conditions per-row/per-column instead of 4 `if` guards per pixel.
 - [ ] **PERF-04** `transformCore.ts:337-399` -- Fix duplicate callback invocations in `forEachShellBucket` when `radius > 0`. Same key is visited multiple times, wasting `context.buckets.get(key)` calls.
 - [ ] **PERF-05** `transformRenderPlan.ts:40-41` -- Verify the `82_000` normalization denominator. Max weighted RGB distance for pure red is ~32K, meaning `distanceNormalized` is artificially compressed and tint blending is less responsive to color deltas.

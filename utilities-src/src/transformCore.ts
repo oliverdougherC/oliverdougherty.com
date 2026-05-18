@@ -49,14 +49,18 @@ export interface TransformHooks {
 export interface MatchingSearchContext {
   sourcePacked: Uint32Array;
   targetPacked: Uint32Array;
-  buckets: Map<number, number[]>;
-  bucketGroups: Map<number, number[]>;
-  bucketGroupIndicesByBucket: Int32Array[];
   bucketEntryIndexByKey: Map<number, number>;
   bucketKeys: Uint32Array;
   bucketRed: Uint8Array;
   bucketGreen: Uint8Array;
   bucketBlue: Uint8Array;
+  bucketFirstSourceByBucket: Int32Array;
+  bucketNextSourceBySource: Int32Array;
+  bucketFirstGroupByBucket: Int32Array;
+  bucketNextGroupByGroup: Int32Array;
+  bucketGroupOffsetByBucket: Int32Array;
+  bucketGroupCountByBucket: Int32Array;
+  bucketGroupIndices: Int32Array;
   bucketRemainingGroupCount: Int32Array;
   shift: number;
   bucketCount: number;
@@ -69,7 +73,7 @@ export interface MatchingSearchContext {
   groupMaxDonorByGroup: Int32Array;
   groupRemainingCount: Int32Array;
   donorGroupBySource: Int32Array;
-  donorBucketKeyBySource: Int32Array;
+  donorBucketEntryBySource: Int32Array;
   donorNextByUsefulness: Int32Array;
   donorPrevByUsefulness: Int32Array;
   usefulnessBySource: Float32Array;
@@ -119,6 +123,7 @@ const PROGRESS_REPORT_INTERVAL = 256;
 const SCORE_USEFULNESS_NEED = 50_000;
 const SCORE_NEAR_WHITE_NEED = 34_000;
 const SCORE_USEFULNESS_FLAT_BRIGHT = 14_000;
+const OCCUPIED_BUCKET_SCAN_MIN_PIXELS = 4_096;
 
 function nowMs() {
   return performance.now();
@@ -159,54 +164,62 @@ function bucketKey(rgb: number, shift: number) {
   return (red << 16) | (green << 8) | blue;
 }
 
-
-
-function buildBucketMap(sourcePacked: Uint32Array, quantizationBits: number) {
-  const shift = 8 - quantizationBits;
-  const buckets = new Map<number, number[]>();
-
-  for (let index = 0; index < sourcePacked.length; index += 1) {
-    const key = bucketKey(sourcePacked[index], shift);
-    const existing = buckets.get(key);
-    if (existing) {
-      existing.push(index);
-    } else {
-      buckets.set(key, [index]);
-    }
-  }
-
-  return { buckets, shift, bucketCount: 1 << quantizationBits };
+interface SourceDonorIndex {
+  shift: number;
+  bucketCount: number;
+  bucketEntryIndexByKey: Map<number, number>;
+  bucketKeys: Uint32Array;
+  bucketFirstSourceByBucket: Int32Array;
+  bucketNextSourceBySource: Int32Array;
+  bucketFirstGroupByBucket: Int32Array;
+  bucketNextGroupByGroup: Int32Array;
+  bucketGroupOffsetByBucket: Int32Array;
+  bucketGroupCountByBucket: Int32Array;
+  bucketGroupIndices: Int32Array;
+  bucketRemainingGroupCount: Int32Array;
+  groupRgbValues: Uint32Array;
+  groupNearWhiteByGroup: Float32Array;
+  groupMinDonorByGroup: Int32Array;
+  groupMaxDonorByGroup: Int32Array;
+  groupRemainingCount: Int32Array;
+  donorGroupBySource: Int32Array;
+  donorBucketEntryBySource: Int32Array;
+  donorNextByUsefulness: Int32Array;
+  donorPrevByUsefulness: Int32Array;
+  usefulnessBySource: Float32Array;
 }
 
-function buildGroupedDonorState(
+function buildSourceDonorIndex(
   sourcePacked: Uint32Array,
-  shift: number,
+  quantizationBits: number,
   analysis?: TransformImageAnalysis
-) {
-  const exactGroups = new Map<number, number[]>();
-  for (let sourceIndex = 0; sourceIndex < sourcePacked.length; sourceIndex += 1) {
-    const rgb = sourcePacked[sourceIndex];
-    const existing = exactGroups.get(rgb);
-    if (existing) {
-      existing.push(sourceIndex);
-    } else {
-      exactGroups.set(rgb, [sourceIndex]);
-    }
-  }
-
-  const bucketGroups = new Map<number, number[]>();
-  const donorBucketKeyBySource = new Int32Array(sourcePacked.length);
-  const groupRgbValues = new Uint32Array(exactGroups.size);
-  const groupNearWhiteByGroup = new Float32Array(exactGroups.size);
-  const groupMinDonorByGroup = new Int32Array(exactGroups.size);
-  const groupMaxDonorByGroup = new Int32Array(exactGroups.size);
-  const groupRemainingCount = new Int32Array(exactGroups.size);
+): SourceDonorIndex {
+  const shift = 8 - quantizationBits;
+  const bucketCount = 1 << quantizationBits;
+  const bucketEntryIndexByKey = new Map<number, number>();
+  const bucketKeys: number[] = [];
+  const bucketFirstSourceByBucket: number[] = [];
+  const bucketLastSourceByBucket: number[] = [];
+  const bucketFirstGroupByBucket: number[] = [];
+  const bucketLastGroupByBucket: number[] = [];
+  const bucketRemainingGroupCount: number[] = [];
+  const bucketNextSourceBySource = new Int32Array(sourcePacked.length);
+  const bucketNextGroupByGroup: number[] = [];
+  const groupIndexByRgb = new Map<number, number>();
+  const groupRgbValues: number[] = [];
+  const groupFirstDonorByGroup: number[] = [];
+  const groupLastDonorByGroup: number[] = [];
+  const groupBucketEntryByGroup: number[] = [];
+  const groupRemainingCountValues: number[] = [];
   const donorGroupBySource = new Int32Array(sourcePacked.length);
-  const donorNextByUsefulness = new Int32Array(sourcePacked.length);
+  const donorBucketEntryBySource = new Int32Array(sourcePacked.length);
   const donorPrevByUsefulness = new Int32Array(sourcePacked.length);
+  const donorNextByUsefulness = new Int32Array(sourcePacked.length);
+  bucketNextSourceBySource.fill(-1);
   donorGroupBySource.fill(-1);
-  donorNextByUsefulness.fill(-1);
+  donorBucketEntryBySource.fill(-1);
   donorPrevByUsefulness.fill(-1);
+  donorNextByUsefulness.fill(-1);
 
   const usefulnessBySource = analysis?.sourceUsefulnessByIndex
     ? Float32Array.from(analysis.sourceUsefulnessByIndex)
@@ -215,45 +228,129 @@ function buildGroupedDonorState(
     ? analysis.sourceNearWhiteByIndex
     : new Float32Array(sourcePacked.length);
 
-  let groupIndex = 0;
-  for (const [rgb, donors] of exactGroups.entries()) {
+  for (let sourceIndex = 0; sourceIndex < sourcePacked.length; sourceIndex += 1) {
+    const rgb = sourcePacked[sourceIndex];
     const quantizedBucketKey = bucketKey(rgb, shift);
-    const groupsForBucket = bucketGroups.get(quantizedBucketKey);
-    if (groupsForBucket) {
-      groupsForBucket.push(groupIndex);
+    let bucketEntry = bucketEntryIndexByKey.get(quantizedBucketKey);
+    if (bucketEntry === undefined) {
+      bucketEntry = bucketKeys.length;
+      bucketEntryIndexByKey.set(quantizedBucketKey, bucketEntry);
+      bucketKeys.push(quantizedBucketKey);
+      bucketFirstSourceByBucket.push(-1);
+      bucketLastSourceByBucket.push(-1);
+      bucketFirstGroupByBucket.push(-1);
+      bucketLastGroupByBucket.push(-1);
+      bucketRemainingGroupCount.push(0);
+    }
+
+    const previousBucketTail = bucketLastSourceByBucket[bucketEntry];
+    if (previousBucketTail === -1) {
+      bucketFirstSourceByBucket[bucketEntry] = sourceIndex;
     } else {
-      bucketGroups.set(quantizedBucketKey, [groupIndex]);
+      bucketNextSourceBySource[previousBucketTail] = sourceIndex;
+    }
+    bucketLastSourceByBucket[bucketEntry] = sourceIndex;
+
+    let groupIndex = groupIndexByRgb.get(rgb);
+    if (groupIndex === undefined) {
+      groupIndex = groupRgbValues.length;
+      groupIndexByRgb.set(rgb, groupIndex);
+      groupRgbValues.push(rgb);
+      groupFirstDonorByGroup.push(sourceIndex);
+      groupLastDonorByGroup.push(sourceIndex);
+      groupBucketEntryByGroup.push(bucketEntry);
+      groupRemainingCountValues.push(1);
+      bucketNextGroupByGroup.push(-1);
+
+      const previousGroupTail = bucketLastGroupByBucket[bucketEntry];
+      if (previousGroupTail === -1) {
+        bucketFirstGroupByBucket[bucketEntry] = groupIndex;
+      } else {
+        bucketNextGroupByGroup[previousGroupTail] = groupIndex;
+      }
+      bucketLastGroupByBucket[bucketEntry] = groupIndex;
+      bucketRemainingGroupCount[bucketEntry] += 1;
+    } else {
+      const previousGroupDonorTail = groupLastDonorByGroup[groupIndex];
+      donorNextByUsefulness[previousGroupDonorTail] = sourceIndex;
+      groupLastDonorByGroup[groupIndex] = sourceIndex;
+      groupRemainingCountValues[groupIndex] += 1;
     }
 
-    sortDonorsByUsefulness(donors, usefulnessBySource);
+    donorGroupBySource[sourceIndex] = groupIndex;
+    donorBucketEntryBySource[sourceIndex] = bucketEntry;
+  }
 
-    groupRgbValues[groupIndex] = rgb;
-    groupNearWhiteByGroup[groupIndex] = nearWhiteBySource[donors[0]] ?? 0;
-    groupMinDonorByGroup[groupIndex] = donors[0];
-    groupMaxDonorByGroup[groupIndex] = donors[donors.length - 1];
-    groupRemainingCount[groupIndex] = donors.length;
+  const typedGroupRgbValues = Uint32Array.from(groupRgbValues);
+  const bucketGroupOffsetByBucket = new Int32Array(bucketKeys.length);
+  const bucketGroupCountByBucket = Int32Array.from(bucketRemainingGroupCount);
+  const bucketGroupIndices = new Int32Array(groupRgbValues.length);
+  const groupNearWhiteByGroup = new Float32Array(groupRgbValues.length);
+  const groupMinDonorByGroup = new Int32Array(groupRgbValues.length);
+  const groupMaxDonorByGroup = new Int32Array(groupRgbValues.length);
+  const groupRemainingCount = Int32Array.from(groupRemainingCountValues);
+  const donorSortScratch = new Int32Array(sourcePacked.length);
 
-    for (let donorOffset = 0; donorOffset < donors.length; donorOffset += 1) {
-      const donorIndex = donors[donorOffset];
-      donorGroupBySource[donorIndex] = groupIndex;
-      donorBucketKeyBySource[donorIndex] = quantizedBucketKey;
-      donorPrevByUsefulness[donorIndex] = donorOffset > 0 ? donors[donorOffset - 1] : -1;
+  for (let bucketEntry = 1; bucketEntry < bucketGroupOffsetByBucket.length; bucketEntry += 1) {
+    bucketGroupOffsetByBucket[bucketEntry] =
+      bucketGroupOffsetByBucket[bucketEntry - 1] + bucketGroupCountByBucket[bucketEntry - 1];
+  }
+
+  const bucketGroupWriteOffsetByBucket = new Int32Array(bucketGroupOffsetByBucket);
+  for (let groupIndex = 0; groupIndex < groupRgbValues.length; groupIndex += 1) {
+    const bucketEntry = groupBucketEntryByGroup[groupIndex];
+    const writeOffset = bucketGroupWriteOffsetByBucket[bucketEntry];
+    bucketGroupIndices[writeOffset] = groupIndex;
+    bucketGroupWriteOffsetByBucket[bucketEntry] += 1;
+  }
+
+  for (let groupIndex = 0; groupIndex < groupRgbValues.length; groupIndex += 1) {
+    let donorCount = 0;
+    for (
+      let donorIndex = groupFirstDonorByGroup[groupIndex];
+      donorIndex !== -1;
+      donorIndex = donorNextByUsefulness[donorIndex]
+    ) {
+      donorSortScratch[donorCount] = donorIndex;
+      donorCount += 1;
+    }
+
+    const sortedDonors = donorSortScratch.subarray(0, donorCount);
+    sortDonorsByUsefulness(sortedDonors, usefulnessBySource);
+
+    groupNearWhiteByGroup[groupIndex] = nearWhiteBySource[sortedDonors[0]] ?? 0;
+    groupMinDonorByGroup[groupIndex] = sortedDonors[0];
+    groupMaxDonorByGroup[groupIndex] = sortedDonors[donorCount - 1];
+
+    for (let donorOffset = 0; donorOffset < donorCount; donorOffset += 1) {
+      const donorIndex = sortedDonors[donorOffset];
+      donorPrevByUsefulness[donorIndex] =
+        donorOffset > 0 ? sortedDonors[donorOffset - 1] : -1;
       donorNextByUsefulness[donorIndex] =
-        donorOffset + 1 < donors.length ? donors[donorOffset + 1] : -1;
+        donorOffset + 1 < donorCount ? sortedDonors[donorOffset + 1] : -1;
     }
-
-    groupIndex += 1;
   }
 
   return {
-    bucketGroups,
-    groupRgbValues,
+    shift,
+    bucketCount,
+    bucketEntryIndexByKey,
+    bucketKeys: Uint32Array.from(bucketKeys),
+    bucketFirstSourceByBucket: Int32Array.from(bucketFirstSourceByBucket),
+    bucketNextSourceBySource,
+    bucketFirstGroupByBucket: Int32Array.from(bucketFirstGroupByBucket),
+    bucketNextGroupByGroup: Int32Array.from(bucketNextGroupByGroup),
+    bucketGroupOffsetByBucket,
+    bucketGroupCountByBucket,
+    bucketGroupIndices,
+    bucketRemainingGroupCount: Int32Array.from(bucketRemainingGroupCount),
+    groupRgbValues: typedGroupRgbValues,
     groupNearWhiteByGroup,
     groupMinDonorByGroup,
     groupMaxDonorByGroup,
     groupRemainingCount,
     donorGroupBySource,
-    donorBucketKeyBySource,
+    donorBucketEntryBySource,
     donorNextByUsefulness,
     donorPrevByUsefulness,
     usefulnessBySource
@@ -269,7 +366,7 @@ function compareDonorsByUsefulness(
   return delta === 0 ? left - right : delta;
 }
 
-function sortDonorsByUsefulness(donors: number[], usefulnessBySource: Float32Array) {
+function sortDonorsByUsefulness(donors: Int32Array, usefulnessBySource: Float32Array) {
   if (donors.length <= 32) {
     for (let index = 1; index < donors.length; index += 1) {
       const donor = donors[index];
@@ -391,21 +488,13 @@ export function createMatchingSearchContext(
   analysis?: TransformImageAnalysis
 ): MatchingSearchContext {
   validateMatchingInputs(sourcePacked, targetPacked, quantizationBits);
-  const { buckets, shift, bucketCount } = buildBucketMap(sourcePacked, quantizationBits);
-  const groupedDonorState = buildGroupedDonorState(sourcePacked, shift, analysis);
-  const bucketKeys = Uint32Array.from(groupedDonorState.bucketGroups.keys());
-  const bucketGroupIndicesByBucket = Array.from(
-    bucketKeys,
-    (key) => Int32Array.from(groupedDonorState.bucketGroups.get(key) ?? [])
-  );
-  const bucketRed = new Uint8Array(bucketKeys.length);
-  const bucketGreen = new Uint8Array(bucketKeys.length);
-  const bucketBlue = new Uint8Array(bucketKeys.length);
-  const bucketRemainingGroupCount = new Int32Array(bucketKeys.length);
-  const bucketEntryIndexByKey = new Map<number, number>();
-  const groupRed = new Uint8Array(groupedDonorState.groupRgbValues.length);
-  const groupGreen = new Uint8Array(groupedDonorState.groupRgbValues.length);
-  const groupBlue = new Uint8Array(groupedDonorState.groupRgbValues.length);
+  const sourceDonorIndex = buildSourceDonorIndex(sourcePacked, quantizationBits, analysis);
+  const bucketRed = new Uint8Array(sourceDonorIndex.bucketKeys.length);
+  const bucketGreen = new Uint8Array(sourceDonorIndex.bucketKeys.length);
+  const bucketBlue = new Uint8Array(sourceDonorIndex.bucketKeys.length);
+  const groupRed = new Uint8Array(sourceDonorIndex.groupRgbValues.length);
+  const groupGreen = new Uint8Array(sourceDonorIndex.groupRgbValues.length);
+  const groupBlue = new Uint8Array(sourceDonorIndex.groupRgbValues.length);
   const targetRed = new Uint8Array(targetPacked.length);
   const targetGreen = new Uint8Array(targetPacked.length);
   const targetBlue = new Uint8Array(targetPacked.length);
@@ -417,17 +506,15 @@ export function createMatchingSearchContext(
   const targetNearWhiteCoefficient = new Float32Array(targetPacked.length);
   const targetPreferMaxUsefulness = new Uint8Array(targetPacked.length);
 
-  for (let bucketIndex = 0; bucketIndex < bucketKeys.length; bucketIndex += 1) {
-    const key = bucketKeys[bucketIndex];
-    bucketEntryIndexByKey.set(key, bucketIndex);
+  for (let bucketIndex = 0; bucketIndex < sourceDonorIndex.bucketKeys.length; bucketIndex += 1) {
+    const key = sourceDonorIndex.bucketKeys[bucketIndex];
     bucketRed[bucketIndex] = (key >> 16) & 0xff;
     bucketGreen[bucketIndex] = (key >> 8) & 0xff;
     bucketBlue[bucketIndex] = key & 0xff;
-    bucketRemainingGroupCount[bucketIndex] = bucketGroupIndicesByBucket[bucketIndex]?.length ?? 0;
   }
 
-  for (let groupIndex = 0; groupIndex < groupedDonorState.groupRgbValues.length; groupIndex += 1) {
-    const rgb = groupedDonorState.groupRgbValues[groupIndex];
+  for (let groupIndex = 0; groupIndex < sourceDonorIndex.groupRgbValues.length; groupIndex += 1) {
+    const rgb = sourceDonorIndex.groupRgbValues[groupIndex];
     groupRed[groupIndex] = (rgb >> 16) & 0xff;
     groupGreen[groupIndex] = (rgb >> 8) & 0xff;
     groupBlue[groupIndex] = rgb & 0xff;
@@ -444,9 +531,9 @@ export function createMatchingSearchContext(
     targetRed[targetIndex] = red;
     targetGreen[targetIndex] = green;
     targetBlue[targetIndex] = blue;
-    targetBucketRed[targetIndex] = red >> shift;
-    targetBucketGreen[targetIndex] = green >> shift;
-    targetBucketBlue[targetIndex] = blue >> shift;
+    targetBucketRed[targetIndex] = red >> sourceDonorIndex.shift;
+    targetBucketGreen[targetIndex] = green >> sourceDonorIndex.shift;
+    targetBucketBlue[targetIndex] = blue >> sourceDonorIndex.shift;
     targetBucketKeyByIndex[targetIndex] =
       (targetBucketRed[targetIndex] << 16) |
       (targetBucketGreen[targetIndex] << 8) |
@@ -459,30 +546,34 @@ export function createMatchingSearchContext(
   return {
     sourcePacked,
     targetPacked,
-    buckets,
-    bucketGroups: groupedDonorState.bucketGroups,
-    bucketGroupIndicesByBucket,
-    bucketEntryIndexByKey,
-    bucketKeys,
+    bucketEntryIndexByKey: sourceDonorIndex.bucketEntryIndexByKey,
+    bucketKeys: sourceDonorIndex.bucketKeys,
     bucketRed,
     bucketGreen,
     bucketBlue,
-    bucketRemainingGroupCount,
-    shift,
-    bucketCount,
-    groupRgbValues: groupedDonorState.groupRgbValues,
+    bucketFirstSourceByBucket: sourceDonorIndex.bucketFirstSourceByBucket,
+    bucketNextSourceBySource: sourceDonorIndex.bucketNextSourceBySource,
+    bucketFirstGroupByBucket: sourceDonorIndex.bucketFirstGroupByBucket,
+    bucketNextGroupByGroup: sourceDonorIndex.bucketNextGroupByGroup,
+    bucketGroupOffsetByBucket: sourceDonorIndex.bucketGroupOffsetByBucket,
+    bucketGroupCountByBucket: sourceDonorIndex.bucketGroupCountByBucket,
+    bucketGroupIndices: sourceDonorIndex.bucketGroupIndices,
+    bucketRemainingGroupCount: sourceDonorIndex.bucketRemainingGroupCount,
+    shift: sourceDonorIndex.shift,
+    bucketCount: sourceDonorIndex.bucketCount,
+    groupRgbValues: sourceDonorIndex.groupRgbValues,
     groupRed,
     groupGreen,
     groupBlue,
-    groupNearWhiteByGroup: groupedDonorState.groupNearWhiteByGroup,
-    groupMinDonorByGroup: groupedDonorState.groupMinDonorByGroup,
-    groupMaxDonorByGroup: groupedDonorState.groupMaxDonorByGroup,
-    groupRemainingCount: groupedDonorState.groupRemainingCount,
-    donorGroupBySource: groupedDonorState.donorGroupBySource,
-    donorBucketKeyBySource: groupedDonorState.donorBucketKeyBySource,
-    donorNextByUsefulness: groupedDonorState.donorNextByUsefulness,
-    donorPrevByUsefulness: groupedDonorState.donorPrevByUsefulness,
-    usefulnessBySource: groupedDonorState.usefulnessBySource,
+    groupNearWhiteByGroup: sourceDonorIndex.groupNearWhiteByGroup,
+    groupMinDonorByGroup: sourceDonorIndex.groupMinDonorByGroup,
+    groupMaxDonorByGroup: sourceDonorIndex.groupMaxDonorByGroup,
+    groupRemainingCount: sourceDonorIndex.groupRemainingCount,
+    donorGroupBySource: sourceDonorIndex.donorGroupBySource,
+    donorBucketEntryBySource: sourceDonorIndex.donorBucketEntryBySource,
+    donorNextByUsefulness: sourceDonorIndex.donorNextByUsefulness,
+    donorPrevByUsefulness: sourceDonorIndex.donorPrevByUsefulness,
+    usefulnessBySource: sourceDonorIndex.usefulnessBySource,
     targetRed,
     targetGreen,
     targetBlue,
@@ -524,13 +615,16 @@ function collectShellCandidates(
   const shellCandidates: RankedCandidate[] = [];
 
   forEachShellBucket(centerRed, centerGreen, centerBlue, radius, context.bucketCount, (key) => {
-    const candidates = context.buckets.get(key);
-    if (!candidates) {
+    const bucketIndex = context.bucketEntryIndexByKey.get(key);
+    if (bucketIndex === undefined) {
       return;
     }
 
-    for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
-      const sourceIndex = candidates[candidateIndex];
+    for (
+      let sourceIndex = context.bucketFirstSourceByBucket[bucketIndex];
+      sourceIndex !== -1;
+      sourceIndex = context.bucketNextSourceBySource[sourceIndex]
+    ) {
       shellCandidates.push({
         sourceIndex,
         distance: scoreCandidateDistance(context, sourceIndex, targetIndex)
@@ -600,13 +694,16 @@ export function findBestAvailableSourceIndex(
 
   for (let radius = 0; radius < context.bucketCount; radius += 1) {
     forEachShellBucket(centerRed, centerGreen, centerBlue, radius, context.bucketCount, (key) => {
-      const candidates = context.buckets.get(key);
-      if (!candidates) {
+      const bucketIndex = context.bucketEntryIndexByKey.get(key);
+      if (bucketIndex === undefined) {
         return;
       }
 
-      for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
-        const sourceIndex = candidates[candidateIndex];
+      for (
+        let sourceIndex = context.bucketFirstSourceByBucket[bucketIndex];
+        sourceIndex !== -1;
+        sourceIndex = context.bucketNextSourceBySource[sourceIndex]
+      ) {
         if (used[sourceIndex]) {
           continue;
         }
@@ -631,7 +728,10 @@ interface GroupedSearchResult {
 
 function shouldUseOccupiedBucketScan(context: MatchingSearchContext) {
   const searchSpaceSize = context.bucketCount * context.bucketCount * context.bucketCount;
-  return context.bucketKeys.length <= 128 && context.bucketKeys.length * 4 <= searchSpaceSize;
+  return (
+    context.sourcePacked.length >= OCCUPIED_BUCKET_SCAN_MIN_PIXELS ||
+    (context.bucketKeys.length <= 128 && context.bucketKeys.length * 4 <= searchSpaceSize)
+  );
 }
 
 function getBucketSearchOrder(
@@ -719,13 +819,14 @@ function findBestGroupedSourceIndex(
         break;
       }
 
-      const groupIndices = context.bucketGroupIndicesByBucket[bucketIndex];
-      if (!groupIndices) {
-        continue;
-      }
-
-      for (let groupOffset = 0; groupOffset < groupIndices.length; groupOffset += 1) {
-        const groupIndex = groupIndices[groupOffset];
+      const groupEnd =
+        context.bucketGroupOffsetByBucket[bucketIndex] + context.bucketGroupCountByBucket[bucketIndex];
+      for (
+        let groupOffset = context.bucketGroupOffsetByBucket[bucketIndex];
+        groupOffset < groupEnd;
+        groupOffset += 1
+      ) {
+        const groupIndex = context.bucketGroupIndices[groupOffset];
         if (context.groupRemainingCount[groupIndex] <= 0) {
           continue;
         }
@@ -765,13 +866,14 @@ function findBestGroupedSourceIndex(
           return;
         }
 
-        const groupIndices = context.bucketGroupIndicesByBucket[bucketIndex];
-        if (!groupIndices) {
-          return;
-        }
-
-        for (let groupOffset = 0; groupOffset < groupIndices.length; groupOffset += 1) {
-          const groupIndex = groupIndices[groupOffset];
+        const groupEnd =
+          context.bucketGroupOffsetByBucket[bucketIndex] + context.bucketGroupCountByBucket[bucketIndex];
+        for (
+          let groupOffset = context.bucketGroupOffsetByBucket[bucketIndex];
+          groupOffset < groupEnd;
+          groupOffset += 1
+        ) {
+          const groupIndex = context.bucketGroupIndices[groupOffset];
           if (context.groupRemainingCount[groupIndex] <= 0) {
             continue;
           }
@@ -818,7 +920,7 @@ function removeFromGroupedDonorState(context: MatchingSearchContext, sourceIndex
   if (groupIndex < 0) {
     return;
   }
-  const bucketKey = context.donorBucketKeyBySource[sourceIndex];
+  const bucketIndex = context.donorBucketEntryBySource[sourceIndex];
 
   const previousIndex = context.donorPrevByUsefulness[sourceIndex];
   const nextIndex = context.donorNextByUsefulness[sourceIndex];
@@ -839,14 +941,11 @@ function removeFromGroupedDonorState(context: MatchingSearchContext, sourceIndex
   context.donorNextByUsefulness[sourceIndex] = -1;
   const remainingCount = Math.max(0, context.groupRemainingCount[groupIndex] - 1);
   context.groupRemainingCount[groupIndex] = remainingCount;
-  if (remainingCount === 0) {
-    const bucketIndex = context.bucketEntryIndexByKey.get(bucketKey);
-    if (bucketIndex !== undefined) {
-      context.bucketRemainingGroupCount[bucketIndex] = Math.max(
-        0,
-        context.bucketRemainingGroupCount[bucketIndex] - 1
-      );
-    }
+  if (remainingCount === 0 && bucketIndex >= 0) {
+    context.bucketRemainingGroupCount[bucketIndex] = Math.max(
+      0,
+      context.bucketRemainingGroupCount[bucketIndex] - 1
+    );
   }
 }
 

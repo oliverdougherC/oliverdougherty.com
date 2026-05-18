@@ -3,6 +3,7 @@ import { buildTransformRenderPlan } from '@utilities/transformRenderPlan';
 import { analyzeTransformImages } from '@utilities/transformIntelligence';
 import {
   buildResultPixels,
+  collectRankedCandidatesForTarget,
   createMatchingSearchContext,
   findBestAvailableSourceIndex,
   matchPackedPixels,
@@ -274,6 +275,41 @@ describe('transform core', () => {
     expect(result.matcherStats.averageGroupsPerTarget).toBeLessThanOrEqual(4.1);
     expect(result.matcherStats.evaluatedGroupCount).toBeLessThanOrEqual(256);
     expect(result.matcherStats.evaluatedCandidateCount).toBe(result.matcherStats.evaluatedGroupCount);
+  });
+
+  it('iterates duplicated donors across exact groups in one quantized bucket', () => {
+    const source = imageFromRgbTriples(
+      [
+        [1, 1, 1],
+        [2, 2, 2],
+        [2, 2, 2],
+        [15, 15, 15],
+        [240, 240, 240]
+      ],
+      5,
+      1
+    );
+    const target = imageFromRgbTriples(
+      [
+        [2, 2, 2],
+        [15, 15, 15],
+        [2, 2, 2],
+        [1, 1, 1],
+        [240, 240, 240]
+      ],
+      5,
+      1
+    );
+    const context = createMatchingSearchContext(
+      packRgbPixels(source.pixels),
+      packRgbPixels(target.pixels),
+      4
+    );
+    const candidates = collectRankedCandidatesForTarget(context, 0, 4);
+    const assignment = matchPackedPixels(packRgbPixels(source.pixels), packRgbPixels(target.pixels), 4);
+
+    expect(candidates.map((candidate) => candidate.sourceIndex)).toEqual([1, 2, 0, 3]);
+    expect(Array.from(assignment)).toEqual([1, 3, 2, 0, 4]);
   });
 
   it('validates empty matching inputs before building search state', () => {
