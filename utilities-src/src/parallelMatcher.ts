@@ -133,9 +133,27 @@ export async function matchPackedPixelsInParallel(request: ParallelMatchRequest)
     request.targetPacked.length
   );
 
+  const completedChunks = new Uint8Array(targetChunks.length);
+  const chunkSizes = targetChunks.map((chunk) => chunk.length);
+
   let completedShortlists = 0;
+  const reportShortlistProgress = (finishedChunkIndex: number) => {
+    completedChunks[finishedChunkIndex] = 1;
+    completedShortlists = 0;
+    for (let ci = 0; ci < chunkSizes.length; ci += 1) {
+      if (completedChunks[ci]) {
+        completedShortlists += chunkSizes[ci];
+      }
+    }
+    request.hooks?.onShortlistProgress?.(
+      completedShortlists,
+      request.targetOrder.length,
+      workerCount
+    );
+  };
+
   const shortlistResponses = await Promise.all(
-    targetChunks.map(async (targetIndices) => {
+    targetChunks.map(async (targetIndices, chunkIndex) => {
       if (request.hooks?.isCancelled?.()) {
         throw new Error('Transform cancelled.');
       }
@@ -158,13 +176,7 @@ export async function matchPackedPixelsInParallel(request: ParallelMatchRequest)
         throw new Error(response.message);
       }
 
-      completedShortlists += targetIndices.length;
-      request.hooks?.onShortlistProgress?.(
-        completedShortlists,
-        request.targetOrder.length,
-        workerCount
-      );
-
+      reportShortlistProgress(chunkIndex);
       return response;
     })
   );
