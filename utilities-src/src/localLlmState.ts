@@ -35,7 +35,7 @@ export function compactLocalLlmMessages(
   ];
 }
 
-export function cleanupLocalLlmText(text: unknown): string {
+export function cleanupLocalLlmText(text: string | null | undefined): string {
   return String(text || '')
     .replace(/<think[\s\S]*?<\/think>/gi, '')
     .replace(/<think[\s\S]*$/gi, '')
@@ -44,7 +44,7 @@ export function cleanupLocalLlmText(text: unknown): string {
     .trim();
 }
 
-export function renderLocalLlmSafeText(markdown: unknown): string {
+export function renderLocalLlmSafeText(markdown: string | null | undefined): string {
   const source = cleanupLocalLlmText(markdown);
   if (!source) return '';
 
@@ -84,12 +84,12 @@ export function renderLocalLlmSafeText(markdown: unknown): string {
     .join('');
 }
 
-type InlineLocalLlmSegment =
+export type InlineLocalLlmSegment =
   | { type: 'text'; value: string }
   | { type: 'code'; value: string }
   | { type: 'math'; value: string };
 
-const LATEX_COMMANDS: Record<string, { tag: 'mi' | 'mo'; value: string }> = {
+export const LATEX_COMMANDS: Record<string, { tag: 'mi' | 'mo'; value: string }> = {
   alpha: { tag: 'mi', value: 'α' },
   beta: { tag: 'mi', value: 'β' },
   gamma: { tag: 'mi', value: 'γ' },
@@ -142,7 +142,7 @@ function renderMarkdownInlineText(text: string): string {
     .replace(/\n/g, '<br>');
 }
 
-function splitInlineLocalLlmSegments(text: string): InlineLocalLlmSegment[] {
+export function splitInlineLocalLlmSegments(text: string): InlineLocalLlmSegment[] {
   const segments: InlineLocalLlmSegment[] = [];
   let textStart = 0;
   let index = 0;
@@ -197,7 +197,7 @@ function isEscapedAt(text: string, index: number): boolean {
   return slashCount % 2 === 1;
 }
 
-function renderLocalLlmMath(expression: string, display: boolean): string {
+export function renderLocalLlmMath(expression: string, display: boolean): string {
   const parser = new LocalLlmLatexParser(expression);
   const body = parser.parse();
   const displayAttribute = display ? ' display="block"' : '';
@@ -207,7 +207,7 @@ function renderLocalLlmMath(expression: string, display: boolean): string {
   return `<${tag} class="${className}"><math xmlns="http://www.w3.org/1998/Math/MathML"${displayAttribute}><mrow>${body}</mrow></math></${tag}>`;
 }
 
-class LocalLlmLatexParser {
+export class LocalLlmLatexParser {
   private index = 0;
 
   constructor(private readonly input: string) {}
@@ -354,7 +354,7 @@ class LocalLlmLatexParser {
   }
 }
 
-function escapeHtml(value: unknown): string {
+export function escapeHtml(value: string | number | boolean | null | undefined): string {
   return String(value || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

@@ -55,8 +55,8 @@ export const AUDIO_FOURIER_PRESETS: Record<AudioFourierPresetId, AudioFourierPre
     frameSize: 1024,
     hopSize: 512,
     displaySampleCount: 768,
-    sliderSteps: 100,
-    energyBandCount: 12
+    sliderSteps: 80,
+    energyBandCount: 8
   },
   balanced: {
     id: 'balanced',
@@ -79,8 +79,8 @@ export const AUDIO_FOURIER_PRESETS: Record<AudioFourierPresetId, AudioFourierPre
     frameSize: 4096,
     hopSize: 2048,
     displaySampleCount: 1280,
-    sliderSteps: 100,
-    energyBandCount: 12
+    sliderSteps: 120,
+    energyBandCount: 20
   }
 };
 

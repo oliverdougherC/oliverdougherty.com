@@ -2,10 +2,7 @@ import type { TransformPresetId } from './types';
 import type { TransformRenderPlan } from './transformRenderPlan';
 import type { ImageSelection } from './uiState';
 import type { WorkerSuccessMessage } from './workerTypes';
-
-function cloneArrayBuffer(buffer: ArrayBufferLike) {
-  return buffer.slice(0) as ArrayBuffer;
-}
+import { arrayBufferLikeToArrayBuffer, copyArrayBuffer } from './bufferUtils';
 
 export interface CachedBuiltInTransform {
   message: WorkerSuccessMessage;
@@ -31,7 +28,9 @@ export interface HydratedPrecomputedBuiltInTransform {
 }
 
 function arrayBufferToBase64(buffer: ArrayBufferLike) {
-  const bytes = new Uint8Array(buffer as ArrayBuffer);
+  const bytes = new Uint8Array(arrayBufferLikeToArrayBuffer(buffer));
+  // Buffer is available during Node cache generation; browser builds use btoa.
+  // The 32KB fallback chunks stay below V8's ~65K apply/spread argument limit.
   if (typeof Buffer !== 'undefined') {
     return Buffer.from(bytes).toString('base64');
   }
@@ -86,13 +85,13 @@ export function cloneWorkerSuccessMessage(
     requestId,
     source: {
       ...message.source,
-      pixels: cloneArrayBuffer(message.source.pixels)
+      pixels: copyArrayBuffer(message.source.pixels)
     },
     target: {
       ...message.target,
-      pixels: cloneArrayBuffer(message.target.pixels)
+      pixels: copyArrayBuffer(message.target.pixels)
     },
-    assignment: cloneArrayBuffer(message.assignment)
+    assignment: copyArrayBuffer(message.assignment)
   };
 }
 
@@ -102,9 +101,9 @@ export function createCachedBuiltInTransform(
 ): CachedBuiltInTransform {
   return {
     message: cloneWorkerSuccessMessage(message),
-    finalPixels: cloneArrayBuffer(renderPlan.finalPixels.buffer),
-    tintStrengthByTarget: cloneArrayBuffer(renderPlan.tintStrengthByTarget.buffer),
-    cheatedTargetPixels: cloneArrayBuffer(renderPlan.cheatedTargetPixels.buffer)
+    finalPixels: copyArrayBuffer(renderPlan.finalPixels.buffer),
+    tintStrengthByTarget: copyArrayBuffer(renderPlan.tintStrengthByTarget.buffer),
+    cheatedTargetPixels: copyArrayBuffer(renderPlan.cheatedTargetPixels.buffer)
   };
 }
 
@@ -114,9 +113,9 @@ export function cloneCachedBuiltInTransform(
 ): CachedBuiltInTransform {
   return {
     message: cloneWorkerSuccessMessage(cached.message, requestId),
-    finalPixels: cloneArrayBuffer(cached.finalPixels),
-    tintStrengthByTarget: cloneArrayBuffer(cached.tintStrengthByTarget),
-    cheatedTargetPixels: cloneArrayBuffer(cached.cheatedTargetPixels)
+    finalPixels: copyArrayBuffer(cached.finalPixels),
+    tintStrengthByTarget: copyArrayBuffer(cached.tintStrengthByTarget),
+    cheatedTargetPixels: copyArrayBuffer(cached.cheatedTargetPixels)
   };
 }
 

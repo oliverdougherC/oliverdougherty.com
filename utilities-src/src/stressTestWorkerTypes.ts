@@ -7,6 +7,7 @@ export interface StartCpuStressRequest {
 export interface StopCpuStressRequest {
   type: 'stop-cpu-stress';
   requestId?: number;
+  workerIndex?: number;
 }
 
 export type StressTestWorkerRequest = StartCpuStressRequest | StopCpuStressRequest;

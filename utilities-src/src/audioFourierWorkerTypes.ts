@@ -54,6 +54,7 @@ export interface AudioFourierSuccessMessage {
       proxy: number;
       analysis: number;
       bands: number;
+      envelopes: number;
       total: number;
     };
   };

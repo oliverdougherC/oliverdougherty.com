@@ -16,6 +16,7 @@ export const RETRO_VM_CONFIG: RetroVmConfig = {
   cdromSizeBytes: 20_082_688,
   memorySize: 256 * MB,
   vgaMemorySize: 8 * MB,
+  // SeaBIOS boot-order bit layout: CD-ROM first, then disk fallback.
   bootOrder: 0x210,
   bootHintDelayMs: 4000,
   bootMenuPrompt: /Press ENTER to boot/i,

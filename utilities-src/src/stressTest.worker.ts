@@ -12,7 +12,9 @@ const scheduledChunks: Array<() => void> = [];
 const chunkChannel = new MessageChannel();
 
 chunkChannel.port1.onmessage = () => {
-  scheduledChunks.shift()?.();
+  while (scheduledChunks.length > 0) {
+    scheduledChunks.shift()?.();
+  }
 };
 
 function postMessage(message: StressTestWorkerResponse) {
@@ -34,6 +36,8 @@ function runChunk(requestId: number, workerIndex: number) {
     const chunkEnd = performance.now() + 90;
     while (performance.now() < chunkEnd) {
       checksum = Math.sin(checksum + iterations) * Math.cos(checksum * 1.000001) + Math.sqrt(Math.abs(checksum) + 1);
+      // Keep the checksum in [0, 1); JS % preserves the sign for negative
+      // values, so the double-modulo pattern is intentional here.
       checksum = ((checksum % 1) + 1) % 1;
       iterations += 1;
     }

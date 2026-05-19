@@ -13,7 +13,7 @@ export interface GpuBackendSupportInput {
   hasWebGl1?: boolean;
 }
 
-export type StressEvent = 'start' | 'running' | 'stop' | 'stopped' | 'unsupported' | 'error' | 'reset';
+export type StressEvent = 'start' | 'running' | 'stop' | 'stopped' | 'unsupported' | 'error' | 'reset' | 'retry';
 
 const DEFAULT_CPU_WORKERS = 4;
 const MAX_CPU_WORKERS = 64;
@@ -61,28 +61,26 @@ export function resolveGpuBackendFallbacks(input: GpuBackendSupportInput): Stres
 }
 
 export function transitionStressState(state: StressState, event: StressEvent): StressState {
-  if (event === 'reset') {
-    return 'idle';
+  switch (event) {
+    case 'reset':
+      return 'idle';
+    case 'retry':
+      return state === 'error' || state === 'unsupported' ? 'starting' : state;
+    case 'error':
+      return state === 'starting' || state === 'running' || state === 'stopping' ? 'error' : state;
+    case 'unsupported':
+      return 'unsupported';
+    case 'start':
+      return state === 'idle' || state === 'unsupported' || state === 'error' ? 'starting' : state;
+    case 'running':
+      return state === 'starting' ? 'running' : state;
+    case 'stop':
+      return state === 'starting' || state === 'running' ? 'stopping' : state;
+    case 'stopped':
+      return state === 'stopping' ? 'idle' : state;
+    default:
+      return assertNever(event);
   }
-  if (event === 'error') {
-    return state === 'starting' || state === 'running' || state === 'stopping' ? 'error' : state;
-  }
-  if (event === 'unsupported') {
-    return 'unsupported';
-  }
-  if (event === 'start' && (state === 'idle' || state === 'unsupported' || state === 'error')) {
-    return 'starting';
-  }
-  if (event === 'running' && state === 'starting') {
-    return 'running';
-  }
-  if (event === 'stop' && (state === 'starting' || state === 'running')) {
-    return 'stopping';
-  }
-  if (event === 'stopped' && state === 'stopping') {
-    return 'idle';
-  }
-  return state;
 }
 
 function assertNever(value: never): never {

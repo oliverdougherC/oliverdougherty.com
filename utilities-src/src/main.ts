@@ -1,4 +1,4 @@
-import { getPreset } from './presets';
+import { getPreset, isTransformPresetId } from './presets';
 import { PRECOMPUTED_BUILT_IN_TRANSFORM_ASSETS } from './builtInTransformAssets';
 import { buildTransformRenderPlan } from './transformRenderPlan';
 import {
@@ -19,6 +19,7 @@ import type { PreparedImageTransfer, TransformMetadata, TransformPresetId } from
 import { DEMOS, type ImageSelection, type SelectionKind, type StateKind } from './uiState';
 import type { WorkerRequest, WorkerResponse, WorkerSuccessMessage } from './workerTypes';
 import { clamp } from './math';
+import { arrayBufferLikeToArrayBuffer } from './bufferUtils';
 
 interface HydratedTransfer {
   width: number;
@@ -33,9 +34,8 @@ interface ActiveTransform {
   assignment: Uint32Array;
 }
 
-function asArrayBuffer(buffer: ArrayBufferLike) {
-  return buffer as ArrayBuffer;
-}
+const MAX_IMAGE_FILE_BYTES = 20 * 1024 * 1024;
+const TARGET_ANIMATION_FRAME_MS = 1000 / 60;
 
 class UtilitiesApp {
   private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -90,6 +90,7 @@ class UtilitiesApp {
   private finalResultImageData: ImageData | null = null;
   private animationFrameId = 0;
   private animationStartedAt = 0;
+  private lastAnimationFrameTimestamp = 0;
   private animationElapsedMs = 0;
   private state: StateKind = 'idle';
   private workerUnavailable = false;
@@ -175,6 +176,11 @@ class UtilitiesApp {
     this.reducedMotionQuery.addEventListener('change', (e: MediaQueryListEvent) => {
       this.reducedMotion = e.matches;
     });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && this.state === 'animating') {
+        this.pauseAnimation();
+      }
+    });
 
     this.bindDropzone(this.sourceDropzone, 'source');
     this.bindDropzone(this.targetDropzone, 'target');
@@ -184,15 +190,18 @@ class UtilitiesApp {
   }
 
   private get selectedPreset(): TransformPresetId {
-    return this.presetSelect.value as TransformPresetId;
+    return isTransformPresetId(this.presetSelect.value) ? this.presetSelect.value : 'balanced';
   }
 
   private requireElement<T extends HTMLElement>(id: string) {
-    const element = document.getElementById(id) as T | null;
+    const element = document.getElementById(id);
     if (!element) {
       throw new Error(`Missing required element: ${id}`);
     }
-    return element;
+    if (!(element instanceof HTMLElement)) {
+      throw new Error(`Required element is not an HTMLElement: ${id}`);
+    }
+    return element as T;
   }
 
   private setResultMetaCopy(_text: string) {
@@ -249,6 +258,10 @@ class UtilitiesApp {
 
     if (!file.type.startsWith('image/')) {
       this.setProgress(0, 'Unsupported file type.', 'Please select an image file.');
+      return;
+    }
+    if (file.size > MAX_IMAGE_FILE_BYTES) {
+      this.setProgress(0, 'Image is too large.', 'Please choose an image smaller than 20 MB.');
       return;
     }
 
@@ -861,13 +874,13 @@ class UtilitiesApp {
           requestId,
           source: {
             ...prepared.source,
-            pixels: asArrayBuffer(sourcePixels.buffer)
+            pixels: arrayBufferLikeToArrayBuffer(sourcePixels.buffer)
           },
           target: {
             ...prepared.target,
-            pixels: asArrayBuffer(targetPixels.buffer)
+            pixels: arrayBufferLikeToArrayBuffer(targetPixels.buffer)
           },
-          assignment: asArrayBuffer(result.assignment.buffer),
+          assignment: arrayBufferLikeToArrayBuffer(result.assignment.buffer),
           metadata
         });
       }
@@ -980,7 +993,7 @@ class UtilitiesApp {
       metadata: message.metadata,
       source: this.inflateTransfer(message.source),
       target: this.inflateTransfer(message.target),
-      assignment: new Uint32Array(asArrayBuffer(message.assignment))
+      assignment: new Uint32Array(arrayBufferLikeToArrayBuffer(message.assignment))
     };
 
     this.activeTransform = transform;
@@ -1056,7 +1069,6 @@ class UtilitiesApp {
         'Transform complete.',
         `${transform.metadata.matcherStrategy} · analyze ${transform.metadata.timingsMs.analyze.toFixed(0)} ms · assign ${transform.metadata.timingsMs.assign.toFixed(0)} ms`
       );
-       
     } else {
       this.setState('ready', 'Transform ready. Press play or replay to run the animation.');
       this.setProgress(
@@ -1064,7 +1076,6 @@ class UtilitiesApp {
         'Transform ready to animate.',
         `${transform.metadata.matcherStrategy} · analyze ${transform.metadata.timingsMs.analyze.toFixed(0)} ms · assign ${transform.metadata.timingsMs.assign.toFixed(0)} ms`
       );
-       
       this.playAnimation();
     }
   }
@@ -1073,7 +1084,7 @@ class UtilitiesApp {
     return {
       width: transfer.width,
       height: transfer.height,
-      pixels: new Uint8ClampedArray(asArrayBuffer(transfer.pixels))
+      pixels: new Uint8ClampedArray(arrayBufferLikeToArrayBuffer(transfer.pixels))
     };
   }
 
@@ -1112,6 +1123,7 @@ class UtilitiesApp {
 
     this.animationElapsedMs = 0;
     this.animationStartedAt = 0;
+    this.lastAnimationFrameTimestamp = 0;
     this.resultCanvas.width = this.activeTransform.metadata.outputWidth;
     this.resultCanvas.height = this.activeTransform.metadata.outputHeight;
     this.overlayCanvas.width = this.activeTransform.metadata.outputWidth;
@@ -1191,6 +1203,14 @@ class UtilitiesApp {
       if (!this.animationStartedAt) {
         this.animationStartedAt = timestamp;
       }
+      if (
+        this.lastAnimationFrameTimestamp &&
+        timestamp - this.lastAnimationFrameTimestamp < TARGET_ANIMATION_FRAME_MS
+      ) {
+        this.animationFrameId = window.requestAnimationFrame(step);
+        return;
+      }
+      this.lastAnimationFrameTimestamp = timestamp;
 
       const elapsedMs = this.animationElapsedMs + (timestamp - this.animationStartedAt);
       const phase = clamp(elapsedMs / durationMs, 0, 1);
@@ -1204,6 +1224,7 @@ class UtilitiesApp {
       if (phase >= 1) {
         this.animationElapsedMs = durationMs;
         this.animationFrameId = 0;
+        this.lastAnimationFrameTimestamp = 0;
         this.renderCompleteResult();
         this.setState('complete', 'Animation complete.');
         this.syncButtons();
@@ -1227,6 +1248,7 @@ class UtilitiesApp {
         this.animationElapsedMs += performance.now() - this.animationStartedAt;
         this.animationStartedAt = 0;
       }
+      this.lastAnimationFrameTimestamp = 0;
       this.setState('paused', 'Animation paused.');
     }
   }
@@ -1252,6 +1274,7 @@ class UtilitiesApp {
     this.pauseAnimation();
     this.animationElapsedMs = 0;
     this.animationStartedAt = 0;
+    this.lastAnimationFrameTimestamp = 0;
     this.resetResultCanvas();
     this.setState('animating', 'Animating the result image…');
     this.playAnimation();
@@ -1285,7 +1308,7 @@ class UtilitiesApp {
     }
 
     if (selection.kind === 'demo' && selection.url) {
-      const response = await fetch(selection.url);
+      const response = await fetch(selection.url, { mode: 'same-origin' });
       if (!response.ok) {
         throw new Error(`Unable to load demo asset: ${selection.label}`);
       }

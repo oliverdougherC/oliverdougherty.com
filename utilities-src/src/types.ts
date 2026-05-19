@@ -74,6 +74,8 @@ export interface TransformComputationResult {
 export interface PreparedImageTransfer {
   width: number;
   height: number;
+  // Workers transfer prepared pixel buffers, so this intentionally excludes
+  // SharedArrayBuffer and other ArrayBufferLike values.
   pixels: ArrayBuffer;
   originalWidth: number;
   originalHeight: number;

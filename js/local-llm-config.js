@@ -1,3 +1,5 @@
+const TRANSFORMERS_VERSION = '4.2.0';
+
 export const WORKER_STATE = {
   IDLE: 'idle',
   CHECKING: 'checking',
@@ -20,8 +22,8 @@ export const LOCAL_LLM_CONFIG = {
   },
   runtime: {
     name: 'Transformers.js WebGPU',
-    packageVersion: '4.2.0',
-    moduleUrl: 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0',
+    packageVersion: TRANSFORMERS_VERSION,
+    moduleUrl: `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${TRANSFORMERS_VERSION}`,
     device: 'webgpu',
     dtype: 'q1',
     requirements: 'WebGPU, enough free GPU/browser memory, and network access to Hugging Face.'
@@ -32,6 +34,9 @@ export const LOCAL_LLM_CONFIG = {
     maxHistoryMessages: 10
   },
   generation: {
+    // Keep responses bounded for a small browser-resident model. The narrow
+    // sampling horizon and mild repeat penalty favor stable concise answers
+    // over highly creative output.
     max_new_tokens: 512,
     do_sample: true,
     sampling: {
@@ -41,6 +46,8 @@ export const LOCAL_LLM_CONFIG = {
       penalty_repeat: 1.05
     }
   },
+  // Defense in depth: the prompt asks the model not to emit hidden-thinking
+  // tags, while cleanupModelText strips them if the model ignores that request.
   systemPrompt:
     "You are a small local AI assistant running entirely in the visitor's browser.\n" +
     'Be concise, practical, and honest about limitations.\n' +

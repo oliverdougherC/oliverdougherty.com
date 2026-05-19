@@ -8,6 +8,12 @@ export interface ComplexSpectrum {
 export interface FftWorkspace {
   real: Float32Array;
   imag: Float32Array;
+  twiddleCache: Map<number, {
+    forwardReal: Float32Array;
+    forwardImag: Float32Array;
+    inverseReal: Float32Array;
+    inverseImag: Float32Array;
+  }>;
 }
 
 function reverseBits(value: number, bits: number) {
@@ -23,8 +29,31 @@ export function createFftWorkspace(size: number): FftWorkspace {
   assertPowerOfTwo(size);
   return {
     real: new Float32Array(size),
-    imag: new Float32Array(size)
+    imag: new Float32Array(size),
+    twiddleCache: new Map()
   };
+}
+
+function getTwiddleFactors(workspace: FftWorkspace, blockSize: number) {
+  let factors = workspace.twiddleCache.get(blockSize);
+  if (!factors) {
+    const halfBlockSize = blockSize >> 1;
+    factors = {
+      forwardReal: new Float32Array(halfBlockSize),
+      forwardImag: new Float32Array(halfBlockSize),
+      inverseReal: new Float32Array(halfBlockSize),
+      inverseImag: new Float32Array(halfBlockSize)
+    };
+    for (let offset = 0; offset < halfBlockSize; offset += 1) {
+      const angle = -2 * Math.PI * offset / blockSize;
+      factors.forwardReal[offset] = Math.cos(angle);
+      factors.forwardImag[offset] = Math.sin(angle);
+      factors.inverseReal[offset] = factors.forwardReal[offset];
+      factors.inverseImag[offset] = -factors.forwardImag[offset];
+    }
+    workspace.twiddleCache.set(blockSize, factors);
+  }
+  return factors;
 }
 
 export function fftInto(
@@ -56,13 +85,14 @@ export function fftInto(
 
   for (let blockSize = 2; blockSize <= size; blockSize <<= 1) {
     const halfBlockSize = blockSize >> 1;
-    const angleStep = (inverse ? 2 : -2) * Math.PI / blockSize;
+    const twiddles = getTwiddleFactors(workspace, blockSize);
+    const rotationRealByOffset = inverse ? twiddles.inverseReal : twiddles.forwardReal;
+    const rotationImagByOffset = inverse ? twiddles.inverseImag : twiddles.forwardImag;
 
     for (let blockStart = 0; blockStart < size; blockStart += blockSize) {
       for (let offset = 0; offset < halfBlockSize; offset += 1) {
-        const angle = angleStep * offset;
-        const rotationReal = Math.cos(angle);
-        const rotationImag = Math.sin(angle);
+        const rotationReal = rotationRealByOffset[offset];
+        const rotationImag = rotationImagByOffset[offset];
         const left = blockStart + offset;
         const right = left + halfBlockSize;
         const rightReal = real[right] * rotationReal - imag[right] * rotationImag;

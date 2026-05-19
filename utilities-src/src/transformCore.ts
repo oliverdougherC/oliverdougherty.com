@@ -46,7 +46,7 @@ export interface TransformHooks {
   isCancelled?: () => boolean;
 }
 
-export interface MatchingSearchContext {
+export interface BucketState {
   sourcePacked: Uint32Array;
   targetPacked: Uint32Array;
   bucketEntryIndexByKey: Map<number, number>;
@@ -64,6 +64,9 @@ export interface MatchingSearchContext {
   bucketRemainingGroupCount: Int32Array;
   shift: number;
   bucketCount: number;
+}
+
+export interface GroupState {
   groupRgbValues: Uint32Array;
   groupRed: Uint8Array;
   groupGreen: Uint8Array;
@@ -77,6 +80,9 @@ export interface MatchingSearchContext {
   donorNextByUsefulness: Int32Array;
   donorPrevByUsefulness: Int32Array;
   usefulnessBySource: Float32Array;
+}
+
+export interface TargetState {
   targetRed: Uint8Array;
   targetGreen: Uint8Array;
   targetBlue: Uint8Array;
@@ -88,6 +94,9 @@ export interface MatchingSearchContext {
   targetNearWhiteCoefficient: Float32Array;
   targetPreferMaxUsefulness: Uint8Array;
   bucketSearchOrderByTargetBucketKey: Map<number, BucketSearchOrder>;
+}
+
+export interface MatchingSearchContext extends BucketState, GroupState, TargetState {
   analysis?: TransformImageAnalysis;
 }
 
@@ -124,12 +133,18 @@ const SCORE_USEFULNESS_NEED = 50_000;
 const SCORE_NEAR_WHITE_NEED = 34_000;
 const SCORE_USEFULNESS_FLAT_BRIGHT = 14_000;
 const OCCUPIED_BUCKET_SCAN_MIN_PIXELS = 4_096;
+const INSERTION_SORT_DONOR_LIMIT = 32;
 
 function nowMs() {
   return performance.now();
 }
 
-export function resolveOutputDimensions(width: number, height: number, maxDimension: number) {
+export interface ResolvedDimensions {
+  width: number;
+  height: number;
+}
+
+export function resolveOutputDimensions(width: number, height: number, maxDimension: number): ResolvedDimensions {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     throw new TransformError('Images must have valid dimensions.');
   }
@@ -357,7 +372,7 @@ function buildSourceDonorIndex(
   };
 }
 
-function compareDonorsByUsefulness(
+function compareForDonorSort(
   left: number,
   right: number,
   usefulnessBySource: Float32Array
@@ -367,13 +382,15 @@ function compareDonorsByUsefulness(
 }
 
 function sortDonorsByUsefulness(donors: Int32Array, usefulnessBySource: Float32Array) {
-  if (donors.length <= 32) {
+  // Mutates the donor view in place. Tiny exact-color groups avoid native sort
+  // overhead; larger groups use the built-in typed-array comparator.
+  if (donors.length <= INSERTION_SORT_DONOR_LIMIT) {
     for (let index = 1; index < donors.length; index += 1) {
       const donor = donors[index];
       let insertionIndex = index - 1;
       while (
         insertionIndex >= 0 &&
-        compareDonorsByUsefulness(donors[insertionIndex], donor, usefulnessBySource) > 0
+        compareForDonorSort(donors[insertionIndex], donor, usefulnessBySource) > 0
       ) {
         donors[insertionIndex + 1] = donors[insertionIndex];
         insertionIndex -= 1;
@@ -383,7 +400,7 @@ function sortDonorsByUsefulness(donors: Int32Array, usefulnessBySource: Float32A
     return;
   }
 
-  donors.sort((left, right) => compareDonorsByUsefulness(left, right, usefulnessBySource));
+  donors.sort((left, right) => compareForDonorSort(left, right, usefulnessBySource));
 }
 
 function validateMatchingInputs(sourcePacked: Uint32Array, targetPacked: Uint32Array, quantizationBits: number) {

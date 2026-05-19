@@ -20,12 +20,14 @@ const ENTRY_MODULES = [
   path.join(SOURCE_ROOT, 'uiState.ts')
 ];
 const PRESET_FILTER = new Set(
+  // Optional comma-separated preset ids for focused cache builds.
   (process.env.TRANSFORM_CACHE_PRESETS ?? 'balanced')
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean)
 );
 const DEMO_FILTER = new Set(
+  // Optional comma-separated demo keys; empty means all demos.
   (process.env.TRANSFORM_CACHE_DEMOS ?? '')
     .split(',')
     .map((value) => value.trim())
@@ -154,6 +156,13 @@ for (const [demoKey, demo] of Object.entries(DEMOS)) {
 
   const sourceImagePath = path.resolve(ROOT, 'pages/utilities', demo.source.url);
   const targetImagePath = path.resolve(ROOT, 'pages/utilities', demo.target.url);
+  const utilitiesRoot = path.resolve(ROOT, 'pages/utilities');
+  for (const imagePath of [sourceImagePath, targetImagePath]) {
+    const relativePath = path.relative(utilitiesRoot, imagePath);
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      throw new Error(`Demo asset path escapes utilities root: ${imagePath}`);
+    }
+  }
 
   const sourceMetadata = await sharp(sourceImagePath).metadata();
   const targetMetadata = await sharp(targetImagePath).metadata();

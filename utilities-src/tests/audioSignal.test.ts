@@ -124,9 +124,9 @@ describe('audio signal preparation', () => {
     ]);
 
     expect(mono.length).toBe(3);
-    expect(mono[0]).toBeCloseTo(0.3, 5);
+    expect(mono[0]).toBeCloseTo(0.3649427, 5);
     expect(mono[1]).toBeCloseTo(0.3, 5);
-    expect(mono[2]).toBeCloseTo(0.1, 5);
+    expect(mono[2]).toBeCloseTo(0.1216476, 5);
   });
 
   it('linearly resamples a sine wave with acceptable quality', () => {

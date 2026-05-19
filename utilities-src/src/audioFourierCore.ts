@@ -82,9 +82,18 @@ interface ReconstructionScratch {
   fftWorkspace: ReturnType<typeof createFftWorkspace>;
 }
 
+export interface ReconstructionScratchSizeEstimate {
+  sampleCount: number;
+  frameCount: number;
+  frameSize: number;
+  bytes: number;
+}
+
 function createHannWindow(size: number) {
   const window = new Float32Array(size);
   if (size === 1) {
+    // Hann(1) is mathematically undefined because the formula divides by
+    // N - 1. Use a unity window so pathological one-sample frames pass through.
     window[0] = 1;
     return window;
   }
@@ -241,8 +250,7 @@ export function resolveSampleEnvelope(samples: Float32Array, startSample: number
   }
 
   if (!Number.isFinite(min) || !Number.isFinite(max)) {
-    const value = samples[start] ?? 0;
-    return { min: value, max: value };
+    return { min: 0, max: 0 };
   }
 
   return { min, max };
@@ -320,6 +328,7 @@ export function buildWindowedFourierAnalysis(
   const coeffReal = new Float32Array(coefficientCount);
   const coeffImag = new Float32Array(coefficientCount);
   const energies = new Float32Array(coefficientCount);
+  const frequenciesByCoefficient = new Float32Array(coefficientCount);
   const order = Array.from({ length: coefficientCount }, (_value, index) => index);
   const frameInput = new Float32Array(frameSize);
   const fftWorkspace = createFftWorkspace(frameSize);
@@ -340,6 +349,7 @@ export function buildWindowedFourierAnalysis(
       coeffReal[coefficientIndex] = real;
       coeffImag[coefficientIndex] = imag;
       energies[coefficientIndex] = real * real + imag * imag;
+      frequenciesByCoefficient[coefficientIndex] = bin * sampleRate / frameSize;
     }
 
     if (frameIndex % FFT_PROGRESS_THROTTLE === 0 || frameIndex + 1 === frameCount) {
@@ -352,7 +362,7 @@ export function buildWindowedFourierAnalysis(
     if (byEnergy !== 0) {
       return byEnergy;
     }
-    return coefficientFrequency(left, binCount, sampleRate, frameSize) - coefficientFrequency(right, binCount, sampleRate, frameSize);
+    return frequenciesByCoefficient[left] - frequenciesByCoefficient[right];
   });
 
   const componentOrder = Uint32Array.from(order);
@@ -366,7 +376,7 @@ export function buildWindowedFourierAnalysis(
     const bin = coefficientIndex % binCount;
     const real = coeffReal[coefficientIndex];
     const imag = coeffImag[coefficientIndex];
-    componentFrequencies[orderedIndex] = coefficientFrequency(coefficientIndex, binCount, sampleRate, frameSize);
+    componentFrequencies[orderedIndex] = frequenciesByCoefficient[coefficientIndex];
     componentAmplitudes[orderedIndex] = coefficientAmplitude(real, imag, bin, binCount, frameSize);
     componentPhases[orderedIndex] = Math.atan2(imag, real);
     componentEnergies[orderedIndex] = energies[coefficientIndex];
@@ -425,6 +435,21 @@ function createReconstructionScratch(analysis: WindowedFourierAnalysis): Reconst
   };
 }
 
+export function estimateReconstructionScratchSize(analysis: WindowedFourierAnalysis): ReconstructionScratchSizeEstimate {
+  const outputLength = (analysis.frameCount - 1) * analysis.hopSize + analysis.frameSize;
+  const floatCount =
+    analysis.frameSize +
+    analysis.frameCount * analysis.frameSize * 2 +
+    outputLength * 2 +
+    analysis.frameSize * 2;
+  return {
+    sampleCount: analysis.samples.length,
+    frameCount: analysis.frameCount,
+    frameSize: analysis.frameSize,
+    bytes: floatCount * Float32Array.BYTES_PER_ELEMENT
+  };
+}
+
 /**
  * Reconstructs audio from a specific contiguous range of energy-sorted components, with optional scratch buffer reuse.
  * @param analysis - The windowed Fourier analysis result from `buildWindowedFourierAnalysis`.
@@ -461,8 +486,11 @@ export function reconstructWindowedComponentRange(
     spectraReal[frameOffset + bin] = real;
     spectraImag[frameOffset + bin] = imag;
     if (bin > 0 && bin < binCount - 1) {
-      spectraReal[frameOffset + frameSize - bin] = real;
-      spectraImag[frameOffset + frameSize - bin] = -imag;
+      // Real-valued inverse FFTs need the negative-frequency mirror of each
+      // positive-frequency bin to preserve Hermitian symmetry.
+      const mirrorBin = frameSize - bin;
+      spectraReal[frameOffset + mirrorBin] = real;
+      spectraImag[frameOffset + mirrorBin] = -imag;
     }
   }
 
@@ -487,7 +515,7 @@ export function reconstructWindowedComponentRange(
   const trimmed = new Float32Array(analysis.samples.length);
   for (let index = 0; index < trimmed.length; index += 1) {
     const norm = normalization[index];
-     trimmed[index] = norm > OVERLAP_ADD_NORMALIZATION_THRESHOLD ? output[index] / norm : output[index];
+    trimmed[index] = norm > OVERLAP_ADD_NORMALIZATION_THRESHOLD ? output[index] / norm : output[index];
   }
 
   return trimmed;
@@ -597,9 +625,10 @@ export function mixEnergyBands(
   bandSamples: Float32Array,
   sampleCount: number,
   gains: Float32Array,
-  destination = new Float32Array(sampleCount)
+  destination?: Float32Array
 ) {
-  destination.fill(0);
+  const output = destination ?? new Float32Array(sampleCount);
+  output.fill(0);
   for (let bandIndex = 0; bandIndex < gains.length; bandIndex += 1) {
     const gain = gains[bandIndex];
     if (gain === 0) {
@@ -607,10 +636,10 @@ export function mixEnergyBands(
     }
     const offset = bandIndex * sampleCount;
     for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
-      destination[sampleIndex] += bandSamples[offset + sampleIndex] * gain;
+      output[sampleIndex] += bandSamples[offset + sampleIndex] * gain;
     }
   }
-  return destination;
+  return output;
 }
 
 export function resolveEnvelopeBucketSampleCount(sampleRate: number, targetPointsPerSecond = DEFAULT_ENVELOPE_TARGET_POINTS_PER_SECOND) {
@@ -711,15 +740,16 @@ export function mixEnergyBandEnvelopes(
   sampleCount: number,
   bucketSampleCount: number,
   gains: Float32Array,
-  destination: MixedAudioEnvelope = {
+  destination?: MixedAudioEnvelope
+): MixedAudioEnvelope {
+  destination ??= {
     min: new Float32Array(bucketCount),
     max: new Float32Array(bucketCount),
     bucketSampleCount,
     bucketCount,
     sampleCount,
     approximate: true
-  }
-): MixedAudioEnvelope {
+  };
   if (destination.min.length !== bucketCount || destination.max.length !== bucketCount) {
     destination = {
       min: new Float32Array(bucketCount),

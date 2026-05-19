@@ -7,9 +7,10 @@ import { detectRetroVmSupport, resolveRetroVmStatusView, transitionRetroVmState 
 import type { RetroVmConfig, RetroVmDatasetConfig, RetroVmProgress, RetroVmState } from './retroVmTypes';
 import type { V86, V86DownloadProgress } from 'v86';
 import v86WasmUrl from 'v86/build/v86.wasm?url';
-import 'v86/build/v86-fallback.wasm?url';
 
 const FAKE_ISO_SIZE_BYTES = 20_082_688;
+const MAX_CLIPBOARD_PASTE_CHARS = 2048;
+const BOOT_MENU_SECOND_ENTER_DELAY_MS = 900;
 
 declare global {
   interface Window {
@@ -319,10 +320,12 @@ export class RetroVmController {
   private state: RetroVmState = 'idle';
   private progress: RetroVmProgress = { loadedBytes: 0, totalBytes: null };
   private readonly support = detectRetroVmSupport();
-  private bootHintTimer = 0;
+  private bootHintTimer: number | null = null;
   private resizeFrameId = 0;
   private guestSize = { width: 640, height: 480 };
+  private guestBpp = 0;
   private graphicalModeActive = false;
+  private isLaunching = false;
   private captureState: 'uncaptured' | 'captured' = 'uncaptured';
   private readonly beforeUnloadHandler = () => {
     void this.destroySession();
@@ -354,6 +357,7 @@ export class RetroVmController {
 
     const width = typeof payload[0] === 'number' ? payload[0] : this.guestSize.width;
     const height = typeof payload[1] === 'number' ? payload[1] : this.guestSize.height;
+    this.guestBpp = typeof payload[2] === 'number' ? payload[2] : this.guestBpp;
     this.guestSize = {
       width: Math.max(1, width),
       height: Math.max(1, height)
@@ -377,7 +381,9 @@ export class RetroVmController {
     this.setState(transitionRetroVmState(this.state, 'ready'));
     this.placeholder.classList.add('is-hidden');
     this.root.dataset.vmBooted = 'true';
-    window.clearTimeout(this.bootHintTimer);
+    if (this.bootHintTimer !== null) {
+      window.clearTimeout(this.bootHintTimer);
+    }
     void this.autoAdvanceBootMenu();
     this.bootHintTimer = window.setTimeout(() => {
       if (this.state === 'running' && this.graphicalModeActive) {
@@ -473,10 +479,11 @@ export class RetroVmController {
   }
 
   private async launch() {
-    if (!this.support.supported || this.emulator) {
+    if (!this.support.supported || this.emulator || this.isLaunching) {
       return;
     }
 
+    this.isLaunching = true;
     this.root.dataset.vmBooted = 'false';
     this.root.dataset.vmGraphical = 'false';
     this.setCaptureState('uncaptured');
@@ -492,6 +499,8 @@ export class RetroVmController {
       await this.destroySession();
       const message = error instanceof Error ? error.message : 'The VM could not be launched.';
       this.setState('error', message);
+    } finally {
+      this.isLaunching = false;
     }
   }
 
@@ -500,8 +509,10 @@ export class RetroVmController {
       return new FakeRetroVm();
     }
 
+    await import('v86/build/v86-fallback.wasm?url');
     const { V86 } = await import('v86');
-    return new V86(buildRetroVmV86Options(this.config, this.screenContainer, v86WasmUrl)) as unknown as V86;
+    /** v86's constructor type is broader than the runtime emulator surface used here. */
+    return new V86(buildRetroVmV86Options(this.config, this.screenContainer, v86WasmUrl)) as V86;
   }
 
   private installTestCanvasIfNeeded() {
@@ -565,8 +576,13 @@ export class RetroVmController {
         return;
       }
 
-      await this.emulator.keyboard_send_text(text, 0);
-      this.setVmStatusLine('Clipboard text was sent into the guest keyboard buffer.');
+      const pasteText = text.slice(0, MAX_CLIPBOARD_PASTE_CHARS);
+      await this.emulator.keyboard_send_text(pasteText, 0);
+      this.setVmStatusLine(
+        text.length > pasteText.length
+          ? `Clipboard paste was truncated to ${MAX_CLIPBOARD_PASTE_CHARS.toLocaleString()} characters before being sent into the guest keyboard buffer.`
+          : 'Clipboard text was sent into the guest keyboard buffer. Review clipboard contents before pasting commands into the VM.'
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Clipboard access was denied.';
       this.setVmStatusLine(`Clipboard paste failed: ${message}`);
@@ -598,7 +614,10 @@ export class RetroVmController {
   }
 
   private async destroySession() {
-    window.clearTimeout(this.bootHintTimer);
+    if (this.bootHintTimer !== null) {
+      window.clearTimeout(this.bootHintTimer);
+      this.bootHintTimer = null;
+    }
     await this.mouseBridge.releasePointerLock();
     this.setCaptureState('uncaptured');
 
@@ -625,10 +644,15 @@ export class RetroVmController {
         void this.dispatchEnterKey();
         window.setTimeout(() => {
           void this.dispatchEnterKey();
-        }, 900);
+        }, BOOT_MENU_SECOND_ENTER_DELAY_MS);
       }
     } catch {
       // Boot menu might already be gone or the guest may already be in graphics mode.
+      window.setTimeout(() => {
+        if (this.state === 'running') {
+          void this.dispatchEnterKey();
+        }
+      }, this.config.bootHintDelayMs);
     }
   }
 
@@ -639,7 +663,9 @@ export class RetroVmController {
 
   private syncGraphicalMode() {
     const canvas = this.screenContainer.querySelector('canvas');
-    const canvasVisible = canvas instanceof HTMLCanvasElement && !canvas.hidden && canvas.offsetParent !== null;
+    const canvasVisible =
+      (canvas instanceof HTMLCanvasElement && !canvas.hidden && canvas.offsetParent !== null) ||
+      this.guestBpp > 0;
     this.graphicalModeActive = canvasVisible;
     this.root.dataset.vmGraphical = canvasVisible ? 'true' : 'false';
     if (!canvasVisible) {
@@ -815,7 +841,10 @@ export class RetroVmController {
   }
 
   dispose() {
-    window.clearTimeout(this.bootHintTimer);
+    if (this.bootHintTimer !== null) {
+      window.clearTimeout(this.bootHintTimer);
+      this.bootHintTimer = null;
+    }
     if (this.resizeFrameId) {
       window.cancelAnimationFrame(this.resizeFrameId);
       this.resizeFrameId = 0;
@@ -827,6 +856,10 @@ export class RetroVmController {
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.mouseBridge.detach();
+    this.screenContainer.style.removeProperty('--vm-fit-scale');
+    this.screenContainer.style.removeProperty('--vm-guest-width');
+    this.screenContainer.style.removeProperty('--vm-guest-height');
+    this.screenContainer.innerHTML = '';
     void this.destroySession();
   }
 }

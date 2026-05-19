@@ -6,6 +6,9 @@ import {
 } from './transformCore';
 import type { MatchingWorkerRequest, MatchingWorkerResponse } from './matchingWorkerTypes';
 
+// Parallel ranking is intentionally gated behind the experimental flag. The
+// 160K threshold means 512x512 images qualify by size, but production remains
+// on the single optimized matcher until nested-worker behavior is re-enabled.
 export const PARALLEL_MATCH_MIN_PIXELS = 160_000;
 export const PARALLEL_MATCH_CANDIDATE_LIMIT = 8;
 const PARALLEL_MATCH_MAX_WORKERS = 8;

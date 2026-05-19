@@ -89,6 +89,9 @@ export function detectRetroVmSupport(input: {
 }
 
 function formatBytes(bytes: number) {
+  if (bytes < 1024) {
+    return `${Math.max(0, Math.round(bytes))} bytes`;
+  }
   if (bytes >= 1024 * 1024) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
@@ -127,7 +130,7 @@ export function resolveRetroVmStatusView(
         chipLabel: 'Idle',
         chipClass: 'utility-status-chip--idle',
         statusText: 'Launch a fresh local session when you are ready. Nothing persists after the tab closes.',
-        progressText: progress.loadedBytes > 0 ? progressLabel : 'Runtime is idle.'
+        progressText: progress.loadedBytes > 0 ? progressLabel : supportReason
       };
     case 'loading':
       return {

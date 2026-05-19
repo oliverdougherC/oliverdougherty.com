@@ -8,7 +8,16 @@ export interface TransformRenderPlan {
   cheatedTargetPixels: Uint8Array;
 }
 
+// CIE76-like weighted RGB scoring can exceed the Euclidean 255-channel range
+// once donor quality penalties are mixed in. This denominator preserves useful
+// tint contrast while keeping worst-case distances clamped.
 const MAX_WEIGHTED_RGB_DISTANCE = 82_000;
+const DISTANCE_TINT_WEIGHT = 0.48;
+const DONOR_DEFICIT_TINT_WEIGHT = 0.78;
+const WHITE_MISMATCH_TINT_WEIGHT = 0.72;
+const EXACT_MATCH_TINT_MULTIPLIER = 0.12;
+const CLOSE_MATCH_TINT_MULTIPLIER = 0.45;
+const FLAT_BRIGHT_TINT_MULTIPLIER = 0.42;
 
 import { clamp } from './math';
 
@@ -42,19 +51,21 @@ export function buildTransformRenderPlan(
     const donorDeficit = 1 - sourceUsefulness;
     const whiteMismatch = sourceNearWhite * (1 - targetNearWhite);
     let tintStrength = clamp(
-      distanceNormalized * 0.48 + donorDeficit * targetNeed * 0.78 + whiteMismatch * 0.72,
+      distanceNormalized * DISTANCE_TINT_WEIGHT +
+        donorDeficit * targetNeed * DONOR_DEFICIT_TINT_WEIGHT +
+        whiteMismatch * WHITE_MISMATCH_TINT_WEIGHT,
       0,
       0.97
     );
 
     if (distanceNormalized < 0.025 && donorDeficit < 0.22) {
-      tintStrength *= 0.12;
+      tintStrength *= EXACT_MATCH_TINT_MULTIPLIER;
     } else if (distanceNormalized < 0.08 && sourceNearWhite < 0.28) {
-      tintStrength *= 0.45;
+      tintStrength *= CLOSE_MATCH_TINT_MULTIPLIER;
     }
 
     if (targetNearWhite > 0.82 && targetNeed < 0.18) {
-      tintStrength *= 0.42;
+      tintStrength *= FLAT_BRIGHT_TINT_MULTIPLIER;
     }
 
     tintStrengthByTarget[targetIndex] = tintStrength;

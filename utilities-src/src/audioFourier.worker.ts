@@ -10,20 +10,13 @@ import {
 import type { AudioFourierAnalyzeRequest, AudioFourierWorkerRequest, AudioFourierWorkerResponse } from './audioFourierWorkerTypes';
 import { getAudioFourierPreset } from './audioPresets';
 import { prepareAudioSignal } from './audioSignal';
+import { arrayBufferLikeToArrayBuffer } from './bufferUtils';
 
 const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 const cancelledRequests = new Set<number>();
 const pendingRequests: AudioFourierAnalyzeRequest[] = [];
+const MAX_PENDING_REQUESTS = 2;
 let isProcessing = false;
-
-function asArrayBuffer(buffer: ArrayBufferLike): ArrayBuffer {
-  if (buffer instanceof ArrayBuffer) {
-    return buffer;
-  }
-  const copy = new Uint8Array(buffer.byteLength);
-  copy.set(new Uint8Array(buffer));
-  return copy.buffer;
-}
 
 function now() {
   return performance.now();
@@ -44,6 +37,15 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
   const preset = getAudioFourierPreset(request.presetId);
 
   try {
+    const maxSourceBytes = preset.maxProxySampleCount * Float32Array.BYTES_PER_ELEMENT * 8;
+    let sourceBytes = 0;
+    for (const buffer of request.source.channelBuffers) {
+      sourceBytes += buffer.byteLength;
+    }
+    if (sourceBytes > maxSourceBytes) {
+      throw new Error('Audio source is too large for worker analysis.');
+    }
+
     const channels = request.source.channelBuffers.map((buffer) => new Float32Array(buffer));
     postMessage({
       type: 'audio-fourier-progress',
@@ -118,6 +120,7 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
       progress: 0.96,
       message: 'Building waveform envelopes...'
     });
+    const envelopesStartedAt = now();
     const originalEnvelope = buildSampleEnvelope(analysis.samples, envelopeBucketSampleCount);
     assertNotCancelled(request.requestId);
     const bandEnvelopes = buildEnergyBandEnvelopes(
@@ -126,19 +129,20 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
       bands.bandCount,
       envelopeBucketSampleCount
     );
+    const envelopesMs = now() - envelopesStartedAt;
     assertNotCancelled(request.requestId);
 
     const totalMs = now() - startedAt;
-    const bandSamplesBuffer = asArrayBuffer(bands.bandSamples.buffer);
-    const originalEnvelopeMinBuffer = asArrayBuffer(originalEnvelope.min.buffer);
-    const originalEnvelopeMaxBuffer = asArrayBuffer(originalEnvelope.max.buffer);
-    const bandEnvelopeMinBuffer = asArrayBuffer(bandEnvelopes.min.buffer);
-    const bandEnvelopeMaxBuffer = asArrayBuffer(bandEnvelopes.max.buffer);
-    const bandEndComponentCountsBuffer = asArrayBuffer(bands.bandEndComponentCounts.buffer);
-    const bandEnergyFractionsBuffer = asArrayBuffer(bands.bandEnergyFractions.buffer);
-    const componentFrequenciesBuffer = asArrayBuffer(analysis.componentFrequencies.buffer);
-    const componentAmplitudesBuffer = asArrayBuffer(analysis.componentAmplitudes.buffer);
-    const componentPhasesBuffer = asArrayBuffer(analysis.componentPhases.buffer);
+    const bandSamplesBuffer = arrayBufferLikeToArrayBuffer(bands.bandSamples.buffer);
+    const originalEnvelopeMinBuffer = arrayBufferLikeToArrayBuffer(originalEnvelope.min.buffer);
+    const originalEnvelopeMaxBuffer = arrayBufferLikeToArrayBuffer(originalEnvelope.max.buffer);
+    const bandEnvelopeMinBuffer = arrayBufferLikeToArrayBuffer(bandEnvelopes.min.buffer);
+    const bandEnvelopeMaxBuffer = arrayBufferLikeToArrayBuffer(bandEnvelopes.max.buffer);
+    const bandEndComponentCountsBuffer = arrayBufferLikeToArrayBuffer(bands.bandEndComponentCounts.buffer);
+    const bandEnergyFractionsBuffer = arrayBufferLikeToArrayBuffer(bands.bandEnergyFractions.buffer);
+    const componentFrequenciesBuffer = arrayBufferLikeToArrayBuffer(analysis.componentFrequencies.buffer);
+    const componentAmplitudesBuffer = arrayBufferLikeToArrayBuffer(analysis.componentAmplitudes.buffer);
+    const componentPhasesBuffer = arrayBufferLikeToArrayBuffer(analysis.componentPhases.buffer);
 
     postMessage(
       {
@@ -166,6 +170,7 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
             proxy: proxyMs,
             analysis: analysisMs,
             bands: bandsMs,
+            envelopes: envelopesMs,
             total: totalMs
           }
         },
@@ -239,7 +244,7 @@ workerScope.onmessage = (event: MessageEvent<AudioFourierWorkerRequest>) => {
   if (request.type !== 'analyze-audio-fourier') {
     postMessage({
       type: 'audio-fourier-error',
-      requestId: (request as any).requestId ?? 0,
+      requestId: (request as { requestId?: number }).requestId ?? 0,
       message: 'Malformed worker message: missing or unrecognized type.'
     });
     return;
@@ -254,6 +259,9 @@ workerScope.onmessage = (event: MessageEvent<AudioFourierWorkerRequest>) => {
     return;
   }
 
+  if (pendingRequests.length >= MAX_PENDING_REQUESTS) {
+    pendingRequests.shift();
+  }
   pendingRequests.push(request);
   void processQueue();
 };

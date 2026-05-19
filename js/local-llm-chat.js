@@ -29,7 +29,7 @@ const STATE_COPY = {
 };
 
 const LOAD_CONTROL = {
-  idle: { text: 'Load', disabled: false },
+  idle: { text: 'Load', disabled: false, cls: '' },
   checking: { text: '', disabled: true, cls: 'local-llm-load-control--loading' },
   loading: { text: '', disabled: true, cls: 'local-llm-load-control--loading' },
   optimizing: { text: '', disabled: true, cls: 'local-llm-load-control--loading' },
@@ -50,7 +50,7 @@ const LOAD_SEQUENCE_COPY = [
   "Don't worry, I won't cache it in your browser ;)"
 ];
 
-class LocalLlmUtility {
+export class LocalLlmUtility {
   constructor(root) {
     this.root = root;
     this.worker = null;
@@ -101,6 +101,7 @@ class LocalLlmUtility {
                 </div>
                 <div class="local-llm-meta" aria-label="Model runtime details" style="color: var(--color-text-secondary); font-size: 0.78rem;">
                   <span id="localLlmModelName">${escapeHtml(LOCAL_LLM_CONFIG.model.displayName)}</span>
+                  <a href="${escapeHtml(LOCAL_LLM_CONFIG.model.sourceUrl)}" target="_blank" rel="noopener noreferrer">Model card</a>
                   <span id="localLlmBackend">WebGPU</span>
                   <span><span id="localLlmTps">--</span> tok/s</span>
                 </div>
@@ -116,7 +117,7 @@ class LocalLlmUtility {
               <section class="local-llm-center" id="localLlmCenter" aria-live="polite">
                 <p class="local-llm-load-copy" id="localLlmLoadCopy"></p>
                 <p class="local-llm-model-note" id="localLlmModelNote"></p>
-                <div class="local-llm-progress-wrap" id="localLlmProgressWrap" hidden>
+                <div class="local-llm-progress-wrap" id="localLlmProgressWrap" aria-live="polite" hidden>
                   <div class="utility-progress-bar-minimal" role="progressbar" aria-label="Model download progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="localLlmProgressBar" style="flex: 1;">
                     <span class="local-llm-progress-fill" id="localLlmProgressFill"></span>
                   </div>
@@ -183,6 +184,9 @@ class LocalLlmUtility {
       }
     });
     this.input.addEventListener('input', () => this.queueInputChromeUpdate());
+    this.input.addEventListener('focus', () => {
+      window.setTimeout(() => this.input.scrollIntoView({ block: 'end', behavior: 'smooth' }), 80);
+    });
     this.input.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && (!event.shiftKey || event.ctrlKey || event.metaKey)) {
         event.preventDefault();
@@ -465,6 +469,7 @@ class LocalLlmUtility {
     this.sendButton.disabled = !(canType || canStop);
     this.sendButton.classList.toggle('local-llm-send--stop', canStop);
     this.sendText.textContent = canStop ? 'Stop' : 'Send';
+    this.sendButton.setAttribute('aria-label', canStop ? 'Stop message' : 'Send message');
     this.resetButton.disabled = this.isBusy(status);
     this.progressWrap.hidden = !(this.isBusy(status) || status === WORKER_STATE.UNSUPPORTED);
 
@@ -551,6 +556,7 @@ class LocalLlmUtility {
   applyProgressBarValue(value) {
     value = Math.max(0, Math.min(100, Math.round(value)));
     this.progressBar.setAttribute('aria-valuenow', String(value));
+    this.progressBar.setAttribute('aria-valuetext', `${value}%`);
     this.progressFill.style.width = `${value}%`;
     this.progressPercent.textContent = `${value}%`;
   }
@@ -571,15 +577,17 @@ class LocalLlmUtility {
     const safeCopy = renderSafeInlineText(copy);
     if (this._currentCopyTarget !== safeCopy) {
       this._currentCopyTarget = safeCopy;
+      clearTimeout(this._copyTimer);
+      this.loadCopy.style.transition = 'none';
+      void this.loadCopy.offsetHeight;
+      this.loadCopy.style.transition = '';
       if (this.loadCopy.innerHTML && !this.center.hidden && this.loadCopy.style.opacity !== '0') {
         this.loadCopy.style.opacity = '0';
-        clearTimeout(this._copyTimer);
         this._copyTimer = setTimeout(() => {
           this.loadCopy.innerHTML = safeCopy;
           this.loadCopy.style.opacity = '1';
         }, 300);
       } else {
-        clearTimeout(this._copyTimer);
         this.loadCopy.innerHTML = safeCopy;
         this.loadCopy.style.opacity = '1';
       }
@@ -690,7 +698,7 @@ class LocalLlmUtility {
     this.autoSizeInput();
     this.updatePromptVisibility();
     this.messages.push({ role: 'user', content });
-    this.messages = this.trimHistory(this.messages);
+    this.messages = this.trimHistory(this.messages, { notify: true });
     this.assistantDraft = null;
     this.renderMessages();
     this.ensureAssistantDraft();
@@ -730,7 +738,7 @@ class LocalLlmUtility {
       } else {
         this.updateAssistantElement(shouldStick);
       }
-      const trimmed = this.trimHistory(this.messages);
+      const trimmed = this.trimHistory(this.messages, { notify: true });
       const didTrim = trimmed.length !== this.messages.length || trimmed.some((message, index) => message !== this.messages[index]);
       this.messages = trimmed;
       this.assistantDraft = null;
@@ -770,9 +778,17 @@ class LocalLlmUtility {
     this.worker.postMessage({ type: 'interrupt' });
   }
 
-  trimHistory(messages) {
+  trimHistory(messages, { notify = false } = {}) {
     const notices = messages.filter((message) => message.role === 'notice').slice(-2);
-    const chat = messages.filter((message) => message.role !== 'notice').slice(-LOCAL_LLM_CONFIG.limits.maxHistoryMessages);
+    const chatMessages = messages.filter((message) => message.role !== 'notice');
+    const trimmedCount = Math.max(0, chatMessages.length - LOCAL_LLM_CONFIG.limits.maxHistoryMessages);
+    const chat = chatMessages.slice(-LOCAL_LLM_CONFIG.limits.maxHistoryMessages);
+    if (notify && trimmedCount > 0 && !notices.some((message) => /Earlier local chat messages/.test(message.content))) {
+      notices.push({
+        role: 'notice',
+        content: `Earlier local chat messages were removed from model context to keep the browser memory budget stable.`
+      });
+    }
     return [...notices, ...chat];
   }
 
@@ -831,7 +847,8 @@ class LocalLlmUtility {
     const liveRegion = this.root.querySelector('#localLlmLiveRegion');
     const last = this.messages.filter((message) => message.role === 'assistant').pop();
     if (liveRegion && last) {
-      liveRegion.textContent = this._lastAssistantWasInterrupted ? `${last.content} (stopped)` : last.content;
+      const content = last.content.length > 220 ? `${last.content.slice(0, 217)}...` : last.content;
+      liveRegion.textContent = this._lastAssistantWasInterrupted ? `${content} (stopped)` : content;
     }
     this._lastAssistantWasInterrupted = false;
   }
@@ -884,7 +901,6 @@ class LocalLlmUtility {
     this.stopPromptCycle();
     this.stopLoadingSequence({ clearPending: true });
     this.worker?.postMessage({ type: 'reset' });
-    void this.clearBrowserModelCaches();
     this.updateTelemetry();
     this.updateStatus(this.modelReady ? WORKER_STATE.READY : WORKER_STATE.IDLE, this.modelReady ? 'Chat reset.' : STATE_COPY.idle);
     if (this.modelReady) this.startPromptCycle();
@@ -892,7 +908,7 @@ class LocalLlmUtility {
   }
 
   async clearModelCache() {
-    this.terminateWorker({ clearCache: true, delayMs: 800 });
+    this.terminateWorker({ clearCache: true, delayMs: 400 });
     this.modelReady = false;
     this.messages = [];
     this.assistantDraft = null;
@@ -1078,6 +1094,9 @@ class LocalLlmMockWorker extends EventTarget {
 }
 
 function buildFailureCopy(message, diagnostics) {
+  if (!diagnostics) {
+    console.warn('Local LLM diagnostics were unavailable for failure copy.', message);
+  }
   const category = message.category || 'runtime-failed';
   let likelyFix = message.likelyFix || 'Try a current desktop browser with WebGPU enabled.';
   let detail = message.detail || message.message || 'The browser could not initialize the local model.';
@@ -1471,7 +1490,7 @@ async function deleteLocalModelCaches() {
   }
 }
 
-function initLocalLlmUtility() {
+export function initLocalLlmUtility() {
   const root = document.getElementById('localLlmUtilityApp');
   if (!root || root.dataset.localLlmMounted === 'true') return;
   root.dataset.localLlmMounted = 'true';

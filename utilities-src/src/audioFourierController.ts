@@ -1,4 +1,5 @@
 import {
+  AUDIO_FOURIER_PRESETS,
   BUILT_IN_AUDIO_PRESETS,
   DEFAULT_BUILT_IN_AUDIO_PRESET_ID,
   getAudioFourierPreset,
@@ -17,6 +18,7 @@ import {
 import { resolveAudioPlaybackButtonState } from './audioFourierUiState';
 import { createAudioWaveRenderer, type AudioWaveRenderer } from './audioFourierWaveRenderer';
 import type { AudioFourierSourceTransfer, AudioFourierSuccessMessage, AudioFourierWorkerRequest, AudioFourierWorkerResponse } from './audioFourierWorkerTypes';
+import { arrayBufferLikeToArrayBuffer, sliceArrayBufferView } from './bufferUtils';
 
 type AudioFourierState = 'idle' | 'processing' | 'ready' | 'animating' | 'complete' | 'error';
 
@@ -57,19 +59,6 @@ interface ActiveAudioFourier {
   energyPercent: number;
 }
 
-function asArrayBuffer(buffer: ArrayBufferLike): ArrayBuffer {
-  if (buffer instanceof ArrayBuffer) {
-    return buffer;
-  }
-  const copy = new Uint8Array(buffer.byteLength);
-  copy.set(new Uint8Array(buffer));
-  return copy.buffer;
-}
-
-function viewToArrayBuffer(view: ArrayBufferView<ArrayBufferLike>) {
-  return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer;
-}
-
 function formatSeconds(value: number) {
   if (value >= 30) {
     const minutes = Math.floor(value / 60);
@@ -91,6 +80,8 @@ const FULL_ENERGY_VISUAL_THRESHOLD = 0.999;
 const GAIN_RAMP_TIME_CONSTANT = 0.015;
 const MASTER_GAIN_RAMP_TIME_CONSTANT = 0.02;
 const VISUAL_CLOCK_RECONCILE_SECONDS = 0.08;
+const VISUAL_CLOCK_DAMPING_FACTOR = 0.08;
+const COMPONENT_WAVE_MAX_POINTS = 960;
 
 export class AudioFourierController {
   private readonly reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -131,6 +122,7 @@ export class AudioFourierController {
 
   private selection: AudioFourierSelection = buildDefaultAudioSelection();
   private worker: Worker | null = null;
+  private workerVersion = 0;
   private activeRequestId = 0;
   private activeWorkerRequestId = 0;
   private activeResult: ActiveAudioFourier | null = null;
@@ -155,6 +147,8 @@ export class AudioFourierController {
   private sliderRafPending = false;
   private resizeFrameId = 0;
   private resizeObserver: ResizeObserver | null = null;
+  private activeComponentsCacheKey = '';
+  private activeComponentsCacheValue = 0;
   private readonly eventController = new AbortController();
   private readonly reducedMotionChangeHandler = () => {
     const prev = this.reducedMotion;
@@ -325,7 +319,7 @@ export class AudioFourierController {
 
   private resizeCanvasToDisplaySize(canvas: HTMLCanvasElement, background: HTMLCanvasElement) {
     const rect = canvas.getBoundingClientRect();
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const dpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1));
     const width = Math.max(1, Math.round((rect.width || canvas.clientWidth || canvas.width) * dpr));
     const height = Math.max(1, Math.round((rect.height || canvas.clientHeight || canvas.height) * dpr));
     if (canvas.width === width && canvas.height === height) {
@@ -343,7 +337,9 @@ export class AudioFourierController {
   }
 
   private get selectedQuality(): AudioFourierPresetId {
-    return this.qualitySelect.value as AudioFourierPresetId;
+    return this.qualitySelect.value in AUDIO_FOURIER_PRESETS
+      ? this.qualitySelect.value as AudioFourierPresetId
+      : 'balanced';
   }
 
   private requireElement<T extends HTMLElement>(id: string) {
@@ -528,6 +524,7 @@ export class AudioFourierController {
     if (this.worker) {
       this.worker.terminate();
       this.worker = null;
+      this.workerVersion += 1;
     }
   }
 
@@ -584,7 +581,7 @@ export class AudioFourierController {
   private async resolveAudioSource(): Promise<AudioFourierSourceTransfer> {
     if (this.selection.kind === 'preset' && this.selection.presetId) {
       const preset = BUILT_IN_AUDIO_PRESETS[this.selection.presetId];
-      const response = await fetch(preset.url);
+      const response = await fetch(preset.url, { mode: 'same-origin' });
       if (!response.ok) {
         throw new Error(`Unable to load built-in song: ${preset.label}`);
       }
@@ -635,7 +632,7 @@ export class AudioFourierController {
   ): AudioFourierSourceTransfer {
     return {
       sampleRate,
-      channelBuffers: channels.map((channel) => viewToArrayBuffer(channel)),
+      channelBuffers: channels.map((channel) => sliceArrayBufferView(channel)),
       label,
       sourceKind,
       builtInPresetId
@@ -650,14 +647,24 @@ export class AudioFourierController {
     this.worker = new Worker(new URL('./audioFourier.worker.ts', import.meta.url), {
       type: 'module'
     });
+    const workerVersion = ++this.workerVersion;
     this.worker.addEventListener('message', (event: MessageEvent<AudioFourierWorkerResponse>) => {
+      if (workerVersion !== this.workerVersion) {
+        return;
+      }
       this.handleWorkerMessage(event.data);
     });
     this.worker.addEventListener('error', (event) => {
+      if (workerVersion !== this.workerVersion) {
+        return;
+      }
       event.preventDefault();
       this.handleWorkerFailure();
     });
     this.worker.addEventListener('messageerror', () => {
+      if (workerVersion !== this.workerVersion) {
+        return;
+      }
       this.handleWorkerFailure();
     });
     return this.worker;
@@ -668,9 +675,10 @@ export class AudioFourierController {
     if (this.worker) {
       this.worker.terminate();
       this.worker = null;
+      this.workerVersion += 1;
     }
-    this.setState('error', 'Audio worker unavailable. Reload the page and try again.');
-    this.setProgress(0, 'Worker failure stopped the audio analysis.', 'Full-song Fourier rendering needs the worker thread.');
+    this.setState('error', 'Audio worker unavailable. Press Generate to retry.');
+    this.setProgress(0, 'Worker failure stopped the audio analysis.', 'Retry starts a fresh worker without reloading the page.');
   }
 
   private handleWorkerMessage(message: AudioFourierWorkerResponse) {
@@ -708,19 +716,19 @@ export class AudioFourierController {
     const sliderMaxValue = this.resolveSliderMaxValue(message.metadata.sliderSteps);
     const sliderValue = Math.min(INITIAL_SLIDER_VALUE, sliderMaxValue);
     const energyPercent = mapSliderValueToEnergyPercent(sliderValue, sliderMaxValue);
-    const bandEnergyFractions = new Float32Array(asArrayBuffer(message.bandEnergyFractions));
+    const bandEnergyFractions = new Float32Array(arrayBufferLikeToArrayBuffer(message.bandEnergyFractions));
     const result: ActiveAudioFourier = {
       metadata: message.metadata,
-      bandSamples: new Float32Array(asArrayBuffer(message.bandSamples)),
-      originalEnvelopeMin: new Float32Array(asArrayBuffer(message.originalEnvelopeMin)),
-      originalEnvelopeMax: new Float32Array(asArrayBuffer(message.originalEnvelopeMax)),
-      bandEnvelopeMin: new Float32Array(asArrayBuffer(message.bandEnvelopeMin)),
-      bandEnvelopeMax: new Float32Array(asArrayBuffer(message.bandEnvelopeMax)),
-      bandEndComponentCounts: new Uint32Array(asArrayBuffer(message.bandEndComponentCounts)),
+      bandSamples: new Float32Array(arrayBufferLikeToArrayBuffer(message.bandSamples)),
+      originalEnvelopeMin: new Float32Array(arrayBufferLikeToArrayBuffer(message.originalEnvelopeMin)),
+      originalEnvelopeMax: new Float32Array(arrayBufferLikeToArrayBuffer(message.originalEnvelopeMax)),
+      bandEnvelopeMin: new Float32Array(arrayBufferLikeToArrayBuffer(message.bandEnvelopeMin)),
+      bandEnvelopeMax: new Float32Array(arrayBufferLikeToArrayBuffer(message.bandEnvelopeMax)),
+      bandEndComponentCounts: new Uint32Array(arrayBufferLikeToArrayBuffer(message.bandEndComponentCounts)),
       bandEnergyFractions,
-      componentFrequencies: new Float32Array(asArrayBuffer(message.componentFrequencies)),
-      componentAmplitudes: new Float32Array(asArrayBuffer(message.componentAmplitudes)),
-      componentPhases: new Float32Array(asArrayBuffer(message.componentPhases)),
+      componentFrequencies: new Float32Array(arrayBufferLikeToArrayBuffer(message.componentFrequencies)),
+      componentAmplitudes: new Float32Array(arrayBufferLikeToArrayBuffer(message.componentAmplitudes)),
+      componentPhases: new Float32Array(arrayBufferLikeToArrayBuffer(message.componentPhases)),
       bandGains: resolveEnergyBandGains(energyPercent, bandEnergyFractions),
       energyPercent
     };
@@ -785,6 +793,7 @@ export class AudioFourierController {
       sliderMaxValue
     );
     this.activeResult.bandGains = resolveEnergyBandGains(this.activeResult.energyPercent, this.activeResult.bandEnergyFractions);
+    this.activeComponentsCacheKey = '';
     this.updateLiveBandGains();
     this.syncEnergyReadout();
 
@@ -824,18 +833,26 @@ export class AudioFourierController {
     if (!this.activeResult) {
       return 0;
     }
+    const cacheKey = Array.from(this.activeResult.bandGains).join(',');
+    if (cacheKey === this.activeComponentsCacheKey) {
+      return this.activeComponentsCacheValue;
+    }
 
     let previousComponentCount = 0;
     for (let bandIndex = 0; bandIndex < this.activeResult.bandGains.length; bandIndex += 1) {
       const gain = this.activeResult.bandGains[bandIndex];
       const endComponentCount = this.activeResult.bandEndComponentCounts[bandIndex];
       if (gain < 1) {
-        return Math.round(previousComponentCount + (endComponentCount - previousComponentCount) * gain);
+        this.activeComponentsCacheKey = cacheKey;
+        this.activeComponentsCacheValue = Math.round(previousComponentCount + (endComponentCount - previousComponentCount) * gain);
+        return this.activeComponentsCacheValue;
       }
       previousComponentCount = endComponentCount;
     }
 
-    return this.activeResult.metadata.componentCount;
+    this.activeComponentsCacheKey = cacheKey;
+    this.activeComponentsCacheValue = this.activeResult.metadata.componentCount;
+    return this.activeComponentsCacheValue;
   }
 
   private ensureVisualScratch(pointCount: number) {
@@ -972,7 +989,7 @@ export class AudioFourierController {
     this.activeBandNodes = this.bandBuffers.map((buffer, index) => {
       const source = context.createBufferSource();
       const gain = context.createGain();
-      gain.gain.value = this.activeResult?.bandGains[index] ?? 0;
+      gain.gain.value = this.activeResult!.bandGains[index];
       source.buffer = buffer;
       source.connect(gain);
       gain.connect(masterGain);
@@ -1059,8 +1076,9 @@ export class AudioFourierController {
     }
     if (this.activeMasterGain) {
       const updateTime = Math.max(context.currentTime, this.masterGainControlReadyAt);
+      const targetGain = resolveEnergyMakeupGain(this.activeResult.energyPercent);
       this.activeMasterGain.gain.cancelScheduledValues(updateTime);
-      this.activeMasterGain.gain.setTargetAtTime(resolveEnergyMakeupGain(this.activeResult.energyPercent), updateTime, MASTER_GAIN_RAMP_TIME_CONSTANT);
+      this.activeMasterGain.gain.linearRampToValueAtTime(targetGain, updateTime + MASTER_GAIN_RAMP_TIME_CONSTANT);
     }
   }
 
@@ -1095,7 +1113,7 @@ export class AudioFourierController {
           this.visualPlaybackElapsedSeconds = this.playbackElapsedSeconds;
         } else {
           this.visualPlaybackElapsedSeconds = clamp(
-            this.visualPlaybackElapsedSeconds + drift * 0.08,
+            this.visualPlaybackElapsedSeconds + drift * VISUAL_CLOCK_DAMPING_FACTOR,
             0,
             this.activeResult.metadata.proxyDurationSeconds
           );
@@ -1284,7 +1302,8 @@ export class AudioFourierController {
     context.shadowColor = 'rgba(255, 255, 255, 0.5)';
     context.shadowBlur = 14;
     context.beginPath();
-    for (let x = 0; x < canvas.width; x += 1) {
+    const xStep = Math.max(1, Math.ceil(canvas.width / COMPONENT_WAVE_MAX_POINTS));
+    for (let x = 0; x < canvas.width; x += xStep) {
       const progress = x / canvas.width;
       const y = canvas.height * 0.58 - Math.sin(progress * Math.PI * 2 * cycles + phase) * canvas.height * 0.22;
       if (x === 0) {

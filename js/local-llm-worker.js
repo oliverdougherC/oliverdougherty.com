@@ -7,6 +7,10 @@ let pastKeyValuesCache = null;
 let loadPromise = null;
 let state = WORKER_STATE.IDLE;
 let activeGeneration = 0;
+let pendingGenerateCount = 0;
+const MAX_PENDING_GENERATE_MESSAGES = 2;
+const TOKEN_BATCH_SIZE = 4;
+const TOKEN_BATCH_MS = 100;
 
 self.addEventListener('message', (event) => {
   const message = event.data || {};
@@ -17,6 +21,10 @@ self.addEventListener('message', (event) => {
   }
 
   if (message.type === 'generate') {
+    if (pendingGenerateCount >= MAX_PENDING_GENERATE_MESSAGES) {
+      return;
+    }
+    pendingGenerateCount += 1;
     void generateReply(message.messages || []);
     return;
   }
@@ -60,7 +68,8 @@ async function loadModel() {
 
   try {
     await loadPromise;
-  } catch {
+  } catch (error) {
+    console.error(error);
     // The UI receives a structured error message.
   }
 }
@@ -114,6 +123,7 @@ function postReady() {
 
 async function generateReply(messages) {
   const generationId = ++activeGeneration;
+  pendingGenerateCount = Math.max(0, pendingGenerateCount - 1);
 
   try {
     await loadModel();
@@ -132,6 +142,25 @@ async function generateReply(messages) {
     let startedAt = 0;
     let numTokens = 0;
     let streamedText = '';
+    let tokenBuffer = '';
+    let bufferedTokens = 0;
+    let flushTimer = 0;
+    const flushTokens = () => {
+      if (!tokenBuffer) return;
+      const token = tokenBuffer;
+      tokenBuffer = '';
+      bufferedTokens = 0;
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = 0;
+      }
+      postMessage({
+        type: 'token',
+        token,
+        tps: tokenRate(startedAt, numTokens),
+        numTokens
+      });
+    };
 
     const streamer = new TextStreamer(generator.tokenizer, {
       skip_prompt: true,
@@ -139,12 +168,13 @@ async function generateReply(messages) {
       callback_function: (token) => {
         if (generationId !== activeGeneration) return;
         streamedText += token;
-        postMessage({
-          type: 'token',
-          token,
-          tps: tokenRate(startedAt, numTokens),
-          numTokens
-        });
+        tokenBuffer += token;
+        bufferedTokens += 1;
+        if (bufferedTokens >= TOKEN_BATCH_SIZE) {
+          flushTokens();
+        } else if (!flushTimer) {
+          flushTimer = setTimeout(flushTokens, TOKEN_BATCH_MS);
+        }
       },
       token_callback_function: () => {
         startedAt ||= performance.now();
@@ -170,6 +200,7 @@ async function generateReply(messages) {
     });
 
     if (generationId !== activeGeneration) return;
+    flushTokens();
     const finalText = extractGeneratedText(output, streamedText);
     setState(WORKER_STATE.READY, 'Ready.');
     postMessage({
@@ -179,6 +210,7 @@ async function generateReply(messages) {
       tps: tokenRate(startedAt, numTokens),
       numTokens
     });
+    disposePastKeyValues();
   } catch (error) {
     if (generationId !== activeGeneration) return;
 
@@ -189,7 +221,9 @@ async function generateReply(messages) {
     }
 
     const failure = buildGenerationError(error);
+    console.error(error);
     setState(WORKER_STATE.ERROR, failure.message, failure);
+    disposePastKeyValues();
   }
 }
 

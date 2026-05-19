@@ -28,6 +28,11 @@ export interface TransformAnimationState {
 
 import { clamp } from './math';
 
+const STATIONARY_PIXEL_PRIORITY = 4;
+const DISTANCE_PRIORITY_OFFSET = 1;
+const TINT_PRIORITY_WEIGHT = 0.01;
+const STABLE_TIE_BREAKER_SCALE = 1_000_000;
+
 function easeInOutCubic(value: number) {
   return value < 0.5 ? 4 * value * value * value : 1 - Math.pow(-2 * value + 2, 3) / 2;
 }
@@ -136,10 +141,10 @@ export function renderTransformAnimationPixels(
     const destinationIndex = boundedY * state.width + boundedX;
     const travelDistance = Math.abs(targetX - sourceX) + Math.abs(targetY - sourceY);
     const drawPriority =
-      (sourceIndex === targetIndex ? 4 : 0) +
-      1 / (travelDistance + 1) +
-      state.tintStrengthBySource[sourceIndex] * 0.01 +
-      sourceIndex / (state.targetIndexBySource.length * 1_000_000);
+      (sourceIndex === targetIndex ? STATIONARY_PIXEL_PRIORITY : 0) +
+      DISTANCE_PRIORITY_OFFSET / (travelDistance + 1) +
+      state.tintStrengthBySource[sourceIndex] * TINT_PRIORITY_WEIGHT +
+      sourceIndex / (state.targetIndexBySource.length * STABLE_TIE_BREAKER_SCALE);
 
     if (drawPriority < state.positionPriorityScratch[destinationIndex]) {
       continue;

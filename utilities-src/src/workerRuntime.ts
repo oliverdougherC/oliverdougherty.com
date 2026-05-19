@@ -3,19 +3,12 @@ import { transformPreparedImages } from './transformCore';
 import type { MatchingWorkerLike } from './parallelMatcher';
 import type { PreparedImageData, PreparedImageTransfer, TransformMetadata } from './types';
 import type { WorkerRequest, WorkerResponse } from './workerTypes';
+import { arrayBufferLikeToArrayBuffer, sliceArrayBufferView } from './bufferUtils';
 
 class CancelledTransformError extends Error {
   constructor() {
     super('Transform cancelled.');
   }
-}
-
-function asArrayBuffer(buffer: ArrayBufferLike) {
-  return buffer as ArrayBuffer;
-}
-
-function sliceArrayBufferView(view: ArrayBufferView<ArrayBufferLike>) {
-  return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer;
 }
 
 export interface PreparedBitmapResult {
@@ -207,10 +200,10 @@ export function createWorkerRequestHandler(options: {
           requestId,
           source: sourceTransfer,
           target: targetTransfer,
-          assignment: asArrayBuffer(assignment.buffer),
+          assignment: arrayBufferLikeToArrayBuffer(assignment.buffer),
           metadata
         },
-        [sourceTransfer.pixels, targetTransfer.pixels, asArrayBuffer(assignment.buffer)]
+        [sourceTransfer.pixels, targetTransfer.pixels, arrayBufferLikeToArrayBuffer(assignment.buffer)]
       );
     } catch (error) {
       if (error instanceof CancelledTransformError) {
