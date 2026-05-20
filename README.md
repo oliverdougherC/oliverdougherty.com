@@ -41,7 +41,7 @@ Open `http://localhost:3000`. Done.
 ### Step-by-step (if you prefer manual control)
 
 ```bash
-git clone git@github.com:oliverdougherC/Oliver-Unified.git
+git clone git@github.com:oliverdougherC/oliverdougherty.com.git
 cd oliverdougherty.com
 
 npm install              # dependencies
