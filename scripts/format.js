@@ -31,6 +31,7 @@ const SKIP_DIRECTORIES = new Set([
   '.codex-tmp',
   '.idea',
   '.omx',
+  '.playwright-mcp',
   '.vscode',
   'dist',
   'node_modules',
