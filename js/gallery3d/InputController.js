@@ -36,7 +36,6 @@ function isPanelTarget(target) {
           '[data-lenis-prevent]',
           '.gallery-index-panel',
           '.gallery-hud',
-          '.gallery-footer',
           '.nav',
           '.nav-overlay',
           'button',

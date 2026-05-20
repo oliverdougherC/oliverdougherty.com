@@ -77,7 +77,7 @@ function validatePages() {
   assert(galleryHtml.includes('id="galleryHeroFeature"'), 'Gallery hero feature card missing');
   assert(galleryHtml.includes('id="galleryArchiveGrid"'), 'Archive gallery grid missing');
   assert(galleryHtml.includes('id="lightboxThumbStrip"'), 'Lightbox thumbnail strip missing');
-  assert(galleryHtml.includes('class="footer gallery-footer"'), 'Gallery footer class missing');
+  assert(!galleryHtml.includes('class="footer gallery-footer"'), 'Gallery footer should be removed');
   assert(!galleryHtml.includes('id="galleryHeroQueue"'), 'Gallery hero support queue should not ship');
   assert(!galleryHtml.includes('id="gallerySearch"'), 'Gallery search input should not ship');
   assert(!galleryHtml.includes('id="galleryHeroTheme"'), 'Gallery category label should not ship');

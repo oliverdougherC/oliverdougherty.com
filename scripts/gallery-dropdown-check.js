@@ -45,7 +45,6 @@ async function assertSharedChrome(page, label) {
     hasNavToggle: Boolean(document.getElementById('navToggle')),
     hasNavOverlay: Boolean(document.getElementById('navOverlay')),
     hasNoise: Boolean(document.querySelector('.noise-overlay')),
-    hasFooter: Boolean(document.querySelector('.gallery-footer.footer')),
     hasHeroFeature: Boolean(document.getElementById('galleryHeroFeature')),
     hasHeroStrip: Boolean(document.getElementById('galleryHeroStrip')),
     hasToolbar: Boolean(document.querySelector('.gallery-toolbar-section')),

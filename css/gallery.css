@@ -849,11 +849,6 @@ body.gallery-lightbox-open {
   line-height: 1.4;
 }
 
-.gallery-footer {
-  margin-top: var(--space-24);
-  border-top: 1px solid #000000;
-}
-
 /* Nav dot */
 .nav-dot {
   position: fixed;
