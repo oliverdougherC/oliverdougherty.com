@@ -334,7 +334,8 @@ body.gallery-lightbox-open {
 }
 
 .photo-card-button:focus-visible {
-  outline: none;
+  outline: 3px solid var(--lb-accent, #004BA8);
+  outline-offset: 4px;
 }
 
 .photo-media {
@@ -612,12 +613,6 @@ body.gallery-lightbox-open {
   justify-content: center;
   width: 100%;
   height: 100%;
-}
-
-.lightbox-picture {
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .lightbox-image {
@@ -1027,5 +1022,10 @@ body.nav-open .nav-dot {
 
   .lightbox-image {
     transition: none;
+  }
+
+  .calibrate-text,
+  .scanned-image {
+    animation: none !important;
   }
 }

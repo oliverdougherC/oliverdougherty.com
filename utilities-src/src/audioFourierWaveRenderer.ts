@@ -249,6 +249,11 @@ class WebGlAudioWaveRenderer implements AudioWaveRenderer {
   private data: AudioWaveEnvelopeData | null = null;
   private uploadedRevision = -1;
   private contextLost = false;
+  private emptyStateTexture: WebGLTexture | null = null;
+  private emptyStateLabel = '';
+  private emptyStateWidth = 0;
+  private emptyStateHeight = 0;
+  private readonly isWebGl2: boolean;
   private readonly cleanupCallbacks: Array<() => void> = [];
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -283,9 +288,19 @@ class WebGlAudioWaveRenderer implements AudioWaveRenderer {
     }
 
     this.gl = gl;
-    this.envelopeProgram = this.createProgram(ENVELOPE_VERTEX_SHADER, ENVELOPE_FRAGMENT_SHADER);
-    this.solidProgram = this.createProgram(SOLID_VERTEX_SHADER, SOLID_FRAGMENT_SHADER);
-    this.textureProgram = this.createProgram(TEXTURE_VERTEX_SHADER, TEXTURE_FRAGMENT_SHADER);
+    this.isWebGl2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
+    this.envelopeProgram = this.createProgram(
+      this.isWebGl2 ? ENVELOPE_VERTEX_SHADER_WEBGL2 : ENVELOPE_VERTEX_SHADER,
+      this.isWebGl2 ? ENVELOPE_FRAGMENT_SHADER_WEBGL2 : ENVELOPE_FRAGMENT_SHADER
+    );
+    this.solidProgram = this.createProgram(
+      this.isWebGl2 ? SOLID_VERTEX_SHADER_WEBGL2 : SOLID_VERTEX_SHADER,
+      this.isWebGl2 ? SOLID_FRAGMENT_SHADER_WEBGL2 : SOLID_FRAGMENT_SHADER
+    );
+    this.textureProgram = this.createProgram(
+      this.isWebGl2 ? TEXTURE_VERTEX_SHADER_WEBGL2 : TEXTURE_VERTEX_SHADER,
+      this.isWebGl2 ? TEXTURE_FRAGMENT_SHADER_WEBGL2 : TEXTURE_FRAGMENT_SHADER
+    );
     this.originalBuffer = this.requireBuffer();
     this.reconstructedBuffer = this.requireBuffer();
     this.playheadBuffer = this.requireBuffer();
@@ -350,28 +365,11 @@ class WebGlAudioWaveRenderer implements AudioWaveRenderer {
 
   drawEmptyState(label: string) {
     this.clear();
-    const fallback = document.createElement('canvas');
-    fallback.width = this.canvas.width;
-    fallback.height = this.canvas.height;
-    const context = fallback.getContext('2d');
-    if (!context) {
-      return;
-    }
-    context.fillStyle = 'rgba(235, 244, 239, 0.55)';
-    context.font = '16px Inter, sans-serif';
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.fillText(label, fallback.width / 2, fallback.height / 2);
-    const texture = this.gl.createTexture();
+    const texture = this.ensureEmptyStateTexture(label);
     if (!texture) {
       return;
     }
     this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
-    this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
-    this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
-    this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-    this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
-    this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, fallback);
     this.gl.enable(this.gl.BLEND);
     this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
     this.gl.useProgram(this.textureProgram);
@@ -393,7 +391,6 @@ class WebGlAudioWaveRenderer implements AudioWaveRenderer {
     this.gl.enableVertexAttribArray(texCoordLocation);
     this.gl.vertexAttribPointer(texCoordLocation, 2, this.gl.FLOAT, false, stride, 2 * Float32Array.BYTES_PER_ELEMENT);
     this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
-    this.gl.deleteTexture(texture);
   }
 
   clear() {
@@ -407,6 +404,10 @@ class WebGlAudioWaveRenderer implements AudioWaveRenderer {
 
   dispose() {
     this.cleanupCallbacks.splice(0).forEach((callback) => callback());
+    if (this.emptyStateTexture) {
+      this.gl.deleteTexture(this.emptyStateTexture);
+      this.emptyStateTexture = null;
+    }
     this.gl.deleteBuffer(this.originalBuffer);
     this.gl.deleteBuffer(this.reconstructedBuffer);
     this.gl.deleteBuffer(this.playheadBuffer);
@@ -546,6 +547,47 @@ class WebGlAudioWaveRenderer implements AudioWaveRenderer {
     return location;
   }
 
+  private ensureEmptyStateTexture(label: string) {
+    const width = Math.max(1, this.canvas.width);
+    const height = Math.max(1, this.canvas.height);
+    const needsRefresh = !this.emptyStateTexture
+      || this.emptyStateLabel !== label
+      || this.emptyStateWidth !== width
+      || this.emptyStateHeight !== height;
+    if (!needsRefresh) {
+      return this.emptyStateTexture;
+    }
+
+    const fallback = document.createElement('canvas');
+    fallback.width = width;
+    fallback.height = height;
+    const context = fallback.getContext('2d');
+    if (!context) {
+      return null;
+    }
+    context.fillStyle = 'rgba(235, 244, 239, 0.55)';
+    context.font = '16px Inter, sans-serif';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(label, width / 2, height / 2);
+
+    const texture = this.emptyStateTexture ?? this.gl.createTexture();
+    if (!texture) {
+      return null;
+    }
+    this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
+    this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+    this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.LINEAR);
+    this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+    this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+    this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, fallback);
+    this.emptyStateTexture = texture;
+    this.emptyStateLabel = label;
+    this.emptyStateWidth = width;
+    this.emptyStateHeight = height;
+    return texture;
+  }
+
   private installContextHandlers() {
     const handleLost = (event: Event) => {
       event.preventDefault();
@@ -554,6 +596,10 @@ class WebGlAudioWaveRenderer implements AudioWaveRenderer {
     const handleRestored = () => {
       this.contextLost = false;
       this.uploadedRevision = -1;
+      this.emptyStateTexture = null;
+      this.emptyStateLabel = '';
+      this.emptyStateWidth = 0;
+      this.emptyStateHeight = 0;
     };
     this.canvas.addEventListener('webglcontextlost', handleLost);
     this.canvas.addEventListener('webglcontextrestored', handleRestored);
@@ -611,6 +657,23 @@ void main() {
 }
 `;
 
+const ENVELOPE_VERTEX_SHADER_WEBGL2 = `#version 300 es
+in float a_bucket;
+in float a_side;
+in float a_amplitude;
+
+uniform float u_startSample;
+uniform float u_viewportSampleCount;
+uniform float u_bucketSampleCount;
+uniform float u_yScale;
+
+void main() {
+  float x = ((a_bucket * u_bucketSampleCount - u_startSample) / u_viewportSampleCount) * 2.0 - 1.0;
+  float y = a_side * a_amplitude * u_yScale;
+  gl_Position = vec4(x, y, 0.0, 1.0);
+}
+`;
+
 const ENVELOPE_FRAGMENT_SHADER = `
 precision mediump float;
 uniform vec4 u_color;
@@ -620,8 +683,26 @@ void main() {
 }
 `;
 
+const ENVELOPE_FRAGMENT_SHADER_WEBGL2 = `#version 300 es
+precision mediump float;
+uniform vec4 u_color;
+out vec4 out_color;
+
+void main() {
+  out_color = u_color;
+}
+`;
+
 const SOLID_VERTEX_SHADER = `
 attribute vec2 a_position;
+
+void main() {
+  gl_Position = vec4(a_position, 0.0, 1.0);
+}
+`;
+
+const SOLID_VERTEX_SHADER_WEBGL2 = `#version 300 es
+in vec2 a_position;
 
 void main() {
   gl_Position = vec4(a_position, 0.0, 1.0);
@@ -637,10 +718,31 @@ void main() {
 }
 `;
 
+const SOLID_FRAGMENT_SHADER_WEBGL2 = `#version 300 es
+precision mediump float;
+uniform vec4 u_color;
+out vec4 out_color;
+
+void main() {
+  out_color = u_color;
+}
+`;
+
 const TEXTURE_VERTEX_SHADER = `
 attribute vec2 a_position;
 attribute vec2 a_texCoord;
 varying vec2 v_texCoord;
+
+void main() {
+  v_texCoord = a_texCoord;
+  gl_Position = vec4(a_position, 0.0, 1.0);
+}
+`;
+
+const TEXTURE_VERTEX_SHADER_WEBGL2 = `#version 300 es
+in vec2 a_position;
+in vec2 a_texCoord;
+out vec2 v_texCoord;
 
 void main() {
   v_texCoord = a_texCoord;
@@ -655,5 +757,16 @@ varying vec2 v_texCoord;
 
 void main() {
   gl_FragColor = texture2D(u_texture, v_texCoord);
+}
+`;
+
+const TEXTURE_FRAGMENT_SHADER_WEBGL2 = `#version 300 es
+precision mediump float;
+uniform sampler2D u_texture;
+in vec2 v_texCoord;
+out vec4 out_color;
+
+void main() {
+  out_color = texture(u_texture, v_texCoord);
 }
 `;

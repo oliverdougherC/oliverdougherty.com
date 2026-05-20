@@ -1,15 +1,16 @@
 import {
+  RETRO_VM_CONFIG,
   buildRetroVmV86Options,
   isRetroVmNetworkReady,
+  readRetroVmDatasetConfig,
   resolveRetroVmConfigFromDataset
 } from './retroVmConfig';
 import { detectRetroVmSupport, resolveRetroVmStatusView, transitionRetroVmState } from './retroVmSupport';
-import type { RetroVmConfig, RetroVmDatasetConfig, RetroVmProgress, RetroVmState } from './retroVmTypes';
+import type { RetroVmConfig, RetroVmProgress, RetroVmState } from './retroVmTypes';
 import type { V86, V86DownloadProgress } from 'v86';
 import v86WasmUrl from 'v86/build/v86.wasm?url';
 
-const FAKE_ISO_SIZE_BYTES = 20_082_688;
-const MAX_CLIPBOARD_PASTE_CHARS = 2048;
+// The second key press lands after SeaBIOS hands off to the Tiny Core boot prompt.
 const BOOT_MENU_SECOND_ENTER_DELAY_MS = 900;
 
 declare global {
@@ -37,16 +38,18 @@ class FakeRetroVm implements EmulatorLike {
     send: () => {}
   };
   private readonly listeners = new Map<string, Set<(value?: unknown) => void>>();
+  private readonly cdromSizeBytes: number;
 
-  constructor() {
+  constructor(cdromSizeBytes: number) {
+    this.cdromSizeBytes = cdromSizeBytes;
     window.setTimeout(() => {
       this.emit('download-progress', {
         file_index: 0,
         file_count: 1,
         file_name: 'fake.iso',
         lengthComputable: true,
-        total: FAKE_ISO_SIZE_BYTES,
-        loaded: FAKE_ISO_SIZE_BYTES
+        total: this.cdromSizeBytes,
+        loaded: this.cdromSizeBytes
       } satisfies V86DownloadProgress);
       this.emit('screen-set-size', [1024, 768, 32]);
       this.emit('emulator-ready');
@@ -84,6 +87,32 @@ class FakeRetroVm implements EmulatorLike {
 
 interface RawBus {
   send(event: string, payload: unknown): void;
+}
+
+function debugRetroVm(message: string, error?: unknown) {
+  if (typeof console === 'undefined' || typeof console.debug !== 'function') {
+    return;
+  }
+
+  if (error === undefined) {
+    console.debug(`[RetroVm] ${message}`);
+    return;
+  }
+
+  console.debug(`[RetroVm] ${message}`, error);
+}
+
+function isV86DownloadProgress(value: unknown): value is V86DownloadProgress {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Partial<V86DownloadProgress>;
+  if (typeof candidate.loaded !== 'number' || typeof candidate.lengthComputable !== 'boolean') {
+    return false;
+  }
+
+  return !candidate.lengthComputable || typeof candidate.total === 'number';
 }
 
 class RetroVmMouseBridge {
@@ -271,8 +300,9 @@ class RetroVmMouseBridge {
       } catch {
         await this.root.requestPointerLock();
       }
-    } catch {
+    } catch (error) {
       // Ignore browsers that deny pointer lock; the unlocked fallback still works.
+      debugRetroVm('Pointer lock request was denied; continuing with absolute mouse input.', error);
     }
   }
 
@@ -328,7 +358,9 @@ export class RetroVmController {
   private isLaunching = false;
   private captureState: 'uncaptured' | 'captured' = 'uncaptured';
   private readonly beforeUnloadHandler = () => {
-    void this.destroySession();
+    this.destroySession().catch((error) => {
+      debugRetroVm('Failed to destroy the VM session during page teardown.', error);
+    });
   };
   private readonly keyDownHandler = (event: KeyboardEvent) => {
     if (this.state === 'fullscreen') {
@@ -366,14 +398,13 @@ export class RetroVmController {
     this.syncGuestFit();
   };
   private readonly onDownloadProgress = (value?: unknown) => {
-    const next = value as V86DownloadProgress | undefined;
-    if (!next) {
+    if (!isV86DownloadProgress(value)) {
       return;
     }
 
     this.progress = {
-      loadedBytes: next.loaded,
-      totalBytes: next.lengthComputable ? next.total : this.progress.totalBytes
+      loadedBytes: value.loaded,
+      totalBytes: value.lengthComputable ? value.total : this.progress.totalBytes
     };
     this.syncUi();
   };
@@ -396,7 +427,7 @@ export class RetroVmController {
 
   constructor(root: HTMLElement) {
     this.root = root;
-    this.config = resolveRetroVmConfigFromDataset(root.dataset as unknown as RetroVmDatasetConfig);
+    this.config = resolveRetroVmConfigFromDataset(readRetroVmDatasetConfig(root.dataset));
     this.progress = { loadedBytes: 0, totalBytes: this.config.cdromSizeBytes };
     this.statusChip = document.getElementById('retroVmStatusChip');
     this.statusText = document.getElementById('retroVmStatusText');
@@ -506,13 +537,12 @@ export class RetroVmController {
 
   private async createEmulator(): Promise<EmulatorLike> {
     if (window.__OD_RETRO_VM_TEST_MODE__) {
-      return new FakeRetroVm();
+      return new FakeRetroVm(this.config.cdromSizeBytes ?? RETRO_VM_CONFIG.cdromSizeBytes ?? 0);
     }
 
     await import('v86/build/v86-fallback.wasm?url');
     const { V86 } = await import('v86');
-    /** v86's constructor type is broader than the runtime emulator surface used here. */
-    return new V86(buildRetroVmV86Options(this.config, this.screenContainer, v86WasmUrl)) as V86;
+    return new V86(buildRetroVmV86Options(this.config, this.screenContainer, v86WasmUrl));
   }
 
   private installTestCanvasIfNeeded() {
@@ -576,16 +606,30 @@ export class RetroVmController {
         return;
       }
 
-      const pasteText = text.slice(0, MAX_CLIPBOARD_PASTE_CHARS);
+      const maxPasteChars = this.config.maxClipboardPasteChars;
+      const pasteText = text.slice(0, maxPasteChars);
+      const approved = typeof window.confirm !== 'function'
+        ? true
+        : window.confirm(
+            `Paste ${pasteText.length.toLocaleString()} characters from your system clipboard into the guest OS? This can expose passwords, tokens, or other secrets inside the VM.`
+          );
+      if (!approved) {
+        this.setVmStatusLine('Clipboard paste was canceled before any text was sent to the guest.');
+        return;
+      }
+
       await this.emulator.keyboard_send_text(pasteText, 0);
       this.setVmStatusLine(
         text.length > pasteText.length
-          ? `Clipboard paste was truncated to ${MAX_CLIPBOARD_PASTE_CHARS.toLocaleString()} characters before being sent into the guest keyboard buffer.`
+          ? `Clipboard paste was truncated to ${maxPasteChars.toLocaleString()} characters before being sent into the guest keyboard buffer.`
           : 'Clipboard text was sent into the guest keyboard buffer. Review clipboard contents before pasting commands into the VM.'
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Clipboard access was denied.';
-      this.setVmStatusLine(`Clipboard paste failed: ${message}`);
+      const secureContextHint = !window.isSecureContext
+        ? ' Clipboard access requires HTTPS or localhost in most browsers.'
+        : '';
+      this.setVmStatusLine(`Clipboard paste failed: ${message}${secureContextHint}`);
     }
   }
 
@@ -646,8 +690,9 @@ export class RetroVmController {
           void this.dispatchEnterKey();
         }, BOOT_MENU_SECOND_ENTER_DELAY_MS);
       }
-    } catch {
+    } catch (error) {
       // Boot menu might already be gone or the guest may already be in graphics mode.
+      debugRetroVm('Boot menu probe failed; falling back to delayed Enter key dispatch.', error);
       window.setTimeout(() => {
         if (this.state === 'running') {
           void this.dispatchEnterKey();
@@ -777,8 +822,9 @@ export class RetroVmController {
 
     try {
       await document.exitFullscreen();
-    } catch {
+    } catch (error) {
       // Ignore browsers that refuse to exit fullscreen during teardown.
+      debugRetroVm('Fullscreen exit was refused during teardown.', error);
     }
   }
 

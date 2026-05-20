@@ -1,6 +1,9 @@
 import {
+  AUDIO_FOURIER_PRESETS,
   BUILT_IN_AUDIO_PRESETS,
   DEFAULT_BUILT_IN_AUDIO_PRESET_ID,
+  getAudioFourierPreset,
+  isAudioFourierPresetId,
   type BuiltInAudioPresetId
 } from '@utilities/audioPresets';
 
@@ -24,5 +27,14 @@ describe('built-in audio presets', () => {
       expect(preset.label).toBeTruthy();
       expect(preset.url).toBe(`../../assets/utilities/fourier-decompose/${filename}`);
     }
+  });
+
+  it('guards Fourier preset ids before lookup', () => {
+    expect(isAudioFourierPresetId('fast')).toBe(true);
+    expect(isAudioFourierPresetId('balanced')).toBe(true);
+    expect(isAudioFourierPresetId('detailed')).toBe(true);
+    expect(isAudioFourierPresetId('unknown')).toBe(false);
+    expect(getAudioFourierPreset('balanced')).toBe(AUDIO_FOURIER_PRESETS.balanced);
+    expect(() => getAudioFourierPreset('unknown')).toThrow('Unknown audio Fourier preset: unknown');
   });
 });

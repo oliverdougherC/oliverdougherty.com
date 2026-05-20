@@ -379,8 +379,7 @@ function postTransformersProgress(progress) {
 
 function normalizeProgressStatus(status) {
   if (status === 'progress' || status === 'download' || status === 'progress_total') return 'downloading';
-  if (status === 'ready' || status === 'done') return 'loading';
-  if (typeof status === 'string') return status;
+  if (status === 'ready' || status === 'done' || status === 'loading' || status === 'optimizing') return 'loading';
   return 'downloading';
 }
 
@@ -470,7 +469,8 @@ async function deleteLocalModelCaches() {
     const targets = cacheNames.filter((name) => /huggingface|transformers|local-llm|bonsai/i.test(name));
     await Promise.all(targets.map((name) => self.caches.delete(name)));
     return true;
-  } catch {
+  } catch (error) {
+    console.debug('Local assistant worker cache deletion failed.', error);
     return false;
   }
 }

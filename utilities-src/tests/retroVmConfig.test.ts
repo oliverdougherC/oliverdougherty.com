@@ -1,4 +1,10 @@
-import { RETRO_VM_CONFIG, buildRetroVmV86Options, isRetroVmNetworkReady, resolveRetroVmConfigFromDataset } from '@utilities/retroVmConfig';
+import {
+  RETRO_VM_CONFIG,
+  buildRetroVmV86Options,
+  isRetroVmNetworkReady,
+  readRetroVmDatasetConfig,
+  resolveRetroVmConfigFromDataset
+} from '@utilities/retroVmConfig';
 
 describe('retro VM config', () => {
   it('defaults to the Tiny Core offline-first rollback profile', () => {
@@ -13,6 +19,7 @@ describe('retro VM config', () => {
   it('maps dataset overrides into runtime copy and offline network state', () => {
     const config = resolveRetroVmConfigFromDataset({
       vmAssetLabel: 'Custom Alpine label',
+      vmSessionLabel: 'Custom session label',
       vmBridgeLabelOffline: 'Offline bridge copy',
       vmSupportNoteOffline: 'Offline support copy',
       vmNetworkEnabled: 'true',
@@ -20,11 +27,35 @@ describe('retro VM config', () => {
     });
 
     expect(config.copy.assetLabel).toBe('Custom Alpine label');
+    expect(config.copy.sessionLabel).toBe('Custom session label');
     expect(config.copy.bridgeLabelOffline).toBe('Offline bridge copy');
     expect(config.copy.supportNoteOffline).toBe('Offline support copy');
     expect(config.network.enabled).toBe(true);
     expect(config.network.relayUrl).toBeNull();
     expect(isRetroVmNetworkReady(config)).toBe(false);
+  });
+
+  it('extracts only the supported VM dataset fields before config resolution', () => {
+    const dataset = readRetroVmDatasetConfig({
+      vmAssetLabel: '  Custom Alpine label  ',
+      vmRelayUrl: 'wss://relay.example.test/',
+      vmNetworkEnabled: 'true',
+      unexpectedVmField: 'ignored'
+    } as Partial<Record<string, string>>);
+
+    expect(dataset).toEqual({
+      vmAssetLabel: '  Custom Alpine label  ',
+      vmSessionLabel: undefined,
+      vmBridgeLabelOnline: undefined,
+      vmBridgeLabelOffline: undefined,
+      vmSupportNoteOnline: undefined,
+      vmSupportNoteOffline: undefined,
+      vmScreenBadgeOnline: undefined,
+      vmScreenBadgeOffline: undefined,
+      vmProgressMeta: undefined,
+      vmNetworkEnabled: 'true',
+      vmRelayUrl: 'wss://relay.example.test/'
+    });
   });
 
   it('includes net_device only when relay-backed networking is configured', () => {

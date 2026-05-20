@@ -73,19 +73,24 @@ export class LocalLlmUtility {
     this._pagehideHandler = null;
     this._deactivateHandler = null;
     this._inputFrameId = 0;
+    this._statePanelFrameId = 0;
     this._lastAssistantWasInterrupted = false;
+    this._messageElements = new WeakMap();
+    this._renderedMessageContent = new WeakMap();
     this.loadingSequenceTimer = null;
     this.loadingSequenceIndex = 0;
     this.loadingSequenceStartedAt = 0;
     this.pendingReadyMessage = null;
     this.loadSpinnerTimer = null;
     this.loadSpinnerIndex = 0;
+    this._currentCopyTarget = '';
+    this._copyTimer = null;
 
     this.mount();
     this.bindEvents();
     this.renderMessages();
     this.updateStatus(WORKER_STATE.IDLE, STATE_COPY.idle);
-    this.renderStatePanel();
+    this.renderStatePanel({ immediate: true });
   }
 
   mount() {
@@ -471,6 +476,7 @@ export class LocalLlmUtility {
     this.sendText.textContent = canStop ? 'Stop' : 'Send';
     this.sendButton.setAttribute('aria-label', canStop ? 'Stop message' : 'Send message');
     this.resetButton.disabled = this.isBusy(status);
+    this.resetButton.setAttribute('aria-disabled', this.resetButton.disabled ? 'true' : 'false');
     this.progressWrap.hidden = !(this.isBusy(status) || status === WORKER_STATE.UNSUPPORTED);
 
     if (status === WORKER_STATE.READY) {
@@ -561,7 +567,24 @@ export class LocalLlmUtility {
     this.progressPercent.textContent = `${value}%`;
   }
 
-  renderStatePanel() {
+  renderStatePanel({ immediate = false } = {}) {
+    if (immediate) {
+      if (this._statePanelFrameId) {
+        window.cancelAnimationFrame(this._statePanelFrameId);
+        this._statePanelFrameId = 0;
+      }
+      this.flushStatePanelRender();
+      return;
+    }
+
+    if (this._statePanelFrameId) return;
+    this._statePanelFrameId = window.requestAnimationFrame(() => {
+      this._statePanelFrameId = 0;
+      this.flushStatePanelRender();
+    });
+  }
+
+  flushStatePanelRender() {
     const hasMessages = this.messages.length > 0;
     const shouldShowPanel = !hasMessages || this.isBusy() || this.status === WORKER_STATE.ERROR || this.status === WORKER_STATE.UNSUPPORTED;
     this.transcript.classList.toggle('local-llm-transcript--empty-panel', shouldShowPanel && !hasMessages);
@@ -584,6 +607,7 @@ export class LocalLlmUtility {
       if (this.loadCopy.innerHTML && !this.center.hidden && this.loadCopy.style.opacity !== '0') {
         this.loadCopy.style.opacity = '0';
         this._copyTimer = setTimeout(() => {
+          this._copyTimer = null;
           this.loadCopy.innerHTML = safeCopy;
           this.loadCopy.style.opacity = '1';
         }, 300);
@@ -705,7 +729,7 @@ export class LocalLlmUtility {
     this.updateStatus(WORKER_STATE.THINKING, 'Thinking locally.');
     this.renderStatePanel();
     this.showTypingAfterDelay();
-    this.worker.postMessage({ type: 'generate', messages: compactMessagesForWorker(this.messages) });
+    this.worker.postMessage({ type: 'generate', messages: this.messages });
   }
 
   ensureAssistantDraft() {
@@ -799,24 +823,41 @@ export class LocalLlmUtility {
     this._lastAssistantElement = null;
 
     for (const message of this.messages) {
-      const role = message.role === 'user' ? 'You' : message.role === 'notice' ? 'Note' : 'Local Assistant';
-      const article = document.createElement('article');
-      article.className = `local-llm-message local-llm-message--${message.role}`;
-      if (!animate) article.classList.add('local-llm-message--static');
-      article.setAttribute('aria-label', role);
-      article.innerHTML = `
-        <div class="local-llm-message-role">${role}</div>
-        <div class="local-llm-message-content">${renderSafeText(message.content)}</div>
-      `;
+      const article = this.renderMessageElement(message, animate);
 
       if (message.role === 'assistant') this._lastAssistantElement = article;
       fragment.appendChild(article);
     }
 
-    this.messageList.innerHTML = '';
-    this.messageList.appendChild(fragment);
+    this.messageList.replaceChildren(fragment);
     this.scrollMessagesIfNeeded(stickToBottom);
     this.renderStatePanel();
+  }
+
+  renderMessageElement(message, animate) {
+    const role = message.role === 'user' ? 'You' : message.role === 'notice' ? 'Note' : 'Local Assistant';
+    let article = this._messageElements.get(message);
+
+    if (!article) {
+      article = document.createElement('article');
+      article.className = `local-llm-message local-llm-message--${message.role}`;
+      article.setAttribute('aria-label', role);
+      article.innerHTML = `
+        <div class="local-llm-message-role">${role}</div>
+        <div class="local-llm-message-content"></div>
+      `;
+      this._messageElements.set(message, article);
+    }
+
+    article.classList.toggle('local-llm-message--static', !animate);
+
+    if (this._renderedMessageContent.get(message) !== message.content) {
+      const contentDiv = article.querySelector('.local-llm-message-content');
+      if (contentDiv) contentDiv.innerHTML = renderSafeText(message.content);
+      this._renderedMessageContent.set(message, message.content);
+    }
+
+    return article;
   }
 
   updateAssistantElement(stickToBottom = this.isMessageListNearBottom()) {
@@ -824,6 +865,7 @@ export class LocalLlmUtility {
     const contentDiv = this._lastAssistantElement.querySelector('.local-llm-message-content');
     if (contentDiv) {
       contentDiv.innerHTML = renderSafeText(this.assistantDraft.content);
+      this._renderedMessageContent.set(this.assistantDraft, this.assistantDraft.content);
     }
     this.scrollMessagesIfNeeded(stickToBottom);
   }
@@ -945,6 +987,14 @@ export class LocalLlmUtility {
       window.cancelAnimationFrame(this._inputFrameId);
       this._inputFrameId = 0;
     }
+    if (this._statePanelFrameId) {
+      window.cancelAnimationFrame(this._statePanelFrameId);
+      this._statePanelFrameId = 0;
+    }
+    if (this._copyTimer) {
+      clearTimeout(this._copyTimer);
+      this._copyTimer = null;
+    }
     this.stopPromptCycle();
     this.stopLoadingSequence({ clearPending: true });
     this.root.dataset.localLlmMounted = 'false';
@@ -988,6 +1038,8 @@ export class LocalLlmUtility {
 
     if (this._workerMessageHandler) worker.removeEventListener('message', this._workerMessageHandler);
     if (this._workerErrorHandler) worker.removeEventListener('error', this._workerErrorHandler);
+    this._workerMessageHandler = null;
+    this._workerErrorHandler = null;
     if (delayMs > 0) {
       window.setTimeout(() => worker.terminate(), delayMs);
     } else {
@@ -1127,16 +1179,6 @@ function cleanupModelText(text) {
     .replace(/<\/?(?:s|pad|bos|eos|endoftext|im_start|im_end|\|im_start\||\|im_end\|)>/gi, '')
     .replace(/<\|[^|]+?\|>/g, '')
     .trim();
-}
-
-function compactMessagesForWorker(messages) {
-  return messages
-    .filter((message) => message && message.role !== 'notice' && typeof message.content === 'string')
-    .map((message) => ({
-      role: message.role === 'assistant' ? 'assistant' : 'user',
-      content: cleanupModelText(message.content).slice(0, LOCAL_LLM_CONFIG.limits.maxMessageChars)
-    }))
-    .filter((message) => message.content.trim());
 }
 
 function renderSafeText(markdown) {
@@ -1461,7 +1503,6 @@ function buildReadySuggestionOrder() {
 }
 
 function escapeHtml(value) {
-  // Backticks are intentionally left literal so inline-code markdown can be parsed after escaping.
   return String(value || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -1485,7 +1526,8 @@ async function deleteLocalModelCaches() {
     const targets = cacheNames.filter((name) => /huggingface|transformers|local-llm|bonsai/i.test(name));
     await Promise.all(targets.map((name) => window.caches.delete(name)));
     return true;
-  } catch {
+  } catch (error) {
+    console.debug('Local assistant cache deletion failed.', error);
     return false;
   }
 }

@@ -15,70 +15,9 @@
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@200;400;800&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="../../css/design-system.css?v=utilities-2026-04-09b">
-  <link rel="stylesheet" href="../../css/utilities.css?v=utilities-2026-05-16-death-layout-v3">
+  <link rel="stylesheet" href="../../css/utilities.css?v=utilities-2026-05-19-home-cleanup">
   <link rel="stylesheet" href="../../css/cursor.css?v=utilities-2026-04-09b">
   <link rel="stylesheet" href="../../css/local-llm-chat.css?v=utilities-2026-05-16-local-assistant-copy">
-  <style>
-    html, body {
-      overflow: hidden;
-      height: 100%;
-    }
-    .nav-home-btn {
-      color: #fff;
-      text-decoration: none;
-      font-family: 'Inter', sans-serif;
-      font-weight: 400;
-      font-size: 1rem;
-      padding: 0.5rem 0;
-      opacity: 0;
-      pointer-events: none;
-      animation: fade-in-home 1.5s ease-out forwards;
-      animation-delay: 6s;
-      transition: opacity 0.2s ease;
-    }
-    .nav-home-btn:hover {
-      opacity: 0.7 !important;
-    }
-    @keyframes fade-in-home {
-      from { opacity: 0; transform: translateY(-10px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-    .nav-btn-wrapper {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-      height: 2rem;
-    }
-    .nav-back-btn {
-      position: absolute;
-      inset: 0;
-      display: inline-flex;
-      align-items: center;
-      font-family: 'Inter', sans-serif;
-      font-weight: 400;
-      font-size: 1rem;
-      padding: 0.5rem 0;
-      background: none;
-      border: none;
-      color: #fff;
-      cursor: pointer;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.3s ease;
-      white-space: nowrap;
-    }
-    .nav-back-btn:hover {
-      opacity: 0.7 !important;
-    }
-    html[data-active-utility] .nav-home-btn {
-      opacity: 0 !important;
-      pointer-events: none !important;
-    }
-    html[data-active-utility] .nav-back-btn {
-      opacity: 1;
-      pointer-events: auto;
-    }
-  </style>
 </head>
 <body>
   <canvas id="starfield"></canvas>
@@ -104,7 +43,6 @@
         <button data-utility="image-transform" data-color="lavender">Image Transform</button>
         <button data-utility="audio-fourier" data-color="pink">Fourier Reconstruction</button>
         <button data-utility="local-assistant" data-color="mint">Local Assistant</button>
-        <!-- <button data-utility="death-calculator" data-color="coral">Death Calculator</button> -->
         <button data-utility="virtual-machine" data-color="sky">Virtual Machine</button>
         <button data-utility="stress-test" data-color="ember">Stress Test</button>
       </div>
@@ -336,413 +274,6 @@
         <div class="utility-stage" data-utility-id="local-assistant">
           <section class="utility-shell utility-shell--local-llm" id="localLlmUtilityApp" data-utility-root="local-llm" data-animate="fade-up" data-local-llm-status="idle" aria-label="Local AI Chat"></section>
         </div>
-        <div class="utility-stage" data-utility-id="death-calculator">
-          <section class="utility-shell utility-shell--death" id="deathCalculatorApp" data-utility-root="death-calculator" data-animate="fade-up" data-state="intro" aria-label="Death Calculator">
-                    <p id="deathStatusText" class="utility-progress-text" aria-live="polite"></p>
-                    <div class="death-experience">
-                      <div class="death-screen death-screen--intro" id="deathIntroScreen">
-                        <article class="death-card death-card--intro">
-                          <button type="button" class="btn-primary-utility death-begin-button" id="deathBeginBtn">Begin?</button>
-                        </article>
-                      </div>
-
-                      <div class="death-screen death-screen--survey" id="deathSurveyScreen" hidden>
-                        <article class="death-card death-card--question-shell">
-                          <div class="death-flow-head">
-                            <div class="death-flow-meta death-progress-stack" aria-live="polite">
-                            <div class="death-progress-header" style="display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 0.78rem; color: rgba(255,255,255,0.5);">
-                              <span id="deathProgressText"></span>
-                              <span id="deathProgressMeta"></span>
-                            </div>
-                            <div class="death-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
-                              <span class="death-progress-fill" id="deathProgressFill"></span>
-                            </div>
-                          </div>
-
-                          <div class="death-flow-copy" style="margin-top: 2rem;">
-                            <span class="utility-kicker" id="deathQuestionEyebrow" style="display: block; margin-bottom: 0.35rem;"></span>
-                            <h4 class="death-question-title" id="deathQuestionTitle">When were you born?</h4>
-                            <p class="death-question-description" id="deathQuestionDescription" style="margin-top: 0.5rem; color: var(--color-text-secondary); font-size: 0.9rem;"></p>
-                          </div>
-                          </div>
-
-                          <form id="deathSurveyForm" class="death-survey-form" novalidate>
-                            <section class="death-question-card is-active" data-question-card="birthDate">
-                              <label class="control-field" for="deathBirthDate">
-                                <span class="control-label">Date of birth</span>
-                                <input id="deathBirthDate" name="birthDate" class="control-input" type="date" required>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="sex" hidden>
-                              <label class="control-field" for="deathSex">
-                                <span class="control-label">Actuarial sex baseline</span>
-                                <select id="deathSex" name="sex" class="control-select" required>
-                                  <option value="male">Male life table</option>
-                                  <option value="female">Female life table</option>
-                                </select>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="weight" hidden>
-                              <label class="control-field" for="deathWeightPounds">
-                                <span class="control-label">Weight (lb)</span>
-                                <input id="deathWeightPounds" name="weightPounds" class="control-input" type="number" min="50" max="700" step="1" value="180" required>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="height" hidden>
-                              <div class="death-card-grid death-card-grid--split">
-                                <label class="control-field" for="deathHeightFeet">
-                                  <span class="control-label">Height (ft)</span>
-                                  <input id="deathHeightFeet" name="heightFeet" class="control-input" type="number" min="3" max="8" step="1" value="5" required>
-                                </label>
-
-                                <label class="control-field" for="deathHeightInchesPart">
-                                  <span class="control-label">Extra inches</span>
-                                  <input id="deathHeightInchesPart" name="heightInchesPart" class="control-input" type="number" min="0" max="11" step="1" value="10" required>
-                                </label>
-                              </div>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="moderateMinutes" hidden>
-                              <div class="death-card-grid death-card-grid--split">
-                                <label class="control-field" for="deathModerateDays">
-                                  <span class="control-label">Days per week</span>
-                                  <input id="deathModerateDays" name="moderateDaysPerWeek" class="control-input" type="number" min="0" max="7" step="1" value="4" required>
-                                </label>
-
-                                <label class="control-field" for="deathModerateMinutesSession">
-                                  <span class="control-label">Minutes per session</span>
-                                  <input id="deathModerateMinutesSession" name="moderateMinutesSession" class="control-input" type="number" min="0" max="300" step="5" value="30" required>
-                                </label>
-                              </div>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="vigorousMinutes" hidden>
-                              <div class="death-card-grid death-card-grid--split">
-                                <label class="control-field" for="deathVigorousDays">
-                                  <span class="control-label">Days per week</span>
-                                  <input id="deathVigorousDays" name="vigorousDaysPerWeek" class="control-input" type="number" min="0" max="7" step="1" value="1" required>
-                                </label>
-
-                                <label class="control-field" for="deathVigorousMinutesSession">
-                                  <span class="control-label">Minutes per session</span>
-                                  <input id="deathVigorousMinutesSession" name="vigorousMinutesSession" class="control-input" type="number" min="0" max="300" step="5" value="30" required>
-                                </label>
-                              </div>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="strengthDays" hidden>
-                              <label class="control-field" for="deathStrengthDays">
-                                <span class="control-label">Strength days per week</span>
-                                <input id="deathStrengthDays" name="strengthDaysPerWeek" class="control-input" type="number" min="0" max="7" step="1" value="2" required>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="sedentaryHours" hidden>
-                              <label class="control-field" for="deathSedentaryHours">
-                                <span class="control-label">Sedentary hours per day</span>
-                                <input id="deathSedentaryHours" name="sedentaryHoursPerDay" class="control-input" type="number" min="0" max="18" step="0.5" value="8" required>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="smokingStatus" hidden>
-                              <label class="control-field" for="deathSmokingStatus">
-                                <span class="control-label">Smoking status</span>
-                                <select id="deathSmokingStatus" name="smokingStatus" class="control-select" required>
-                                  <option value="never">Never</option>
-                                  <option value="former">Former smoker</option>
-                                  <option value="some">Current some-day smoker</option>
-                                  <option value="light">Current light daily smoker</option>
-                                  <option value="moderate">Current moderate daily smoker</option>
-                                  <option value="heavy">Current heavy daily smoker</option>
-                                </select>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="yearsSinceQuit" id="deathYearsSinceQuitField" hidden>
-                              <label class="control-field" for="deathYearsSinceQuit">
-                                <span class="control-label">Years since quitting</span>
-                                <input id="deathYearsSinceQuit" name="yearsSinceQuit" class="control-input" type="number" min="0" max="80" step="1" value="5">
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="drinksPerWeek" hidden>
-                              <label class="control-field" for="deathDrinksPerWeek">
-                                <span class="control-label">Alcoholic drinks per week</span>
-                                <input id="deathDrinksPerWeek" name="drinksPerWeek" class="control-input" type="number" min="0" max="70" step="1" value="3" required>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="bingeFrequency" hidden>
-                              <label class="control-field" for="deathBingeFrequency">
-                                <span class="control-label">Binge frequency</span>
-                                <select id="deathBingeFrequency" name="bingeFrequency" class="control-select" required>
-                                  <option value="never">Never</option>
-                                  <option value="monthly">Monthly</option>
-                                  <option value="weekly">Weekly</option>
-                                  <option value="multiple-weekly">Multiple times weekly</option>
-                                </select>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="sleepHours" hidden>
-                              <label class="control-field" for="deathSleepHours">
-                                <span class="control-label">Sleep hours per night</span>
-                                <input id="deathSleepHours" name="sleepHoursPerNight" class="control-input" type="number" min="3" max="14" step="0.5" value="7.5" required>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="upfShare" hidden>
-                              <label class="control-field" for="deathUpfShare">
-                                <span class="control-label">Ultra-processed food share</span>
-                                <select id="deathUpfShare" name="ultraProcessedFoodShare" class="control-select" required>
-                                  <option value="minimal">Rarely, less than 10%</option>
-                                  <option value="low">Some, under 25%</option>
-                                  <option value="moderate" selected>About 25% to 50%</option>
-                                  <option value="high">About 50% to 75%</option>
-                                  <option value="very-high">Most meals, 75%+</option>
-                                </select>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="produceServings" hidden>
-                              <label class="control-field" for="deathProduceServings">
-                                <span class="control-label">Fruit + vegetable servings per day</span>
-                                <input id="deathProduceServings" name="fruitVegetableServingsPerDay" class="control-input" type="number" min="0" max="20" step="1" value="4" required>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="hasHypertension" hidden>
-                              <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathHasHypertension">
-                                <input id="deathHasHypertension" name="hasHypertension" type="checkbox">
-                                <span>Diagnosed hypertension</span>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="clinicalBiomarkers" hidden>
-                              <div class="death-card-grid death-card-grid--split">
-                                <label class="control-field" for="deathSystolicBloodPressure">
-                                  <span class="control-label">Systolic BP</span>
-                                  <input id="deathSystolicBloodPressure" name="systolicBloodPressure" class="control-input" type="number" min="70" max="260" step="1" placeholder="Optional">
-                                </label>
-                                <label class="control-field" for="deathDiastolicBloodPressure">
-                                  <span class="control-label">Diastolic BP</span>
-                                  <input id="deathDiastolicBloodPressure" name="diastolicBloodPressure" class="control-input" type="number" min="40" max="160" step="1" placeholder="Optional">
-                                </label>
-                              </div>
-                              <div class="death-card-grid death-card-grid--split">
-                                <label class="control-field" for="deathTotalCholesterol">
-                                  <span class="control-label">Total cholesterol</span>
-                                  <input id="deathTotalCholesterol" name="totalCholesterol" class="control-input" type="number" min="80" max="400" step="1" placeholder="Optional">
-                                </label>
-                                <label class="control-field" for="deathHdlCholesterol">
-                                  <span class="control-label">HDL cholesterol</span>
-                                  <input id="deathHdlCholesterol" name="hdlCholesterol" class="control-input" type="number" min="10" max="150" step="1" placeholder="Optional">
-                                </label>
-                              </div>
-                              <label class="control-field" for="deathRestingHeartRate">
-                                <span class="control-label">Resting heart rate</span>
-                                <input id="deathRestingHeartRate" name="restingHeartRate" class="control-input" type="number" min="35" max="180" step="1" placeholder="Optional">
-                              </label>
-                              <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathUsesBloodPressureMedication">
-                                <input id="deathUsesBloodPressureMedication" name="usesBloodPressureMedication" type="checkbox">
-                                <span>Blood pressure medication</span>
-                              </label>
-                              <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathUsesLipidMedication">
-                                <input id="deathUsesLipidMedication" name="usesLipidMedication" type="checkbox">
-                                <span>Cholesterol medication</span>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="diabetesStatus" hidden>
-                              <label class="control-field" for="deathDiabetesStatus">
-                                <span class="control-label">Diabetes status</span>
-                                <select id="deathDiabetesStatus" name="diabetesStatus" class="control-select" required>
-                                  <option value="none">None</option>
-                                  <option value="prediabetes">Prediabetes</option>
-                                  <option value="diabetes">Diabetes</option>
-                                </select>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="hasCardiovascularDisease" hidden>
-                              <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathHasCardioDisease">
-                                <input id="deathHasCardioDisease" name="hasCardiovascularDisease" type="checkbox">
-                                <span>Heart disease or stroke history</span>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="hasCancerHistory" hidden>
-                              <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathHasCancerHistory">
-                                <input id="deathHasCancerHistory" name="hasCancerHistory" type="checkbox">
-                                <span>Cancer history</span>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="hasCopdOrAsthma" hidden>
-                              <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathHasCopdOrAsthma">
-                                <input id="deathHasCopdOrAsthma" name="hasCopdOrAsthma" type="checkbox">
-                                <span>COPD or chronic asthma</span>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="hasChronicKidneyDisease" hidden>
-                              <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathHasKidneyDisease">
-                                <input id="deathHasKidneyDisease" name="hasChronicKidneyDisease" type="checkbox">
-                                <span>Chronic kidney disease</span>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="hasSleepApnea" hidden>
-                              <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathHasSleepApnea">
-                                <input id="deathHasSleepApnea" name="hasSleepApnea" type="checkbox">
-                                <span>Sleep apnea</span>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="hasEarlyFamilyCardioHistory" hidden>
-                              <label class="control-field control-field--checkbox control-field--checkbox-card" for="deathEarlyFamilyCardio">
-                                <input id="deathEarlyFamilyCardio" name="hasEarlyFamilyCardioHistory" type="checkbox">
-                                <span>Parent or sibling had early heart disease or stroke</span>
-                              </label>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="parentLongevity" hidden>
-                              <div class="death-family-grid">
-                                <div class="death-family-row">
-                                  <span class="death-family-member-name">Mother</span>
-                                  <label class="control-field death-family-status" for="deathMotherStatus">
-                                    <span class="control-label">Mother status</span>
-                                    <select id="deathMotherStatus" name="motherStatus" class="control-select" required>
-                                      <option value="unknown" selected>Unknown</option>
-                                      <option value="alive">Alive</option>
-                                      <option value="deceased">Died</option>
-                                    </select>
-                                  </label>
-                                  <label class="control-field death-family-age" for="deathMotherAge">
-                                    <span class="control-label">Mother age</span>
-                                    <input id="deathMotherAge" name="motherAge" class="control-input" type="number" min="0" max="122" step="1" placeholder="Unknown">
-                                  </label>
-                                </div>
-                                <div class="death-family-row">
-                                  <span class="death-family-member-name">Father</span>
-                                  <label class="control-field death-family-status" for="deathFatherStatus">
-                                    <span class="control-label">Father status</span>
-                                    <select id="deathFatherStatus" name="fatherStatus" class="control-select" required>
-                                      <option value="unknown" selected>Unknown</option>
-                                      <option value="alive">Alive</option>
-                                      <option value="deceased">Died</option>
-                                    </select>
-                                  </label>
-                                  <label class="control-field death-family-age" for="deathFatherAge">
-                                    <span class="control-label">Father age</span>
-                                    <input id="deathFatherAge" name="fatherAge" class="control-input" type="number" min="0" max="122" step="1" placeholder="Unknown">
-                                  </label>
-                                </div>
-                              </div>
-                            </section>
-
-                            <section class="death-question-card" data-question-card="grandparentLongevity" hidden>
-                              <div class="death-family-grid death-family-grid--grandparents">
-                                <div class="death-family-row">
-                                  <span class="death-family-member-name">Maternal grandmother</span>
-                                  <label class="control-field death-family-status" for="deathMaternalGrandmotherStatus">
-                                    <span class="control-label">Maternal grandmother status</span>
-                                    <select id="deathMaternalGrandmotherStatus" name="maternalGrandmotherStatus" class="control-select" required>
-                                      <option value="unknown" selected>Unknown</option>
-                                      <option value="alive">Alive</option>
-                                      <option value="deceased">Died</option>
-                                    </select>
-                                  </label>
-                                  <label class="control-field death-family-age" for="deathMaternalGrandmotherAge">
-                                    <span class="control-label">Maternal grandmother age</span>
-                                    <input id="deathMaternalGrandmotherAge" name="maternalGrandmotherAge" class="control-input" type="number" min="0" max="122" step="1" placeholder="Unknown">
-                                  </label>
-                                </div>
-                                <div class="death-family-row">
-                                  <span class="death-family-member-name">Maternal grandfather</span>
-                                  <label class="control-field death-family-status" for="deathMaternalGrandfatherStatus">
-                                    <span class="control-label">Maternal grandfather status</span>
-                                    <select id="deathMaternalGrandfatherStatus" name="maternalGrandfatherStatus" class="control-select" required>
-                                      <option value="unknown" selected>Unknown</option>
-                                      <option value="alive">Alive</option>
-                                      <option value="deceased">Died</option>
-                                    </select>
-                                  </label>
-                                  <label class="control-field death-family-age" for="deathMaternalGrandfatherAge">
-                                    <span class="control-label">Maternal grandfather age</span>
-                                    <input id="deathMaternalGrandfatherAge" name="maternalGrandfatherAge" class="control-input" type="number" min="0" max="122" step="1" placeholder="Unknown">
-                                  </label>
-                                </div>
-                                <div class="death-family-row">
-                                  <span class="death-family-member-name">Paternal grandmother</span>
-                                  <label class="control-field death-family-status" for="deathPaternalGrandmotherStatus">
-                                    <span class="control-label">Paternal grandmother status</span>
-                                    <select id="deathPaternalGrandmotherStatus" name="paternalGrandmotherStatus" class="control-select" required>
-                                      <option value="unknown" selected>Unknown</option>
-                                      <option value="alive">Alive</option>
-                                      <option value="deceased">Died</option>
-                                    </select>
-                                  </label>
-                                  <label class="control-field death-family-age" for="deathPaternalGrandmotherAge">
-                                    <span class="control-label">Paternal grandmother age</span>
-                                    <input id="deathPaternalGrandmotherAge" name="paternalGrandmotherAge" class="control-input" type="number" min="0" max="122" step="1" placeholder="Unknown">
-                                  </label>
-                                </div>
-                                <div class="death-family-row">
-                                  <span class="death-family-member-name">Paternal grandfather</span>
-                                  <label class="control-field death-family-status" for="deathPaternalGrandfatherStatus">
-                                    <span class="control-label">Paternal grandfather status</span>
-                                    <select id="deathPaternalGrandfatherStatus" name="paternalGrandfatherStatus" class="control-select" required>
-                                      <option value="unknown" selected>Unknown</option>
-                                      <option value="alive">Alive</option>
-                                      <option value="deceased">Died</option>
-                                    </select>
-                                  </label>
-                                  <label class="control-field death-family-age" for="deathPaternalGrandfatherAge">
-                                    <span class="control-label">Paternal grandfather age</span>
-                                    <input id="deathPaternalGrandfatherAge" name="paternalGrandfatherAge" class="control-input" type="number" min="0" max="122" step="1" placeholder="Unknown">
-                                  </label>
-                                </div>
-                              </div>
-                            </section>
-
-                            <div class="death-form-actions">
-                              <button type="button" class="btn-secondary-utility" id="deathBackBtn" disabled>Back</button>
-                              <button type="button" class="btn-primary-utility" id="deathNextBtn">Next</button>
-                              <button type="submit" class="btn-primary-utility" id="deathCalculateBtn" hidden>See result</button>
-                            </div>
-                          </form>
-                        </article>
-                      </div>
-
-                      <div class="death-screen death-screen--result" id="deathResultScreen" hidden>
-                        <article class="death-card death-card--result">
-                          <span class="utility-kicker">Estimated Outcome</span>
-                          <div class="death-result-block">
-                            <span class="death-result-label">Estimated death date</span>
-                            <h4 class="death-result-date" id="deathMedianDate">Estimated date will appear here</h4>
-                          </div>
-
-                          <div class="death-result-block">
-                            <span class="death-result-label">Death timer</span>
-                            <div class="death-countdown-display" id="deathCountdownDisplay">00:000:00:00:00</div>
-                            <p class="death-countdown-legend">Years : Days : Hours : Minutes : Seconds</p>
-                          </div>
-
-                          <p class="death-result-meta" id="deathResultMeta">Answer every card to reveal the estimate.</p>
-                          <p class="death-result-disclaimer" id="deathDisclaimer">
-                            This is a modeled estimate based on U.S. actuarial life tables and curated public-health evidence. It is not a medical diagnosis.
-                          </p>
-
-                          <button type="button" class="btn-secondary-utility death-reset-button" id="deathResetBtn">Start over</button>
-                        </article>
-                      </div>
-                    </div>
-                  </section>
-        </div>
         <div class="utility-stage" data-utility-id="virtual-machine">
           <section class="utility-shell utility-shell--vm" id="retroVmApp" data-utility-root="retro-vm" data-animate="fade-up" aria-label="Virtual Machine" data-vm-state="idle" data-vm-supported="unknown" data-vm-running="false" data-vm-booted="false" data-vm-capture-state="uncaptured" data-vm-network-enabled="false" data-vm-relay-url="" data-vm-asset-label="Tiny Core Linux 11 · 20 MB remastered retro ISO" data-vm-session-label="Ephemeral per tab · clean boot every launch" data-vm-bridge-label-online="Clipboard paste + experimental relay hook" data-vm-bridge-label-offline="Clipboard paste only · offline-first rollback" data-vm-support-note-online="Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. Relay-backed networking remains experimental." data-vm-support-note-offline="Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first." data-vm-screen-badge-online="Experimental relay" data-vm-screen-badge-offline="Local only" data-vm-progress-meta="Tiny Core Linux 11">
                     <div class="utility-layout utility-layout--vm">
@@ -752,13 +283,13 @@
                             <div class="vm-toolbar">
                               <span class="vm-status-dot"></span>
                               <span class="vm-toolbar-title" id="retroVmProgressText">Idle</span>
-                              <span class="vm-toolbar-meta" id="retroVmProgressMeta" style="font-size: 0.7rem; color: rgba(255,255,255,0.4); margin-left: 0.5rem;">Tiny Core Linux 11</span>
+                              <span class="vm-toolbar-meta" id="retroVmProgressMeta">Tiny Core Linux 11</span>
                               <span class="utility-status-chip utility-status-chip--idle" id="retroVmStatusChip">Idle</span>
                               <span class="sr-only" id="retroVmStatusText" aria-live="polite">Launch a fresh local session when you are ready.</span>
-                              <span class="vm-capture-badge" id="retroVmCaptureBadge" style="margin-left: auto; padding: 0.22rem 0.55rem; border-radius: var(--radius-full); border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: var(--color-text-secondary); font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: var(--tracking-wide); text-transform: uppercase;">Click desktop to capture mouse</span>
-                              <span class="vm-screen-badge" id="retroVmScreenBadge" style="padding: 0.22rem 0.55rem; border-radius: var(--radius-full); border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); color: var(--color-text-muted); font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: var(--tracking-wide); text-transform: uppercase;">Local only</span>
+                              <span class="vm-capture-badge" id="retroVmCaptureBadge">Click desktop to capture mouse</span>
+                              <span class="vm-screen-badge" id="retroVmScreenBadge">Local only</span>
 
-                              <div class="vm-toolbar-actions" style="display: flex; gap: 0.5rem;">
+                              <div class="vm-toolbar-actions">
                                 <button type="button" class="btn-secondary-utility btn-secondary-utility--compact" id="retroVmLaunchBtn">Launch</button>
                                 <button type="button" class="btn-secondary-utility btn-secondary-utility--compact" id="retroVmPasteBtn" disabled>Paste</button>
                                 <button type="button" class="btn-secondary-utility btn-secondary-utility--compact" id="retroVmFullscreenBtn" disabled>Fullscreen</button>
@@ -774,7 +305,7 @@
                                 </div>
                               </div>
                             </div>
-                            <p class="vm-support-note" id="retroVmSupportNote" style="padding: 0.55rem 0.85rem; margin: 0; color: var(--color-text-secondary); font-size: 0.78rem; line-height: var(--leading-relaxed); border-top: 1px solid var(--utilities-border-soft);">Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first.</p>
+                            <p class="vm-support-note" id="retroVmSupportNote">Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first.</p>
                           </div>
                         </article>
                       </div>
@@ -838,10 +369,10 @@
   </div>
 </main>
 
-  <footer class="footer utilities-footer" style="padding: 2rem 0; border-top: 1px solid rgba(255,255,255,0.1);">
+  <footer class="footer utilities-footer">
     <div class="container">
-      <div class="footer-inner" style="text-align: center;">
-        <p class="footer-text" style="color: rgba(255,255,255,0.5);">&copy; <span data-current-year>2026</span> Oliver Dougherty</p>
+      <div class="footer-inner">
+        <p class="footer-text">&copy; <span data-current-year>2026</span> Oliver Dougherty</p>
       </div>
     </div>
   </footer>
@@ -849,30 +380,87 @@
   <script>
     (function() {
       var buttons = Array.from(document.querySelectorAll('.utilities-buttons button'));
-      var shuffled = buttons.slice().sort(function() { return Math.random() - 0.5; });
-      var step = 2000 / shuffled.length; // ~0.4s apart
-      shuffled.forEach(function(btn, i) {
-        var jitter = (Math.random() - 0.5) * (step * 0.35);
-        var delay = 3500 + (i * step) + jitter; // Start after title fades in
-        setTimeout(function() {
-          btn.classList.add('is-visible');
-        }, Math.max(0, delay));
-      });
       var homeBtn = document.querySelector('.nav-home-btn');
-      if (homeBtn) {
-        homeBtn.addEventListener('animationend', function() {
+      var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      function enableHomeButton() {
+        if (homeBtn) {
           homeBtn.style.pointerEvents = 'auto';
+        }
+      }
+
+      function revealAllButtons() {
+        buttons.forEach(function(btn) {
+          btn.classList.add('is-visible');
         });
+      }
+
+      if (!buttons.length) {
+        enableHomeButton();
+        return;
+      }
+
+      if (reducedMotion) {
+        revealAllButtons();
+        enableHomeButton();
+        return;
+      }
+
+      var shuffled = buttons.slice();
+      for (var i = shuffled.length - 1; i > 0; i -= 1) {
+        var swapIndex = Math.floor(Math.random() * (i + 1));
+        var current = shuffled[i];
+        shuffled[i] = shuffled[swapIndex];
+        shuffled[swapIndex] = current;
+      }
+
+      var startDelayMs = 3500;
+      var totalStaggerMs = 2000;
+      var stepMs = shuffled.length > 1 ? totalStaggerMs / (shuffled.length - 1) : totalStaggerMs;
+      var revealSchedule = shuffled.map(function(btn, index) {
+        var jitter = (Math.random() - 0.5) * (stepMs * 0.35);
+        return {
+          button: btn,
+          at: Math.max(0, startDelayMs + (index * stepMs) + jitter)
+        };
+      });
+      var revealedCount = 0;
+      var activeElapsedMs = 0;
+      var lastTimestamp = null;
+
+      function tick(timestamp) {
+        if (lastTimestamp !== null) {
+          activeElapsedMs += Math.min(timestamp - lastTimestamp, 120);
+        }
+        lastTimestamp = timestamp;
+
+        while (revealedCount < revealSchedule.length && activeElapsedMs >= revealSchedule[revealedCount].at) {
+          revealSchedule[revealedCount].button.classList.add('is-visible');
+          revealedCount += 1;
+        }
+
+        if (revealedCount < revealSchedule.length) {
+          window.requestAnimationFrame(tick);
+        }
+      }
+
+      window.requestAnimationFrame(tick);
+
+      if (homeBtn) {
+        function handleAnimationEnd() {
+          enableHomeButton();
+          homeBtn.removeEventListener('animationend', handleAnimationEnd);
+        }
+
+        homeBtn.addEventListener('animationend', handleAnimationEnd);
+        window.setTimeout(enableHomeButton, 7600);
       }
     })();
   </script>
   <script src="../../js/year.js" defer></script>
   <script src="../../js/main.js" defer></script>
-  <script src="../../js/utilities-shell.js?v=utilities-2026-05-06-flair-fix" defer></script>
+  <script src="../../js/utilities-shell.js?v=utilities-2026-05-19-home-cleanup" defer></script>
   <script src="../../js/starfield.js?v=utilities-2026-04-25b" defer></script>
   <script type="module" src="./assets/utilities-app.js?v=utilities-2026-05-16-death-fixes"></script>
-
-  <div class="cursor-dot" id="cursorDot"></div>
-  <div class="cursor-circle" id="cursorCircle"></div>
 </body>
 </html>

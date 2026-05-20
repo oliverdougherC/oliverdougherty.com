@@ -6,6 +6,7 @@ SOURCE_ISO="${ROOT_DIR}/assets/utilities/vm/TinyCore-11.0.iso"
 OUTPUT_ISO="${ROOT_DIR}/assets/utilities/vm/tinycore-retro-vm.iso"
 WORK_DIR="${ROOT_DIR}/.tmp/tinycore-retro-vm-build"
 GENERATED_DIR="${WORK_DIR}/generated"
+ALPINE_IMAGE="${ALPINE_IMAGE:-alpine:3.21}"
 
 require_tool() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -46,7 +47,7 @@ rsvg-convert \
 docker run --rm \
   --platform linux/amd64 \
   -v "${ROOT_DIR}:/repo" \
-  alpine:3.21 sh -lc '
+  "${ALPINE_IMAGE}" sh -lc '
     set -euo pipefail
     apk add --no-cache cpio gzip libarchive-tools xorriso >/dev/null
 
@@ -68,6 +69,9 @@ docker run --rm \
     chmod 755 /tmp/rootfs/usr/local/bin/retro-vm-guide
     chmod 755 /tmp/rootfs/usr/local/bin/retro-vm-browser
     chmod 755 /tmp/rootfs/etc/skel/.setbackground
+
+    cd /repo/assets/utilities/vm
+    md5sum -c flwm_topside.tcz.md5.txt >/dev/null
 
     cp /repo/assets/utilities/vm/flwm_topside.tcz /tmp/iso/cde/optional/
     cp /repo/assets/utilities/vm/flwm_topside.tcz.md5.txt /tmp/iso/cde/optional/

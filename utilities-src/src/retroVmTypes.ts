@@ -51,6 +51,7 @@ export interface RetroVmConfig {
   bootOrder: number;
   bootHintDelayMs: number;
   bootMenuPrompt: RegExp | null;
+  maxClipboardPasteChars: number;
   copy: RetroVmCopyConfig;
   network: RetroVmNetworkConfig;
 }

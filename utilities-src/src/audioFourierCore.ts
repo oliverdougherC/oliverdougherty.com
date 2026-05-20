@@ -89,6 +89,14 @@ export interface ReconstructionScratchSizeEstimate {
   bytes: number;
 }
 
+function createCoefficientOrder(coefficientCount: number) {
+  const order = new Uint32Array(coefficientCount);
+  for (let index = 0; index < coefficientCount; index += 1) {
+    order[index] = index;
+  }
+  return order;
+}
+
 function createHannWindow(size: number) {
   const window = new Float32Array(size);
   if (size === 1) {
@@ -329,7 +337,7 @@ export function buildWindowedFourierAnalysis(
   const coeffImag = new Float32Array(coefficientCount);
   const energies = new Float32Array(coefficientCount);
   const frequenciesByCoefficient = new Float32Array(coefficientCount);
-  const order = Array.from({ length: coefficientCount }, (_value, index) => index);
+  const order = createCoefficientOrder(coefficientCount);
   const frameInput = new Float32Array(frameSize);
   const fftWorkspace = createFftWorkspace(frameSize);
 
@@ -337,7 +345,8 @@ export function buildWindowedFourierAnalysis(
     const frameStart = frameIndex * hopSize;
     for (let offset = 0; offset < frameSize; offset += 1) {
       const sampleIndex = frameStart + offset;
-      frameInput[offset] = (sampleIndex < samples.length ? samples[sampleIndex] : 0) * window[offset];
+      const sample = sampleIndex < samples.length ? samples[sampleIndex] : 0;
+      frameInput[offset] = (Number.isFinite(sample) ? sample : 0) * window[offset];
     }
 
     const spectrum = fftInto(frameInput, undefined, false, fftWorkspace);
@@ -365,7 +374,7 @@ export function buildWindowedFourierAnalysis(
     return frequenciesByCoefficient[left] - frequenciesByCoefficient[right];
   });
 
-  const componentOrder = Uint32Array.from(order);
+  const componentOrder = order;
   const componentFrequencies = new Float32Array(coefficientCount);
   const componentAmplitudes = new Float32Array(coefficientCount);
   const componentPhases = new Float32Array(coefficientCount);
@@ -462,7 +471,8 @@ export function reconstructWindowedComponentRange(
   analysis: WindowedFourierAnalysis,
   startComponentIndex: number,
   endComponentIndex: number,
-  scratch?: ReconstructionScratch
+  scratch?: ReconstructionScratch,
+  destination?: Float32Array
 ): Float32Array {
   const start = clamp(Math.round(startComponentIndex), 0, analysis.componentOrder.length);
   const end = clamp(Math.round(endComponentIndex), start, analysis.componentOrder.length);
@@ -512,8 +522,11 @@ export function reconstructWindowedComponentRange(
     }
   }
 
-  const trimmed = new Float32Array(analysis.samples.length);
-  for (let index = 0; index < trimmed.length; index += 1) {
+  const trimmed = destination ?? new Float32Array(analysis.samples.length);
+  if (trimmed.length < analysis.samples.length) {
+    throw new Error('Reconstruction destination buffer is smaller than the source sample count.');
+  }
+  for (let index = 0; index < analysis.samples.length; index += 1) {
     const norm = normalization[index];
     trimmed[index] = norm > OVERLAP_ADD_NORMALIZATION_THRESHOLD ? output[index] / norm : output[index];
   }
@@ -584,8 +597,17 @@ export function buildEnergyBandReconstruction(
       energySum = totalEnergy;
     }
 
-    const band = reconstructWindowedComponentRange(analysis, componentStart, componentEnd, reconstructionScratch);
-    bandSamples.set(band, bandIndex * analysis.samples.length);
+    const bandOffset = bandIndex * analysis.samples.length;
+    const band = reconstructWindowedComponentRange(
+      analysis,
+      componentStart,
+      componentEnd,
+      reconstructionScratch,
+      bandSamples.subarray(bandOffset, bandOffset + analysis.samples.length)
+    );
+    for (let sampleIndex = 0; sampleIndex < mixedSamples.length; sampleIndex += 1) {
+      mixedSamples[sampleIndex] += band[sampleIndex];
+    }
     bandEndComponentCounts[bandIndex] = componentEnd;
     bandEnergyFractions[bandIndex] = totalEnergy > 0 ? energySum / totalEnergy : (bandIndex + 1) / resolvedBandCount;
     componentStart = componentEnd;
@@ -593,8 +615,6 @@ export function buildEnergyBandReconstruction(
   }
 
   bandEnergyFractions[resolvedBandCount - 1] = 1;
-  const allOnes = new Float32Array(resolvedBandCount).fill(1);
-  mixEnergyBands(bandSamples, analysis.samples.length, allOnes, mixedSamples);
   const finalBandOffset = (resolvedBandCount - 1) * analysis.samples.length;
   for (let sampleIndex = 0; sampleIndex < mixedSamples.length; sampleIndex += 1) {
     const residual = analysis.samples[sampleIndex] - mixedSamples[sampleIndex];

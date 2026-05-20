@@ -1,5 +1,5 @@
 import type { V86Options } from 'v86';
-import type { RetroVmConfig, RetroVmDatasetConfig } from './retroVmTypes';
+import type { RetroVmConfig, RetroVmCopyConfig, RetroVmDatasetConfig } from './retroVmTypes';
 
 const MB = 1024 * 1024;
 
@@ -20,6 +20,7 @@ export const RETRO_VM_CONFIG: RetroVmConfig = {
   bootOrder: 0x210,
   bootHintDelayMs: 4000,
   bootMenuPrompt: /Press ENTER to boot/i,
+  maxClipboardPasteChars: 2048,
   copy: {
     assetLabel: 'Tiny Core Linux 11 · 20 MB remastered retro ISO',
     sessionLabel: 'Ephemeral per tab · clean boot every launch',
@@ -42,6 +43,18 @@ export const RETRO_VM_CONFIG: RetroVmConfig = {
     mtu: 1500
   }
 };
+
+const RETRO_VM_COPY_DATASET_FIELDS = {
+  vmAssetLabel: 'assetLabel',
+  vmSessionLabel: 'sessionLabel',
+  vmBridgeLabelOnline: 'bridgeLabelOnline',
+  vmBridgeLabelOffline: 'bridgeLabelOffline',
+  vmSupportNoteOnline: 'supportNoteOnline',
+  vmSupportNoteOffline: 'supportNoteOffline',
+  vmScreenBadgeOnline: 'screenBadgeOnline',
+  vmScreenBadgeOffline: 'screenBadgeOffline',
+  vmProgressMeta: 'progressMeta'
+} as const satisfies Record<keyof Omit<RetroVmDatasetConfig, 'vmNetworkEnabled' | 'vmRelayUrl'>, keyof RetroVmCopyConfig>;
 
 function parseBooleanFlag(value: string | undefined, fallback: boolean) {
   if (value === undefined) {
@@ -67,21 +80,41 @@ function parseRelayUrl(value: string | undefined, fallback: string | null) {
   return trimmed ? trimmed : null;
 }
 
+function applyRetroVmCopyOverrides(dataset: RetroVmDatasetConfig, fallback: RetroVmCopyConfig) {
+  const copy: RetroVmCopyConfig = { ...fallback };
+
+  for (const datasetKey of Object.keys(RETRO_VM_COPY_DATASET_FIELDS) as Array<keyof typeof RETRO_VM_COPY_DATASET_FIELDS>) {
+    const nextValue = dataset[datasetKey]?.trim();
+    if (nextValue) {
+      copy[RETRO_VM_COPY_DATASET_FIELDS[datasetKey]] = nextValue;
+    }
+  }
+
+  return copy;
+}
+
+export function readRetroVmDatasetConfig(
+  dataset: Partial<Record<keyof RetroVmDatasetConfig, string | undefined>> = {}
+): RetroVmDatasetConfig {
+  return {
+    vmAssetLabel: dataset.vmAssetLabel,
+    vmSessionLabel: dataset.vmSessionLabel,
+    vmBridgeLabelOnline: dataset.vmBridgeLabelOnline,
+    vmBridgeLabelOffline: dataset.vmBridgeLabelOffline,
+    vmSupportNoteOnline: dataset.vmSupportNoteOnline,
+    vmSupportNoteOffline: dataset.vmSupportNoteOffline,
+    vmScreenBadgeOnline: dataset.vmScreenBadgeOnline,
+    vmScreenBadgeOffline: dataset.vmScreenBadgeOffline,
+    vmProgressMeta: dataset.vmProgressMeta,
+    vmNetworkEnabled: dataset.vmNetworkEnabled,
+    vmRelayUrl: dataset.vmRelayUrl
+  };
+}
+
 export function resolveRetroVmConfigFromDataset(dataset: RetroVmDatasetConfig = {}): RetroVmConfig {
   return {
     ...RETRO_VM_CONFIG,
-    copy: {
-      ...RETRO_VM_CONFIG.copy,
-      assetLabel: dataset.vmAssetLabel?.trim() || RETRO_VM_CONFIG.copy.assetLabel,
-      sessionLabel: dataset.vmSessionLabel?.trim() || RETRO_VM_CONFIG.copy.sessionLabel,
-      bridgeLabelOnline: dataset.vmBridgeLabelOnline?.trim() || RETRO_VM_CONFIG.copy.bridgeLabelOnline,
-      bridgeLabelOffline: dataset.vmBridgeLabelOffline?.trim() || RETRO_VM_CONFIG.copy.bridgeLabelOffline,
-      supportNoteOnline: dataset.vmSupportNoteOnline?.trim() || RETRO_VM_CONFIG.copy.supportNoteOnline,
-      supportNoteOffline: dataset.vmSupportNoteOffline?.trim() || RETRO_VM_CONFIG.copy.supportNoteOffline,
-      screenBadgeOnline: dataset.vmScreenBadgeOnline?.trim() || RETRO_VM_CONFIG.copy.screenBadgeOnline,
-      screenBadgeOffline: dataset.vmScreenBadgeOffline?.trim() || RETRO_VM_CONFIG.copy.screenBadgeOffline,
-      progressMeta: dataset.vmProgressMeta?.trim() || RETRO_VM_CONFIG.copy.progressMeta
-    },
+    copy: applyRetroVmCopyOverrides(dataset, RETRO_VM_CONFIG.copy),
     network: {
       ...RETRO_VM_CONFIG.network,
       enabled: parseBooleanFlag(dataset.vmNetworkEnabled, RETRO_VM_CONFIG.network.enabled),

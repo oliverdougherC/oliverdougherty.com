@@ -37,7 +37,7 @@ function getInitialColorMode() {
   return COLOR_MODE_DARK;
 }
 
- function readStoredColorMode() {
+function readStoredColorMode() {
   try {
     const stored = window.localStorage.getItem(COLOR_MODE_STORAGE_KEY);
     if (stored === COLOR_MODE_DARK || stored === COLOR_MODE_LIGHT) {

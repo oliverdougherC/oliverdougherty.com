@@ -25,10 +25,12 @@
 </head>
 <body class="page-home schematic-mode">
 
-  <button class="nav-dot" id="navToggle" aria-label="Open menu" aria-expanded="false"></button>
+  <button class="nav-dot" id="navToggle" aria-label="Open menu" aria-expanded="false">
+    <span class="sr-only" data-nav-toggle-label>Open menu</span>
+  </button>
 
   <!-- Fullscreen Menu Overlay -->
-  <div class="nav-overlay" id="navOverlay">
+  <div class="nav-overlay" id="navOverlay" aria-hidden="true">
     <div class="nav-overlay-bg" style="background-color: #FFFFFF;"></div>
     <div class="nav-links container" id="navLinks">
       <div class="nav-menu-header schematic-text">Menu</div>
@@ -72,8 +74,9 @@
     </header>
 
     <!-- Marquee Band -->
-    <div class="marquee-band schematic-border-bottom" aria-hidden="true" style="border-top: 1px solid #000000;">
-      <div class="marquee-track">
+    <div class="marquee-band schematic-border-bottom" style="border-top: 1px solid #000000;">
+      <span class="sr-only">Skills and interests: Electrical Engineering, Photography, Web Design, Signal Processing, Computer Architecture, Open Source, Film, Literature, Mathematics, and Audio Engineering.</span>
+      <div class="marquee-track" aria-hidden="true">
         <span class="marquee-inner schematic-mono">Electrical Engineering · Photography · Web Design · Signal Processing · Computer Architecture · Open Source · Film · Literature · Mathematics · Audio Engineering ·&nbsp;</span>
         <span class="marquee-inner schematic-mono" aria-hidden="true">Electrical Engineering · Photography · Web Design · Signal Processing · Computer Architecture · Open Source · Film · Literature · Mathematics · Audio Engineering ·&nbsp;</span>
       </div>
@@ -124,7 +127,7 @@
           </div>
           <div class="about-visual">
             <div class="visual-card schematic-border">
-              <img src="assets/images/blueprint-david.jpg" alt="Michelangelo's David" class="visual-image" style="filter: grayscale(100%) contrast(1.2);">
+              <img src="assets/images/blueprint-david.jpg" alt="Blueprint-styled photograph of Michelangelo's David used to frame engineering and classical art as paired influences." class="visual-image" style="filter: grayscale(100%) contrast(1.2);">
             </div>
           </div>
         </div>

@@ -6,6 +6,12 @@
 (function () {
   'use strict';
 
+  var GLOBAL_CONTROLLER_KEY = '__utilitiesShellController__';
+  var previousController = window[GLOBAL_CONTROLLER_KEY];
+  if (previousController && typeof previousController.destroy === 'function') {
+    previousController.destroy();
+  }
+
   const TITLE_VIEW_ID = 'utilitiesTitleView';
   const UTILITY_VIEW_ID = 'utilitiesUtilityView';
 
@@ -13,7 +19,6 @@
     'image-transform': 'image-transform',
     'audio-fourier': 'audio-fourier',
     'local-assistant': 'local-assistant',
-    // 'death-calculator': 'death-calculator',
     'virtual-machine': 'virtual-machine',
     'stress-test': 'stress-test',
   };
@@ -23,16 +28,60 @@
   const backBtn = document.querySelector('.nav-back-btn');
   const titleButtons = document.querySelectorAll('.utilities-buttons button[data-utility]');
   const stages = document.querySelectorAll('.utility-stage');
+  const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const cleanupTasks = [];
+  const pendingTimers = new Set();
 
   const FLAIR_COLORS = ['#FF6700', '#2BA84A', '#004BA8'];
+  const flairByUtilityId = new Map();
 
-  function pickFlairColor() {
-    return FLAIR_COLORS[Math.floor(Math.random() * FLAIR_COLORS.length)];
+  function resolveFlairColor(utilityId) {
+    if (!flairByUtilityId.has(utilityId)) {
+      var hash = 0;
+      for (var index = 0; index < utilityId.length; index += 1) {
+        hash = ((hash * 31) + utilityId.charCodeAt(index)) >>> 0;
+      }
+      flairByUtilityId.set(utilityId, FLAIR_COLORS[hash % FLAIR_COLORS.length]);
+    }
+    return flairByUtilityId.get(utilityId);
   }
   let currentUtilityId = null;
   let isTransitioning = false;
   let hasExitedTitleCard = false;
   let localAssistantScriptPromise = null;
+
+  function listen(target, type, handler, options) {
+    if (!target) return;
+    target.addEventListener(type, handler, options);
+    cleanupTasks.push(function () {
+      target.removeEventListener(type, handler, options);
+    });
+  }
+
+  function schedule(fn, delayMs) {
+    if (delayMs <= 0) {
+      fn();
+      return 0;
+    }
+
+    var timerId = window.setTimeout(function () {
+      pendingTimers.delete(timerId);
+      fn();
+    }, delayMs);
+    pendingTimers.add(timerId);
+    return timerId;
+  }
+
+  function clearPendingTimers() {
+    pendingTimers.forEach(function (timerId) {
+      window.clearTimeout(timerId);
+    });
+    pendingTimers.clear();
+  }
+
+  function getTransitionDelay(delayMs) {
+    return reducedMotion ? 0 : delayMs;
+  }
 
   function getHashTarget() {
     const hash = window.location.hash.replace(/^#/, '').trim();
@@ -73,16 +122,20 @@
       };
       document.body.appendChild(script);
     });
+    localAssistantScriptPromise.catch(function (error) {
+      console.error(error);
+    });
     return localAssistantScriptPromise;
   }
 
   function activateStage(stage, utilityId) {
     stage.classList.add('is-active');
-    stage.style.setProperty('--utility-flair', pickFlairColor());
+    stage.style.setProperty('--utility-flair', resolveFlairColor(utilityId));
     setActiveUtility(utilityId);
     stage.dispatchEvent(new CustomEvent('utility-activate', { bubbles: true }));
     if (utilityId === 'local-assistant') {
       loadLocalAssistantScript().catch(function(error) {
+        console.error(error);
         var root = document.getElementById('localLlmUtilityApp');
         if (root) {
           root.textContent = error.message || 'Unable to load Local Assistant.';
@@ -99,6 +152,7 @@
   function showTitleCard() {
     if (isTransitioning) return;
     isTransitioning = true;
+    clearPendingTimers();
 
     // Hide all stages
     stages.forEach(function (stage) {
@@ -129,15 +183,16 @@
     currentUtilityId = null;
     setActiveUtility(null);
 
-    setTimeout(function () {
+    schedule(function () {
       isTransitioning = false;
-    }, 600);
+    }, getTransitionDelay(600));
   }
 
   function showUtility(utilityId, opts) {
-    opts = opts || {};
+    opts = opts ?? {};
     if (isTransitioning) return;
     isTransitioning = true;
+    clearPendingTimers();
 
     if (!currentUtilityId) {
       hasExitedTitleCard = true;
@@ -166,9 +221,9 @@
 
       currentUtilityId = utilityId;
 
-      setTimeout(function () {
+      schedule(function () {
         isTransitioning = false;
-      }, 600);
+      }, getTransitionDelay(600));
     } else if (outgoing === incoming) {
       // Same utility, nothing to do
       isTransitioning = false;
@@ -182,10 +237,10 @@
 
       currentUtilityId = utilityId;
 
-      setTimeout(function () {
+      schedule(function () {
         outgoing.classList.remove('is-exiting');
         isTransitioning = false;
-      }, 500);
+      }, getTransitionDelay(500));
     }
   }
 
@@ -206,19 +261,34 @@
     }
   }
 
-  // Event listeners
-  window.addEventListener('hashchange', navigateToTarget);
+  function destroy() {
+    clearPendingTimers();
+    cleanupTasks.splice(0).forEach(function (cleanup) {
+      cleanup();
+    });
+    if (window[GLOBAL_CONTROLLER_KEY] && window[GLOBAL_CONTROLLER_KEY].destroy === destroy) {
+      delete window[GLOBAL_CONTROLLER_KEY];
+    }
+  }
 
-  backBtn && backBtn.addEventListener('click', function () {
-    setHash(null);
-  });
+  window[GLOBAL_CONTROLLER_KEY] = { destroy: destroy };
+
+  // Event listeners
+  listen(window, 'hashchange', navigateToTarget);
+
+  if (backBtn) {
+    listen(backBtn, 'click', function () {
+      setHash(null);
+    });
+  }
 
   titleButtons.forEach(function (btn) {
-    btn.addEventListener('click', function () {
+    listen(btn, 'click', function () {
       var uid = btn.dataset.utility;
       if (uid) setHash(uid);
     });
   });
+  listen(window, 'pagehide', destroy, { once: true });
 
   // Initialize on load
   navigateToTarget();

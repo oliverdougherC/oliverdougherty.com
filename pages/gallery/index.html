@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-disable-color-mode>
+<html lang="en" data-theme="gallery" data-disable-color-mode>
 
 <head>
   <meta charset="utf-8">
@@ -22,9 +22,11 @@
 
 <body class="page-gallery schematic-mode">
 
-  <button class="nav-dot" id="navToggle" aria-label="Open menu" aria-expanded="false" type="button"></button>
+  <button class="nav-dot" id="navToggle" aria-label="Open menu" aria-expanded="false" type="button">
+    <span class="sr-only" data-nav-toggle-label>Open menu</span>
+  </button>
 
-  <div class="nav-overlay" id="navOverlay">
+  <div class="nav-overlay" id="navOverlay" aria-hidden="true">
     <div class="nav-overlay-bg" style="background-color: #FFFFFF;"></div>
     <div class="nav-links container" id="navLinks">
       <div class="nav-menu-header">Menu</div>
@@ -202,8 +204,6 @@
   <script src="../../js/main.js?v=20260315" defer></script>
   <script src="../../js/gallery.js?v=20260318" defer></script>
 
-  <div class="cursor-dot" id="cursorDot"></div>
-  <div class="cursor-circle" id="cursorCircle"></div>
 </body>
 
 </html>

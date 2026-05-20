@@ -34,17 +34,27 @@ interface WebGpuDeviceLike {
     submit(commands: unknown[]): void;
     writeBuffer(buffer: unknown, offset: number, data: ArrayBufferView): void;
   };
-  createShaderModule(descriptor: object): unknown;
+  createShaderModule(descriptor: object): WebGpuShaderModuleLike;
   createBuffer(descriptor: object): WebGpuBufferLike;
-  createBindGroupLayout(descriptor: object): unknown;
-  createPipelineLayout(descriptor: object): unknown;
-  createComputePipeline(descriptor: object): unknown;
+  createBindGroupLayout(descriptor: object): WebGpuBindGroupLayoutLike;
+  createPipelineLayout(descriptor: object): WebGpuPipelineLayoutLike;
+  createComputePipeline(descriptor: object): WebGpuComputePipelineLike;
   createRenderPipeline(descriptor: object): WebGpuRenderPipelineLike;
-  createBindGroup(descriptor: object): unknown;
-   createCommandEncoder(): WebGpuCommandEncoderLike;
-   destroy?: () => void;
-   lost: Promise<{ reason: 'destroyed' | 'unknown'; message: string }>;
+  createBindGroup(descriptor: object): WebGpuBindGroupLike;
+  createCommandEncoder(): WebGpuCommandEncoderLike;
+  destroy?: () => void;
+  lost: Promise<{ reason: 'destroyed' | 'unknown'; message: string }>;
 }
+
+interface WebGpuShaderModuleLike {}
+
+interface WebGpuBindGroupLayoutLike {}
+
+interface WebGpuPipelineLayoutLike {}
+
+interface WebGpuComputePipelineLike {}
+
+interface WebGpuBindGroupLike {}
 
 interface WebGpuBufferLike {
   destroy?: () => void;
@@ -56,14 +66,14 @@ interface WebGpuRenderPipelineLike {
 
 interface WebGpuCommandEncoderLike {
   beginComputePass(): {
-    setPipeline(pipeline: unknown): void;
-    setBindGroup(index: number, bindGroup: unknown): void;
+    setPipeline(pipeline: WebGpuComputePipelineLike): void;
+    setBindGroup(index: number, bindGroup: WebGpuBindGroupLike): void;
     dispatchWorkgroups(x: number, y?: number, z?: number): void;
     end(): void;
   };
   beginRenderPass(descriptor: object): {
-    setPipeline(pipeline: unknown): void;
-    setBindGroup(index: number, bindGroup: unknown): void;
+    setPipeline(pipeline: WebGpuRenderPipelineLike): void;
+    setBindGroup(index: number, bindGroup: WebGpuBindGroupLike): void;
     draw(vertexCount: number): void;
     end(): void;
   };
@@ -80,9 +90,9 @@ interface WebGpuCanvasContextLike {
 interface ActiveWebGpuStress {
   backend: 'webgpu-compute';
   device: WebGpuDeviceLike;
-  computePipeline: unknown;
-  renderPipeline: unknown;
-  renderBindGroup: unknown;
+  computePipeline: WebGpuComputePipelineLike;
+  renderPipeline: WebGpuRenderPipelineLike;
+  renderBindGroup: WebGpuBindGroupLike;
   storageBuffer: WebGpuBufferLike;
   timeBuffer: WebGpuBufferLike;
   frameId: number;
@@ -95,12 +105,15 @@ interface ActiveWebGlStress {
   gl: WebGLRenderingContext | WebGL2RenderingContext;
   program: WebGLProgram;
   positionBuffer: WebGLBuffer;
+  positionLocation: number;
   timeLocation: WebGLUniformLocation | null;
   resLocation: WebGLUniformLocation | null;
   workloadLocation: WebGLUniformLocation | null;
   frameId: number;
   workloadLevel: number;
   startedAt: number;
+  rampBucket: number;
+  cachedRampLevel: number;
 }
 
 type ActiveGpuStress = ActiveWebGpuStress | ActiveWebGlStress;
@@ -115,6 +128,12 @@ interface ThermalNode {
 }
 
 type StressMetricId = 'elapsed' | 'workers' | 'gpu' | 'fps' | 'dropped' | 'iterations';
+
+declare global {
+  interface HTMLCanvasElement {
+    getContext(contextId: 'webgpu'): WebGpuCanvasContextLike | null;
+  }
+}
 
 const DEFAULT_MODE: StressMode = 'both';
 const METRIC_INTERVAL_MS = 250;
@@ -157,6 +176,19 @@ function getWebGpuTextureUsageFlag(name: string) {
   return usage?.[name] ?? 0;
 }
 
+function debugStressTest(message: string, error?: unknown) {
+  if (typeof console === 'undefined' || typeof console.debug !== 'function') {
+    return;
+  }
+
+  if (error === undefined) {
+    console.debug(`[StressTest] ${message}`);
+    return;
+  }
+
+  console.debug(`[StressTest] ${message}`, error);
+}
+
 export class StressTestController {
   private readonly root: HTMLElement;
   private readonly modeButtons: HTMLButtonElement[];
@@ -171,6 +203,7 @@ export class StressTestController {
   private readonly iterationLabel: HTMLElement;
   private readonly metricsPanel: HTMLElement;
   private readonly metricCards: HTMLElement[];
+  private readonly metricCardById = new Map<StressMetricId, HTMLElement>();
   private canvas: HTMLCanvasElement;
   private readonly reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
   private reducedMotion = this.reducedMotionQuery.matches;
@@ -195,24 +228,32 @@ export class StressTestController {
 
   private cpuVisualFrameId = 0;
   private controlPanelFitFrameId = 0;
+  private canvasResizeFrameId = 0;
   private canvas2dCtx: CanvasRenderingContext2D | null = null;
+  private canvasResizeObserver: ResizeObserver | null = null;
   private thermalNodes: ThermalNode[] = [];
   private readonly cleanupCallbacks: Array<() => void> = [];
   constructor(root: HTMLElement) {
     this.root = root;
     this.modeButtons = Array.from(this.root.querySelectorAll<HTMLButtonElement>('[data-stress-mode-option]'));
-    this.startButton = this.requireElement('stressStartBtn');
-    this.stopButton = this.requireElement('stressStopBtn');
-    this.statusText = this.requireElement('stressStatusText');
-    this.elapsedLabel = this.requireElement('stressElapsed');
-    this.workerCountLabel = this.requireElement('stressWorkerCount');
-    this.backendLabel = this.requireElement('stressGpuBackend');
-    this.fpsLabel = this.requireElement('stressFrameRate');
-    this.droppedFrameLabel = this.requireElement('stressDroppedFrames');
-    this.iterationLabel = this.requireElement('stressIterations');
-    this.metricsPanel = this.requireElement('stressMetrics');
+    this.startButton = this.requireElement('stressStartBtn', HTMLButtonElement);
+    this.stopButton = this.requireElement('stressStopBtn', HTMLButtonElement);
+    this.statusText = this.requireElement('stressStatusText', HTMLElement);
+    this.elapsedLabel = this.requireElement('stressElapsed', HTMLElement);
+    this.workerCountLabel = this.requireElement('stressWorkerCount', HTMLElement);
+    this.backendLabel = this.requireElement('stressGpuBackend', HTMLElement);
+    this.fpsLabel = this.requireElement('stressFrameRate', HTMLElement);
+    this.droppedFrameLabel = this.requireElement('stressDroppedFrames', HTMLElement);
+    this.iterationLabel = this.requireElement('stressIterations', HTMLElement);
+    this.metricsPanel = this.requireElement('stressMetrics', HTMLElement);
     this.metricCards = Array.from(this.metricsPanel.querySelectorAll<HTMLElement>('[data-stress-metric]'));
-    this.canvas = this.requireElement('stressCanvas');
+    this.canvas = this.requireElement('stressCanvas', HTMLCanvasElement);
+    this.metricCards.forEach((card) => {
+      const metricId = card.dataset.stressMetric;
+      if (metricId === 'elapsed' || metricId === 'workers' || metricId === 'gpu' || metricId === 'fps' || metricId === 'dropped' || metricId === 'iterations') {
+        this.metricCardById.set(metricId, card);
+      }
+    });
   }
 
   init() {
@@ -238,7 +279,10 @@ export class StressTestController {
         this.stop();
       }
     });
-    this.listen(window, 'resize', () => this.queueControlPanelFitSync());
+    this.listen(window, 'resize', () => {
+      this.queueControlPanelFitSync();
+      this.queueCanvasResizeSync();
+    });
     this.listen(window, 'pagehide', () => this.stop());
     this.listen(this.reducedMotionQuery, 'change', () => {
       this.reducedMotion = this.reducedMotionQuery.matches;
@@ -257,6 +301,7 @@ export class StressTestController {
     });
 
     this.setMode(DEFAULT_MODE);
+    this.bindCanvasResizeObserver();
     this.setState('idle', 'Ready. Starting this will make your browser hot, loud, slow, and power hungry.');
     this.syncMetrics(true);
     this.queueControlPanelFitSync();
@@ -271,6 +316,12 @@ export class StressTestController {
       window.cancelAnimationFrame(this.controlPanelFitFrameId);
       this.controlPanelFitFrameId = 0;
     }
+    if (this.canvasResizeFrameId) {
+      window.cancelAnimationFrame(this.canvasResizeFrameId);
+      this.canvasResizeFrameId = 0;
+    }
+    this.canvasResizeObserver?.disconnect();
+    this.canvasResizeObserver = null;
     while (this.cleanupCallbacks.length > 0) {
       this.cleanupCallbacks.pop()?.();
     }
@@ -329,7 +380,7 @@ export class StressTestController {
       }
 
       if (this.mode === 'gpu' && !this.gpu) {
-        this.stopCpuStress(requestId);
+        this.stopCpuStress();
         this.setState('unsupported', 'GPU stress needs WebGPU, WebGL2, or WebGL in this browser.');
         this.syncMetrics(true);
         return;
@@ -347,7 +398,7 @@ export class StressTestController {
 
       this.startMetricLoop();
     } catch (error) {
-      this.stopCpuStress(requestId);
+      this.stopCpuStress();
       this.stopGpuStress();
       this.gpuBackend = 'none';
       this.lastGpuError = error instanceof Error ? error.message : 'Stress test failed to start.';
@@ -365,7 +416,7 @@ export class StressTestController {
     this.requestId += 1;
     const stoppingState = transitionStressState(this.state, 'stop');
     this.setState(stoppingState, 'Stopping stress workload...');
-    this.stopCpuStress(requestId);
+    this.stopCpuStress();
     this.stopGpuStress();
     this.stopCpuVisuals();
     this.stopMetricLoop();
@@ -390,7 +441,7 @@ export class StressTestController {
         this.handleWorkerMessage(record, event.data);
       };
       const errorListener = (event: ErrorEvent) => {
-        this.stopCpuStress(requestId);
+        this.stopCpuStress();
         this.stopGpuStress();
         this.stopMetricLoop();
         console.error('[StressTest] CPU worker error', event.message, event.filename, event.lineno);
@@ -418,7 +469,7 @@ export class StressTestController {
     }
   }
 
-  private stopCpuStress(_requestId: number) {
+  private stopCpuStress() {
     for (const record of this.workers) {
       record.worker.removeEventListener('message', record.messageListener);
       record.worker.removeEventListener('error', record.errorListener);
@@ -447,7 +498,7 @@ export class StressTestController {
     }
 
     record.stopped = true;
-    this.stopCpuStress(message.requestId);
+    this.stopCpuStress();
     if (this.mode !== 'cpu') {
       this.stopGpuStress();
     }
@@ -498,7 +549,8 @@ export class StressTestController {
         stencil: false,
         powerPreference: 'high-performance'
       }));
-    } catch {
+    } catch (error) {
+      debugStressTest(`Context probe for "${type}" failed.`, error);
       return false;
     }
   }
@@ -531,7 +583,8 @@ export class StressTestController {
     }
     const device = await adapter.requestDevice();
     this.prepareGpuCanvas();
-    const context = this.canvas.getContext('webgpu') as unknown as WebGpuCanvasContextLike | null;
+    this.syncCanvasSize();
+    const context = this.canvas.getContext('webgpu');
     if (!context) {
       throw new Error('WebGPU canvas context unavailable.');
     }
@@ -675,6 +728,7 @@ export class StressTestController {
       workloadLevel: 1,
       startedAt: 0
     };
+    const timeUniform = new Float32Array(4);
 
     device.lost.then((info) => {
       if (this.gpu !== active) {
@@ -682,7 +736,7 @@ export class StressTestController {
       }
       window.cancelAnimationFrame(active.frameId);
       active.frameId = 0;
-      this.stopCpuStress(this.requestId);
+      this.stopCpuStress();
       this.stopGpuStress();
       this.stopMetricLoop();
       this.stopCpuVisuals();
@@ -690,6 +744,8 @@ export class StressTestController {
       this.lastGpuError = `WebGPU device lost: ${reason}`;
       this.setState('error', this.lastGpuError);
       this.syncMetrics(true);
+    }).catch((error) => {
+      console.error('[StressTest] WebGPU device loss handling failed.', error);
     });
 
     const frame = () => {
@@ -697,7 +753,6 @@ export class StressTestController {
         return;
       }
       active.startedAt ||= performance.now();
-      this.resizeCanvas();
       const encoder = device.createCommandEncoder();
       const computePass = encoder.beginComputePass();
       computePass.setPipeline(computePipeline);
@@ -707,8 +762,11 @@ export class StressTestController {
 
       // Update time uniform
       const now = performance.now() - active.startedAt;
-      const timeArray = new Float32Array([now * 0.001, this.canvas.width, this.canvas.height, 0]);
-      device.queue.writeBuffer(timeBuffer, 0, timeArray);
+      timeUniform[0] = now * 0.001;
+      timeUniform[1] = this.canvas.width;
+      timeUniform[2] = this.canvas.height;
+      timeUniform[3] = 0;
+      device.queue.writeBuffer(timeBuffer, 0, timeUniform);
 
       const renderPass = encoder.beginRenderPass({
         colorAttachments: [
@@ -743,11 +801,18 @@ export class StressTestController {
       return null;
     }
 
-    this.resizeCanvas();
+    this.syncCanvasSize();
+    const isWebGl2 = backend === 'webgl2-fragment';
     const vertexShader = this.compileShader(
       gl,
       gl.VERTEX_SHADER,
-      `
+      isWebGl2
+        ? `#version 300 es
+      in vec2 a_position;
+      void main() {
+        gl_Position = vec4(a_position, 0.0, 1.0);
+      }`
+        : `
       attribute vec2 a_position;
       void main() {
         gl_Position = vec4(a_position, 0.0, 1.0);
@@ -756,7 +821,40 @@ export class StressTestController {
     const fragmentShader = this.compileShader(
       gl,
       gl.FRAGMENT_SHADER,
-      `
+      isWebGl2
+        ? `#version 300 es
+      precision highp float;
+      uniform float u_time;
+      uniform vec2 u_resolution;
+      uniform float u_workload;
+      out vec4 out_color;
+      void main() {
+        vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / min(u_resolution.x, u_resolution.y);
+        float time = u_time;
+
+        float value = 0.0;
+        for (int i = 0; i < ${WEBGL_FRAGMENT_LOOP_BOUND}; i++) {
+          if (float(i) >= u_workload) {
+            break;
+          }
+          float fi = float(i);
+          float r = length(uv) * 8.0 + fi * 0.03 - time * 0.5;
+          float a = atan(uv.y, uv.x) + fi * 0.1 + time * 0.05;
+          value = value + sin(r) * cos(a + fi * 0.2) * 0.05;
+        }
+
+        float dist = length(uv);
+        float intensity = smoothstep(1.2, 0.0, dist);
+
+        float hue = value * 0.5 + time * 0.1 + dist * 0.3;
+        float r = sin(hue * 6.28318 + 0.0) * 0.5 + 0.5;
+        float g = sin(hue * 6.28318 + 2.09439) * 0.5 + 0.5;
+        float b = sin(hue * 6.28318 + 4.18879) * 0.5 + 0.5;
+
+        vec3 col = vec3(r, g, b) * intensity * 0.85;
+        out_color = vec4(col, 1.0);
+      }`
+        : `
       precision highp float;
       uniform float u_time;
       uniform vec2 u_resolution;
@@ -828,30 +926,32 @@ export class StressTestController {
       gl,
       program,
       positionBuffer,
+      positionLocation: gl.getAttribLocation(program, 'a_position'),
       timeLocation: gl.getUniformLocation(program, 'u_time'),
       resLocation: gl.getUniformLocation(program, 'u_resolution'),
       workloadLocation: gl.getUniformLocation(program, 'u_workload'),
       frameId: 0,
       workloadLevel: 1,
-      startedAt: 0
+      startedAt: 0,
+      rampBucket: -1,
+      cachedRampLevel: 1
     };
 
     const frame = () => {
       if (this.gpu !== active) {
         return;
       }
-      active.startedAt ||= performance.now();
-      this.resizeCanvas();
-      active.workloadLevel = this.resolveWebGlWorkloadLevel(active);
+      const now = performance.now();
+      active.startedAt ||= now;
+      active.workloadLevel = this.resolveWebGlWorkloadLevel(active, now);
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
       gl.useProgram(program);
       gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-      const positionLocation = gl.getAttribLocation(program, 'a_position');
-      if (positionLocation >= 0) {
-        gl.enableVertexAttribArray(positionLocation);
-        gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+      if (active.positionLocation >= 0) {
+        gl.enableVertexAttribArray(active.positionLocation);
+        gl.vertexAttribPointer(active.positionLocation, 2, gl.FLOAT, false, 0, 0);
       }
-      const elapsed = performance.now() - active.startedAt;
+      const elapsed = now - active.startedAt;
       if (active.timeLocation) {
         gl.uniform1f(active.timeLocation, elapsed * 0.001);
       }
@@ -874,13 +974,17 @@ export class StressTestController {
     return active;
   }
 
-  private resolveWebGlWorkloadLevel(active: ActiveWebGlStress) {
-    const elapsed = performance.now() - active.startedAt;
-    const rampLevel = 1 + Math.floor(elapsed / 750);
+  private resolveWebGlWorkloadLevel(active: ActiveWebGlStress, now: number) {
+    const elapsed = now - active.startedAt;
+    const rampBucket = Math.floor(elapsed / 750);
+    if (active.rampBucket !== rampBucket) {
+      active.rampBucket = rampBucket;
+      active.cachedRampLevel = 1 + rampBucket;
+    }
     const targetRefreshRate = 60;
     const framePressureLevel = this.lastFps > 0 && this.lastFps < targetRefreshRate * 0.75
       ? active.workloadLevel
-      : Math.max(active.workloadLevel, rampLevel);
+      : Math.max(active.workloadLevel, active.cachedRampLevel);
     return Math.min(WEBGL_MAX_WORKLOAD_LEVEL, framePressureLevel);
   }
 
@@ -935,7 +1039,7 @@ export class StressTestController {
     }
     if (!ctx) return;
 
-    this.resizeCanvas();
+    this.syncCanvasSize();
     this.canvas2dCtx = ctx;
     this.thermalNodes = [];
     for (let i = 0; i < CPU_THERMAL_NODE_COUNT; i++) {
@@ -1191,22 +1295,58 @@ export class StressTestController {
     this.root.dataset.stressMetricsHiddenCount = '0';
 
     let hiddenCount = 0;
-    for (const metricId of STRESS_METRIC_HIDE_ORDER[this.mode]) {
-      if (controlPanel.scrollHeight <= controlPanel.clientHeight + 1) {
-        break;
+    let remainingOverflow = controlPanel.scrollHeight - controlPanel.clientHeight;
+    if (remainingOverflow > 1) {
+      const gapValue = window.getComputedStyle(this.metricsPanel).rowGap || window.getComputedStyle(this.metricsPanel).gap;
+      const rowGap = Number.parseFloat(gapValue || '0') || 0;
+      const cardsToHide: HTMLElement[] = [];
+
+      for (const metricId of STRESS_METRIC_HIDE_ORDER[this.mode]) {
+        if (remainingOverflow <= 1) {
+          break;
+        }
+        const card = this.metricCardById.get(metricId);
+        if (!card) {
+          continue;
+        }
+        cardsToHide.push(card);
+        remainingOverflow -= card.getBoundingClientRect().height + rowGap;
       }
-      const card = this.metricCards.find((candidate) => candidate.dataset.stressMetric === metricId);
-      if (card && !card.hidden) {
+
+      for (const card of cardsToHide) {
         card.hidden = true;
-        hiddenCount += 1;
       }
+      hiddenCount = cardsToHide.length;
     }
 
     this.root.dataset.stressMetricsHidden = hiddenCount > 0 ? 'true' : 'false';
     this.root.dataset.stressMetricsHiddenCount = String(hiddenCount);
   }
 
-  private resizeCanvas() {
+  private bindCanvasResizeObserver() {
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    this.canvasResizeObserver?.disconnect();
+    this.canvasResizeObserver = new ResizeObserver(() => {
+      this.queueCanvasResizeSync();
+    });
+    this.canvasResizeObserver.observe(this.canvas);
+  }
+
+  private queueCanvasResizeSync() {
+    if (this.canvasResizeFrameId) {
+      return;
+    }
+
+    this.canvasResizeFrameId = window.requestAnimationFrame(() => {
+      this.canvasResizeFrameId = 0;
+      this.syncCanvasSize();
+    });
+  }
+
+  private syncCanvasSize() {
     const rect = this.canvas.getBoundingClientRect();
     const scale = Math.min(window.devicePixelRatio || 1, 3);
     const width = Math.max(1, Math.floor(rect.width * scale));
@@ -1230,6 +1370,7 @@ export class StressTestController {
     nextCanvas.style.cssText = this.canvas.style.cssText;
     parent.replaceChild(nextCanvas, this.canvas);
     this.canvas = nextCanvas;
+    this.bindCanvasResizeObserver();
     const scale = Math.min(window.devicePixelRatio || 1, 2);
     this.canvas.width = Math.max(1, Math.floor(rect.width * scale));
     this.canvas.height = Math.max(1, Math.floor(rect.height * scale));
@@ -1239,7 +1380,7 @@ export class StressTestController {
     this.canvas2dCtx = null;
     this.thermalNodes = [];
     this.replaceCanvasElement();
-    this.resizeCanvas();
+    this.syncCanvasSize();
     this.canvas.dataset.stressIdle = 'false';
   }
 
@@ -1252,21 +1393,24 @@ export class StressTestController {
     if (!ctx) {
       return;
     }
-    this.resizeCanvas();
+    this.syncCanvasSize();
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
   private drawIdleCanvas() {
-    this.resizeCanvas();
+    this.syncCanvasSize();
     this.clearCanvasSurface();
     this.canvas.dataset.stressIdle = 'true';
   }
 
-  private requireElement<T extends HTMLElement>(id: string) {
+  private requireElement<T extends HTMLElement>(id: string, constructor: new () => T) {
     const element = document.getElementById(id);
     if (!element) {
       throw new Error(`Missing required element: #${id}`);
     }
-    return element as T;
+    if (!(element instanceof constructor)) {
+      throw new Error(`Element #${id} is not a ${constructor.name}.`);
+    }
+    return element;
   }
 }

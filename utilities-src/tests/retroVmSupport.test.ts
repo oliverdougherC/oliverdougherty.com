@@ -49,6 +49,25 @@ describe('retro VM support helpers', () => {
     expect(support.hasPointerLock).toBe(true);
   });
 
+  it('falls back cleanly when matchMedia throws during support detection', () => {
+    const support = detectRetroVmSupport({
+      hasWindow: true,
+      hasDocument: true,
+      hasWebAssembly: true,
+      hasWorker: true,
+      hasFullscreen: true,
+      hasPointerLock: true,
+      innerWidth: 1440,
+      maxTouchPoints: 0,
+      matchMedia: (() => {
+        throw new Error('matchMedia unavailable');
+      }) as unknown as (query: string) => MediaQueryList
+    });
+
+    expect(support.supported).toBe(true);
+    expect(support.isMobileLike).toBe(false);
+  });
+
   it('allows desktop launch with degraded fullscreen and pointer-lock copy', () => {
     const desktopMatchMedia = (() => ({ matches: false } as MediaQueryList)) as unknown as (query: string) => MediaQueryList;
 
@@ -95,6 +114,10 @@ describe('retro VM support helpers', () => {
 
     expect(view.chipLabel).toBe('Loading');
     expect(view.progressText).toMatch(/25%/i);
+  });
+
+  it('formats kilobyte progress with decimal precision', () => {
+    expect(formatRetroVmProgress({ loadedBytes: 1536, totalBytes: null })).toBe('1.5 KB downloaded');
   });
 
   it('uses the configured guest name in running copy', () => {

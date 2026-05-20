@@ -17,9 +17,8 @@ let targetUrl = TARGET;
 async function waitForGalleryReady(page) {
   await page.waitForFunction(
     () =>
-      typeof window.__galleryState?.getEntries === 'function'
-      && window.__galleryState.getEntries().length > 0
-      && document.querySelectorAll('#galleryArchiveGrid .photo-card').length > 0
+      document.querySelectorAll('#galleryArchiveGrid .photo-card').length > 0
+      && document.querySelectorAll('#lightboxThumbStrip .lightbox-thumb').length > 0
       && document.getElementById('galleryLoading')?.hidden === true,
     null,
     { timeout: 18000 }
@@ -36,11 +35,11 @@ async function captureDesktop(browser) {
 
   await page.screenshot({ path: path.join(OUTPUT_DIR, 'gallery-desktop-full.png'), fullPage: true });
 
-  await page.locator('#galleryFeaturedSection').scrollIntoViewIfNeeded();
+  await page.locator('#galleryArchiveSection').scrollIntoViewIfNeeded();
   await page.waitForTimeout(180);
-  await page.screenshot({ path: path.join(OUTPUT_DIR, 'gallery-desktop-featured.png') });
+  await page.screenshot({ path: path.join(OUTPUT_DIR, 'gallery-desktop-archive.png') });
 
-  await page.locator('#galleryFeaturedGrid .photo-card .photo-card-button').first().click();
+  await page.locator('#galleryArchiveGrid .photo-card .photo-card-button').first().click();
   await page.waitForTimeout(240);
   await page.screenshot({ path: path.join(OUTPUT_DIR, 'gallery-desktop-lightbox.png') });
 

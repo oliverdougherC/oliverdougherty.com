@@ -10,6 +10,7 @@ import {
   resolveEnvelopeViewportRange,
   resolveEnvelopeBucketSampleCount,
   resolveEnergyMakeupGain,
+  reconstructWindowedComponentRange,
   resolveHighEnergyVisualAmplitude,
   resolveSampleEnvelope,
   resolveViewportRange,
@@ -113,6 +114,38 @@ describe('audio Fourier core', () => {
     expect(maxDifference(full.playbackSamples, samples)).toBeLessThan(0.000001);
     expect(maxDifference(partial.playbackSamples, samples)).toBeGreaterThan(0.01);
     expect(full.displayFrame.length).toBe(128);
+  });
+
+  it('can reconstruct directly into a caller-provided destination buffer', () => {
+    const sampleRate = 1024;
+    const samples = new Float32Array(2048);
+    for (let index = 0; index < samples.length; index += 1) {
+      samples[index] = Math.sin(2 * Math.PI * 37 * index / sampleRate) * 0.45;
+    }
+
+    const analysis = buildWindowedFourierAnalysis(samples, sampleRate, {
+      frameSize: 256,
+      hopSize: 128,
+      displaySampleCount: 128
+    });
+    const expected = reconstructWindowedComponentRange(
+      analysis,
+      0,
+      analysis.componentOrder.length
+    );
+    const destination = new Float32Array(samples.length + 16);
+    const target = destination.subarray(0, samples.length);
+    const reconstructed = reconstructWindowedComponentRange(
+      analysis,
+      0,
+      analysis.componentOrder.length,
+      undefined,
+      target
+    );
+
+    expect(reconstructed).toBe(target);
+    expect(maxDifference(target, expected)).toBeLessThan(0.000001);
+    expect(destination[samples.length]).toBe(0);
   });
 
   it('partitions retained components into additive energy bands', () => {
@@ -391,7 +424,7 @@ describe('audio Fourier core', () => {
     }
   });
 
-  it('buildWindowedFourierAnalysis handles NaN/Infinity samples gracefully', () => {
+  it('buildWindowedFourierAnalysis sanitizes NaN/Infinity samples before FFT input', () => {
     const sampleRate = 256;
     const frameSize = 64;
     const hopSize = 32;
@@ -399,7 +432,8 @@ describe('audio Fourier core', () => {
     for (let i = 0; i < samples.length; i++) {
       samples[i] = Math.sin(2 * Math.PI * 4 * i / sampleRate) * 0.5;
     }
-    samples[10] = NaN; // inject NaN at a known position
+    samples[10] = NaN;
+    samples[11] = Number.POSITIVE_INFINITY;
 
     const analysis = buildWindowedFourierAnalysis(samples, sampleRate, {
       frameSize,
@@ -408,23 +442,8 @@ describe('audio Fourier core', () => {
     });
 
     const binCount = frameSize / 2 + 1;
-    // Frame containing sample 10 is frameIndex = floor(10 / hopSize) = 0
-    const frameWithNan = 0;
-    const frameWithNanOffset = frameWithNan * binCount;
-    let foundNan = false;
-    for (let bin = 0; bin < binCount; bin++) {
-      if (!Number.isFinite(analysis.componentEnergies[frameWithNanOffset + bin])) {
-        foundNan = true;
-        break;
-      }
-    }
-    expect(foundNan).toBe(true);
-
-    // A frame not containing the NaN sample should have finite energies
-    const cleanFrameIndex = 2;
-    const cleanOffset = cleanFrameIndex * binCount;
-    for (let bin = 0; bin < binCount; bin++) {
-      expect(Number.isFinite(analysis.componentEnergies[cleanOffset + bin])).toBe(true);
+    for (let index = 0; index < analysis.componentEnergies.length; index += 1) {
+      expect(Number.isFinite(analysis.componentEnergies[index])).toBe(true);
     }
   });
 

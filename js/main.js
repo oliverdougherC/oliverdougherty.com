@@ -177,7 +177,7 @@ function initBlueprintWordmark() {
     addLine(grid, 'blueprint-grid-line--minor', 0, cap, width, cap, 300 + (Math.random() * 30 - 15));
     addLine(grid, 'blueprint-grid-line--minor', 0, lowerGuide, width, lowerGuide, 360 + (Math.random() * 30 - 15));
 
-    const letterTiming = [
+    const baseLetterTiming = [
       { delay: 0, duration: 2500, dash: 4.8 },
       { delay: 430, duration: 2300, dash: 4.4 },
       { delay: 850, duration: 2200, dash: 4.2 },
@@ -190,8 +190,28 @@ function initBlueprintWordmark() {
       { delay: 3520, duration: 1150, dash: 2.2 }
     ];
 
+    const getLetterTiming = (index, total) => {
+      if (total <= 1 || total === baseLetterTiming.length) {
+        return baseLetterTiming[index] || baseLetterTiming[baseLetterTiming.length - 1];
+      }
+
+      const position = index / (total - 1);
+      const mappedIndex = position * (baseLetterTiming.length - 1);
+      const lowerIndex = Math.floor(mappedIndex);
+      const upperIndex = Math.min(baseLetterTiming.length - 1, lowerIndex + 1);
+      const blend = mappedIndex - lowerIndex;
+      const lower = baseLetterTiming[lowerIndex];
+      const upper = baseLetterTiming[upperIndex];
+
+      return {
+        delay: lower.delay + (upper.delay - lower.delay) * blend,
+        duration: lower.duration + (upper.duration - lower.duration) * blend,
+        dash: lower.dash + (upper.dash - lower.dash) * blend
+      };
+    };
+
     characters.forEach(({ char, x, width: characterWidth }, index) => {
-      const timing = letterTiming[index] || letterTiming[letterTiming.length - 1];
+      const timing = getLetterTiming(index, characters.length);
       const randomizedDelay = Math.max(0, timing.delay + (Math.random() * 80 - 40));
       const randomizedDuration = timing.duration + (Math.random() * 400 - 200);
 
@@ -221,15 +241,24 @@ function initBlueprintWordmark() {
     }, DOUGHERTY_BLUEPRINT_SEQUENCE_MS);
   };
 
+  let overlayFrame = 0;
+  const scheduleRenderOverlay = () => {
+    if (overlayFrame) return;
+    overlayFrame = window.requestAnimationFrame(() => {
+      overlayFrame = 0;
+      renderOverlay();
+    });
+  };
+
   renderOverlay();
   if (document.fonts?.ready) {
-    document.fonts.ready.then(renderOverlay).catch(() => {});
+    document.fonts.ready.then(scheduleRenderOverlay).catch((error) => {
+      console.debug('Blueprint wordmark font readiness failed:', error);
+    });
   }
 
   if ('ResizeObserver' in window) {
-    const observer = new ResizeObserver(() => {
-      window.requestAnimationFrame(renderOverlay);
-    });
+    const observer = new ResizeObserver(scheduleRenderOverlay);
     observer.observe(finalWord);
   } else {
     window.addEventListener('resize', debounce(renderOverlay, 120));
@@ -277,15 +306,30 @@ function initNavigation() {
   const navToggle = document.getElementById('navToggle');
   const navOverlay = document.getElementById('navOverlay');
   const navOverlayBg = navOverlay?.querySelector('.nav-overlay-bg');
+  let navScrollFrame = 0;
   const syncNavScrollState = () => {
     if (!nav) return;
     nav.classList.toggle('scrolled', window.scrollY > 50);
+  };
+  const scheduleNavScrollState = () => {
+    if (navScrollFrame) return;
+    navScrollFrame = window.requestAnimationFrame(() => {
+      navScrollFrame = 0;
+      syncNavScrollState();
+    });
   };
 
   if (navToggle && navOverlay) {
     const openingDurationMs = prefersReducedMotion() ? 0 : 280;
     let openingTimer = null;
+    let previouslyFocusedElement = null;
     const isMenuOpen = () => navOverlay.classList.contains('active');
+    const getOverlayFocusables = () => Array.from(navOverlay.querySelectorAll(
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter((element) => {
+      const style = window.getComputedStyle(element);
+      return !element.hasAttribute('hidden') && style.display !== 'none' && style.visibility !== 'hidden';
+    });
 
     const clearOpeningState = () => {
       if (openingTimer !== null) {
@@ -318,13 +362,29 @@ function initNavigation() {
       navOverlay.setAttribute('aria-hidden', String(!isOpen));
       document.body.classList.toggle('nav-open', isOpen);
       if (navToggle.classList.contains('nav-dot')) {
-        navToggle.setAttribute('aria-label', isOpen ? 'Close menu' : 'Open menu');
+        const label = isOpen ? 'Close menu' : 'Open menu';
+        navToggle.setAttribute('aria-label', label);
+        const visibleLabel = navToggle.querySelector('[data-nav-toggle-label]');
+        if (visibleLabel) visibleLabel.textContent = label;
       }
 
       if (isOpen && opening) {
+        previouslyFocusedElement = document.activeElement;
         startOpeningState();
+        window.setTimeout(() => {
+          getOverlayFocusables()[0]?.focus();
+        }, openingDurationMs);
       } else {
         clearOpeningState();
+        if (!isOpen) {
+          const focusTarget = previouslyFocusedElement && document.contains(previouslyFocusedElement)
+            ? previouslyFocusedElement
+            : navToggle;
+          if (document.activeElement && navOverlay.contains(document.activeElement)) {
+            focusTarget.focus?.();
+          }
+          previouslyFocusedElement = null;
+        }
       }
     };
 
@@ -356,8 +416,29 @@ function initNavigation() {
 
     // Allow keyboard users to close the overlay quickly.
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && isMenuOpen()) {
+      if (!isMenuOpen()) return;
+      if (event.key === 'Escape') {
         closeMobileNav();
+        return;
+      }
+
+      if (event.key === 'Tab') {
+        const focusables = getOverlayFocusables();
+        if (!focusables.length) {
+          event.preventDefault();
+          navToggle.focus();
+          return;
+        }
+
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
       }
     });
 
@@ -384,7 +465,7 @@ function initNavigation() {
   // Scroll behavior for nav
   if (nav) {
     syncNavScrollState();
-    window.addEventListener('scroll', syncNavScrollState, { passive: true });
+    window.addEventListener('scroll', scheduleNavScrollState, { passive: true });
   }
 }
 
@@ -408,16 +489,19 @@ function initHeroNavReveal() {
   const DOUGHERTY_SEQUENCE_MS = DOUGHERTY_BLUEPRINT_SEQUENCE_MS;
 
   const finishBlueprintAnimations = () => {
-    if (typeof Element === 'undefined' || !Element.prototype.getAnimations) return;
     const root = document.querySelector('.blueprint-title');
     if (!root) return;
+    if (typeof Element === 'undefined' || !Element.prototype.getAnimations) {
+      root.classList.add('is-blueprint-complete');
+      return;
+    }
     const animations = root.getAnimations({ subtree: true });
     for (const anim of animations) {
       if (anim.playState === 'finished') continue;
       try {
         anim.finish();
-      } catch {
-        // Ignore unsupported or non-finite animations
+      } catch (error) {
+        console.debug('Unable to finish blueprint animation:', error);
       }
     }
     root.classList.add('is-blueprint-complete');
@@ -511,51 +595,26 @@ function initSmoothScroll() {
         const scrollMarginTop = Number.parseFloat(window.getComputedStyle(target).scrollMarginTop) || 0;
         const fallbackOffset = navHeight + 20;
         const targetOffset = scrollMarginTop || fallbackOffset;
-        const targetPosition = target.getBoundingClientRect().top + window.scrollY - targetOffset;
+        const previousScrollMarginTop = target.style.scrollMarginTop;
+        if (!scrollMarginTop && targetOffset > 0) {
+          target.style.scrollMarginTop = `${targetOffset}px`;
+        }
 
         if (prefersReducedMotion()) {
+          const targetPosition = target.getBoundingClientRect().top + window.scrollY - targetOffset;
           window.scrollTo(0, targetPosition);
         } else {
-          smoothScrollTo(targetPosition, 1200);
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        if (!scrollMarginTop && targetOffset > 0) {
+          window.setTimeout(() => {
+            target.style.scrollMarginTop = previousScrollMarginTop;
+          }, prefersReducedMotion() ? 0 : 1200);
         }
       }
     });
   });
-}
-
-/**
- * Custom smooth scroll with eased duration
- */
-function smoothScrollTo(targetY, duration) {
-  if (prefersReducedMotion()) {
-    window.scrollTo(0, targetY);
-    return;
-  }
-
-  const startY = window.scrollY;
-  const distance = targetY - startY;
-  let startTime = null;
-
-  function easeInOutCubic(t) {
-    return t < 0.5
-      ? 4 * t * t * t
-      : 1 - Math.pow(-2 * t + 2, 3) / 2;
-  }
-
-  function step(timestamp) {
-    if (!startTime) startTime = timestamp;
-    const elapsed = timestamp - startTime;
-    const progress = Math.min(elapsed / duration, 1);
-    const eased = easeInOutCubic(progress);
-
-    window.scrollTo(0, startY + distance * eased);
-
-    if (progress < 1) {
-      requestAnimationFrame(step);
-    }
-  }
-
-  requestAnimationFrame(step);
 }
 
 /**
@@ -565,7 +624,6 @@ function debounce(func, wait) {
   let timeout;
   return function executedFunction(...args) {
     const later = () => {
-      clearTimeout(timeout);
       func(...args);
     };
     clearTimeout(timeout);

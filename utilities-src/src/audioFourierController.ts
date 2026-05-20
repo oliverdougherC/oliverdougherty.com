@@ -83,6 +83,21 @@ const VISUAL_CLOCK_RECONCILE_SECONDS = 0.08;
 const VISUAL_CLOCK_DAMPING_FACTOR = 0.08;
 const COMPONENT_WAVE_MAX_POINTS = 960;
 
+export function encodeAudioFourierBandGainsCacheKey(gains: Float32Array) {
+  return Array.from(gains, (gain) => Number.isFinite(gain) ? gain.toFixed(6) : String(gain)).join(',');
+}
+
+export function shouldDebugAudioFourierWarnings(hostname?: string) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
+}
+
+function logAudioFourierWarning(message: string, error: unknown) {
+  if (!shouldDebugAudioFourierWarnings(globalThis.location?.hostname)) {
+    return;
+  }
+  console.warn(`[AudioFourier] ${message}`, error);
+}
+
 export class AudioFourierController {
   private readonly reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
   private reducedMotion = this.reducedMotionQuery.matches;
@@ -485,12 +500,20 @@ export class AudioFourierController {
     this.root.dataset.audioBandCount = String(result.metadata.bandCount);
   }
 
+  private resetVisualScratch() {
+    this.visualOriginalRawScratch = new Float32Array(0);
+    this.visualMixRawScratch = new Float32Array(0);
+    this.visualOriginalFrameScratch = new Float32Array(0);
+    this.visualMixFrameScratch = new Float32Array(0);
+  }
+
   private invalidateComputedState(statusText: string) {
     this.stopPlayback(false);
     this.abandonActiveComputation();
     this.activeResult = null;
     this.bandBuffers = [];
     this.activeMasterGain = null;
+    this.resetVisualScratch();
     this.visualRevision = 0;
     this.playbackElapsedSeconds = 0;
     this.visualPlaybackElapsedSeconds = 0;
@@ -533,6 +556,7 @@ export class AudioFourierController {
     this.activeResult = null;
     this.bandBuffers = [];
     this.activeMasterGain = null;
+    this.resetVisualScratch();
     this.visualRevision = 0;
     this.playbackElapsedSeconds = 0;
     this.visualPlaybackElapsedSeconds = 0;
@@ -546,8 +570,9 @@ export class AudioFourierController {
 
     try {
       await this.getAudioContext().resume();
-    } catch (_error) {
+    } catch (error) {
       // Some browsers still require a second explicit Play click after async analysis.
+      logAudioFourierWarning('AudioContext resume was blocked before analysis started.', error);
     }
 
     try {
@@ -605,8 +630,8 @@ export class AudioFourierController {
   private async decodeAudioData(arrayBuffer: ArrayBuffer) {
     try {
       return await this.getAudioContext().decodeAudioData(arrayBuffer.slice(0));
-    } catch (_error) {
-      throw new Error('Unable to decode this audio file in the browser.');
+    } catch (error) {
+      throw new Error('Unable to decode this audio file in the browser.', { cause: error });
     }
   }
 
@@ -735,6 +760,7 @@ export class AudioFourierController {
 
     this.activeResult = result;
     this.bandBuffers = [];
+    this.resetVisualScratch();
     this.visualRevision = 0;
     this.playbackElapsedSeconds = 0;
     this.visualPlaybackElapsedSeconds = 0;
@@ -833,7 +859,7 @@ export class AudioFourierController {
     if (!this.activeResult) {
       return 0;
     }
-    const cacheKey = Array.from(this.activeResult.bandGains).join(',');
+    const cacheKey = encodeAudioFourierBandGainsCacheKey(this.activeResult.bandGains);
     if (cacheKey === this.activeComponentsCacheKey) {
       return this.activeComponentsCacheValue;
     }
@@ -935,7 +961,8 @@ export class AudioFourierController {
 
     try {
       await this.playPlayback();
-    } catch (_error) {
+    } catch (error) {
+      logAudioFourierWarning('Autoplay was blocked after Fourier analysis completed.', error);
       if (requestId !== this.activeRequestId || !this.activeResult) {
         return;
       }
@@ -1139,6 +1166,7 @@ export class AudioFourierController {
     this.selection = buildDefaultAudioSelection();
     this.activeResult = null;
     this.bandBuffers = [];
+    this.resetVisualScratch();
     this.visualRevision = 0;
     this.clearDiagnostics();
     this.syncSelection();

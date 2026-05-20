@@ -65,6 +65,7 @@
       });
 
       const offscreen = targetCanvas.transferControlToOffscreen();
+      let resizeFrame = 0;
       const postViewport = function(type) {
         worker.postMessage({
           type,
@@ -86,7 +87,11 @@
       }, [offscreen]);
 
       window.addEventListener('resize', function() {
-        postViewport('resize');
+        if (resizeFrame) return;
+        resizeFrame = window.requestAnimationFrame(function() {
+          resizeFrame = 0;
+          postViewport('resize');
+        });
       });
       document.addEventListener('visibilitychange', function() {
         postViewport('visibility');
@@ -101,7 +106,8 @@
       });
 
       return true;
-    } catch {
+    } catch (error) {
+      console.debug('Starfield worker renderer unavailable:', error);
       return false;
     }
   }

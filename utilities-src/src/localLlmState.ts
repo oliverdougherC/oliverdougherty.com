@@ -8,9 +8,10 @@ export interface LocalLlmLimits {
   maxHistoryMessages: number;
 }
 
-export function normalizeLocalLlmProgressState(status: unknown): 'loading' | 'optimizing' {
-  if (status === 'ready' || status === 'done' || status === 'loading') return 'optimizing';
-  return 'loading';
+export function normalizeLocalLlmProgressState(status: unknown): 'downloading' | 'loading' {
+  if (status === 'progress' || status === 'download' || status === 'progress_total') return 'downloading';
+  if (status === 'ready' || status === 'done' || status === 'loading' || status === 'optimizing') return 'loading';
+  return 'downloading';
 }
 
 export function compactLocalLlmMessages(

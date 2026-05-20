@@ -52,10 +52,12 @@
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--local-llm-accent) 45%, var(--local-llm-line));
+  border: 1px solid rgba(0, 229, 255, 0.45);
+  border-color: color-mix(in srgb, var(--local-llm-accent) 45%, var(--local-llm-line));
   border-radius: 6px;
   color: var(--local-llm-accent);
   font: 700 0.86rem / 1 var(--font-mono);
+  background: rgba(0, 229, 255, 0.1);
   background: color-mix(in srgb, var(--local-llm-accent) 10%, transparent);
 }
 
@@ -113,12 +115,16 @@
 
 .utility-status-chip--processing {
   color: var(--local-llm-accent);
+  border-color: rgba(0, 229, 255, 0.36);
+  background: rgba(0, 229, 255, 0.08);
   border-color: color-mix(in srgb, var(--local-llm-accent) 36%, var(--local-llm-line));
   background: color-mix(in srgb, var(--local-llm-accent) 8%, transparent);
 }
 
 .utility-status-chip--ready {
   color: var(--local-llm-good);
+  border-color: rgba(143, 212, 168, 0.36);
+  background: rgba(143, 212, 168, 0.08);
   border-color: color-mix(in srgb, var(--local-llm-good) 36%, var(--local-llm-line));
   background: color-mix(in srgb, var(--local-llm-good) 8%, transparent);
 }
@@ -126,6 +132,8 @@
 .utility-status-chip--error,
 .utility-status-chip--unsupported {
   color: var(--local-llm-danger);
+  border-color: rgba(240, 160, 144, 0.42);
+  background: rgba(240, 160, 144, 0.08);
   border-color: color-mix(in srgb, var(--local-llm-danger) 42%, var(--local-llm-line));
   background: color-mix(in srgb, var(--local-llm-danger) 8%, transparent);
 }
@@ -234,6 +242,7 @@
   height: 0.42rem;
   overflow: hidden;
   border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
   background: color-mix(in srgb, var(--local-llm-text) 10%, transparent);
 }
 
@@ -257,12 +266,13 @@
   display: grid;
   gap: 0.65rem;
   padding: 0.9rem;
-  border: 1px solid color-mix(in srgb, var(--local-llm-danger) 34%, var(--local-llm-line));
+  border: 1px solid rgba(240, 160, 144, 0.34);
   border-radius: 8px;
   color: var(--local-llm-muted);
   font-size: 0.88rem;
   line-height: 1.45;
   text-align: left;
+  background: rgba(240, 160, 144, 0.07);
   background: color-mix(in srgb, var(--local-llm-danger) 7%, var(--local-llm-panel));
 }
 
@@ -303,9 +313,17 @@
 .local-llm-reset:is(:hover, :focus-visible),
 .local-llm-diagnostics-retry:is(:hover, :focus-visible) {
   color: var(--local-llm-text);
+  border-color: rgba(0, 229, 255, 0.48);
+  background: rgba(0, 229, 255, 0.08);
   border-color: color-mix(in srgb, var(--local-llm-accent) 48%, var(--local-llm-line));
   background: color-mix(in srgb, var(--local-llm-accent) 8%, transparent);
-  outline: none;
+}
+
+.local-llm-reset:focus-visible,
+.local-llm-diagnostics-retry:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.92);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(0, 229, 255, 0.28);
 }
 
 .local-llm-reset:disabled {
@@ -366,9 +384,11 @@
 }
 
 .local-llm-message--notice .local-llm-message-content {
+  color: rgba(250, 200, 190, 0.72);
   color: color-mix(in srgb, var(--local-llm-muted) 80%, var(--local-llm-danger));
   background: transparent;
-  border: 1px solid color-mix(in srgb, var(--local-llm-danger) 40%, transparent);
+  border: 1px solid rgba(240, 160, 144, 0.4);
+  border-color: color-mix(in srgb, var(--local-llm-danger) 40%, transparent);
 }
 
 .local-llm-message-content p,
@@ -411,6 +431,7 @@
   padding: 0.08em 0.28em;
   border: 1px solid var(--local-llm-line);
   border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
   background: color-mix(in srgb, var(--local-llm-text) 8%, transparent);
 }
 
@@ -438,6 +459,7 @@
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--local-llm-line);
   border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
   background: color-mix(in srgb, var(--local-llm-text) 5%, transparent);
 }
 
@@ -475,6 +497,7 @@
 
 .local-llm-load-control--loading {
   color: var(--local-llm-accent);
+  border-color: rgba(0, 229, 255, 0.58);
   border-color: color-mix(in srgb, var(--local-llm-accent) 58%, rgba(255, 255, 255, 0.2));
 }
 
@@ -486,11 +509,13 @@
 
 .local-llm-load-control--ready {
   color: var(--local-llm-good);
+  border-color: rgba(143, 212, 168, 0.52);
   border-color: color-mix(in srgb, var(--local-llm-good) 52%, rgba(255, 255, 255, 0.2));
 }
 
 .local-llm-load-control--error {
   color: var(--local-llm-danger);
+  border-color: rgba(240, 160, 144, 0.58);
   border-color: color-mix(in srgb, var(--local-llm-danger) 58%, rgba(255, 255, 255, 0.2));
 }
 
@@ -499,6 +524,7 @@
 .local-llm-send--stop {
   color: var(--color-text-primary);
   border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(240, 160, 144, 0.24);
   background: color-mix(in srgb, var(--local-llm-danger) 24%, transparent);
 }
 
@@ -540,9 +566,12 @@
 }
 
 .local-llm-input:focus-visible {
-  outline: none;
+  outline: 2px solid rgba(255, 255, 255, 0.92);
+  outline-offset: 2px;
+  border-color: rgba(0, 229, 255, 0.55);
   border-color: color-mix(in srgb, var(--local-llm-accent) 55%, var(--local-llm-line));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--local-llm-accent) 18%, transparent);
+  box-shadow: 0 0 0 4px rgba(0, 229, 255, 0.18);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--local-llm-accent) 18%, transparent);
 }
 
 .local-llm-input:disabled {

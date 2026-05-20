@@ -346,7 +346,6 @@ html[data-color-mode="light"][data-theme="resume"] {
 }
 
 /* Light mode disabled on utilities page via data-disable-color-mode */
-/* Light mode disabled on utilities page via data-disable-color-mode */
 html[data-color-mode="light"][data-theme="utilities"] {
   /* Inert: utilities page forces dark mode; these tokens are unused. */
 }
@@ -361,6 +360,18 @@ html[data-color-mode="light"][data-theme="utilities"] {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 html {
@@ -605,6 +616,8 @@ html {
 }
 
 html[data-color-mode="light"] .card {
+  background: #F7F8F6;
+  border-color: #C7D1C4;
   background: color-mix(in srgb, white 88%, var(--color-surface) 12%);
   border-color: color-mix(in srgb, var(--color-border-emphasis) 72%, white 28%);
 }
@@ -614,6 +627,8 @@ html[data-color-mode="light"] .card::before {
 }
 
 html[data-color-mode="light"] .card:hover {
+  border-color: #A7B99E;
+  background: #F1F3EF;
   border-color: color-mix(in srgb, var(--color-accent) 28%, var(--color-border-emphasis));
   background: color-mix(in srgb, white 84%, var(--color-surface-hover) 16%);
   box-shadow: var(--shadow-xl), 0 0 16px rgba(17, 23, 20, 0.08);
@@ -665,6 +680,7 @@ html[data-color-mode="light"] .card:hover {
 }
 
 html[data-color-mode="light"] .btn-secondary {
+  background: #F8F9F7;
   background: color-mix(in srgb, white 90%, var(--color-surface) 10%);
 }
 
@@ -930,6 +946,7 @@ body.nav-open .nav.scrolled {
 }
 
 .nav.scrolled {
+  background: rgba(13, 15, 13, 0.85);
   background: color-mix(in srgb, var(--color-bg-primary) 85%, transparent);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -1211,6 +1228,7 @@ body.nav-open .nav.scrolled {
   padding: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
+  background: rgba(13, 15, 13, 0.84);
   background: color-mix(in srgb, var(--color-bg-primary) 84%, transparent);
   color: var(--color-text-secondary);
   transition: all var(--duration-base) var(--ease-smooth);
@@ -1272,6 +1290,7 @@ body.nav-open .nav.scrolled {
 }
 
 html[data-color-mode="light"] .theme-toggle {
+  background: #F8F9F7;
   background: color-mix(in srgb, white 88%, var(--color-bg-primary) 12%);
   color: var(--color-accent-muted);
 }

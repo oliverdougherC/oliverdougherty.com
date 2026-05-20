@@ -84,10 +84,13 @@ export const AUDIO_FOURIER_PRESETS: Record<AudioFourierPresetId, AudioFourierPre
   }
 };
 
+export function isAudioFourierPresetId(id: string): id is AudioFourierPresetId {
+  return Object.hasOwn(AUDIO_FOURIER_PRESETS, id);
+}
+
 export function getAudioFourierPreset(id: string): AudioFourierPreset {
-  const preset = AUDIO_FOURIER_PRESETS[id as AudioFourierPresetId];
-  if (!preset) {
+  if (!isAudioFourierPresetId(id)) {
     throw new Error(`Unknown audio Fourier preset: ${id}`);
   }
-  return preset;
+  return AUDIO_FOURIER_PRESETS[id];
 }

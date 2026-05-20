@@ -317,10 +317,6 @@ a.contact-item:hover {
   flex-shrink: 0;
 }
 
-.heading-icon {
-  display: none;
-}
-
 /* ========================================
    Cards (Education, Project, Experience, Sidebar, Involvement)
    ======================================== */
@@ -437,8 +433,8 @@ a.contact-item:hover {
   border-color: var(--resume-accent);
 }
 
-.coursework-list li:hover {
-  border-color: var(--resume-accent);
+.resume-accent-swatch {
+  color: var(--resume-accent);
 }
 
 /* ========================================
@@ -748,6 +744,7 @@ a.skill-tag:hover {
 @media (max-width: 768px) {
   .resume-hero.schematic-wrapper,
   .resume-hero-overlay {
+    min-height: 78vh;
     min-height: 78svh;
   }
 
@@ -770,6 +767,71 @@ a.skill-tag:hover {
   .exp-header {
     flex-direction: column;
     gap: var(--space-1);
+  }
+}
+
+@media print {
+  @page {
+    margin: 0.5in;
+  }
+
+  *,
+  *::before,
+  *::after {
+    background: transparent !important;
+    box-shadow: none !important;
+    color: #000000 !important;
+    text-shadow: none !important;
+  }
+
+  .nav-dot,
+  .nav-overlay,
+  .footer,
+  .schematic-grid,
+  .typewriter-cursor {
+    display: none !important;
+  }
+
+  .resume-hero.schematic-wrapper,
+  .resume-hero-overlay {
+    min-height: auto;
+    height: auto;
+  }
+
+  .resume-hero-overlay {
+    position: static;
+    padding: 0 0 var(--space-8);
+    transform: none;
+  }
+
+  .hero-title {
+    font-size: 2.4rem;
+    line-height: 1;
+  }
+
+  .hero-subtitle,
+  .hero-contact,
+  .resume-main [data-animate] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .resume-content.container {
+    padding: 0;
+  }
+
+  .resume-grid,
+  .resume-sidebar {
+    display: block;
+  }
+
+  .resume-section,
+  .project-card,
+  .education-card,
+  .experience-card,
+  .sidebar-section {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 }
 

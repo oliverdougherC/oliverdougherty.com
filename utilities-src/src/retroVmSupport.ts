@@ -1,5 +1,18 @@
 import type { RetroVmEvent, RetroVmProgress, RetroVmState, RetroVmStatusView, RetroVmSupport } from './retroVmTypes';
 
+function debugRetroVmSupport(message: string, error?: unknown) {
+  if (typeof console === 'undefined' || typeof console.debug !== 'function') {
+    return;
+  }
+
+  if (error === undefined) {
+    console.debug(`[RetroVm] ${message}`);
+    return;
+  }
+
+  console.debug(`[RetroVm] ${message}`, error);
+}
+
 function readMatchMedia(matchMediaImpl: ((query: string) => MediaQueryList) | undefined, query: string) {
   if (!matchMediaImpl) {
     return false;
@@ -7,7 +20,8 @@ function readMatchMedia(matchMediaImpl: ((query: string) => MediaQueryList) | un
 
   try {
     return matchMediaImpl(query).matches;
-  } catch {
+  } catch (error) {
+    debugRetroVmSupport(`matchMedia("${query}") failed.`, error);
     return false;
   }
 }
@@ -96,7 +110,7 @@ function formatBytes(bytes: number) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
-  return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024).toFixed(1)} KB`;
 }
 
 export function formatRetroVmProgress(progress: RetroVmProgress) {

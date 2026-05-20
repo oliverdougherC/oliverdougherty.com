@@ -18,11 +18,11 @@
    Base Reset (schematic-mode)
    ======================================== */
 
-html {
+body.schematic-mode {
   color-scheme: light;
 }
 
-body, html {
+body.schematic-mode {
   margin: 0;
   padding: 0;
   width: 100%;
@@ -272,6 +272,7 @@ body.nav-open .nav-dot {
   --letter-dash: 4.4em;
   --letter-nearly-complete: 0.55em;
   fill: transparent;
+  stroke: #572300;
   stroke: color-mix(in srgb, var(--schematic-text) 66%, var(--schematic-flare));
   stroke-width: max(0.75px, 0.007em);
   opacity: 0;
@@ -371,7 +372,7 @@ body.nav-open .nav-dot {
 }
 
 .schematic-mono {
-  font-family: var(--font-interface);
+  font-family: var(--font-body-text);
   color: #000000;
 }
 

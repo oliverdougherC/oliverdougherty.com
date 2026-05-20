@@ -1,7 +1,7 @@
 import { resolveAudioPlaybackButtonLabel, resolveAudioPlaybackButtonState } from '@utilities/audioFourierUiState';
 
 describe('audio playback UI state', () => {
-  it('resolves play and replay labels from playback state', () => {
+  it('resolves play, pause, and replay labels from playback state', () => {
     expect(
       resolveAudioPlaybackButtonLabel({
         hasResult: true,
@@ -15,10 +15,10 @@ describe('audio playback UI state', () => {
       resolveAudioPlaybackButtonLabel({
         hasResult: true,
         isProcessing: false,
-        isPlaying: false,
+        isPlaying: true,
         isComplete: false,
       })
-    ).toBe('Play');
+    ).toBe('Pause');
 
     expect(
       resolveAudioPlaybackButtonLabel({
@@ -56,6 +56,6 @@ describe('audio playback UI state', () => {
         isPlaying: true,
         isComplete: false,
       })
-    ).toEqual({ icon: '\u23f8', label: 'Play' });
+    ).toEqual({ icon: '\u23f8', label: 'Pause' });
   });
 });
