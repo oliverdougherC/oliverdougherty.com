@@ -40,6 +40,10 @@ body.gallery-lightbox-open {
   overflow: hidden;
 }
 
+body.gallery-lightbox-open .nav-dot {
+  display: none;
+}
+
 .gallery-main {
   position: relative;
   padding-bottom: var(--space-24);
@@ -848,6 +852,11 @@ body.gallery-lightbox-open {
   gap: var(--space-3);
   overflow-x: auto;
   padding-bottom: var(--space-1);
+  scrollbar-width: none;
+}
+
+.lightbox-thumbs::-webkit-scrollbar {
+  display: none;
 }
 
 .lightbox-thumb {

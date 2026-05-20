@@ -26,7 +26,7 @@ let confettiFired = false;
 function revealNavDot() {
   const navDot = document.getElementById('navToggle');
   if (!navDot) return;
-  navDot.style.transition = 'opacity 0.8s cubic-bezier(0.19, 1, 0.22, 1)';
+  navDot.style.transition = 'opacity 2s cubic-bezier(0.19, 1, 0.22, 1)';
   navDot.style.opacity = '1';
 }
 
