@@ -20,6 +20,31 @@ const DOUGHERTY_BLUEPRINT_SEQUENCE_MS = 7400;
 let confettiFired = false;
 
 /**
+ * Reveal the nav dot with a fade-in (opacity only, no transform).
+ * Exposed globally for use by page-specific scripts (e.g. gallery.js).
+ */
+function revealNavDot() {
+  const navDot = document.getElementById('navToggle');
+  if (!navDot) return;
+  navDot.style.transition = 'opacity 0.8s cubic-bezier(0.19, 1, 0.22, 1)';
+  navDot.style.opacity = '1';
+}
+
+/**
+ * Reveal all .hero-deferred elements by adding .is-visible.
+ * Exposed globally for use by page-specific scripts (e.g. gallery.js).
+ */
+function revealDeferredElements() {
+  document.querySelectorAll('.hero-deferred:not(.is-visible)').forEach((el) => {
+    el.classList.add('is-visible');
+  });
+}
+
+// Expose for use by page-specific scripts
+window.revealNavDot = revealNavDot;
+window.revealDeferredElements = revealDeferredElements;
+
+/**
  * Honor reduced-motion preference globally.
  */
 function initMotionPreference() {
@@ -260,6 +285,7 @@ function initBlueprintWordmark() {
   if ('ResizeObserver' in window) {
     const observer = new ResizeObserver(scheduleRenderOverlay);
     observer.observe(finalWord);
+    window.addEventListener('pagehide', () => observer.disconnect(), { once: true });
   } else {
     window.addEventListener('resize', debounce(renderOverlay, 120));
   }
@@ -472,6 +498,11 @@ function initNavigation() {
 /**
  * Home hero: keep the top bar off-screen until the DOUGHERTY blueprint finishes,
  * or until the user scrolls past the wordmark (animations jump to the end, then the bar slides in).
+ *
+ * Timing:
+ *   - Nav dot fades in at ~50% of the blueprint sequence (~3.7s)
+ *   - Deferred elements (corners, below-fold) fade in when the blueprint completes (~7.4s)
+ *   - If user scrolls past the hero, everything reveals immediately
  */
 function initHeroNavReveal() {
   if (!document.body.classList.contains('page-home')) return;
@@ -481,12 +512,16 @@ function initHeroNavReveal() {
 
   if (prefersReducedMotion()) {
     document.body.classList.add('dougherty-nav-revealed');
+    revealNavDot();
+    revealDeferredElements();
     return;
   }
 
   let revealTimer = null;
+  let navDotTimer = null;
   let revealed = false;
   const DOUGHERTY_SEQUENCE_MS = DOUGHERTY_BLUEPRINT_SEQUENCE_MS;
+  const NAV_DOT_REVEAL_MS = Math.round(DOUGHERTY_SEQUENCE_MS * 0.5);
 
   const finishBlueprintAnimations = () => {
     const root = document.querySelector('.blueprint-title');
@@ -514,7 +549,13 @@ function initHeroNavReveal() {
       window.clearTimeout(revealTimer);
       revealTimer = null;
     }
+    if (navDotTimer !== null) {
+      window.clearTimeout(navDotTimer);
+      navDotTimer = null;
+    }
     document.body.classList.add('dougherty-nav-revealed');
+    revealNavDot();
+    revealDeferredElements();
     window.removeEventListener('scroll', onScrollMaybePastDougherty, { passive: true });
   };
 
@@ -527,6 +568,10 @@ function initHeroNavReveal() {
 
   window.addEventListener('scroll', onScrollMaybePastDougherty, { passive: true });
 
+  // Nav dot fades in at ~50% of the animation
+  navDotTimer = window.setTimeout(revealNavDot, NAV_DOT_REVEAL_MS);
+
+  // Everything else reveals when the blueprint completes
   revealTimer = window.setTimeout(reveal, DOUGHERTY_SEQUENCE_MS);
 }
 
@@ -686,6 +731,13 @@ function initOsuConfetti() {
 
   const trigger = osuText.closest('.stat-value');
   if (!trigger) return;
+
+  window.addEventListener('pageshow', (event) => {
+    const navEntry = performance.getEntriesByType?.('navigation')?.[0];
+    if (event.persisted || navEntry?.type === 'back_forward') {
+      confettiFired = false;
+    }
+  });
 
   const colors = ['#d73f09', '#FF6700', '#ff8c42', '#000000'];
 

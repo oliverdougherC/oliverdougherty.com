@@ -25,17 +25,12 @@
   let heavyUtilityActive = false;
   const activeLoadSources = new Set();
 
-  // Configuration
-  const BASE_STAR_COUNT = 500;
-  const BASE_SPEED = 9; // px/sec at shallow depth
-  const MAX_DPR = 1.5;
-  const STAR_COLORS = [
-    '#ffffff', // White
-    '#e0f7fa', // Light blue
-    '#fff3e0', // Light yellow
-    '#fce4ec', // Light orange
-    '#f3e5f5'  // Light pink
-  ];
+  const STARFIELD_CONFIG = {
+    baseStarCount: 500,
+    baseSpeed: 9,
+    maxDpr: 1.5,
+    colors: ['#ffffff', '#e0f7fa', '#fff3e0', '#fce4ec', '#f3e5f5']
+  };
 
   function startWorkerRenderer(targetCanvas, reduceMotion) {
     if (
@@ -49,7 +44,8 @@
     }
 
     try {
-      const workerUrl = URL.createObjectURL(new Blob([`(${starfieldWorkerMain.toString()})()`], {
+      const workerSource = `const STARFIELD_CONFIG = ${JSON.stringify(STARFIELD_CONFIG)};\n(${starfieldWorkerMain.toString()})()`;
+      const workerUrl = URL.createObjectURL(new Blob([workerSource], {
         type: 'text/javascript'
       }));
       const worker = new Worker(workerUrl);
@@ -128,16 +124,12 @@
     let isHidden = false;
     const activeLoadSources = new Set();
 
-    const BASE_STAR_COUNT = 500;
-    const BASE_SPEED = 9;
-    const MAX_DPR = 1.5;
-    const STAR_COLORS = ['#ffffff', '#e0f7fa', '#fff3e0', '#fce4ec', '#f3e5f5'];
     let hardwareConcurrency = 4;
 
     function resolveStarCount() {
       const areaScale = Math.max(0.45, Math.min(1.15, width * height / (1440 * 900)));
       const coreScale = hardwareConcurrency <= 4 ? 0.72 : 1;
-      return Math.round(BASE_STAR_COUNT * areaScale * coreScale);
+      return Math.round(STARFIELD_CONFIG.baseStarCount * areaScale * coreScale);
     }
 
     function createStar() {
@@ -146,8 +138,8 @@
         x: Math.random() * width,
         y: Math.random() * height,
         size: Math.max(0.5, depth * 2.5),
-        speed: BASE_SPEED + depth * BASE_SPEED * 2,
-        color: STAR_COLORS[Math.floor(Math.random() * STAR_COLORS.length)],
+        speed: STARFIELD_CONFIG.baseSpeed + depth * STARFIELD_CONFIG.baseSpeed * 2,
+        color: STARFIELD_CONFIG.colors[Math.floor(Math.random() * STARFIELD_CONFIG.colors.length)],
         baseOpacity: 0.2 + depth * 0.6,
         twinkleSpeed: 1.2 + Math.random() * 3,
         twinklePhase: Math.random() * Math.PI * 2,
@@ -168,7 +160,7 @@
     function resize(nextWidth, nextHeight, nextDpr) {
       width = Math.max(1, nextWidth);
       height = Math.max(1, nextHeight);
-      dpr = Math.min(nextDpr || 1, MAX_DPR);
+      dpr = Math.min(nextDpr || 1, STARFIELD_CONFIG.maxDpr);
       canvas.width = Math.max(1, Math.floor(width * dpr));
       canvas.height = Math.max(1, Math.floor(height * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -382,17 +374,17 @@
     if (reducedMotion) {
       return 1;
     }
-    return Math.min(window.devicePixelRatio || 1, MAX_DPR);
+    return Math.min(window.devicePixelRatio || 1, STARFIELD_CONFIG.maxDpr);
   }
 
   function resolveStarCount() {
     if (reducedMotion) {
-      return Math.min(140, BASE_STAR_COUNT);
+      return Math.min(140, STARFIELD_CONFIG.baseStarCount);
     }
 
     const areaScale = Math.max(0.45, Math.min(1.15, width * height / (1440 * 900)));
     const coreScale = (navigator.hardwareConcurrency || 4) <= 4 ? 0.72 : 1;
-    return Math.round(BASE_STAR_COUNT * areaScale * coreScale);
+    return Math.round(STARFIELD_CONFIG.baseStarCount * areaScale * coreScale);
   }
 
   function reconcileSpace() {
@@ -414,8 +406,8 @@
       x: Math.random() * width,
       y: Math.random() * height,
       size: Math.max(0.5, depth * 2.5),
-      speed: BASE_SPEED + (depth * BASE_SPEED * 2),
-      color: STAR_COLORS[Math.floor(Math.random() * STAR_COLORS.length)],
+      speed: STARFIELD_CONFIG.baseSpeed + (depth * STARFIELD_CONFIG.baseSpeed * 2),
+      color: STARFIELD_CONFIG.colors[Math.floor(Math.random() * STARFIELD_CONFIG.colors.length)],
       baseOpacity: 0.2 + (depth * 0.6),
       twinkleSpeed: 1.2 + (Math.random() * 3),
       twinklePhase: Math.random() * Math.PI * 2,

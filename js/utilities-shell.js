@@ -142,6 +142,35 @@
     return localAssistantScriptPromise;
   }
 
+  function renderLocalAssistantLoadError(root, error) {
+    root.textContent = '';
+    var panel = document.createElement('div');
+    panel.className = 'local-llm-load-error';
+
+    var message = document.createElement('p');
+    message.textContent = (error && error.message) || 'Unable to load Local Assistant.';
+
+    var retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'btn-secondary-utility';
+    retry.textContent = 'Retry';
+    retry.addEventListener('click', function() {
+      root.textContent = 'Loading Local Assistant...';
+      loadLocalAssistantScript()
+        .then(function() {
+          root.textContent = '';
+          root.dispatchEvent(new CustomEvent('utility-activate', { bubbles: true }));
+        })
+        .catch(function(nextError) {
+          console.error(nextError);
+          renderLocalAssistantLoadError(root, nextError);
+        });
+    });
+
+    panel.append(message, retry);
+    root.appendChild(panel);
+  }
+
   function activateStage(stage, utilityId) {
     stage.classList.add('is-active');
     stage.style.setProperty('--utility-flair', resolveFlairColor(utilityId));
@@ -152,7 +181,7 @@
         console.error(error);
         var root = document.getElementById('localLlmUtilityApp');
         if (root) {
-          root.textContent = error.message || 'Unable to load Local Assistant.';
+          renderLocalAssistantLoadError(root, error);
         }
       });
     }

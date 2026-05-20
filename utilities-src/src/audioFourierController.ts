@@ -198,13 +198,13 @@ export class AudioFourierController {
 
   constructor(root: HTMLElement) {
     this.root = root;
-    this.input = this.requireElement('audioFourierInput');
-    this.qualitySelect = this.requireElement('audioFourierQuality');
-    this.generateButton = this.requireElement('audioFourierGenerateBtn');
-    this.playPauseButton = this.requireElement('audioFourierPlayBtn');
-    this.pauseButton = this.requireElement('audioFourierPauseBtn');
-    this.resetButton = this.requireElement('audioFourierResetBtn');
-    this.componentSlider = this.requireElement('audioFourierComponentSlider');
+    this.input = this.requireElement('audioFourierInput', HTMLInputElement);
+    this.qualitySelect = this.requireElement('audioFourierQuality', HTMLSelectElement);
+    this.generateButton = this.requireElement('audioFourierGenerateBtn', HTMLButtonElement);
+    this.playPauseButton = this.requireElement('audioFourierPlayBtn', HTMLButtonElement);
+    this.pauseButton = this.requireElement('audioFourierPauseBtn', HTMLButtonElement);
+    this.resetButton = this.requireElement('audioFourierResetBtn', HTMLButtonElement);
+    this.componentSlider = this.requireElement('audioFourierComponentSlider', HTMLInputElement);
     this.componentReadout = this.requireElement('audioFourierComponentReadout');
     this.signalStrengthMetric = this.requireElement('audioFourierSignalStrengthMetric');
     this.signalCountMetric = this.requireElement('audioFourierSignalCountMetric');
@@ -222,9 +222,9 @@ export class AudioFourierController {
     this.componentCountLabel = this.requireElement('audioFourierComponentCount');
     this.sourceDurationLabel = this.requireElement('audioFourierSourceDuration');
     this.durationLabel = this.requireElement('audioFourierDuration');
-    this.waveCanvas = this.requireElement('audioFourierWaveCanvas');
-    this.spectrumCanvas = this.requireElement('audioFourierSpectrumCanvas');
-    this.componentCanvas = this.requireElement('audioFourierComponentCanvas');
+    this.waveCanvas = this.requireElement('audioFourierWaveCanvas', HTMLCanvasElement);
+    this.spectrumCanvas = this.requireElement('audioFourierSpectrumCanvas', HTMLCanvasElement);
+    this.componentCanvas = this.requireElement('audioFourierComponentCanvas', HTMLCanvasElement);
     this.dropzone = this.requireElement('audioFourierDropzone');
     this.presetButtons = Array.from(this.root.querySelectorAll<HTMLButtonElement>('[data-audio-preset]'));
     this.waveRenderer = createAudioWaveRenderer(this.waveCanvas);
@@ -301,23 +301,22 @@ export class AudioFourierController {
       event.stopPropagation();
     };
 
-    ['dragenter', 'dragover'].forEach((eventName) => {
-      this.dropzone.addEventListener(eventName, (event) => {
-        preventDefaults(event as DragEvent);
+    (['dragenter', 'dragover'] as const).forEach((eventName) => {
+      this.dropzone.addEventListener(eventName, (event: DragEvent) => {
+        preventDefaults(event);
         this.dropzone.classList.add('drag-active');
       }, { signal });
     });
 
-    ['dragleave', 'drop'].forEach((eventName) => {
-      this.dropzone.addEventListener(eventName, (event) => {
-        preventDefaults(event as DragEvent);
+    (['dragleave', 'drop'] as const).forEach((eventName) => {
+      this.dropzone.addEventListener(eventName, (event: DragEvent) => {
+        preventDefaults(event);
         this.dropzone.classList.remove('drag-active');
       }, { signal });
     });
 
-    this.dropzone.addEventListener('drop', (event) => {
-      const dragEvent = event as DragEvent;
-      this.handleFileSelection(dragEvent.dataTransfer?.files?.[0] ?? null);
+    this.dropzone.addEventListener('drop', (event: DragEvent) => {
+      this.handleFileSelection(event.dataTransfer?.files?.[0] ?? null);
     }, { signal });
   }
 
@@ -382,9 +381,9 @@ export class AudioFourierController {
       : 'balanced';
   }
 
-  private requireElement<T extends HTMLElement>(id: string) {
-    const element = document.getElementById(id) as T | null;
-    if (!element) {
+  private requireElement<T extends HTMLElement>(id: string, ctor: { new(): T } = HTMLElement as { new(): T }) {
+    const element = document.getElementById(id);
+    if (!(element instanceof ctor)) {
       throw new Error(`Missing required element: ${id}`);
     }
     return element;
@@ -1131,7 +1130,7 @@ export class AudioFourierController {
       node.source.onended = null;
       try {
         node.source.stop();
-      } catch (_error) {
+      } catch {
         // Stopping an already-ended one-shot source is harmless.
       }
       node.source.disconnect();

@@ -274,6 +274,7 @@ body.nav-open .nav-dot {
   fill: transparent;
   stroke: #572300;
   stroke: color-mix(in srgb, var(--schematic-text) 66%, var(--schematic-flare));
+  stroke-width: 0.75px;
   stroke-width: max(0.75px, 0.007em);
   opacity: 0;
   font-family: var(--font-display);
@@ -675,4 +676,29 @@ body.nav-open .nav-dot {
     transform: translate(0.25em, -50%) scale(1);
     opacity: 1;
   }
+
+  .hero-deferred {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
+/* ========================================
+   Deferred Hero Elements
+   Hidden until page hero animation completes.
+   Revealed by adding .is-visible via JS.
+   Nav dot is handled separately (opacity only, no transform).
+   ======================================== */
+
+.hero-deferred {
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.8s cubic-bezier(0.19, 1, 0.22, 1),
+              transform 0.8s cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+.hero-deferred.is-visible {
+  opacity: 1;
+  transform: translateY(0);
 }

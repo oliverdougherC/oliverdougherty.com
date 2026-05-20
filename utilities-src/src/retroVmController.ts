@@ -452,10 +452,10 @@ export class RetroVmController {
     this.progressText = this.requireElement('retroVmProgressText');
     this.progressMeta = this.requireElement('retroVmProgressMeta');
     this.progressFill = document.getElementById('retroVmProgressFill');
-    this.launchButton = this.requireElement('retroVmLaunchBtn');
-    this.resetButton = this.requireElement('retroVmResetBtn');
-    this.fullscreenButton = this.requireElement('retroVmFullscreenBtn');
-    this.pasteButton = this.requireElement('retroVmPasteBtn');
+    this.launchButton = this.requireElement('retroVmLaunchBtn', HTMLButtonElement);
+    this.resetButton = this.requireElement('retroVmResetBtn', HTMLButtonElement);
+    this.fullscreenButton = this.requireElement('retroVmFullscreenBtn', HTMLButtonElement);
+    this.pasteButton = this.requireElement('retroVmPasteBtn', HTMLButtonElement);
     this.screenShell = this.requireElement('retroVmScreenShell');
     this.screenContainer = this.requireElement('retroVmScreen');
     this.placeholder = this.requireElement('retroVmPlaceholder');
@@ -512,9 +512,9 @@ export class RetroVmController {
     this.syncUi();
   }
 
-  private requireElement<T extends HTMLElement>(id: string) {
-    const element = document.getElementById(id) as T | null;
-    if (!element) {
+  private requireElement<T extends HTMLElement>(id: string, ctor: { new(): T } = HTMLElement as { new(): T }) {
+    const element = document.getElementById(id);
+    if (!(element instanceof ctor)) {
       throw new Error(`Missing required element: ${id}`);
     }
     return element;
@@ -558,6 +558,7 @@ export class RetroVmController {
       return new FakeRetroVm(this.config.cdromSizeBytes ?? RETRO_VM_CONFIG.cdromSizeBytes ?? 0);
     }
 
+    // Vite needs this URL import retained so the fallback wasm asset is emitted for v86's runtime loader.
     await import('v86/build/v86-fallback.wasm?url');
     const { V86 } = await import('v86');
     return new V86(buildRetroVmV86Options(this.config, this.screenContainer, v86WasmUrl));

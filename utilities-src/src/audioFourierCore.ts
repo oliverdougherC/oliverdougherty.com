@@ -175,6 +175,8 @@ const ENERGY_SLIDER_LOW_EXPONENT = Math.log(ENERGY_SLIDER_LOW_REFERENCE_VALUE / 
   Math.log(ENERGY_SLIDER_LOW_REFERENCE / ENERGY_SLIDER_MIDPOINT);
 const FFT_PROGRESS_THROTTLE = 64;
 const OVERLAP_ADD_NORMALIZATION_THRESHOLD = 0.000001;
+const ENERGY_BAND_CACHE_WARNING_BYTES = 256 * 1024 * 1024;
+const ENERGY_BAND_CACHE_HARD_LIMIT_BYTES = 512 * 1024 * 1024;
 const DEFAULT_ENVELOPE_TARGET_POINTS_PER_SECOND = 420;
 const DEFAULT_SMOOTHED_ENVELOPE_BLEND = 0.72;
 const VISUAL_ORIGINAL_CLAMP_START = 0.8;
@@ -573,7 +575,12 @@ export function buildEnergyBandReconstruction(
   // reconstructed once and stored for fast slider-driven mixing.
   const resolvedBandCount = clamp(Math.round(bandCount), 1, analysis.componentOrder.length);
   const estimatedBandSampleBytes = resolvedBandCount * analysis.samples.length * Float32Array.BYTES_PER_ELEMENT;
-  if (estimatedBandSampleBytes > 256 * 1024 * 1024) {
+  if (estimatedBandSampleBytes > ENERGY_BAND_CACHE_HARD_LIMIT_BYTES) {
+    throw new Error(
+      `Energy band cache would allocate ${Math.round(estimatedBandSampleBytes / 1024 / 1024)} MB. Choose Fast or Balanced quality for this file.`
+    );
+  }
+  if (estimatedBandSampleBytes > ENERGY_BAND_CACHE_WARNING_BYTES) {
     onProgress?.(
       0,
       `Allocating high-memory band cache (${Math.round(estimatedBandSampleBytes / 1024 / 1024)} MB). Use Fast or Balanced if this device stalls.`

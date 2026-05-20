@@ -61,7 +61,7 @@ describe('retro VM config', () => {
   });
 
   it('includes net_device only when relay-backed networking is configured', () => {
-    const screenContainer = {} as HTMLElement;
+    const screenContainer = { tagName: 'DIV' } as HTMLElement;
     const offlineConfig = resolveRetroVmConfigFromDataset({
       vmNetworkEnabled: 'true',
       vmRelayUrl: ''

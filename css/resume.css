@@ -59,6 +59,14 @@ body, html {
   transform: scale(1.08);
 }
 
+.nav-dot:focus-visible,
+.contact-item:focus-visible,
+.project-link:focus-visible,
+.skill-tag:focus-visible {
+  outline: 2px solid var(--resume-accent);
+  outline-offset: 4px;
+}
+
 body.nav-open .nav-dot {
   opacity: 0.6;
 }
@@ -125,6 +133,7 @@ body.nav-open .nav-dot {
 .resume-hero.schematic-wrapper {
   position: relative;
   width: 100%;
+  min-height: 38rem;
   min-height: clamp(34rem, 78vh, 44rem);
   padding: 0;
   background: #FFFFFF;
@@ -137,12 +146,14 @@ body.nav-open .nav-dot {
   z-index: 10;
   display: flex;
   align-items: center;
+  min-height: 38rem;
   min-height: clamp(34rem, 78vh, 44rem);
   padding: calc(var(--nav-height) + var(--space-8)) 0 var(--space-8);
 }
 
 .resume-hero-overlay .container {
   max-width: none;
+  padding: 0 3rem;
   padding: 0 clamp(2rem, 4vw, 4.5rem);
 }
 
@@ -189,6 +200,7 @@ body.nav-open .nav-dot {
   font-weight: 800;
   line-height: 0.85;
   text-transform: uppercase;
+  font-size: 5.5rem;
   font-size: clamp(3.75rem, 9.4vw, 8.5rem);
   margin-bottom: var(--space-2);
   letter-spacing: -0.05em;

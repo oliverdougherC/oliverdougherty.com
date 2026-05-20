@@ -18,7 +18,7 @@ describe('audio playback UI state', () => {
         isPlaying: true,
         isComplete: false,
       })
-    ).toBe('Play');
+    ).toBe('Pause');
 
     expect(
       resolveAudioPlaybackButtonLabel({
@@ -56,6 +56,6 @@ describe('audio playback UI state', () => {
         isPlaying: true,
         isComplete: false,
       })
-    ).toEqual({ icon: '\u23f8', label: 'Play' });
+    ).toEqual({ icon: '\u23f8', label: 'Pause' });
   });
 });

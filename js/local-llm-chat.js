@@ -1,4 +1,5 @@
 import { LOCAL_LLM_CONFIG, WORKER_STATE } from './local-llm-config.js';
+import { deleteLocalModelCaches as deleteBrowserModelCaches } from './local-llm-cache.js';
 import {
   cleanupLocalLlmText as cleanupModelText,
   escapeHtml,
@@ -255,7 +256,7 @@ export class LocalLlmUtility {
       return;
     }
 
-    if (this.isBusy()) return;
+    if (this.isLoading()) return;
 
     this.progress = 0;
     this.tps = null;
@@ -422,7 +423,7 @@ export class LocalLlmUtility {
     this.loadingSequenceStartedAt = 0;
     delete this.root.dataset.localLlmLoadingStep;
     delete this.root.dataset.localLlmLoadingFloorMs;
-    if (!this.isBusy()) this.stopLoadSpinner();
+    if (!this.isLoading()) this.stopLoadSpinner();
     if (clearPending) this.pendingReadyMessage = null;
   }
 
@@ -470,7 +471,7 @@ export class LocalLlmUtility {
     this.root.dataset.localLlmStatus = status;
     this.root.dataset.localLlmStatusMessage = label;
 
-    const chipState = (this.isBusy(status) || status === WORKER_STATE.THINKING || status === WORKER_STATE.STREAMING)
+    const chipState = (this.isLoading(status) || status === WORKER_STATE.THINKING || status === WORKER_STATE.STREAMING)
       ? 'processing'
       : status === WORKER_STATE.UNSUPPORTED
         ? 'error'
@@ -485,9 +486,9 @@ export class LocalLlmUtility {
     this.sendButton.classList.toggle('local-llm-send--stop', canStop);
     this.sendText.textContent = canStop ? 'Stop' : 'Send';
     this.sendButton.setAttribute('aria-label', canStop ? 'Stop message' : 'Send message');
-    this.resetButton.disabled = this.isBusy(status);
+    this.resetButton.disabled = this.isLoading(status);
     this.resetButton.setAttribute('aria-disabled', this.resetButton.disabled ? 'true' : 'false');
-    this.progressWrap.hidden = !(this.isBusy(status) || status === WORKER_STATE.UNSUPPORTED);
+    this.progressWrap.hidden = !(this.isLoading(status) || status === WORKER_STATE.UNSUPPORTED);
 
     if (status === WORKER_STATE.READY) {
       this.setComposerPlaceholder(STATIC_READY_PLACEHOLDER);
@@ -506,7 +507,7 @@ export class LocalLlmUtility {
     this.updateTelemetry();
   }
 
-  isBusy(status = this.status) {
+  isLoading(status = this.status) {
     return status === WORKER_STATE.CHECKING || status === WORKER_STATE.LOADING || status === WORKER_STATE.OPTIMIZING;
   }
 
@@ -514,10 +515,11 @@ export class LocalLlmUtility {
     const appearance = LOAD_CONTROL[this.status] || LOAD_CONTROL.idle;
 
     this.startButton.disabled = appearance.disabled;
+    this.startButton.setAttribute('aria-disabled', appearance.disabled ? 'true' : 'false');
     this.startButton.classList.remove('local-llm-load-control--loading', 'local-llm-load-control--ready', 'local-llm-load-control--error');
     if (appearance.cls) this.startButton.classList.add(appearance.cls);
 
-    if (this.isBusy()) {
+    if (this.isLoading()) {
       this.startText.textContent = LOAD_SPINNER_FRAMES[this.loadSpinnerIndex % LOAD_SPINNER_FRAMES.length];
       this.startButton.setAttribute('aria-label', 'Loading the local model');
       this.startLoadSpinner();
@@ -532,7 +534,7 @@ export class LocalLlmUtility {
     if (this.loadSpinnerTimer) return;
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
     this.loadSpinnerTimer = window.setInterval(() => {
-      if (!this.isBusy()) {
+      if (!this.isLoading()) {
         this.stopLoadSpinner();
         return;
       }
@@ -561,7 +563,7 @@ export class LocalLlmUtility {
 
   getDisplayedProgressValue() {
     const actual = Math.max(0, Math.min(100, this.progress));
-    if (!this.isBusy() || !this.loadingSequenceStartedAt) return actual;
+    if (!this.isLoading() || !this.loadingSequenceStartedAt) return actual;
 
     const totalMs = (LOAD_SEQUENCE_COPY.length - 1) * LOAD_SEQUENCE_STEP_MS + LOAD_SEQUENCE_FINAL_HOLD_MS;
     const elapsedRatio = Math.max(0, Math.min(1, (performance.now() - this.loadingSequenceStartedAt) / totalMs));
@@ -596,12 +598,12 @@ export class LocalLlmUtility {
 
   flushStatePanelRender() {
     const hasMessages = this.messages.length > 0;
-    const shouldShowPanel = !hasMessages || this.isBusy() || this.status === WORKER_STATE.ERROR || this.status === WORKER_STATE.UNSUPPORTED;
+    const shouldShowPanel = !hasMessages || this.isLoading() || this.status === WORKER_STATE.ERROR || this.status === WORKER_STATE.UNSUPPORTED;
     this.transcript.classList.toggle('local-llm-transcript--empty-panel', shouldShowPanel && !hasMessages);
     this.center.hidden = !shouldShowPanel;
     if (!shouldShowPanel) return;
 
-    const isBusyPanel = this.isBusy();
+    const isBusyPanel = this.isLoading();
     const copy = this.status === WORKER_STATE.READY && !hasMessages
       ? this.getReadySuggestion()
       : isBusyPanel
@@ -613,8 +615,9 @@ export class LocalLlmUtility {
       this._currentCopyTarget = safeCopy;
       clearTimeout(this._copyTimer);
       this.loadCopy.style.transition = 'none';
-      void this.loadCopy.offsetHeight;
-      this.loadCopy.style.transition = '';
+      requestAnimationFrame(() => {
+        this.loadCopy.style.transition = '';
+      });
       if (!isBusyPanel && this.loadCopy.innerHTML && !this.center.hidden && this.loadCopy.style.opacity !== '0') {
         this.loadCopy.style.opacity = '0';
         this._copyTimer = setTimeout(() => {
@@ -633,7 +636,7 @@ export class LocalLlmUtility {
     this.modelNote.textContent = hideModelNote
       ? ''
       : `${LOCAL_LLM_CONFIG.model.displayName} (${LOCAL_LLM_CONFIG.model.sizeLabel}) · ${LOCAL_LLM_CONFIG.runtime.name} · private to this browser`;
-    this.progressWrap.hidden = !(this.isBusy() || this.status === WORKER_STATE.UNSUPPORTED);
+    this.progressWrap.hidden = !(this.isLoading() || this.status === WORKER_STATE.UNSUPPORTED);
   }
 
   startPromptCycle() {
@@ -953,6 +956,8 @@ export class LocalLlmUtility {
     if (clearMessages) {
       this.messages = [];
       this.assistantDraft = null;
+      this._messageElements = new WeakMap();
+      this._renderedMessageContent = new WeakMap();
       this.renderMessages();
     }
     this.tps = null;
@@ -979,7 +984,12 @@ export class LocalLlmUtility {
     this.stopPromptCycle();
     this.stopLoadingSequence({ clearPending: true });
     this.renderMessages();
-    const cacheCleared = await this.clearBrowserModelCaches();
+    let cacheCleared = false;
+    try {
+      cacheCleared = await this.clearBrowserModelCaches();
+    } catch (error) {
+      console.debug('Local assistant cache reset failed.', error);
+    }
     if (!cacheCleared) {
       this.addSystemNotice('Cache deletion failed. The model may reload from cache. Try a hard refresh if issues persist.');
     }
@@ -1015,6 +1025,10 @@ export class LocalLlmUtility {
       clearTimeout(this._copyTimer);
       this._copyTimer = null;
     }
+    if (this.typingTimer) {
+      clearTimeout(this.typingTimer);
+      this.typingTimer = null;
+    }
     this.stopPromptCycle();
     this.stopLoadingSequence({ clearPending: true });
     this.root.dataset.localLlmMounted = 'false';
@@ -1035,6 +1049,8 @@ export class LocalLlmUtility {
     this.stopLoadingSequence({ clearPending: true });
     if (clearMessages) {
       this.messages = [];
+      this._messageElements = new WeakMap();
+      this._renderedMessageContent = new WeakMap();
       this.input.value = '';
       this.renderMessages({ animate: false });
     }
@@ -1218,17 +1234,7 @@ function formatStatus(status) {
 }
 
 async function deleteLocalModelCaches() {
-  if (!window.caches?.keys || !window.caches?.delete) return false;
-
-  try {
-    const cacheNames = await window.caches.keys();
-    const targets = cacheNames.filter((name) => /huggingface|transformers|local-llm|bonsai/i.test(name));
-    await Promise.all(targets.map((name) => window.caches.delete(name)));
-    return true;
-  } catch (error) {
-    console.debug('Local assistant cache deletion failed.', error);
-    return false;
-  }
+  return deleteBrowserModelCaches(window.caches, 'Local assistant cache deletion failed.');
 }
 
 export function initLocalLlmUtility() {

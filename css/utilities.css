@@ -48,6 +48,7 @@ body {
 .nav-home-btn {
   padding: 0.5rem 0;
   opacity: 0;
+  visibility: visible;
   pointer-events: none;
   animation: fade-in-home 1.5s ease-out forwards;
   animation-delay: 6s;
@@ -75,6 +76,7 @@ body {
   border: none;
   cursor: pointer;
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
   transition: opacity 0.3s ease;
   white-space: nowrap;
@@ -82,11 +84,13 @@ body {
 
 html[data-active-utility] .nav-home-btn {
   opacity: 0 !important;
+  visibility: hidden;
   pointer-events: none !important;
 }
 
 html[data-active-utility] .nav-back-btn {
   opacity: 1;
+  visibility: visible;
   pointer-events: auto;
 }
 
@@ -129,6 +133,7 @@ html[data-active-utility] .nav-back-btn {
 
 .hero-title {
   font-family: var(--font-display), serif;
+  font-size: 5rem;
   font-size: clamp(3.6rem, 10vw, 6.4rem);
   font-weight: var(--weight-normal);
   line-height: 0.94;
@@ -138,6 +143,7 @@ html[data-active-utility] .nav-back-btn {
 
 .hero-subtitle {
   max-width: 26rem;
+  font-size: 1.08rem;
   font-size: clamp(1rem, 1.7vw, 1.14rem);
   line-height: var(--leading-relaxed);
   color: var(--color-text-secondary);
@@ -162,6 +168,7 @@ html[data-active-utility] .nav-back-btn {
 }
 
 .section-title {
+  font-size: 3rem;
   font-size: clamp(2.15rem, 5vw, 4rem);
   line-height: 0.96;
 }
@@ -180,6 +187,7 @@ html[data-active-utility] .nav-back-btn {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  padding: 1.5rem;
   padding: clamp(1.2rem, 2.5vw, 1.8rem);
   border-radius: calc(var(--radius-2xl) + 0.5rem);
   border: 1px solid var(--utilities-border-strong);
@@ -191,6 +199,42 @@ html[data-active-utility] .nav-back-btn {
     0 32px 64px -24px rgba(0, 0, 0, 0.8),
     var(--utilities-shadow);
   overflow: hidden;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .utility-shell,
+  .canvas-panel,
+  .canvas-panel-minimal,
+  .utilities-title-wrapper,
+  .utility-progress-copy-minimal {
+    background-color: rgba(0, 0, 0, 0.82);
+  }
+}
+
+@supports not (width: clamp(1rem, 2vw, 3rem)) {
+  .utility-shell-header,
+  .utility-controls,
+  .audio-toolbar,
+  .stress-telemetry-grid {
+    gap: 1rem;
+  }
+
+  .canvas-stage,
+  .audio-visual-stage {
+    inline-size: min(100%, 32rem);
+  }
+
+  .utility-shell--audio .audio-result-stats dd,
+  .stress-metric-card dd {
+    font-size: 1.05rem;
+  }
+
+  .utilities-buttons button {
+    min-width: 18rem;
+    min-height: 5rem;
+    padding-inline: 2.25rem;
+    font-size: 2rem;
+  }
 }
 
 .utility-shell-header {
@@ -205,6 +249,7 @@ html[data-active-utility] .nav-back-btn {
 
 .utility-title {
   font-family: var(--font-display), serif;
+  font-size: 2.35rem;
   font-size: clamp(2rem, 3.5vw, 2.8rem);
   font-weight: 400;
   line-height: 0.95;
@@ -744,12 +789,8 @@ html[data-active-utility] .nav-back-btn {
   flex: 1;
 }
 
-#utilitiesApp:not([data-transform-has-result='true']) .support-panels {
-  display: none;
-}
-
 #utilitiesApp .support-panels {
-  display: none !important;
+  display: none;
 }
 
 /* ========================================

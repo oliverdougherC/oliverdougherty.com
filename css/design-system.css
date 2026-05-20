@@ -603,6 +603,12 @@ html {
   pointer-events: none;
 }
 
+@supports not (mask-composite: exclude) {
+  .card::before {
+    content: none;
+  }
+}
+
 .card:hover {
   border-color: rgba(255, 255, 255, 0.15);
   background: rgba(26, 31, 23, 0.6);

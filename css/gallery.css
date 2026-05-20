@@ -59,6 +59,7 @@ body.gallery-lightbox-open {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 45vw);
+  gap: var(--space-12);
   gap: clamp(var(--space-8), 8vw, var(--space-24));
   align-items: center;
   width: 100%;
@@ -102,6 +103,7 @@ body.gallery-lightbox-open {
   color: #000000;
   font-family: var(--font-display);
   font-weight: 800;
+  font-size: 6rem;
   font-size: clamp(4.2rem, 11.5vw, 10rem);
   line-height: 1.0;
   letter-spacing: -0.02em;
@@ -113,6 +115,7 @@ body.gallery-lightbox-open {
   position: relative;
   display: block;
   width: 100%;
+  max-width: 34rem;
   max-width: clamp(24rem, 45vw, 40rem);
   background: transparent;
   box-shadow: none;
@@ -158,6 +161,26 @@ body.gallery-lightbox-open {
 .hero-feature-image {
   display: block;
   object-fit: cover;
+}
+
+@supports not (aspect-ratio: 1) {
+  .hero-feature-media,
+  .photo-media {
+    height: 0;
+    padding-top: 75%;
+  }
+
+  .hero-feature-media picture,
+  .hero-feature-media img,
+  .photo-media picture,
+  .photo-media img {
+    position: absolute;
+    inset: 0;
+  }
+
+  .lightbox-thumb img {
+    height: 110px;
+  }
 }
 
 /* Bespoke Optical Calibration Animation */
@@ -217,6 +240,7 @@ body.gallery-lightbox-open {
 .gallery-status-section > .container-wide,
 .gallery-section > .container-wide {
   max-width: 1440px;
+  padding-inline: var(--space-8);
   padding-inline: clamp(var(--space-6), 4vw, var(--space-10));
 }
 
@@ -259,6 +283,7 @@ body.gallery-lightbox-open {
 .empty-title {
   margin: 0;
   font-family: var(--font-display);
+  font-size: 2.4rem;
   font-size: clamp(2rem, 4vw, 2.8rem);
 }
 
@@ -286,6 +311,7 @@ body.gallery-lightbox-open {
 .archive-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4rem 2.5rem;
   gap: clamp(3.5rem, 5.5vw, 5.5rem) clamp(2rem, 3vw, 3rem);
   align-items: start;
   max-width: 1220px;
@@ -503,7 +529,6 @@ body.gallery-lightbox-open {
   background: var(--lb-surface);
   box-shadow: none;
   transform: translateZ(0);
-  will-change: transform;
 }
 
 .lightbox-topbar {
@@ -650,6 +675,18 @@ body.gallery-lightbox-open {
   color: var(--lb-text);
 }
 
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .lightbox-backdrop {
+    background: rgba(246, 246, 244, 0.98);
+  }
+
+  .lightbox-counter,
+  .lightbox-close,
+  .lightbox-nav {
+    background: rgba(255, 255, 255, 0.96);
+  }
+}
+
 .lightbox-panel {
   display: flex;
   flex-direction: column;
@@ -664,7 +701,6 @@ body.gallery-lightbox-open {
   scrollbar-width: none;
   min-height: 0;
   transform: translateZ(0);
-  will-change: transform;
 }
 
 .lightbox-panel::-webkit-scrollbar {
@@ -687,6 +723,7 @@ body.gallery-lightbox-open {
 .lightbox-title {
   margin: 0;
   font-family: var(--font-display);
+  font-size: 2.5rem;
   font-size: clamp(2rem, 4vw, 3rem);
   line-height: 0.94;
   color: var(--lb-text);
@@ -887,10 +924,12 @@ body.nav-open .nav-dot {
 @media (max-width: 1024px) {
   .gallery-hero-layout {
     grid-template-columns: minmax(0, 1fr) minmax(220px, 38vw);
+    gap: var(--space-10);
     gap: clamp(var(--space-6), 6vw, var(--space-14));
   }
 
   .hero-feature-card {
+    max-width: 20rem;
     max-width: clamp(16rem, 44vw, 24rem);
   }
 
@@ -970,6 +1009,7 @@ body.nav-open .nav-dot {
   }
 
   .hero-title {
+    font-size: 4rem;
     font-size: clamp(3.2rem, 16vw, 5.2rem);
   }
 

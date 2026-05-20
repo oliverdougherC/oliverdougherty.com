@@ -1,4 +1,5 @@
 import { LOCAL_LLM_CONFIG, WORKER_STATE } from './local-llm-config.js';
+import { deleteLocalModelCaches } from './local-llm-cache.js';
 import { cleanupLocalLlmText as cleanupModelText } from './local-llm-rendering.js';
 
 let transformersModule = null;
@@ -42,7 +43,10 @@ self.addEventListener('message', (event) => {
 
   if (message.type === 'dispose') {
     void disposeModel(message.clearCache === true);
+    return;
   }
+
+  console.debug('Unknown local assistant worker message type:', message.type);
 });
 
 async function loadModel() {
@@ -266,7 +270,7 @@ async function disposeModel(clearCache) {
   stoppingCriteria = null;
   state = WORKER_STATE.DISPOSED;
 
-  if (clearCache) await deleteLocalModelCaches();
+  if (clearCache) await deleteLocalModelCaches(self.caches, 'Local assistant worker cache deletion failed.');
   postMessage({ type: 'disposed', state });
 }
 
@@ -451,20 +455,6 @@ function tokenRate(startedAt, numTokens) {
   if (!startedAt || numTokens <= 1) return null;
   const elapsed = Math.max(1, performance.now() - startedAt);
   return (numTokens / elapsed) * 1000;
-}
-
-async function deleteLocalModelCaches() {
-  if (!self.caches?.keys || !self.caches?.delete) return false;
-
-  try {
-    const cacheNames = await self.caches.keys();
-    const targets = cacheNames.filter((name) => /huggingface|transformers|local-llm|bonsai/i.test(name));
-    await Promise.all(targets.map((name) => self.caches.delete(name)));
-    return true;
-  } catch (error) {
-    console.debug('Local assistant worker cache deletion failed.', error);
-    return false;
-  }
 }
 
 function isAbortError(error) {
