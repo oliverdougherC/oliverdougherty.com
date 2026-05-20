@@ -164,7 +164,7 @@ async function loadGalleryEntries() {
 
 async function fetchJson(path, throwOnFailure) {
   try {
-    const response = await fetch(path, { cache: 'no-cache' });
+    const response = await fetch(path);
     if (!response.ok) {
       if (throwOnFailure) {
         throw new Error(`Failed to load ${path}`);
@@ -587,7 +587,7 @@ function buildLightboxThumbStrip() {
 
 function openLightboxById(entryId, triggerElement) {
   const index = gallery.entries.findIndex((entry) => entry.id === entryId);
-  if (index === -1) return;
+  if (index === -1 || !gallery.elements.lightbox) return;
 
   gallery.currentIndex = index;
   gallery.lightboxOpen = true;
@@ -595,15 +595,30 @@ function openLightboxById(entryId, triggerElement) {
   gallery.elements.lightbox.hidden = false;
   gallery.elements.lightbox.classList.add('is-active');
   document.body.classList.add('gallery-lightbox-open');
+  setPageInert(true);
   setInfoPanelOpen(!window.matchMedia('(max-width: 900px)').matches);
   renderLightboxEntry(gallery.entries[index]);
   syncHash(entryId);
-  gallery.elements.lightboxClose.focus();
+  gallery.elements.lightboxClose?.focus();
 }
 
 function renderLightboxEntry(entry) {
+  const elements = gallery.elements;
+  if (
+    !elements.lightboxImage ||
+    !elements.lightboxCounter ||
+    !elements.lightboxEyebrow ||
+    !elements.lightboxTitle ||
+    !elements.lightboxSubline ||
+    !elements.lightboxNotes ||
+    !elements.lightboxMeta ||
+    !elements.lightboxThumbStrip
+  ) {
+    return;
+  }
+
   setPictureSource(
-    gallery.elements.lightboxSourceAvif,
+    elements.lightboxSourceAvif,
     buildSrcset([
       makeResponsiveCandidate(entry.assets.mediumAvif, entry.assets.mediumWidth),
       makeResponsiveCandidate(entry.assets.largeAvif, entry.assets.largeWidth)
@@ -611,7 +626,7 @@ function renderLightboxEntry(entry) {
     '(max-width: 900px) 100vw, calc(100vw - 400px)'
   );
   setPictureSource(
-    gallery.elements.lightboxSourceWebp,
+    elements.lightboxSourceWebp,
     buildSrcset([
       makeResponsiveCandidate(entry.assets.mediumWebp, entry.assets.mediumWidth),
       makeResponsiveCandidate(entry.assets.largeWebp, entry.assets.largeWidth)
@@ -619,22 +634,22 @@ function renderLightboxEntry(entry) {
     '(max-width: 900px) 100vw, calc(100vw - 400px)'
   );
 
-  gallery.elements.lightboxImage.src = entry.assets.largeJpg || entry.assets.mediumJpg || entry.assets.original;
-  gallery.elements.lightboxImage.alt = entry.displayTitle;
-  gallery.elements.lightboxImage.srcset = buildSrcset([
+  elements.lightboxImage.src = entry.assets.largeJpg || entry.assets.mediumJpg || entry.assets.original;
+  elements.lightboxImage.alt = entry.displayTitle;
+  elements.lightboxImage.srcset = buildSrcset([
     makeResponsiveCandidate(entry.assets.mediumJpg, entry.assets.mediumWidth),
     makeResponsiveCandidate(entry.assets.largeJpg, entry.assets.largeWidth)
   ]);
-  gallery.elements.lightboxImage.sizes = '(max-width: 900px) 100vw, calc(100vw - 400px)';
+  elements.lightboxImage.sizes = '(max-width: 900px) 100vw, calc(100vw - 400px)';
 
-  gallery.elements.lightboxCounter.textContent = `${String(gallery.currentIndex + 1).padStart(2, '0')} / ${String(gallery.entries.length).padStart(2, '0')}`;
-  gallery.elements.lightboxEyebrow.textContent = entry.featured ? 'Featured frame' : 'Archive frame';
-  gallery.elements.lightboxTitle.textContent = entry.displayTitle;
-  gallery.elements.lightboxSubline.textContent = '';
-  gallery.elements.lightboxNotes.textContent = buildNarrativeCopy(entry);
-  gallery.elements.lightboxMeta.replaceChildren(buildLightboxMeta(entry));
+  elements.lightboxCounter.textContent = `${String(gallery.currentIndex + 1).padStart(2, '0')} / ${String(gallery.entries.length).padStart(2, '0')}`;
+  elements.lightboxEyebrow.textContent = entry.featured ? 'Featured frame' : 'Archive frame';
+  elements.lightboxTitle.textContent = entry.displayTitle;
+  elements.lightboxSubline.textContent = '';
+  elements.lightboxNotes.textContent = '';
+  elements.lightboxMeta.replaceChildren(buildLightboxMeta(entry));
 
-  gallery.elements.lightboxThumbStrip.querySelectorAll('.lightbox-thumb').forEach((button) => {
+  elements.lightboxThumbStrip.querySelectorAll('.lightbox-thumb').forEach((button) => {
     const active = button.dataset.entryId === entry.id;
     button.classList.toggle('is-active', active);
     if (active) {
@@ -643,10 +658,6 @@ function renderLightboxEntry(entry) {
   });
 
   preloadAdjacentEntries(gallery.currentIndex);
-}
-
-function buildNarrativeCopy(entry) {
-  return '';
 }
 
 function buildLightboxMeta(entry) {
@@ -694,6 +705,7 @@ function buildLightboxMeta(entry) {
 
     const summary = document.createElement('summary');
     summary.className = 'lightbox-meta-summary';
+    summary.setAttribute('aria-label', 'Toggle additional photo metadata');
     summary.textContent = 'Additional Info';
 
     const detailsContent = document.createElement('div');
@@ -711,7 +723,7 @@ function buildLightboxMeta(entry) {
 }
 
 function navigateLightbox(direction) {
-  if (!gallery.entries.length || gallery.currentIndex < 0) return;
+  if (!gallery.entries.length || gallery.currentIndex < 0 || !gallery.elements.lightboxImage) return;
 
   if (gallery.lightboxNavigationTimer) {
     window.clearTimeout(gallery.lightboxNavigationTimer);
@@ -729,16 +741,23 @@ function navigateLightbox(direction) {
 
     requestAnimationFrame(() => {
       gallery.elements.lightboxImage.style.opacity = '1';
+      gallery.elements.lightboxImage.addEventListener('transitionend', cleanupLightboxImageOpacity, { once: true });
     });
   }, 150);
+}
+
+function cleanupLightboxImageOpacity() {
+  gallery.elements.lightboxImage?.style.removeProperty('opacity');
 }
 
 function closeLightbox({ updateHashState = true } = {}) {
   if (!gallery.lightboxOpen) return;
 
   gallery.lightboxOpen = false;
-  gallery.elements.lightbox.classList.remove('is-active');
+  gallery.elements.lightbox?.classList.remove('is-active');
   document.body.classList.remove('gallery-lightbox-open');
+  setPageInert(false);
+  cleanupLightboxImageOpacity();
   if (updateHashState) {
     clearHash();
   }
@@ -747,9 +766,21 @@ function closeLightbox({ updateHashState = true } = {}) {
 
   setTimeout(() => {
     if (!gallery.lightboxOpen) {
-      gallery.elements.lightbox.hidden = true;
+      if (gallery.elements.lightbox) {
+        gallery.elements.lightbox.hidden = true;
+      }
     }
   }, 300);
+}
+
+function setPageInert(active) {
+  document.querySelectorAll('body > :not(#lightbox)').forEach((element) => {
+    if (active) {
+      element.setAttribute('inert', '');
+    } else {
+      element.removeAttribute('inert');
+    }
+  });
 }
 
 function handleGlobalKeydown(event) {
@@ -779,6 +810,7 @@ function handleGlobalKeydown(event) {
 }
 
 function trapFocus(event) {
+  if (!gallery.elements.lightbox) return;
   const focusables = gallery.elements.lightbox.querySelectorAll(
     'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
   );
@@ -798,8 +830,8 @@ function trapFocus(event) {
 
 function setInfoPanelOpen(active) {
   gallery.infoPanelOpen = Boolean(active);
-  gallery.elements.lightboxPanel.classList.toggle('is-open', gallery.infoPanelOpen);
-  gallery.elements.lightboxInfoToggle.setAttribute('aria-expanded', String(gallery.infoPanelOpen));
+  gallery.elements.lightboxPanel?.classList.toggle('is-open', gallery.infoPanelOpen);
+  gallery.elements.lightboxInfoToggle?.setAttribute('aria-expanded', String(gallery.infoPanelOpen));
 }
 
 function syncHash(entryId) {
@@ -935,7 +967,6 @@ function normalizeGalleryKey(value) {
 
 function formatTitle(filename) {
   const parts = basenameFromPath(filename)
-    .replace(/\.(avif|webp|jpe?g|png)$/i, '')
     .replace(/\.(avif|webp|jpe?g|png)$/i, '')
     .split(/[-_]+/)
     .filter(Boolean);

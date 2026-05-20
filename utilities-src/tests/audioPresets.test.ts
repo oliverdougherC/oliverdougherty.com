@@ -9,7 +9,7 @@ import {
 
 describe('built-in audio presets', () => {
   it('maps the default Fourier sources to bundled song files', () => {
-    expect(DEFAULT_BUILT_IN_AUDIO_PRESET_ID).toBe('i-cant-wait-to-get-there');
+    expect(DEFAULT_BUILT_IN_AUDIO_PRESET_ID).toBe('best-friends');
     expect(Object.keys(BUILT_IN_AUDIO_PRESETS)).toEqual([
       'best-friends',
       'i-cant-wait-to-get-there',

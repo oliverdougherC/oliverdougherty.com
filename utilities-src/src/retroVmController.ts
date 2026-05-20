@@ -6,12 +6,29 @@ import {
   resolveRetroVmConfigFromDataset
 } from './retroVmConfig';
 import { detectRetroVmSupport, resolveRetroVmStatusView, transitionRetroVmState } from './retroVmSupport';
-import type { RetroVmConfig, RetroVmProgress, RetroVmState } from './retroVmTypes';
+import type { RetroVmConfig, RetroVmDatasetConfig, RetroVmProgress, RetroVmState } from './retroVmTypes';
 import type { V86, V86DownloadProgress } from 'v86';
 import v86WasmUrl from 'v86/build/v86.wasm?url';
 
 // The second key press lands after SeaBIOS hands off to the Tiny Core boot prompt.
 const BOOT_MENU_SECOND_ENTER_DELAY_MS = 900;
+
+function readRetroVmJsonConfig(): RetroVmDatasetConfig {
+  const configElement = document.getElementById('retroVmConfig');
+  if (!(configElement instanceof HTMLScriptElement) || configElement.type !== 'application/json') {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(configElement.textContent || '{}') as unknown;
+    return parsed && typeof parsed === 'object'
+      ? readRetroVmDatasetConfig(parsed as Partial<Record<keyof RetroVmDatasetConfig, string | undefined>>)
+      : {};
+  } catch (error) {
+    debugRetroVm('Unable to parse Retro VM JSON config; falling back to data attributes.', error);
+    return {};
+  }
+}
 
 declare global {
   interface Window {
@@ -295,11 +312,9 @@ class RetroVmMouseBridge {
     try {
       // Pointer lock keeps relative mouse input flowing even when the host cursor
       // would have left the VM viewport.
-      try {
-        await this.root.requestPointerLock({ unadjustedMovement: true });
-      } catch {
-        await this.root.requestPointerLock();
-      }
+      await this.root
+        .requestPointerLock({ unadjustedMovement: true })
+        .catch(() => this.root.requestPointerLock());
     } catch (error) {
       // Ignore browsers that deny pointer lock; the unlocked fallback still works.
       debugRetroVm('Pointer lock request was denied; continuing with absolute mouse input.', error);
@@ -427,7 +442,10 @@ export class RetroVmController {
 
   constructor(root: HTMLElement) {
     this.root = root;
-    this.config = resolveRetroVmConfigFromDataset(readRetroVmDatasetConfig(root.dataset));
+    this.config = resolveRetroVmConfigFromDataset({
+      ...readRetroVmDatasetConfig(root.dataset),
+      ...readRetroVmJsonConfig()
+    });
     this.progress = { loadedBytes: 0, totalBytes: this.config.cdromSizeBytes };
     this.statusChip = document.getElementById('retroVmStatusChip');
     this.statusText = document.getElementById('retroVmStatusText');
@@ -786,6 +804,9 @@ export class RetroVmController {
     this.progressMeta.textContent = this.config.copy.progressMeta;
     this.screenBadge.textContent = this.getScreenBadgeLabel();
     this.root.dataset.vmNetworkReady = isRetroVmNetworkReady(this.config) ? 'true' : 'false';
+    this.root.dataset.vmAssetLabel = this.config.copy.assetLabel;
+    this.root.dataset.vmBridgeLabelOnline = this.config.copy.bridgeLabelOnline;
+    this.root.dataset.vmBridgeLabelOffline = this.config.copy.bridgeLabelOffline;
   }
 
   private applyInteractionStatusCopy() {
@@ -877,13 +898,23 @@ export class RetroVmController {
     if (this.progressFill) {
       this.progressFill.style.width = `${percent}%`;
     }
-    this.launchButton.disabled = !this.support.supported || Boolean(this.emulator) || this.state === 'loading' || this.state === 'resetting' || this.state === 'fullscreen';
+    this.launchButton.disabled = this.shouldDisableLaunchButton();
     this.resetButton.disabled = !this.support.supported || (!this.emulator && this.state !== 'error');
     this.fullscreenButton.disabled =
       !this.emulator || !document.fullscreenEnabled || (this.state !== 'running' && this.state !== 'fullscreen');
     this.pasteButton.disabled = !this.emulator;
     this.root.dataset.vmRunning = this.emulator ? 'true' : 'false';
     this.applyInteractionStatusCopy();
+  }
+
+  private shouldDisableLaunchButton() {
+    return (
+      !this.support.supported ||
+      Boolean(this.emulator) ||
+      this.state === 'loading' ||
+      this.state === 'resetting' ||
+      this.state === 'fullscreen'
+    );
   }
 
   dispose() {
@@ -906,6 +937,8 @@ export class RetroVmController {
     this.screenContainer.style.removeProperty('--vm-guest-width');
     this.screenContainer.style.removeProperty('--vm-guest-height');
     this.screenContainer.innerHTML = '';
-    void this.destroySession();
+    this.destroySession().catch((error) => {
+      debugRetroVm('VM session teardown failed during dispose.', error);
+    });
   }
 }

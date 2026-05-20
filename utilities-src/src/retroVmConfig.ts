@@ -137,7 +137,7 @@ export function buildRetroVmV86Options(
     wasm_path: wasmPath,
     bios: { url: config.biosUrl },
     vga_bios: { url: config.vgaBiosUrl },
-    cdrom: config.cdromSizeBytes
+    cdrom: config.cdromSizeBytes != null
       ? { url: config.cdromUrl, size: config.cdromSizeBytes }
       : { url: config.cdromUrl },
     autostart: true,
@@ -147,20 +147,22 @@ export function buildRetroVmV86Options(
     disable_mouse: true
   };
 
-  if (isRetroVmNetworkReady(config)) {
-    options.net_device = {
+  const relayUrl = config.network.relayUrl;
+  if (isRetroVmNetworkReady(config) && relayUrl) {
+    const netDevice: NonNullable<V86Options['net_device']> = {
       type: config.network.nicType,
-      relay_url: config.network.relayUrl ?? undefined,
-      id: config.network.id,
-      router_mac: config.network.routerMac,
-      router_ip: config.network.routerIp,
-      vm_ip: config.network.vmIp,
-      masquerade: config.network.masquerade,
-      dns_method: config.network.dnsMethod,
-      doh_server: config.network.dohServer,
-      cors_proxy: config.network.corsProxy,
-      mtu: config.network.mtu
+      relay_url: relayUrl,
+      id: config.network.id
     };
+    if (config.network.routerMac !== undefined) netDevice.router_mac = config.network.routerMac;
+    if (config.network.routerIp !== undefined) netDevice.router_ip = config.network.routerIp;
+    if (config.network.vmIp !== undefined) netDevice.vm_ip = config.network.vmIp;
+    if (config.network.masquerade !== undefined) netDevice.masquerade = config.network.masquerade;
+    if (config.network.dnsMethod !== undefined) netDevice.dns_method = config.network.dnsMethod;
+    if (config.network.dohServer !== undefined) netDevice.doh_server = config.network.dohServer;
+    if (config.network.corsProxy !== undefined) netDevice.cors_proxy = config.network.corsProxy;
+    if (config.network.mtu !== undefined) netDevice.mtu = config.network.mtu;
+    options.net_device = netDevice;
   }
 
   return options;

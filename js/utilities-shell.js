@@ -49,6 +49,7 @@
   let isTransitioning = false;
   let hasExitedTitleCard = false;
   let localAssistantScriptPromise = null;
+  let localAssistantLoadAttempt = 0;
 
   function listen(target, type, handler, options) {
     if (!target) return;
@@ -105,18 +106,31 @@
     if (localAssistantScriptPromise) return localAssistantScriptPromise;
     localAssistantScriptPromise = new Promise(function(resolve, reject) {
       var existing = document.querySelector('script[data-local-llm-chat]');
-      if (existing) {
+      if (existing && existing.dataset.localLlmState !== 'failed') {
         resolve();
         return;
       }
+      if (existing) {
+        existing.remove();
+      }
 
       var script = document.createElement('script');
+      var attempt = String(localAssistantLoadAttempt + 1);
+      localAssistantLoadAttempt += 1;
       script.type = 'module';
       script.src = '../../js/local-llm-chat.js?v=utilities-2026-05-16-local-assistant-copy';
       script.dataset.localLlmChat = 'true';
-      script.onload = function() { resolve(); };
+      script.dataset.localLlmAttempt = attempt;
+      script.onload = function() {
+        script.dataset.localLlmState = 'loaded';
+        resolve();
+      };
       script.onerror = function() {
         localAssistantScriptPromise = null;
+        script.dataset.localLlmState = 'failed';
+        window.dispatchEvent(new CustomEvent('local-llm-script-load-failed', {
+          detail: { attempt: Number(attempt) }
+        }));
         script.remove();
         reject(new Error('Unable to load Local Assistant.'));
       };
@@ -185,11 +199,12 @@
 
     schedule(function () {
       isTransitioning = false;
+      focusTitleCard();
     }, getTransitionDelay(600));
   }
 
   function showUtility(utilityId, opts) {
-    opts = opts ?? {};
+    opts = opts || {};
     if (isTransitioning) return;
     isTransitioning = true;
     clearPendingTimers();
@@ -214,10 +229,10 @@
         }
         s.classList.remove('is-active', 'is-exiting');
       });
-      activateStage(incoming, utilityId);
 
       titleView.classList.remove('utilities-view--active');
       utilityView.classList.add('utilities-view--active');
+      activateStage(incoming, utilityId);
 
       currentUtilityId = utilityId;
 
@@ -259,6 +274,20 @@
     } else {
       window.location.hash = '';
     }
+  }
+
+  function focusTitleCard() {
+    var title = titleView ? titleView.querySelector('.utilities-title') : null;
+    var firstButton = titleButtons[0];
+    var target = title || firstButton;
+    if (!target || !hasExitedTitleCard) {
+      return;
+    }
+
+    if (!target.hasAttribute('tabindex')) {
+      target.setAttribute('tabindex', '-1');
+    }
+    target.focus({ preventScroll: true });
   }
 
   function destroy() {

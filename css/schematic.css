@@ -649,22 +649,6 @@ body.nav-open .nav-dot {
   .contact-links { flex-direction: column; }
 }
 
-/* Diagnostic: add .debug-alignment to .blueprint-title to see trace vs final text overlap */
-.blueprint-title.debug-alignment .blueprint-final-word {
-  opacity: 1 !important;
-  color: rgba(0, 0, 255, 0.6) !important;
-  animation: none !important;
-  filter: none !important;
-}
-.blueprint-title.debug-alignment .blueprint-outline-text {
-  opacity: 1 !important;
-  fill: rgba(255, 0, 0, 0.4) !important;
-  stroke: #FF0000 !important;
-  stroke-dashoffset: 0 !important;
-  animation: none !important;
-  filter: none !important;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .blueprint-final-word,
   .blueprint-svg,

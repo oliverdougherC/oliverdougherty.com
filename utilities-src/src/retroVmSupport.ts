@@ -48,7 +48,8 @@ export function detectRetroVmSupport(input: {
     (hasDocument && typeof document.fullscreenEnabled === 'boolean' ? document.fullscreenEnabled : false);
   const hasPointerLock = input.hasPointerLock ?? typeof requestPointerLock === 'function';
   const innerWidth = input.innerWidth ?? (hasWindow ? window.innerWidth : 0);
-  const maxTouchPoints = input.maxTouchPoints ?? (hasWindow ? navigator.maxTouchPoints : 0);
+  const hasNavigator = typeof navigator !== 'undefined';
+  const maxTouchPoints = input.maxTouchPoints ?? (hasWindow && hasNavigator ? navigator.maxTouchPoints : 0);
   const matchMediaImpl = input.matchMedia ?? (hasWindow ? window.matchMedia.bind(window) : undefined);
   const coarsePointer = readMatchMedia(matchMediaImpl, '(pointer: coarse)');
   const narrowScreen = innerWidth > 0 && innerWidth < 900;

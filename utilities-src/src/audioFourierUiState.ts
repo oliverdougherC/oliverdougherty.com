@@ -5,7 +5,7 @@ export function resolveAudioPlaybackButtonLabel(options: {
   isComplete: boolean;
 }) {
   if (options.isPlaying) {
-    return 'Pause';
+    return 'Play';
   }
 
   if (!options.hasResult || options.isProcessing) {

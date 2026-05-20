@@ -19,6 +19,7 @@
   let stars = [];
   let comets = [];
   let animationFrameId = 0;
+  let resizeFrameId = 0;
   let lastTimestamp = 0;
   let isHidden = document.hidden;
   let heavyUtilityActive = false;
@@ -605,8 +606,18 @@
     heavyUtilityActive = active;
   }
 
+  function queueResize() {
+    if (resizeFrameId) {
+      return;
+    }
+    resizeFrameId = requestAnimationFrame(function() {
+      resizeFrameId = 0;
+      resize();
+    });
+  }
+
   // Initialization
-  window.addEventListener('resize', resize);
+  window.addEventListener('resize', queueResize);
   document.addEventListener('visibilitychange', function() {
     isHidden = document.hidden;
     if (isHidden) {

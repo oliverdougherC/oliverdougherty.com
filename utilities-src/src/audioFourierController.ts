@@ -3,6 +3,7 @@ import {
   BUILT_IN_AUDIO_PRESETS,
   DEFAULT_BUILT_IN_AUDIO_PRESET_ID,
   getAudioFourierPreset,
+  isBuiltInAudioPresetId,
   type AudioFourierPresetId,
   type BuiltInAudioPresetId
 } from './audioPresets';
@@ -22,6 +23,8 @@ import { arrayBufferLikeToArrayBuffer, sliceArrayBufferView } from './bufferUtil
 
 type AudioFourierState = 'idle' | 'processing' | 'ready' | 'animating' | 'complete' | 'error';
 
+let moduleWorkerSupport: boolean | null = null;
+
 interface AudioFourierSelection {
   kind: 'preset' | 'file';
   label: string;
@@ -36,6 +39,23 @@ function buildDefaultAudioSelection(): AudioFourierSelection {
     label: preset.label,
     presetId: preset.id
   };
+}
+
+function supportsModuleWorkers() {
+  if (moduleWorkerSupport !== null) {
+    return moduleWorkerSupport;
+  }
+
+  try {
+    const blobUrl = URL.createObjectURL(new Blob([''], { type: 'text/javascript' }));
+    const worker = new Worker(blobUrl, { type: 'module' });
+    worker.terminate();
+    URL.revokeObjectURL(blobUrl);
+    moduleWorkerSupport = true;
+  } catch {
+    moduleWorkerSupport = false;
+  }
+  return moduleWorkerSupport;
 }
 
 interface ActiveBandNode {
@@ -107,6 +127,7 @@ export class AudioFourierController {
   private readonly qualitySelect: HTMLSelectElement;
   private readonly generateButton: HTMLButtonElement;
   private readonly playPauseButton: HTMLButtonElement;
+  private readonly pauseButton: HTMLButtonElement;
   private readonly resetButton: HTMLButtonElement;
   private readonly componentSlider: HTMLInputElement;
   private readonly componentReadout: HTMLElement;
@@ -180,7 +201,8 @@ export class AudioFourierController {
     this.input = this.requireElement('audioFourierInput');
     this.qualitySelect = this.requireElement('audioFourierQuality');
     this.generateButton = this.requireElement('audioFourierGenerateBtn');
-    this.playPauseButton = this.requireElement('audioFourierPlayPauseBtn');
+    this.playPauseButton = this.requireElement('audioFourierPlayBtn');
+    this.pauseButton = this.requireElement('audioFourierPauseBtn');
     this.resetButton = this.requireElement('audioFourierResetBtn');
     this.componentSlider = this.requireElement('audioFourierComponentSlider');
     this.componentReadout = this.requireElement('audioFourierComponentReadout');
@@ -221,9 +243,12 @@ export class AudioFourierController {
     const { signal } = this.eventController;
     this.input.addEventListener('change', () => this.handleFileSelection(this.input.files?.[0] ?? null), { signal });
     this.generateButton.addEventListener('click', () => {
-      void this.generate();
+      this.generate().catch((error) => this.handleGenerateFailure(error));
     }, { signal });
-    this.playPauseButton.addEventListener('click', () => this.handlePlayPauseClick(), { signal });
+    this.playPauseButton.addEventListener('click', () => {
+      this.handlePlayClick().catch((error) => this.handleGenerateFailure(error));
+    }, { signal });
+    this.pauseButton.addEventListener('click', () => this.pausePlayback(), { signal });
     this.resetButton.addEventListener('click', () => this.resetAll(), { signal });
     this.qualitySelect.addEventListener('change', () => this.invalidateComputedState('Quality changed. Generate again to rebuild the audio transform.'), { signal });
     this.componentSlider.addEventListener('input', () => this.handleSliderInput(), { signal });
@@ -245,8 +270,8 @@ export class AudioFourierController {
 
     this.presetButtons.forEach((button) => {
       button.addEventListener('click', () => {
-        const presetId = button.dataset.audioPreset as BuiltInAudioPresetId | undefined;
-        if (!presetId || !(presetId in BUILT_IN_AUDIO_PRESETS)) {
+        const presetId = button.dataset.audioPreset;
+        if (!presetId || !isBuiltInAudioPresetId(presetId)) {
           return;
         }
         this.applyBuiltInPreset(presetId);
@@ -345,7 +370,7 @@ export class AudioFourierController {
     canvas.height = height;
     background.width = width;
     background.height = height;
-    const context = background.getContext('2d')!;
+    const context = this.getContext(background);
     context.fillStyle = '#000000';
     context.fillRect(0, 0, width, height);
     return true;
@@ -377,7 +402,7 @@ export class AudioFourierController {
     const canvas = document.createElement('canvas');
     canvas.width = sourceCanvas.width;
     canvas.height = sourceCanvas.height;
-    const context = canvas.getContext('2d')!;
+    const context = this.getContext(canvas);
     context.fillStyle = '#000000';
     context.fillRect(0, 0, canvas.width, canvas.height);
     return canvas;
@@ -440,6 +465,8 @@ export class AudioFourierController {
     this.qualitySelect.disabled = isProcessing;
     this.componentSlider.disabled = !hasResult || isProcessing;
     this.playPauseButton.disabled = !hasResult || isProcessing;
+    this.pauseButton.disabled = !hasResult || isProcessing || !isPlaying;
+    this.pauseButton.hidden = !isPlaying;
     const playbackButton = resolveAudioPlaybackButtonState({
       hasResult,
       isProcessing,
@@ -449,6 +476,7 @@ export class AudioFourierController {
     this.playPauseButton.textContent = playbackButton.icon;
     this.playPauseButton.setAttribute('aria-label', playbackButton.label);
     this.playPauseButton.title = playbackButton.label;
+    this.pauseButton.title = 'Pause';
   }
 
   private setState(state: AudioFourierState, text: string) {
@@ -572,7 +600,13 @@ export class AudioFourierController {
       await this.getAudioContext().resume();
     } catch (error) {
       // Some browsers still require a second explicit Play click after async analysis.
+      console.warn('[AudioFourier] AudioContext resume was blocked before analysis started.', error);
       logAudioFourierWarning('AudioContext resume was blocked before analysis started.', error);
+      this.setProgress(
+        0.02,
+        'Loading audio samples...',
+        'Browser blocked audio unlock. Press Play after generation if autoplay is unavailable.'
+      );
     }
 
     try {
@@ -669,6 +703,10 @@ export class AudioFourierController {
       return this.worker;
     }
 
+    if (!supportsModuleWorkers()) {
+      throw new Error('This browser does not support module workers required for audio analysis.');
+    }
+
     this.worker = new Worker(new URL('./audioFourier.worker.ts', import.meta.url), {
       type: 'module'
     });
@@ -693,6 +731,12 @@ export class AudioFourierController {
       this.handleWorkerFailure();
     });
     return this.worker;
+  }
+
+  private handleGenerateFailure(error: unknown) {
+    console.error('[AudioFourier] Generate failed.', error);
+    this.setState('error', error instanceof Error ? error.message : 'Audio generation failed.');
+    this.setProgress(0, 'Audio generation failed.', 'Try a built-in song preset, a shorter file, or the Fast quality preset.');
   }
 
   private handleWorkerFailure() {
@@ -738,7 +782,7 @@ export class AudioFourierController {
   }
 
   private applySuccess(message: AudioFourierSuccessMessage) {
-    const sliderMaxValue = this.resolveSliderMaxValue(message.metadata.sliderSteps);
+    const sliderMaxValue = this.resolveSliderMaxValue();
     const sliderValue = Math.min(INITIAL_SLIDER_VALUE, sliderMaxValue);
     const energyPercent = mapSliderValueToEnergyPercent(sliderValue, sliderMaxValue);
     const bandEnergyFractions = new Float32Array(arrayBufferLikeToArrayBuffer(message.bandEnergyFractions));
@@ -769,7 +813,7 @@ export class AudioFourierController {
     this.sampleRateLabel.textContent = `${result.metadata.proxySampleRate.toFixed(0)} Hz proxy`;
     this.componentCountLabel.textContent = result.metadata.componentCount.toLocaleString();
     this.sourceDurationLabel.textContent = `${formatSeconds(result.metadata.sourceDurationSeconds)} source`;
-    this.durationLabel.textContent = `${result.metadata.timingsMs.total.toFixed(0)} ms`;
+    this.durationLabel.textContent = `Analysis ${result.metadata.timingsMs.total.toFixed(0)} ms`;
     this.renderCurrentViewport();
     this.setState('ready', 'Fourier proxy ready. Press Play to start audio.');
     this.syncEnergyReadout();
@@ -783,7 +827,7 @@ export class AudioFourierController {
       return;
     }
 
-    const sliderMaxValue = this.resolveSliderMaxValue(this.activeResult.metadata.sliderSteps);
+    const sliderMaxValue = this.resolveSliderMaxValue();
     this.componentSlider.disabled = false;
     this.componentSlider.min = '0';
     this.componentSlider.max = String(sliderMaxValue);
@@ -823,18 +867,17 @@ export class AudioFourierController {
     this.updateLiveBandGains();
     this.syncEnergyReadout();
 
+    if (this.state === 'animating') {
+      this.renderWaveViewport(true);
+      this.drawSpectrumFrame();
+      this.drawComponentFrame();
+      return;
+    }
+
     if (!this.sliderRafPending) {
       this.sliderRafPending = true;
       window.requestAnimationFrame(() => {
         this.sliderRafPending = false;
-        if (this.state === 'animating') {
-          if (this.waveRenderer.kind !== 'canvas2d') {
-            this.renderWaveViewport(true);
-          }
-          this.drawSpectrumFrame();
-          this.drawComponentFrame();
-          return;
-        }
         this.drawSpectrumFrame();
         this.drawComponentFrame();
         this.queueDeferredWaveRender();
@@ -973,9 +1016,22 @@ export class AudioFourierController {
     }
   }
 
-  private async handlePlayPauseClick() {
+  private async handlePlayClick() {
     if (this.state === 'animating') {
-      this.pausePlayback();
+      if (this.activeResult) {
+        this.playbackElapsedSeconds = clamp(
+          this.playbackElapsedSeconds + 0.75,
+          0,
+          this.activeResult.metadata.proxyDurationSeconds
+        );
+        this.visualPlaybackElapsedSeconds = clamp(
+          this.playbackElapsedSeconds,
+          0,
+          this.activeResult.metadata.proxyDurationSeconds
+        );
+        this.visualPlaybackUpdatedAt = 0;
+        this.renderWaveViewport(true);
+      }
       return;
     }
 
@@ -999,11 +1055,12 @@ export class AudioFourierController {
       return;
     }
 
+    const activeResult = this.activeResult;
     const context = this.getAudioContext();
     await context.resume();
     this.ensureBandBuffers();
 
-    const offset = clamp(this.playbackElapsedSeconds, 0, this.activeResult.metadata.proxyDurationSeconds);
+    const offset = clamp(this.playbackElapsedSeconds, 0, activeResult.metadata.proxyDurationSeconds);
     const startedAt = context.currentTime + PLAYBACK_START_DELAY_SECONDS;
     const masterGainValue = resolveEnergyMakeupGain(this.activeResult.energyPercent);
     const masterGain = context.createGain();
@@ -1016,14 +1073,14 @@ export class AudioFourierController {
     this.activeBandNodes = this.bandBuffers.map((buffer, index) => {
       const source = context.createBufferSource();
       const gain = context.createGain();
-      gain.gain.value = this.activeResult!.bandGains[index];
+      gain.gain.value = activeResult.bandGains[index];
       source.buffer = buffer;
       source.connect(gain);
       gain.connect(masterGain);
       source.start(startedAt, offset);
       return { source, gain };
     });
-    if (this.activeBandNodes.length !== this.activeResult.bandGains.length) {
+    if (this.activeBandNodes.length !== activeResult.bandGains.length) {
       this.stopPlayback(false);
       throw new Error('Audio band buffer count does not match the active gain count.');
     }
@@ -1146,9 +1203,7 @@ export class AudioFourierController {
           );
         }
       }
-      if (this.waveRenderer.kind !== 'canvas2d') {
-        this.renderWaveViewport(true);
-      }
+      this.renderWaveViewport(true);
       if (!this.lastPlaybackProgressAt || timestamp - this.lastPlaybackProgressAt >= PLAYBACK_PROGRESS_UPDATE_MS) {
         this.lastPlaybackProgressAt = timestamp;
         this.progressMeta.textContent = `${formatSeconds(this.playbackElapsedSeconds)} / ${formatSeconds(this.activeResult.metadata.proxyDurationSeconds)}`;
@@ -1224,6 +1279,9 @@ export class AudioFourierController {
     );
     const visualPointCount = Math.max(1, range.lastBucketIndex - range.firstBucketIndex);
     const isFullEnergy = result.energyPercent >= FULL_ENERGY_VISUAL_THRESHOLD;
+    const liveAmplitudePulse = livePlayback
+      ? 0.96 + ((performance.now() % 1000) / 1000) * 0.04
+      : 1;
     this.ensureVisualScratch(visualPointCount);
 
     for (let pointIndex = 0; pointIndex < visualPointCount; pointIndex += 1) {
@@ -1240,7 +1298,7 @@ export class AudioFourierController {
         originalAmplitude,
         mixedAmplitude,
         result.energyPercent
-      );
+      ) * liveAmplitudePulse;
     }
 
     writeSmoothedEnvelopeAmplitudes(this.visualOriginalRawScratch, this.visualOriginalFrameScratch, visualPointCount);

@@ -167,8 +167,6 @@ body.nav-open .nav-dot {
 
 .resume-hero {
   padding: var(--space-16) 0 var(--space-16);
-  background: #FFFFFF;
-  border-bottom: 1px solid #000000;
 }
 
 .hero-content {

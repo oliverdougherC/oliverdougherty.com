@@ -572,6 +572,13 @@ export function buildEnergyBandReconstruction(
   // For a 7M sample signal with 12 bands this is ~336 MB. The bands are
   // reconstructed once and stored for fast slider-driven mixing.
   const resolvedBandCount = clamp(Math.round(bandCount), 1, analysis.componentOrder.length);
+  const estimatedBandSampleBytes = resolvedBandCount * analysis.samples.length * Float32Array.BYTES_PER_ELEMENT;
+  if (estimatedBandSampleBytes > 256 * 1024 * 1024) {
+    onProgress?.(
+      0,
+      `Allocating high-memory band cache (${Math.round(estimatedBandSampleBytes / 1024 / 1024)} MB). Use Fast or Balanced if this device stalls.`
+    );
+  }
   const bandSamples = new Float32Array(resolvedBandCount * analysis.samples.length);
   const bandEndComponentCounts = new Uint32Array(resolvedBandCount);
   const bandEnergyFractions = new Float32Array(resolvedBandCount);

@@ -1,4 +1,5 @@
 import { LOCAL_LLM_CONFIG, WORKER_STATE } from './local-llm-config.js';
+import { cleanupLocalLlmText as cleanupModelText } from './local-llm-rendering.js';
 
 let transformersModule = null;
 let generator = null;
@@ -255,8 +256,8 @@ async function disposeModel(clearCache) {
   if (generator) {
     try {
       await generator.dispose();
-    } catch {
-      // Best-effort cleanup.
+    } catch (error) {
+      console.debug('Local assistant generator cleanup failed.', error);
     }
   }
 
@@ -444,15 +445,6 @@ function likelyFixForCategory(category) {
   if (category === 'out-of-memory') return 'Close memory-heavy tabs and retry. Bonsai is small, but WebGPU still needs enough browser memory.';
   if (category === 'runtime-import') return 'Check network access to the Transformers.js runtime CDN, then retry.';
   return 'Retry in a current desktop browser from HTTPS or localhost.';
-}
-
-function cleanupModelText(text) {
-  return String(text || '')
-    .replace(/<think[\s\S]*?<\/think>/gi, '')
-    .replace(/<think[\s\S]*$/gi, '')
-    .replace(/<\/?(?:s|pad|bos|eos|endoftext|im_start|im_end|\|im_start\||\|im_end\|)>/gi, '')
-    .replace(/<\|[^|]+?\|>/g, '')
-    .trim();
 }
 
 function tokenRate(startedAt, numTokens) {

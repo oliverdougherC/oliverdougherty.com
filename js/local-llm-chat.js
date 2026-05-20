@@ -1,4 +1,9 @@
 import { LOCAL_LLM_CONFIG, WORKER_STATE } from './local-llm-config.js';
+import {
+  cleanupLocalLlmText as cleanupModelText,
+  escapeHtml,
+  renderLocalLlmSafeText as renderSafeText
+} from './local-llm-rendering.js';
 
 const MAX_INPUT_CHARS = LOCAL_LLM_CONFIG.limits.maxInputChars;
 const STATIC_READY_PLACEHOLDER = 'Oh, what to say...';
@@ -10,12 +15,6 @@ const READY_SUGGESTIONS = [
   'Maybe something else entirely?'
 ];
 const LAST_READY_SUGGESTION = 'Maybe something else entirely?';
-const RE_RENDER_CODE_FENCE = /^```/;
-const RE_RENDER_UNORDERED_LIST = /^\s*[-*]/m;
-const RE_RENDER_UNORDERED_LINE = /^\s*[-*]\s/;
-const RE_RENDER_ORDERED_LIST = /^\s*\d+\.\s/m;
-const RE_RENDER_ORDERED_LINE = /^\s*\d+\.\s/;
-
 const STATE_COPY = {
   idle: 'Press "Load" to begin',
   checking: 'Checking WebGPU support.',
@@ -42,10 +41,12 @@ const LOAD_CONTROL = {
 
 const LOAD_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const LOAD_SPINNER_STEP_MS = 90;
-const LOAD_SEQUENCE_STEP_MS = 2500;
+const LOAD_SEQUENCE_STEP_MS = 2000;
+const LOAD_SEQUENCE_VISIBLE_FLOOR_MS = 1000;
+const LOAD_SEQUENCE_FINAL_HOLD_MS = 1800;
 const LOAD_SEQUENCE_COPY = [
   'Loading Bonsai 1.7B',
-  'This is a *teensy* LLM (~290 MB)',
+  'This is a teensy LLM (~290 MB)',
   'Runs entirely on your device',
   "Don't worry, I won't cache it in your browser ;)"
 ];
@@ -388,12 +389,15 @@ export class LocalLlmUtility {
     this.loadingSequenceIndex = 0;
     this.loadingSequenceStartedAt = performance.now();
     this.root.dataset.localLlmLoadingStep = String(this.loadingSequenceIndex);
-    this.root.dataset.localLlmLoadingFloorMs = String(LOAD_SEQUENCE_STEP_MS);
+    this.root.dataset.localLlmLoadingFloorMs = String(LOAD_SEQUENCE_VISIBLE_FLOOR_MS);
     this.scheduleLoadingSequenceStep();
   }
 
   scheduleLoadingSequenceStep() {
     window.clearTimeout(this.loadingSequenceTimer);
+    const delayMs = this.loadingSequenceIndex === LOAD_SEQUENCE_COPY.length - 1
+      ? LOAD_SEQUENCE_FINAL_HOLD_MS
+      : LOAD_SEQUENCE_STEP_MS;
     this.loadingSequenceTimer = window.setTimeout(() => {
       if (!this.loadingSequenceStartedAt) return;
 
@@ -408,7 +412,7 @@ export class LocalLlmUtility {
 
       this.loadingSequenceTimer = null;
       this.flushPendingReadyIfSequenceComplete();
-    }, LOAD_SEQUENCE_STEP_MS);
+    }, delayMs);
   }
 
   stopLoadingSequence({ clearPending = false } = {}) {
@@ -424,7 +428,8 @@ export class LocalLlmUtility {
 
   isLoadingSequenceComplete() {
     if (!this.loadingSequenceStartedAt) return true;
-    return performance.now() - this.loadingSequenceStartedAt >= LOAD_SEQUENCE_COPY.length * LOAD_SEQUENCE_STEP_MS;
+    const totalMs = (LOAD_SEQUENCE_COPY.length - 1) * LOAD_SEQUENCE_STEP_MS + LOAD_SEQUENCE_FINAL_HOLD_MS;
+    return performance.now() - this.loadingSequenceStartedAt >= totalMs;
   }
 
   getLoadingSequenceCopy() {
@@ -444,6 +449,11 @@ export class LocalLlmUtility {
   applyReadyMessage(message) {
     this.pendingReadyMessage = null;
     this.stopLoadingSequence();
+    clearTimeout(this._copyTimer);
+    this._copyTimer = null;
+    this._currentCopyTarget = '';
+    this.loadCopy.innerHTML = '';
+    this.loadCopy.style.opacity = '1';
     this.progress = 100;
     this.backend = message.backend || 'webgpu';
     this.modelReady = true;
@@ -452,7 +462,7 @@ export class LocalLlmUtility {
     this.updateProgressBar();
     this.startPromptCycle();
     this.input.focus({ preventScroll: true });
-    this.renderStatePanel();
+    this.renderStatePanel({ immediate: true });
   }
 
   updateStatus(status, label = '') {
@@ -553,7 +563,7 @@ export class LocalLlmUtility {
     const actual = Math.max(0, Math.min(100, this.progress));
     if (!this.isBusy() || !this.loadingSequenceStartedAt) return actual;
 
-    const totalMs = LOAD_SEQUENCE_COPY.length * LOAD_SEQUENCE_STEP_MS;
+    const totalMs = (LOAD_SEQUENCE_COPY.length - 1) * LOAD_SEQUENCE_STEP_MS + LOAD_SEQUENCE_FINAL_HOLD_MS;
     const elapsedRatio = Math.max(0, Math.min(1, (performance.now() - this.loadingSequenceStartedAt) / totalMs));
     const synthetic = 6 + elapsedRatio * 90;
     return Math.max(actual, Math.min(96, Math.round(synthetic)));
@@ -591,20 +601,21 @@ export class LocalLlmUtility {
     this.center.hidden = !shouldShowPanel;
     if (!shouldShowPanel) return;
 
+    const isBusyPanel = this.isBusy();
     const copy = this.status === WORKER_STATE.READY && !hasMessages
       ? this.getReadySuggestion()
-      : this.isBusy()
+      : isBusyPanel
         ? this.getLoadingSequenceCopy()
         : STATE_COPY[this.status] || this.root.dataset.localLlmStatusMessage || 'Working locally.';
 
-    const safeCopy = renderSafeInlineText(copy);
+    const safeCopy = isBusyPanel ? escapeHtml(copy) : renderSafeInlineText(copy);
     if (this._currentCopyTarget !== safeCopy) {
       this._currentCopyTarget = safeCopy;
       clearTimeout(this._copyTimer);
       this.loadCopy.style.transition = 'none';
       void this.loadCopy.offsetHeight;
       this.loadCopy.style.transition = '';
-      if (this.loadCopy.innerHTML && !this.center.hidden && this.loadCopy.style.opacity !== '0') {
+      if (!isBusyPanel && this.loadCopy.innerHTML && !this.center.hidden && this.loadCopy.style.opacity !== '0') {
         this.loadCopy.style.opacity = '0';
         this._copyTimer = setTimeout(() => {
           this._copyTimer = null;
@@ -819,17 +830,24 @@ export class LocalLlmUtility {
   renderMessages(options = {}) {
     const animate = options.animate !== false;
     const stickToBottom = options.stickToBottom !== false;
-    const fragment = document.createDocumentFragment();
+    const liveArticles = new Set();
     this._lastAssistantElement = null;
 
     for (const message of this.messages) {
       const article = this.renderMessageElement(message, animate);
 
       if (message.role === 'assistant') this._lastAssistantElement = article;
-      fragment.appendChild(article);
+      liveArticles.add(article);
+      if (article.parentElement !== this.messageList || this.messageList.lastElementChild !== article) {
+        this.messageList.appendChild(article);
+      }
     }
 
-    this.messageList.replaceChildren(fragment);
+    Array.from(this.messageList.children).forEach((child) => {
+      if (!liveArticles.has(child)) {
+        child.remove();
+      }
+    });
     this.scrollMessagesIfNeeded(stickToBottom);
     this.renderStatePanel();
   }
@@ -981,7 +999,9 @@ export class LocalLlmUtility {
     }
     if (this.worker) {
       this.terminateWorker({ clearCache: true, delayMs: 800 });
-      void this.clearBrowserModelCaches();
+      this.clearBrowserModelCaches().catch((error) => {
+        console.debug('Local assistant cache cleanup failed during dispose.', error);
+      });
     }
     if (this._inputFrameId) {
       window.cancelAnimationFrame(this._inputFrameId);
@@ -1002,7 +1022,9 @@ export class LocalLlmUtility {
 
   endModelSession({ clearMessages = false, updateUi = true } = {}) {
     this.terminateWorker({ clearCache: true, delayMs: 800 });
-    void this.clearBrowserModelCaches();
+    this.clearBrowserModelCaches().catch((error) => {
+      console.debug('Local assistant cache cleanup failed while ending session.', error);
+    });
     this.modelReady = false;
     this.progress = 0;
     this.tps = null;
@@ -1031,8 +1053,8 @@ export class LocalLlmUtility {
     if (clearCache) {
       try {
         worker.postMessage({ type: 'dispose', clearCache: true });
-      } catch {
-        // Best-effort teardown.
+      } catch (error) {
+        console.debug('Local assistant worker dispose message failed.', error);
       }
     }
 
@@ -1172,320 +1194,6 @@ function buildFailureCopy(message, diagnostics) {
   };
 }
 
-function cleanupModelText(text) {
-  return String(text || '')
-    .replace(/<think[\s\S]*?<\/think>/gi, '')
-    .replace(/<think[\s\S]*$/gi, '')
-    .replace(/<\/?(?:s|pad|bos|eos|endoftext|im_start|im_end|\|im_start\||\|im_end\|)>/gi, '')
-    .replace(/<\|[^|]+?\|>/g, '')
-    .trim();
-}
-
-function renderSafeText(markdown) {
-  const source = cleanupModelText(markdown);
-  if (!source) return '';
-
-  const blocks = source.split(/\n{2,}/).map((rawBlock) => {
-    if (RE_RENDER_CODE_FENCE.test(rawBlock.trim())) {
-      const code = rawBlock.trim().replace(/^```[^\r\n]*(?:\r?\n)?/, '').replace(/(?:\r?\n)?```$/, '');
-      return `<pre><code>${escapeHtml(code)}</code></pre>`;
-    }
-
-    const displayMath = parseDisplayMathBlock(rawBlock);
-    if (displayMath !== null) {
-      return renderLocalLlmMath(displayMath, true);
-    }
-
-    if (RE_RENDER_UNORDERED_LIST.test(rawBlock)) {
-      const items = rawBlock
-        .split(/\n/)
-        .filter((line) => RE_RENDER_UNORDERED_LINE.test(line))
-        .map((line) => `<li>${renderInlineLocalLlmText(line.replace(RE_RENDER_UNORDERED_LINE, ''))}</li>`)
-        .join('');
-      if (items) return `<ul>${items}</ul>`;
-    }
-
-    if (RE_RENDER_ORDERED_LIST.test(rawBlock)) {
-      const items = rawBlock
-        .split(/\n/)
-        .filter((line) => RE_RENDER_ORDERED_LINE.test(line))
-        .map((line) => `<li>${renderInlineLocalLlmText(line.replace(RE_RENDER_ORDERED_LINE, ''))}</li>`)
-        .join('');
-      if (items) return `<ol>${items}</ol>`;
-    }
-
-    return `<p>${renderInlineLocalLlmText(rawBlock)}</p>`;
-  });
-
-  return blocks.join('');
-}
-
-const LATEX_COMMANDS = {
-  alpha: { tag: 'mi', value: 'α' },
-  beta: { tag: 'mi', value: 'β' },
-  gamma: { tag: 'mi', value: 'γ' },
-  delta: { tag: 'mi', value: 'δ' },
-  epsilon: { tag: 'mi', value: 'ε' },
-  theta: { tag: 'mi', value: 'θ' },
-  lambda: { tag: 'mi', value: 'λ' },
-  mu: { tag: 'mi', value: 'μ' },
-  pi: { tag: 'mi', value: 'π' },
-  sigma: { tag: 'mi', value: 'σ' },
-  phi: { tag: 'mi', value: 'φ' },
-  omega: { tag: 'mi', value: 'ω' },
-  Delta: { tag: 'mi', value: 'Δ' },
-  Omega: { tag: 'mi', value: 'Ω' },
-  pm: { tag: 'mo', value: '±' },
-  mp: { tag: 'mo', value: '∓' },
-  times: { tag: 'mo', value: '×' },
-  div: { tag: 'mo', value: '÷' },
-  cdot: { tag: 'mo', value: '⋅' },
-  le: { tag: 'mo', value: '≤' },
-  leq: { tag: 'mo', value: '≤' },
-  ge: { tag: 'mo', value: '≥' },
-  geq: { tag: 'mo', value: '≥' },
-  neq: { tag: 'mo', value: '≠' },
-  approx: { tag: 'mo', value: '≈' },
-  infty: { tag: 'mo', value: '∞' }
-};
-
-function parseDisplayMathBlock(rawBlock) {
-  const block = rawBlock.trim();
-  if (!block.startsWith('$$') || !block.endsWith('$$') || block.length <= 4) return null;
-  return block.slice(2, -2).trim();
-}
-
-function renderInlineLocalLlmText(text) {
-  return splitInlineLocalLlmSegments(text)
-    .map((segment) => {
-      if (segment.type === 'code') return `<code>${escapeHtml(segment.value)}</code>`;
-      if (segment.type === 'math') return renderLocalLlmMath(segment.value, false);
-      return renderMarkdownInlineText(segment.value);
-    })
-    .join('');
-}
-
-function renderMarkdownInlineText(text) {
-  return escapeHtml(text)
-    .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[\s(])\*([^*\n]+)\*(?=([\s).,;:!?]|$))/g, '$1<em>$2</em>')
-    .replace(/~~([^~]+)~~/g, '<del>$1</del>')
-    .replace(/\n/g, '<br>');
-}
-
-function splitInlineLocalLlmSegments(text) {
-  const segments = [];
-  let textStart = 0;
-  let index = 0;
-
-  const pushText = (end) => {
-    if (end > textStart) segments.push({ type: 'text', value: text.slice(textStart, end) });
-  };
-
-  while (index < text.length) {
-    const char = text[index];
-
-    if (char === '`') {
-      const close = text.indexOf('`', index + 1);
-      if (close > index + 1) {
-        pushText(index);
-        segments.push({ type: 'code', value: text.slice(index + 1, close) });
-        index = close + 1;
-        textStart = index;
-        continue;
-      }
-    }
-
-    if (char === '$' && text[index + 1] !== '$' && text[index - 1] !== '$' && !isEscapedAt(text, index)) {
-      const close = findClosingInlineMathDelimiter(text, index + 1);
-      if (close > index + 1) {
-        pushText(index);
-        segments.push({ type: 'math', value: text.slice(index + 1, close).trim() });
-        index = close + 1;
-        textStart = index;
-        continue;
-      }
-    }
-
-    index += 1;
-  }
-
-  pushText(text.length);
-  return segments;
-}
-
-function findClosingInlineMathDelimiter(text, start) {
-  for (let index = start; index < text.length; index += 1) {
-    if (text[index] === '\n') return -1;
-    if (text[index] === '$' && text[index + 1] !== '$' && text[index - 1] !== '$' && !isEscapedAt(text, index)) return index;
-  }
-  return -1;
-}
-
-function isEscapedAt(text, index) {
-  let slashCount = 0;
-  for (let cursor = index - 1; cursor >= 0 && text[cursor] === '\\'; cursor -= 1) slashCount += 1;
-  return slashCount % 2 === 1;
-}
-
-function renderLocalLlmMath(expression, display) {
-  const parser = new LocalLlmLatexParser(expression);
-  const body = parser.parse();
-  const displayAttribute = display ? ' display="block"' : '';
-  const className = display ? 'local-llm-math local-llm-math--display' : 'local-llm-math local-llm-math--inline';
-  const tag = display ? 'div' : 'span';
-
-  return `<${tag} class="${className}"><math xmlns="http://www.w3.org/1998/Math/MathML"${displayAttribute}><mrow>${body}</mrow></math></${tag}>`;
-}
-
-class LocalLlmLatexParser {
-  constructor(input) {
-    this.input = input;
-    this.index = 0;
-  }
-
-  parse() {
-    return this.parseExpression();
-  }
-
-  parseExpression(stopChar = '') {
-    const parts = [];
-    while (this.index < this.input.length) {
-      if (stopChar && this.input[this.index] === stopChar) break;
-      if (/\s/.test(this.input[this.index])) {
-        this.index += 1;
-        continue;
-      }
-
-      const atom = this.parseAtom();
-      if (atom) parts.push(this.parseScripts(atom));
-    }
-    return parts.join('');
-  }
-
-  parseAtom() {
-    const char = this.input[this.index];
-    if (!char) return '';
-
-    if (char === '{') {
-      this.index += 1;
-      const inner = this.parseExpression('}');
-      if (this.input[this.index] === '}') this.index += 1;
-      return `<mrow>${inner}</mrow>`;
-    }
-
-    if (char === '\\') return this.parseCommand();
-
-    if (/[0-9.]/.test(char)) return this.parseNumber();
-
-    if (/[a-zA-Z]/.test(char)) {
-      this.index += 1;
-      return `<mi>${escapeHtml(char)}</mi>`;
-    }
-
-    this.index += 1;
-    if (/^[=+\-*/()[\]|,.:;<>]$/.test(char)) return `<mo>${escapeHtml(char)}</mo>`;
-    return `<mtext>${escapeHtml(char)}</mtext>`;
-  }
-
-  parseScripts(base) {
-    let subscript = '';
-    let superscript = '';
-
-    while (this.input[this.index] === '^' || this.input[this.index] === '_') {
-      const marker = this.input[this.index];
-      this.index += 1;
-      const script = this.parseScriptArgument();
-      if (marker === '^') superscript = script;
-      if (marker === '_') subscript = script;
-    }
-
-    if (subscript && superscript) return `<msubsup>${base}${subscript}${superscript}</msubsup>`;
-    if (subscript) return `<msub>${base}${subscript}</msub>`;
-    if (superscript) return `<msup>${base}${superscript}</msup>`;
-    return base;
-  }
-
-  parseScriptArgument() {
-    this.skipWhitespace();
-    if (this.input[this.index] === '{') return this.parseAtom();
-    return this.parseAtom() || '<mrow></mrow>';
-  }
-
-  parseCommand() {
-    this.index += 1;
-    const start = this.index;
-    while (/[a-zA-Z]/.test(this.input[this.index] || '')) this.index += 1;
-    const command = this.input.slice(start, this.index);
-
-    if (!command) {
-      const char = this.input[this.index] || '';
-      this.index += 1;
-      return `<mo>${escapeHtml(char)}</mo>`;
-    }
-
-    if (command === 'left' || command === 'right') return '';
-
-    if (command === 'sqrt') {
-      this.skipOptionalBracketGroup();
-      return `<msqrt>${this.parseRequiredArgument()}</msqrt>`;
-    }
-
-    if (command === 'frac') {
-      const numerator = this.parseRequiredArgument();
-      const denominator = this.parseRequiredArgument();
-      return `<mfrac>${numerator}${denominator}</mfrac>`;
-    }
-
-    if (command === 'text') {
-      return `<mtext>${escapeHtml(this.readRawBraceGroup())}</mtext>`;
-    }
-
-    const symbol = LATEX_COMMANDS[command];
-    if (symbol) return `<${symbol.tag}>${escapeHtml(symbol.value)}</${symbol.tag}>`;
-    return `<mi>${escapeHtml(command)}</mi>`;
-  }
-
-  parseRequiredArgument() {
-    this.skipWhitespace();
-    if (this.input[this.index] === '{') return this.parseAtom();
-    return this.parseAtom() || '<mrow></mrow>';
-  }
-
-  parseNumber() {
-    const start = this.index;
-    while (/[0-9.]/.test(this.input[this.index] || '')) this.index += 1;
-    return `<mn>${escapeHtml(this.input.slice(start, this.index))}</mn>`;
-  }
-
-  readRawBraceGroup() {
-    this.skipWhitespace();
-    if (this.input[this.index] !== '{') return '';
-    this.index += 1;
-    let depth = 1;
-    const start = this.index;
-    while (this.index < this.input.length && depth > 0) {
-      if (this.input[this.index] === '{') depth += 1;
-      if (this.input[this.index] === '}') depth -= 1;
-      this.index += 1;
-    }
-    const end = depth === 0 ? this.index - 1 : this.index;
-    return this.input.slice(start, end);
-  }
-
-  skipOptionalBracketGroup() {
-    this.skipWhitespace();
-    if (this.input[this.index] !== '[') return;
-    this.index += 1;
-    while (this.index < this.input.length && this.input[this.index] !== ']') this.index += 1;
-    if (this.input[this.index] === ']') this.index += 1;
-  }
-
-  skipWhitespace() {
-    while (/\s/.test(this.input[this.index] || '')) this.index += 1;
-  }
-}
-
 function renderSafeInlineText(text) {
   return escapeHtml(text)
     .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
@@ -1500,15 +1208,6 @@ function buildReadySuggestionOrder() {
     [firstSuggestions[index], firstSuggestions[swapIndex]] = [firstSuggestions[swapIndex], firstSuggestions[index]];
   }
   return [...firstSuggestions, LAST_READY_SUGGESTION];
-}
-
-function escapeHtml(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 }
 
 function formatStatus(status) {

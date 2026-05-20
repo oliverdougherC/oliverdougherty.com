@@ -8,7 +8,7 @@
   <meta name="description" content="Interactive utilities and experiments built into the site.">
   <link rel="icon" type="image/svg+xml" href="/favicon-happy.svg?v=face-6" id="favicon">
   <link rel="alternate icon" href="/favicon-happy.ico?v=face-6" id="favicon-fallback">
-  <script>document.addEventListener('visibilitychange',function(){var hidden=document.hidden;var f=document.getElementById('favicon');var i=document.getElementById('favicon-fallback');if(f)f.href=hidden?'/favicon-sad.svg?v=face-6':'/favicon-happy.svg?v=face-6';if(i)i.href=hidden?'/favicon-sad.ico?v=face-6':'/favicon-happy.ico?v=face-6'})</script>
+  <script src="../../js/favicon-swap.js" defer></script>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -201,9 +201,9 @@
 
                             <div class="demo-strip-minimal audio-preset-strip" aria-label="Built-in song presets">
                               <span class="demo-label-minimal">Demos</span>
-                               <button type="button" class="demo-chip demo-chip-minimal active" data-audio-preset="i-cant-wait-to-get-there" title="I Can't Wait To Get There">I Can't Wait To Get There</button>
+                               <button type="button" class="demo-chip demo-chip-minimal" data-audio-preset="i-cant-wait-to-get-there" title="I Can't Wait To Get There">I Can't Wait To Get There</button>
                                <button type="button" class="demo-chip demo-chip-minimal" data-audio-preset="tell-your-friends" title="Tell Your Friends">Tell Your Friends</button>
-                               <button type="button" class="demo-chip demo-chip-minimal" data-audio-preset="best-friends" title="Best Friends">Best Friends</button>
+                               <button type="button" class="demo-chip demo-chip-minimal active" data-audio-preset="best-friends" title="Best Friends">Best Friends</button>
                             </div>
 
                             <div class="audio-metric-cards" aria-label="Fourier signal metrics">
@@ -238,7 +238,8 @@
                             <p class="canvas-result-meta-minimal audio-result-meta-minimal" id="audioFourierResultMeta" hidden></p>
 
                             <div class="canvas-overlay-controls">
-                              <button type="button" class="btn-overlay-icon" id="audioFourierPlayPauseBtn" disabled aria-label="Play">▶</button>
+                              <button type="button" class="btn-overlay-icon" id="audioFourierPlayBtn" disabled aria-label="Play">▶</button>
+                              <button type="button" class="btn-overlay-icon" id="audioFourierPauseBtn" disabled hidden aria-label="Pause">⏸</button>
                             </div>
 
                             <div class="canvas-overlay-stats">
@@ -275,13 +276,28 @@
           <section class="utility-shell utility-shell--local-llm" id="localLlmUtilityApp" data-utility-root="local-llm" data-animate="fade-up" data-local-llm-status="idle" aria-label="Local AI Chat"></section>
         </div>
         <div class="utility-stage" data-utility-id="virtual-machine">
-          <section class="utility-shell utility-shell--vm" id="retroVmApp" data-utility-root="retro-vm" data-animate="fade-up" aria-label="Virtual Machine" data-vm-state="idle" data-vm-supported="unknown" data-vm-running="false" data-vm-booted="false" data-vm-capture-state="uncaptured" data-vm-network-enabled="false" data-vm-relay-url="" data-vm-asset-label="Tiny Core Linux 11 · 20 MB remastered retro ISO" data-vm-session-label="Ephemeral per tab · clean boot every launch" data-vm-bridge-label-online="Clipboard paste + experimental relay hook" data-vm-bridge-label-offline="Clipboard paste only · offline-first rollback" data-vm-support-note-online="Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. Relay-backed networking remains experimental." data-vm-support-note-offline="Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first." data-vm-screen-badge-online="Experimental relay" data-vm-screen-badge-offline="Local only" data-vm-progress-meta="Tiny Core Linux 11">
+          <section class="utility-shell utility-shell--vm" id="retroVmApp" data-utility-root="retro-vm" data-animate="fade-up" aria-label="Virtual Machine" data-vm-state="idle" data-vm-supported="unknown" data-vm-running="false" data-vm-booted="false" data-vm-capture-state="uncaptured">
+                    <script type="application/json" id="retroVmConfig">
+                      {
+                        "vmNetworkEnabled": "false",
+                        "vmRelayUrl": "",
+                        "vmAssetLabel": "Tiny Core Linux 11 · 20 MB remastered retro ISO",
+                        "vmSessionLabel": "Ephemeral per tab · clean boot every launch",
+                        "vmBridgeLabelOnline": "Clipboard paste + experimental relay hook",
+                        "vmBridgeLabelOffline": "Clipboard paste only · offline-first rollback",
+                        "vmSupportNoteOnline": "Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. Relay-backed networking remains experimental.",
+                        "vmSupportNoteOffline": "Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first.",
+                        "vmScreenBadgeOnline": "Experimental relay",
+                        "vmScreenBadgeOffline": "Local only",
+                        "vmProgressMeta": "Tiny Core Linux 11"
+                      }
+                    </script>
                     <div class="utility-layout utility-layout--vm">
                       <div class="utility-view utility-view--minimal">
                         <article class="canvas-panel-minimal">
                           <div class="vm-screen-shell" id="retroVmScreenShell">
                             <div class="vm-toolbar">
-                              <span class="vm-status-dot"></span>
+                              <span class="vm-status-dot" aria-hidden="true"></span>
                               <span class="vm-toolbar-title" id="retroVmProgressText">Idle</span>
                               <span class="vm-toolbar-meta" id="retroVmProgressMeta">Tiny Core Linux 11</span>
                               <span class="utility-status-chip utility-status-chip--idle" id="retroVmStatusChip">Idle</span>
@@ -377,86 +393,7 @@
     </div>
   </footer>
 
-  <script>
-    (function() {
-      var buttons = Array.from(document.querySelectorAll('.utilities-buttons button'));
-      var homeBtn = document.querySelector('.nav-home-btn');
-      var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-      function enableHomeButton() {
-        if (homeBtn) {
-          homeBtn.style.pointerEvents = 'auto';
-        }
-      }
-
-      function revealAllButtons() {
-        buttons.forEach(function(btn) {
-          btn.classList.add('is-visible');
-        });
-      }
-
-      if (!buttons.length) {
-        enableHomeButton();
-        return;
-      }
-
-      if (reducedMotion) {
-        revealAllButtons();
-        enableHomeButton();
-        return;
-      }
-
-      var shuffled = buttons.slice();
-      for (var i = shuffled.length - 1; i > 0; i -= 1) {
-        var swapIndex = Math.floor(Math.random() * (i + 1));
-        var current = shuffled[i];
-        shuffled[i] = shuffled[swapIndex];
-        shuffled[swapIndex] = current;
-      }
-
-      var startDelayMs = 3500;
-      var totalStaggerMs = 2000;
-      var stepMs = shuffled.length > 1 ? totalStaggerMs / (shuffled.length - 1) : totalStaggerMs;
-      var revealSchedule = shuffled.map(function(btn, index) {
-        var jitter = (Math.random() - 0.5) * (stepMs * 0.35);
-        return {
-          button: btn,
-          at: Math.max(0, startDelayMs + (index * stepMs) + jitter)
-        };
-      });
-      var revealedCount = 0;
-      var activeElapsedMs = 0;
-      var lastTimestamp = null;
-
-      function tick(timestamp) {
-        if (lastTimestamp !== null) {
-          activeElapsedMs += Math.min(timestamp - lastTimestamp, 120);
-        }
-        lastTimestamp = timestamp;
-
-        while (revealedCount < revealSchedule.length && activeElapsedMs >= revealSchedule[revealedCount].at) {
-          revealSchedule[revealedCount].button.classList.add('is-visible');
-          revealedCount += 1;
-        }
-
-        if (revealedCount < revealSchedule.length) {
-          window.requestAnimationFrame(tick);
-        }
-      }
-
-      window.requestAnimationFrame(tick);
-
-      if (homeBtn) {
-        function handleAnimationEnd() {
-          enableHomeButton();
-          homeBtn.removeEventListener('animationend', handleAnimationEnd);
-        }
-
-        homeBtn.addEventListener('animationend', handleAnimationEnd);
-        window.setTimeout(enableHomeButton, 7600);
-      }
-    })();
-  </script>
+  <script src="../../js/utilities-title-reveal.js" defer></script>
   <script src="../../js/year.js" defer></script>
   <script src="../../js/main.js" defer></script>
   <script src="../../js/utilities-shell.js?v=utilities-2026-05-19-home-cleanup" defer></script>

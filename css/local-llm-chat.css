@@ -153,7 +153,7 @@
   width: 1px;
   height: 1px;
   overflow: hidden;
-  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
   white-space: nowrap;
 }
 
@@ -491,7 +491,7 @@
   width: 1px;
   height: 1px;
   overflow: hidden;
-  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
   white-space: nowrap;
 }
 
@@ -518,9 +518,6 @@
   border-color: rgba(240, 160, 144, 0.58);
   border-color: color-mix(in srgb, var(--local-llm-danger) 58%, rgba(255, 255, 255, 0.2));
 }
-
-
-
 .local-llm-send--stop {
   color: var(--color-text-primary);
   border-color: rgba(255, 255, 255, 0.1);
@@ -685,7 +682,7 @@
     width: 1px;
     height: 1px;
     overflow: hidden;
-    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
     white-space: nowrap;
   }
 }

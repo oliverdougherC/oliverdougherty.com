@@ -257,11 +257,11 @@ class UtilitiesApp {
     }
 
     if (!file.type.startsWith('image/')) {
-      this.setProgress(0, 'Unsupported file type.', 'Please select an image file.');
+      this.rejectFileSelection(kind, 'Unable to load unsupported file type.', 'Please select an image file.', file);
       return;
     }
     if (file.size > MAX_IMAGE_FILE_BYTES) {
-      this.setProgress(0, 'Image is too large.', 'Please choose an image smaller than 20 MB.');
+      this.rejectFileSelection(kind, 'Unable to load image because it is too large.', 'Please choose an image smaller than 20 MB.');
       return;
     }
 
@@ -283,6 +283,29 @@ class UtilitiesApp {
     this.clearActiveDemo();
     this.syncSelectionLabels();
     this.invalidateComputedState('Selection updated. Generate again to rebuild the transform.');
+  }
+
+  private rejectFileSelection(kind: SelectionKind, message: string, meta: string, file?: File) {
+    const nextSelection: ImageSelection | null = file
+      ? {
+          kind: 'file',
+          label: file.name,
+          file
+        }
+      : null;
+
+    this.discardActiveRequest();
+    this.clearActiveDemo();
+    if (kind === 'source') {
+      this.sourceSelection = nextSelection;
+      this.sourceInput.value = '';
+    } else {
+      this.targetSelection = nextSelection;
+      this.targetInput.value = '';
+    }
+    this.syncSelectionLabels();
+    this.setState('error', message);
+    this.setProgress(0, message, meta);
   }
 
   private applyDemo(demoKey: string) {

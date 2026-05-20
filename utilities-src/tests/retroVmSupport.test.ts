@@ -5,11 +5,27 @@ import {
   transitionRetroVmState
 } from '@utilities/retroVmSupport';
 
+function createMediaQueryList(query: string, matches: boolean): MediaQueryList {
+  const target = new EventTarget();
+  return {
+    matches,
+    media: query,
+    onchange: null,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    addEventListener: target.addEventListener.bind(target),
+    removeEventListener: target.removeEventListener.bind(target),
+    dispatchEvent: target.dispatchEvent.bind(target)
+  };
+}
+
+function createMatchMedia(matchesForQuery: (query: string) => boolean) {
+  return (query: string) => createMediaQueryList(query, matchesForQuery(query));
+}
+
 describe('retro VM support helpers', () => {
   it('blocks mobile-like environments in v1', () => {
-    const coarseMatchMedia = ((query: string) => ({ matches: query === '(pointer: coarse)' } as MediaQueryList)) as unknown as (
-      query: string
-    ) => MediaQueryList;
+    const coarseMatchMedia = createMatchMedia((query) => query === '(pointer: coarse)');
 
     const support = detectRetroVmSupport({
       hasWindow: true,
@@ -29,7 +45,7 @@ describe('retro VM support helpers', () => {
   });
 
   it('allows capable desktop environments', () => {
-    const desktopMatchMedia = (() => ({ matches: false } as MediaQueryList)) as unknown as (query: string) => MediaQueryList;
+    const desktopMatchMedia = createMatchMedia(() => false);
 
     const support = detectRetroVmSupport({
       hasWindow: true,
@@ -59,9 +75,9 @@ describe('retro VM support helpers', () => {
       hasPointerLock: true,
       innerWidth: 1440,
       maxTouchPoints: 0,
-      matchMedia: (() => {
+      matchMedia: () => {
         throw new Error('matchMedia unavailable');
-      }) as unknown as (query: string) => MediaQueryList
+      }
     });
 
     expect(support.supported).toBe(true);
@@ -69,7 +85,7 @@ describe('retro VM support helpers', () => {
   });
 
   it('allows desktop launch with degraded fullscreen and pointer-lock copy', () => {
-    const desktopMatchMedia = (() => ({ matches: false } as MediaQueryList)) as unknown as (query: string) => MediaQueryList;
+    const desktopMatchMedia = createMatchMedia(() => false);
 
     const support = detectRetroVmSupport({
       hasWindow: true,

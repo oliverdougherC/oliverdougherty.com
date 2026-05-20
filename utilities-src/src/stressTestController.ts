@@ -130,6 +130,9 @@ interface ThermalNode {
 type StressMetricId = 'elapsed' | 'workers' | 'gpu' | 'fps' | 'dropped' | 'iterations';
 
 declare global {
+  const GPUBufferUsage: Record<string, number> | undefined;
+  const GPUTextureUsage: Record<string, number> | undefined;
+
   interface HTMLCanvasElement {
     getContext(contextId: 'webgpu'): WebGpuCanvasContextLike | null;
   }
@@ -151,6 +154,35 @@ const STRESS_METRIC_HIDE_ORDER: Record<StressMode, StressMetricId[]> = {
   both: ['dropped', 'iterations', 'fps', 'gpu', 'workers', 'elapsed']
 };
 
+let moduleWorkerSupport: boolean | null = null;
+
+function readNow() {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
+function supportsModuleWorkers() {
+  if (moduleWorkerSupport !== null) {
+    return moduleWorkerSupport;
+  }
+
+  let blobUrl = '';
+  try {
+    blobUrl = URL.createObjectURL(new Blob([''], { type: 'text/javascript' }));
+    const worker = new Worker(blobUrl, { type: 'module' });
+    worker.terminate();
+    moduleWorkerSupport = true;
+  } catch {
+    moduleWorkerSupport = false;
+  } finally {
+    if (blobUrl) {
+      URL.revokeObjectURL(blobUrl);
+    }
+  }
+  return moduleWorkerSupport;
+}
+
 function getStressTestMaxWorkersOverride() {
   // Internal debug hook for local thermal/load testing. Not part of the public UI contract.
   const globalValue = (window as Window & { __OD_STRESS_TEST_MAX_WORKERS__?: number }).__OD_STRESS_TEST_MAX_WORKERS__;
@@ -163,7 +195,7 @@ function getNavigatorGpu(): WebGpuLike | null {
 }
 
 function getWebGpuUsageFlag(name: string) {
-  const usage = (globalThis as { GPUBufferUsage?: Record<string, number> }).GPUBufferUsage;
+  const usage = typeof GPUBufferUsage !== 'undefined' ? GPUBufferUsage : undefined;
   const value = usage?.[name] ?? 0;
   if (value === 0) {
     console.warn(`[StressTest] GPUBufferUsage.${name} is unavailable.`);
@@ -172,7 +204,7 @@ function getWebGpuUsageFlag(name: string) {
 }
 
 function getWebGpuTextureUsageFlag(name: string) {
-  const usage = (globalThis as { GPUTextureUsage?: Record<string, number> }).GPUTextureUsage;
+  const usage = typeof GPUTextureUsage !== 'undefined' ? GPUTextureUsage : undefined;
   return usage?.[name] ?? 0;
 }
 
@@ -223,7 +255,7 @@ export class StressTestController {
   private totalIterations = 0;
   private gpuBackend: StressGpuBackend = 'none';
   private gpuWorkloadLevel = 0;
-  private lastGpuError = '';
+  private lastError = '';
   private gpuCanvasActive = false;
 
   private cpuVisualFrameId = 0;
@@ -270,7 +302,7 @@ export class StressTestController {
       });
     });
     this.listen(this.startButton, 'click', () => {
-      void this.start();
+      this.start().catch((error) => this.handleStartFailure(error));
     });
     this.listen(this.stopButton, 'click', () => this.stop());
     this.listen(this.root, 'utility-deactivate', () => this.stop());
@@ -349,10 +381,10 @@ export class StressTestController {
     this.lastFps = 0;
     this.lastFrameAt = 0;
     this.lastMetricAt = 0;
-    this.startedAt = performance.now();
+    this.startedAt = readNow();
     this.gpuBackend = 'none';
     this.gpuWorkloadLevel = 0;
-    this.lastGpuError = '';
+    this.lastError = '';
     this.gpuCanvasActive = false;
     this.clearCanvasSurface();
     this.canvas.dataset.stressIdle = 'false';
@@ -367,7 +399,7 @@ export class StressTestController {
         const gpu = await this.startGpuStress();
         if (requestId !== this.requestId) {
           if (gpu && this.gpu === gpu) {
-            this.stopGpuStress();
+            this.stopGpuStress({ loseContext: true });
           }
           return;
         }
@@ -399,12 +431,23 @@ export class StressTestController {
       this.startMetricLoop();
     } catch (error) {
       this.stopCpuStress();
-      this.stopGpuStress();
+      this.stopGpuStress({ loseContext: true });
       this.gpuBackend = 'none';
-      this.lastGpuError = error instanceof Error ? error.message : 'Stress test failed to start.';
-      this.setState('error', error instanceof Error ? error.message : 'Stress test failed to start.');
+      this.lastError = error instanceof Error ? error.message : 'Stress test failed to start.';
+      this.setState('error', this.lastError);
       this.syncMetrics(true);
     }
+  }
+
+  private handleStartFailure(error: unknown) {
+    this.stopCpuStress();
+    this.stopGpuStress({ loseContext: true });
+    this.stopMetricLoop();
+    const message = error instanceof Error ? error.message : 'Stress test failed to start.';
+    this.gpuBackend = 'none';
+    this.lastError = message;
+    this.setState('error', message);
+    this.syncMetrics(true);
   }
 
   private stop() {
@@ -430,6 +473,10 @@ export class StressTestController {
   }
 
   private startCpuStress(requestId: number) {
+    if (!supportsModuleWorkers()) {
+      throw new Error('This browser does not support module workers required for CPU stress.');
+    }
+
     const workerCount = resolveCpuWorkerCount({
       hardwareConcurrency: navigator.hardwareConcurrency,
       maxWorkers: getStressTestMaxWorkersOverride()
@@ -442,7 +489,7 @@ export class StressTestController {
       };
       const errorListener = (event: ErrorEvent) => {
         this.stopCpuStress();
-        this.stopGpuStress();
+        this.stopGpuStress({ loseContext: true });
         this.stopMetricLoop();
         console.error('[StressTest] CPU worker error', event.message, event.filename, event.lineno);
         this.setState(
@@ -497,20 +544,19 @@ export class StressTestController {
       return;
     }
 
-    record.stopped = true;
-    this.stopCpuStress();
-    if (this.mode !== 'cpu') {
-      this.stopGpuStress();
-    }
     if (message.type === 'cpu-stress-error' && message.message) {
-      this.lastGpuError = message.message;
+      record.stopped = true;
+      this.stopCpuStress();
+      if (this.mode !== 'cpu') {
+        this.stopGpuStress({ loseContext: true });
+      }
+      this.lastError = message.message;
       this.setState(transitionStressState(this.state, 'error'), message.message);
-    } else {
-      const errorMsg = `Unexpected CPU worker message type: ${message.type}`;
-      this.lastGpuError = errorMsg;
-      this.setState(transitionStressState(this.state, 'error'), errorMsg);
+      this.syncMetrics(true);
+      return;
     }
-    this.syncMetrics(true);
+
+    console.warn(`[StressTest] Ignoring unexpected CPU worker message type: ${message.type}`);
   }
 
   private async startGpuStress() {
@@ -532,8 +578,8 @@ export class StressTestController {
           return this.startWebGlStress('webgl1-fragment');
         }
       } catch (error) {
-        this.lastGpuError = error instanceof Error ? error.message : String(error);
-        this.stopGpuStress();
+        this.lastError = error instanceof Error ? error.message : String(error);
+        this.stopGpuStress({ loseContext: true });
       }
     }
 
@@ -737,12 +783,12 @@ export class StressTestController {
       window.cancelAnimationFrame(active.frameId);
       active.frameId = 0;
       this.stopCpuStress();
-      this.stopGpuStress();
+      this.stopGpuStress({ loseContext: true });
       this.stopMetricLoop();
       this.stopCpuVisuals();
       const reason = info.message ?? 'Unknown reason';
-      this.lastGpuError = `WebGPU device lost: ${reason}`;
-      this.setState('error', this.lastGpuError);
+      this.lastError = `WebGPU device lost: ${reason}`;
+      this.setState('error', this.lastError);
       this.syncMetrics(true);
     }).catch((error) => {
       console.error('[StressTest] WebGPU device loss handling failed.', error);
@@ -752,7 +798,7 @@ export class StressTestController {
       if (this.gpu !== active) {
         return;
       }
-      active.startedAt ||= performance.now();
+      active.startedAt ||= readNow();
       const encoder = device.createCommandEncoder();
       const computePass = encoder.beginComputePass();
       computePass.setPipeline(computePipeline);
@@ -761,7 +807,7 @@ export class StressTestController {
       computePass.end();
 
       // Update time uniform
-      const now = performance.now() - active.startedAt;
+      const now = readNow() - active.startedAt;
       timeUniform[0] = now * 0.001;
       timeUniform[1] = this.canvas.width;
       timeUniform[2] = this.canvas.height;
@@ -941,7 +987,7 @@ export class StressTestController {
       if (this.gpu !== active) {
         return;
       }
-      const now = performance.now();
+      const now = readNow();
       active.startedAt ||= now;
       active.workloadLevel = this.resolveWebGlWorkloadLevel(active, now);
       gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -988,7 +1034,7 @@ export class StressTestController {
     return Math.min(WEBGL_MAX_WORKLOAD_LEVEL, framePressureLevel);
   }
 
-  private stopGpuStress() {
+  private stopGpuStress({ loseContext = false }: { loseContext?: boolean } = {}) {
     if (!this.gpu) {
       return;
     }
@@ -1002,7 +1048,9 @@ export class StressTestController {
       const gl = this.gpu.gl;
       gl.deleteProgram(this.gpu.program);
       gl.deleteBuffer(this.gpu.positionBuffer);
-      gl.getExtension('WEBGL_lose_context')?.loseContext();
+      if (loseContext) {
+        gl.getExtension('WEBGL_lose_context')?.loseContext();
+      }
     }
     this.gpu = null;
   }
@@ -1139,7 +1187,6 @@ export class StressTestController {
       packet.addColorStop(1, 'rgba(255, 90, 36, 0)');
       ctx.fillStyle = packet;
       ctx.fillRect(x - w * 0.12, y - 2, w * 0.24, 4);
-
     }
     ctx.restore();
 
@@ -1185,7 +1232,7 @@ export class StressTestController {
   }
 
   private recordGpuFrame() {
-    const now = performance.now();
+    const now = readNow();
     if (this.lastFrameAt > 0) {
       const delta = now - this.lastFrameAt;
       if (delta > 34) {
@@ -1215,7 +1262,7 @@ export class StressTestController {
   }
 
   private syncMetrics(force = false) {
-    const now = performance.now();
+    const now = readNow();
     if (!force && now - this.lastMetricAt < METRIC_INTERVAL_MS) {
       return;
     }
@@ -1240,7 +1287,7 @@ export class StressTestController {
     this.root.dataset.stressGpuWorkloadLevel = String(this.gpuWorkloadLevel);
     this.root.dataset.stressGpuCanvasActive = (this.gpuCanvasActive || this.cpuVisualFrameId > 0) ? 'true' : 'false';
     this.root.dataset.stressCanvasActive = (this.gpuCanvasActive || this.cpuVisualFrameId > 0) ? 'true' : 'false';
-    this.root.dataset.stressGpuLastError = this.lastGpuError;
+    this.root.dataset.stressGpuLastError = this.lastError;
     this.root.dataset.stressIterations = String(this.totalIterations);
     this.root.dataset.stressDroppedFrames = String(this.droppedFrames);
     this.root.dataset.stressFrameRate = (this.gpu || this.cpuVisualFrameId) ? this.lastFps.toFixed(1) : '0.0';

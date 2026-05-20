@@ -10,7 +10,7 @@ export default defineConfig({
   build: {
     outDir: path.resolve(__dirname, '../pages/utilities/assets'),
     emptyOutDir: true,
-    sourcemap: true,
+    sourcemap: false,
     target: 'es2022',
     rollupOptions: {
       input: path.resolve(__dirname, '../utilities-src/src/main.ts'),

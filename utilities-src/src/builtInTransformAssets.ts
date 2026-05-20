@@ -1,7 +1,7 @@
 import { TRANSFORM_DEMO_ASSET_URLS } from './uiState';
 
 function createCacheKey(presetId: string, sourceUrl: string, targetUrl: string) {
-  return `${presetId}::${sourceUrl}::${targetUrl}`;
+  return `${presetId}\u001f${sourceUrl}\u001f${targetUrl}`;
 }
 
 export const PRECOMPUTED_BUILT_IN_TRANSFORM_ASSETS: Record<string, string> = {

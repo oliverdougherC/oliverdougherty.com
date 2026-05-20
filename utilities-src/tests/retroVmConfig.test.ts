@@ -36,12 +36,13 @@ describe('retro VM config', () => {
   });
 
   it('extracts only the supported VM dataset fields before config resolution', () => {
-    const dataset = readRetroVmDatasetConfig({
+    const rawDataset = {
       vmAssetLabel: '  Custom Alpine label  ',
       vmRelayUrl: 'wss://relay.example.test/',
       vmNetworkEnabled: 'true',
       unexpectedVmField: 'ignored'
-    } as Partial<Record<string, string>>);
+    };
+    const dataset = readRetroVmDatasetConfig(rawDataset);
 
     expect(dataset).toEqual({
       vmAssetLabel: '  Custom Alpine label  ',
@@ -56,6 +57,7 @@ describe('retro VM config', () => {
       vmNetworkEnabled: 'true',
       vmRelayUrl: 'wss://relay.example.test/'
     });
+    expect('unexpectedVmField' in dataset).toBe(false);
   });
 
   it('includes net_device only when relay-backed networking is configured', () => {

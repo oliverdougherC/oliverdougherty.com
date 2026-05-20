@@ -187,10 +187,6 @@ body.gallery-lightbox-open {
   }
 }
 
-.hero-subtext {
-  display: none; /* Removed from HTML, keeping class here for safety if added back */
-}
-
 /* Scanner Image Animation */
 .scanner-card {
   position: relative;

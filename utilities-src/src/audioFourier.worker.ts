@@ -12,7 +12,6 @@ import { getAudioFourierPreset } from './audioPresets';
 import { prepareAudioSignal } from './audioSignal';
 import { arrayBufferLikeToArrayBuffer } from './bufferUtils';
 
-const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 const cancelledRequests = new Set<number>();
 const pendingRequests: AudioFourierAnalyzeRequest[] = [];
 const MAX_PENDING_REQUESTS = 2;
@@ -23,7 +22,7 @@ function now() {
 }
 
 function postMessage(message: AudioFourierWorkerResponse, transfer?: Transferable[]) {
-  workerScope.postMessage(message, transfer ?? []);
+  self.postMessage(message, { transfer: transfer ?? [] });
 }
 
 function assertNotCancelled(requestId: number) {
@@ -36,8 +35,10 @@ function resolveWorkerRequestId(request: unknown) {
   if (!request || typeof request !== 'object') {
     return 0;
   }
-  const candidate = (request as { requestId?: unknown }).requestId;
-  return typeof candidate === 'number' ? candidate : 0;
+  if (!('requestId' in request)) {
+    return 0;
+  }
+  return typeof request.requestId === 'number' ? request.requestId : 0;
 }
 
 function isAudioFourierAnalyzeRequest(request: unknown): request is AudioFourierAnalyzeRequest {
@@ -281,7 +282,7 @@ function queueProcessing() {
   });
 }
 
-workerScope.onmessage = (event: MessageEvent<unknown>) => {
+self.onmessage = (event: MessageEvent<unknown>) => {
   const request = event.data;
   if (isAudioFourierCancelRequest(request)) {
     cancelledRequests.add(request.requestId);

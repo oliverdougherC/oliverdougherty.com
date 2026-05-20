@@ -257,32 +257,14 @@ class WebGlAudioWaveRenderer implements AudioWaveRenderer {
   private readonly cleanupCallbacks: Array<() => void> = [];
 
   constructor(private readonly canvas: HTMLCanvasElement) {
-    const gl = (
-      canvas.getContext('webgl2', {
-        alpha: false,
-        antialias: true,
-        depth: false,
-        stencil: false,
-        powerPreference: 'high-performance',
-        preserveDrawingBuffer: false
-      }) ??
-      canvas.getContext('webgl', {
-        alpha: false,
-        antialias: true,
-        depth: false,
-        stencil: false,
-        powerPreference: 'high-performance',
-        preserveDrawingBuffer: false
-      }) ??
-      canvas.getContext('experimental-webgl', {
-        alpha: false,
-        antialias: true,
-        depth: false,
-        stencil: false,
-        powerPreference: 'high-performance',
-        preserveDrawingBuffer: false
-      })
-    ) as WebGLRenderingContext | null;
+    const gl = getAudioWaveGlContext(canvas, {
+      alpha: false,
+      antialias: true,
+      depth: false,
+      stencil: false,
+      powerPreference: 'high-performance',
+      preserveDrawingBuffer: false
+    });
     if (!gl) {
       throw new Error('WebGL waveform renderer unavailable.');
     }
@@ -617,18 +599,15 @@ export function createAudioWaveRenderer(canvas: HTMLCanvasElement): AudioWaveRen
 
   try {
     return new WebGlAudioWaveRenderer(canvas);
-  } catch (_error) {
+  } catch (error) {
+    console.warn('[AudioFourier] WebGL waveform renderer unavailable; falling back to Canvas2D.', error);
     return new Canvas2dAudioWaveRenderer(canvas);
   }
 }
 
 function shouldSkipWebGlRenderer() {
   const probeCanvas = document.createElement('canvas');
-  const gl = (
-    probeCanvas.getContext('webgl2', { powerPreference: 'high-performance' }) ??
-    probeCanvas.getContext('webgl', { powerPreference: 'high-performance' }) ??
-    probeCanvas.getContext('experimental-webgl', { powerPreference: 'high-performance' })
-  ) as WebGLRenderingContext | null;
+  const gl = getAudioWaveGlContext(probeCanvas, { powerPreference: 'high-performance' });
   if (!gl) {
     return true;
   }
@@ -638,6 +617,25 @@ function shouldSkipWebGlRenderer() {
     ? String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) ?? '')
     : '';
   return /swiftshader|software|llvmpipe/i.test(renderer);
+}
+
+function getAudioWaveGlContext(
+  canvas: HTMLCanvasElement,
+  attributes: WebGLContextAttributes
+): WebGLRenderingContext | WebGL2RenderingContext | null {
+  const context =
+    canvas.getContext('webgl2', attributes) ??
+    canvas.getContext('webgl', attributes) ??
+    canvas.getContext('experimental-webgl', attributes);
+
+  if (
+    (typeof WebGL2RenderingContext !== 'undefined' && context instanceof WebGL2RenderingContext) ||
+    (typeof WebGLRenderingContext !== 'undefined' && context instanceof WebGLRenderingContext)
+  ) {
+    return context;
+  }
+
+  return null;
 }
 
 const ENVELOPE_VERTEX_SHADER = `
