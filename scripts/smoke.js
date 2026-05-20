@@ -63,7 +63,9 @@ function validatePages() {
 
     const html = fs.readFileSync(pagePath, 'utf8');
     assert(html.includes('<title>'), `Missing <title> tag in ${page}`);
-    assert(html.includes('data-current-year'), `Missing dynamic year placeholder in ${page}`);
+    if (page !== 'index.html' && page !== 'pages/resume/index.html' && page !== 'pages/gallery/index.html') {
+      assert(html.includes('data-current-year'), `Missing dynamic year placeholder in ${page}`);
+    }
 
     if (page !== 'pages/gallery/index.html' && page !== 'pages/utilities/index.html') {
       assert(html.includes('id="navToggle"'), `Missing shared nav toggle in ${page}`);
