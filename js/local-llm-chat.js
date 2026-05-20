@@ -104,7 +104,7 @@ export class LocalLlmUtility {
               <div class="local-llm-title-block">
                 <div class="local-llm-title-row">
                   <span class="utility-kicker" style="margin-bottom: 0;">Local Assistant</span>
-                  <span class="local-llm-card utility-status-chip utility-status-chip--idle" id="localLlmStatusChip" style="margin-left: 0.5rem; padding: 0.22rem 0.55rem; border-radius: var(--radius-full); font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: var(--tracking-wide); text-transform: uppercase;">Idle</span>
+                  <span class="local-llm-card utility-status-chip utility-status-chip--idle" id="localLlmStatusChip" aria-live="polite" style="margin-left: 0.5rem; padding: 0.22rem 0.55rem; border-radius: var(--radius-full); font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: var(--tracking-wide); text-transform: uppercase;">Idle</span>
                 </div>
                 <div class="local-llm-meta" aria-label="Model runtime details" style="color: var(--color-text-secondary); font-size: 0.78rem;">
                   <span id="localLlmModelName">${escapeHtml(LOCAL_LLM_CONFIG.model.displayName)}</span>
@@ -836,8 +836,28 @@ export class LocalLlmUtility {
     const liveArticles = new Set();
     this._lastAssistantElement = null;
 
+    // Build a map of existing DOM children keyed by their message object
+    const existingChildren = new Map();
+    this.messageList.querySelectorAll('article').forEach((article) => {
+      for (const [msg, el] of this._messageElements) {
+        if (el === article) {
+          existingChildren.set(msg, article);
+          break;
+        }
+      }
+    });
+
     for (const message of this.messages) {
-      const article = this.renderMessageElement(message, animate);
+      let article = existingChildren.get(message);
+
+      if (!article) {
+        article = this.renderMessageElement(message, animate);
+      } else {
+        // Existing element — check if content changed and update only if needed
+        if (this._renderedMessageContent.get(message) !== message.content) {
+          this.renderMessageElement(message, animate);
+        }
+      }
 
       if (message.role === 'assistant') this._lastAssistantElement = article;
       liveArticles.add(article);
@@ -884,9 +904,22 @@ export class LocalLlmUtility {
   updateAssistantElement(stickToBottom = this.isMessageListNearBottom()) {
     if (!this._lastAssistantElement || !this.assistantDraft) return;
     const contentDiv = this._lastAssistantElement.querySelector('.local-llm-message-content');
-    if (contentDiv) {
-      contentDiv.innerHTML = renderSafeText(this.assistantDraft.content);
-      this._renderedMessageContent.set(this.assistantDraft, this.assistantDraft.content);
+    if (!contentDiv) return;
+
+    const currentContent = this.assistantDraft.content;
+    const prevRendered = this._renderedMessageContent.get(this.assistantDraft) || '';
+
+    if (prevRendered && currentContent.startsWith(prevRendered)) {
+      // Fast path: only new tokens appended — render and insert the delta
+      const delta = currentContent.slice(prevRendered.length);
+      if (delta) {
+        contentDiv.insertAdjacentHTML('beforeend', renderSafeText(delta));
+        this._renderedMessageContent.set(this.assistantDraft, currentContent);
+      }
+    } else if (prevRendered !== currentContent) {
+      // Content was modified non-incrementally (e.g., cleanup) — full re-render
+      contentDiv.innerHTML = renderSafeText(currentContent);
+      this._renderedMessageContent.set(this.assistantDraft, currentContent);
     }
     this.scrollMessagesIfNeeded(stickToBottom);
   }
@@ -933,15 +966,44 @@ export class LocalLlmUtility {
 
   showDiagnostics(copy) {
     this.diagnosticsPanel.hidden = false;
-    this.diagnosticsPanel.innerHTML = `
-      <p class="local-llm-diagnostics-title">${escapeHtml(copy.title)}</p>
-      <p>${escapeHtml(copy.detail)}</p>
-      <p><strong>Try:</strong> ${escapeHtml(copy.likelyFix)}</p>
-      <div class="local-llm-diagnostics-actions">
-        <button type="button" class="local-llm-diagnostics-retry" data-local-llm-retry data-cursor="hover">Retry</button>
-        <button type="button" class="local-llm-diagnostics-retry" data-local-llm-clear-cache data-cursor="hover">Clear cache</button>
-      </div>
-    `;
+    this.diagnosticsPanel.innerHTML = '';
+
+    const title = document.createElement('p');
+    title.className = 'local-llm-diagnostics-title';
+    title.textContent = copy.title;
+    this.diagnosticsPanel.appendChild(title);
+
+    const detail = document.createElement('p');
+    detail.textContent = copy.detail;
+    this.diagnosticsPanel.appendChild(detail);
+
+    const fix = document.createElement('p');
+    const fixStrong = document.createElement('strong');
+    fixStrong.textContent = 'Try: ';
+    fix.appendChild(fixStrong);
+    fix.appendChild(document.createTextNode(copy.likelyFix));
+    this.diagnosticsPanel.appendChild(fix);
+
+    const actions = document.createElement('div');
+    actions.className = 'local-llm-diagnostics-actions';
+
+    const retryBtn = document.createElement('button');
+    retryBtn.type = 'button';
+    retryBtn.className = 'local-llm-diagnostics-retry';
+    retryBtn.dataset.localLlmRetry = '';
+    retryBtn.dataset.cursor = 'hover';
+    retryBtn.textContent = 'Retry';
+    actions.appendChild(retryBtn);
+
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'local-llm-diagnostics-retry';
+    clearBtn.dataset.localLlmClearCache = '';
+    clearBtn.dataset.cursor = 'hover';
+    clearBtn.textContent = 'Clear cache';
+    actions.appendChild(clearBtn);
+
+    this.diagnosticsPanel.appendChild(actions);
   }
 
   hideDiagnostics() {
@@ -1079,11 +1141,14 @@ export class LocalLlmUtility {
     this._workerMessageHandler = null;
     this._workerErrorHandler = null;
     if (delayMs > 0) {
-      window.setTimeout(() => worker.terminate(), delayMs);
+      window.setTimeout(() => {
+        worker.terminate();
+        if (this.worker === worker) this.worker = null;
+      }, delayMs);
     } else {
       worker.terminate();
+      this.worker = null;
     }
-    this.worker = null;
   }
 
   async clearBrowserModelCaches() {
@@ -1213,7 +1278,7 @@ function buildFailureCopy(message, diagnostics) {
 function renderSafeInlineText(text) {
   return escapeHtml(text)
     .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[\s(])\*([^*\n]+)\*(?=([\s).,;:!?]|$))/g, '$1<em>$2</em>')
+    .replace(/(^|[\s(])\*([^\*\n]+)\*(?=[\s).,;:!?]|\s*$)/g, '$1<em>$2</em>')
     .replace(/`([^`]+)`/g, '<code>$1</code>');
 }
 

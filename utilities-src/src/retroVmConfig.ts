@@ -56,6 +56,20 @@ const RETRO_VM_COPY_DATASET_FIELDS = {
   vmProgressMeta: 'progressMeta'
 } as const satisfies Record<keyof Omit<RetroVmDatasetConfig, 'vmNetworkEnabled' | 'vmRelayUrl'>, keyof RetroVmCopyConfig>;
 
+/**
+ * Parse a URL query or dataset string into a boolean.
+ *
+ * Accepted truthy values: `'true'`, `'1'`, `'yes'`, `'on'`
+ * Accepted falsy values: `'false'`, `'0'`, `'no'`, `'off'`
+ *
+ * Matching is case-insensitive and trims whitespace.
+ * Unrecognized strings (including `'enabled'`, `'disabled'`, `'y'`, `'n'`)
+ * fall back to the provided fallback value.
+ *
+ * @param value - Raw string from a dataset attribute or query param.
+ * @param fallback - Value returned when `value` is `undefined` or unrecognized.
+ * @returns Parsed boolean or `fallback`.
+ */
 function parseBooleanFlag(value: string | undefined, fallback: boolean) {
   if (value === undefined) {
     return fallback;

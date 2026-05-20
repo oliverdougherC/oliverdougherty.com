@@ -625,8 +625,7 @@ function getAudioWaveGlContext(
 ): WebGLRenderingContext | WebGL2RenderingContext | null {
   const context =
     canvas.getContext('webgl2', attributes) ??
-    canvas.getContext('webgl', attributes) ??
-    canvas.getContext('experimental-webgl', attributes);
+    canvas.getContext('webgl', attributes);
 
   if (
     (typeof WebGL2RenderingContext !== 'undefined' && context instanceof WebGL2RenderingContext) ||

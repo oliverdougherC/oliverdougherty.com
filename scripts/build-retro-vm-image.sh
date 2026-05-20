@@ -35,6 +35,17 @@ mkdir -p \
 
 cp "${ROOT_DIR}/vm-src/tinycore/branding/bliss-wallpaper.png" \
   "${GENERATED_DIR}/opt/backgrounds/retro-vm-wallpaper.png"
+
+# SVG-to-PNG conversion: check source existence before rsvg-convert so errors name the missing file
+for _svg_src in \
+  "${ROOT_DIR}/vm-src/tinycore/branding/retro-browser.svg" \
+  "${ROOT_DIR}/vm-src/tinycore/branding/retro-guide.svg"; do
+  if [ ! -f "$_svg_src" ]; then
+    echo "Missing SVG source: $_svg_src" >&2
+    exit 1
+  fi
+done
+
 rsvg-convert \
   --format=png \
   --output="${GENERATED_DIR}/usr/local/share/pixmaps/retro-browser.png" \
@@ -61,6 +72,10 @@ docker run --rm \
     set -e
     if [ "$cpio_status" -ge 2 ]; then
       exit "$cpio_status"
+    fi
+    if [ "$cpio_status" -eq 1 ]; then
+      echo "WARNING: cpio exited with status 1 — some files were not extracted" >&2
+      exit 1
     fi
 
     cp -R /repo/vm-src/tinycore/rootfs-overlay/. /tmp/rootfs/
@@ -96,6 +111,13 @@ docker run --rm \
 
 if [ ! -f "${OUTPUT_ISO}" ]; then
   echo "Tiny Core remaster build failed to produce ${OUTPUT_ISO}" >&2
+  exit 1
+fi
+
+# Validate output ISO is not empty or truncated (Tiny Core ISOs are ~10 MB minimum)
+_iso_size=$(stat -c%s "${OUTPUT_ISO}" 2>/dev/null || stat -f%z "${OUTPUT_ISO}" 2>/dev/null || echo 0)
+if [ "$_iso_size" -lt 1048576 ]; then
+  echo "Tiny Core remaster ISO is suspiciously small (${_iso_size} bytes) — build may have failed" >&2
   exit 1
 fi
 

@@ -15,13 +15,13 @@
   const TITLE_VIEW_ID = 'utilitiesTitleView';
   const UTILITY_VIEW_ID = 'utilitiesUtilityView';
 
-  const UTILITY_MAP = {
-    'image-transform': 'image-transform',
-    'audio-fourier': 'audio-fourier',
-    'local-assistant': 'local-assistant',
-    'virtual-machine': 'virtual-machine',
-    'stress-test': 'stress-test',
-  };
+  const VALID_UTILITIES = new Set([
+    'image-transform',
+    'audio-fourier',
+    'local-assistant',
+    'virtual-machine',
+    'stress-test',
+  ]);
 
   const titleView = document.getElementById(TITLE_VIEW_ID);
   const utilityView = document.getElementById(UTILITY_VIEW_ID);
@@ -87,7 +87,7 @@
   function getHashTarget() {
     const hash = window.location.hash.replace(/^#/, '').trim();
     if (!hash) return null;
-    return UTILITY_MAP[hash] || null;
+    return VALID_UTILITIES.has(hash) ? hash : null;
   }
 
   function getStage(utilityId) {
@@ -137,7 +137,13 @@
       document.body.appendChild(script);
     });
     localAssistantScriptPromise.catch(function (error) {
-      console.error(error);
+      console.error('[Local Assistant] Script load failed (attempt #' + localAssistantLoadAttempt + '):', error.message);
+      // Persist a non-intrusive warning in sessionStorage so it surfaces on next page load
+      // if the user navigates away and back without retrying.
+      try {
+        sessionStorage.setItem('local-assistant-load-warning',
+          JSON.stringify({ message: error.message, attempt: localAssistantLoadAttempt, ts: Date.now() }));
+      } catch (_) { /* sessionStorage may be unavailable (private browsing) */ }
     });
     return localAssistantScriptPromise;
   }

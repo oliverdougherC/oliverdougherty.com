@@ -37,26 +37,28 @@ body, html {
 }
 
 /* ========================================
-   Nav Dot (copied from schematic.css)
+   Nav Dot
+   Base styles inherited from design-system.css.
+   This block adds resume-page size + SVG icon overrides.
    ======================================== */
 
 .nav-dot {
-  position: fixed;
-  top: 1rem;
-  right: 1.25rem;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: #000000;
-  cursor: pointer;
-  z-index: 1000;
-  transition: transform 120ms ease, opacity 160ms ease;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.nav-dot:hover {
-  transform: scale(1.08);
+.nav-dot svg {
+  width: 16px;
+  height: 16px;
+}
+
+.nav-dot svg line {
+  stroke: #FFFFFF;
+  stroke-width: 2;
+  stroke-linecap: round;
 }
 
 .nav-dot:focus-visible,
@@ -67,16 +69,14 @@ body, html {
   outline-offset: 4px;
 }
 
-body.nav-open .nav-dot {
-  opacity: 0.6;
-}
-
 /* ========================================
    Nav Overlay Overrides
    ======================================== */
 
-.nav-overlay-bg {
-  background-color: #FFFFFF !important;
+/* Use higher specificity (body + class) to override design-system's .nav-overlay-bg
+   without requiring !important. */
+body .nav-overlay-bg {
+  background-color: #FFFFFF;
 }
 
 .nav-overlay .nav-link,
@@ -97,6 +97,15 @@ body.nav-open .nav-dot {
 /* ========================================
    Schematic Wrapper
    ======================================== */
+
+/* Utility classes for resume typing animation */
+.resume-hidden {
+  opacity: 0;
+}
+
+.resume-cursor-hidden {
+  display: none;
+}
 
 .meta-tiny {
   position: absolute;
@@ -755,6 +764,10 @@ a.skill-tag:hover {
   .resume-hero.schematic-wrapper,
   .resume-hero-overlay {
     min-height: 78vh;
+    /* dvh adapts to mobile browser chrome (address bar); svh picks the smallest viewport.
+       Order: vh (baseline) -> dvh (dynamic, modern) -> svh (small, modern).
+       Browsers that support dvh ignore svh; browsers that support neither fall back to vh. */
+    min-height: 78dvh;
     min-height: 78svh;
   }
 

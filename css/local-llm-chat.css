@@ -15,6 +15,15 @@
   --local-llm-control-size: 3.1rem;
 }
 
+/* Fallback pattern used throughout this file:
+ * Duplicate declarations (e.g., border-color, background) are intentional progressive enhancement.
+ * The first line uses a static rgba() value as a fallback for browsers that don't support color-mix().
+ * The second line uses color-mix() referencing --local-llm-accent / --local-llm-line etc.
+ * The rgba() fallbacks were computed to match the color-mix() output when --local-llm-accent = #00e5ff
+ * and --local-llm-line = rgba(255, 255, 255, 0.08). Example: color-mix(in srgb, #00e5ff 45%, rgba(255,255,255,0.08))
+ * ≈ rgba(0, 229, 255, 0.45). The loading variant (line ~509) uses 58% against rgba(255,255,255,0.2) which
+ * resolves to ≈ rgba(0, 229, 255, 0.58). These are visually matched, not mathematically identical. */
+
 .utility-layout--local-llm {
   display: flex;
   flex-direction: column;

@@ -23,6 +23,8 @@
   let lastTimestamp = 0;
   let isHidden = document.hidden;
   let heavyUtilityActive = false;
+  let diagnosticsFrameCounter = 0;
+  const DIAGNOSTICS_BATCH_INTERVAL = 30; // sync dataset every N frames
   const activeLoadSources = new Set();
 
   const STARFIELD_CONFIG = {
@@ -44,6 +46,10 @@
     }
 
     try {
+      // NOTE: Uses Function.prototype.toString() to serialize the worker body into a Blob URL.
+      // This is fragile if a minifier mangles the function body (e.g. removes comments, rewrites
+      // arrow syntax, or strips unused locals). If bundling the worker separately is not feasible,
+      // ensure your build pipeline preserves `starfieldWorkerMain` as a named function literal.
       const workerSource = `const STARFIELD_CONFIG = ${JSON.stringify(STARFIELD_CONFIG)};\n(${starfieldWorkerMain.toString()})()`;
       const workerUrl = URL.createObjectURL(new Blob([workerSource], {
         type: 'text/javascript'
@@ -572,7 +578,11 @@
     lastTimestamp = timestamp;
     update(deltaSeconds);
     draw();
-    syncDiagnostics(heavyUtilityActive ? 'load-full-motion' : 'full-motion');
+    diagnosticsFrameCounter += 1;
+    if (diagnosticsFrameCounter >= DIAGNOSTICS_BATCH_INTERVAL) {
+      diagnosticsFrameCounter = 0;
+      syncDiagnostics(heavyUtilityActive ? 'load-full-motion' : 'full-motion');
+    }
     animationFrameId = requestAnimationFrame(loop);
   }
 

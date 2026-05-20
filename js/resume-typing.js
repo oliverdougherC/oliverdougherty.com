@@ -3,6 +3,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const name2 = document.getElementById('typeTargetName2');
   const subtitle = document.getElementById('typeTargetSubtitle');
   const cursor = document.getElementById('typeCursor');
+  const heroContact = document.querySelector('.hero-contact');
+  const metaTiny = document.querySelector('.meta-tiny');
+  const navToggle = document.getElementById('navToggle');
 
   if (!name1 || !name2 || !cursor) {
     return;
@@ -20,14 +23,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   const revealPage = () => {
-    const revealEls = [
-      subtitle,
-      document.querySelector('.hero-contact'),
-      document.querySelector('.meta-tiny'),
-      document.getElementById('navToggle')
-    ];
+    const revealEls = [subtitle, heroContact, metaTiny, navToggle];
     revealEls.forEach((el) => {
       if (!el) return;
+      el.classList.remove('resume-hidden');
       el.style.transition = 'opacity 0.8s ease';
       el.style.opacity = '1';
     });
@@ -56,19 +55,17 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const runSequence = async () => {
-    name1.textContent = '';
-    name2.textContent = '';
     name1.appendChild(cursor);
     cursor.style.display = 'inline-block';
     cursor.style.visibility = '';
 
-    await wait(800);
+    await wait(400);
     if (typingCancelled) return;
 
     await typeText(name1, targetText1);
     if (typingCancelled) return;
 
-    await wait(400 + Math.random() * 200);
+    await wait(200 + Math.random() * 100);
     if (typingCancelled) return;
 
     if (name1.contains(cursor)) {
@@ -76,25 +73,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     name2.appendChild(cursor);
 
-    await wait(350 + Math.random() * 150);
+    await wait(200 + Math.random() * 100);
     if (typingCancelled) return;
+
+    // Reveal subtitle and contact info in parallel while surname types
+    revealPage();
 
     await typeText(name2, targetText2);
     if (typingCancelled) return;
 
-    await wait(300);
+    await wait(200);
     if (typingCancelled) return;
 
     cursor.style.animation = 'none';
     void cursor.offsetHeight;
     cursor.style.animation = 'blink 1s step-end infinite';
 
-    await wait(1600);
+    await wait(800);
     if (typingCancelled) return;
     cursor.style.animation = 'none';
     cursor.style.visibility = 'hidden';
-
-    revealPage();
   };
 
   if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {

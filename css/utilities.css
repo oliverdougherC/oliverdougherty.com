@@ -960,6 +960,16 @@ html[data-active-utility] .nav-back-btn {
   transform: translateY(-1px);
 }
 
+.btn-swap-minimal:focus-visible {
+  outline: var(--utilities-focus-outline);
+  outline-offset: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.32);
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: var(--utilities-focus-shadow);
+}
+
 .btn-swap-minimal:disabled {
   opacity: 0.42;
   cursor: not-allowed;

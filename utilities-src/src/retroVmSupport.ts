@@ -41,6 +41,9 @@ export function detectRetroVmSupport(input: {
   const hasDocument = input.hasDocument ?? typeof document !== 'undefined';
   const hasWebAssembly = input.hasWebAssembly ?? typeof WebAssembly !== 'undefined';
   const hasWorker = input.hasWorker ?? typeof Worker !== 'undefined';
+  // `typeof HTMLElement` guards against SSR / non-browser environments where
+  // the global is absent. In a real browser it is always defined, so this
+  // effectively checks whether `requestPointerLock` exists on the prototype.
   const requestPointerLock =
     typeof HTMLElement !== 'undefined' ? HTMLElement.prototype.requestPointerLock : undefined;
   const hasFullscreen =
@@ -107,11 +110,17 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) {
     return `${Math.max(0, Math.round(bytes))} bytes`;
   }
-  if (bytes >= 1024 * 1024) {
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  if (bytes < 1024 * 1024 * 1024) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
+  if (bytes < 1024 * 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  }
 
-  return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024 * 1024 * 1024)).toFixed(1)} TB`;
 }
 
 export function formatRetroVmProgress(progress: RetroVmProgress) {

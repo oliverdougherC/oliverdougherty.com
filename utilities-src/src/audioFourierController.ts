@@ -52,7 +52,8 @@ function supportsModuleWorkers() {
     worker.terminate();
     URL.revokeObjectURL(blobUrl);
     moduleWorkerSupport = true;
-  } catch {
+  } catch (error) {
+    console.warn('[AudioFourier] Module worker support check failed:', error);
     moduleWorkerSupport = false;
   }
   return moduleWorkerSupport;
@@ -180,6 +181,7 @@ export class AudioFourierController {
   private lastPlaybackProgressAt = 0;
   private deferredWaveRenderTimeoutId = 0;
   private state: AudioFourierState = 'idle';
+  private destroyed = false;
   private sliderRafPending = false;
   private resizeFrameId = 0;
   private resizeObserver: ResizeObserver | null = null;
@@ -246,7 +248,7 @@ export class AudioFourierController {
       this.generate().catch((error) => this.handleGenerateFailure(error));
     }, { signal });
     this.playPauseButton.addEventListener('click', () => {
-      this.handlePlayClick().catch((error) => this.handleGenerateFailure(error));
+      this.handlePlayOrSkipForwardClick().catch((error) => this.handleGenerateFailure(error));
     }, { signal });
     this.pauseButton.addEventListener('click', () => this.pausePlayback(), { signal });
     this.resetButton.addEventListener('click', () => this.resetAll(), { signal });
@@ -563,13 +565,6 @@ export class AudioFourierController {
   }
 
   private abandonActiveComputation() {
-    if (this.activeWorkerRequestId > 0 && this.worker) {
-      const request: AudioFourierWorkerRequest = {
-        type: 'cancel-audio-fourier',
-        requestId: this.activeWorkerRequestId
-      };
-      this.worker.postMessage(request);
-    }
     this.activeWorkerRequestId = 0;
     if (this.worker) {
       this.worker.terminate();
@@ -867,9 +862,15 @@ export class AudioFourierController {
     this.syncEnergyReadout();
 
     if (this.state === 'animating') {
-      this.renderWaveViewport(true);
-      this.drawSpectrumFrame();
-      this.drawComponentFrame();
+      if (!this.sliderRafPending) {
+        this.sliderRafPending = true;
+        window.requestAnimationFrame(() => {
+          this.sliderRafPending = false;
+          this.renderWaveViewport(true);
+          this.drawSpectrumFrame();
+          this.drawComponentFrame();
+        });
+      }
       return;
     }
 
@@ -1015,8 +1016,14 @@ export class AudioFourierController {
     }
   }
 
-  private async handlePlayClick() {
+  // When playback is animating, the main play/pause button acts as a
+  // skip-forward control (advancing 0.75 s) rather than a pause toggle.
+  // The dedicated pause button handles pausing. This dual-role is
+  // intentional: the main button advances the visual playhead during
+  // playback, and starts/restarts playback when idle or complete.
+  private async handlePlayOrSkipForwardClick() {
     if (this.state === 'animating') {
+      // Skip forward 0.75 s during playback instead of pausing.
       if (this.activeResult) {
         this.playbackElapsedSeconds = clamp(
           this.playbackElapsedSeconds + 0.75,
@@ -1090,6 +1097,9 @@ export class AudioFourierController {
         if (this.state !== 'animating') {
           return;
         }
+        if (this.destroyed) {
+          return;
+        }
         this.playbackElapsedSeconds = this.activeResult?.metadata.proxyDurationSeconds ?? 0;
         this.visualPlaybackElapsedSeconds = this.playbackElapsedSeconds;
         this.activeBandNodes = [];
@@ -1130,8 +1140,9 @@ export class AudioFourierController {
       node.source.onended = null;
       try {
         node.source.stop();
-      } catch {
-        // Stopping an already-ended one-shot source is harmless.
+      } catch (error) {
+        // Stopping an already-ended one-shot source is harmless, but log unexpected failures.
+        console.warn('[AudioFourier] stopPlayback: node.source.stop() failed:', error);
       }
       node.source.disconnect();
       node.gain.disconnect();
@@ -1409,6 +1420,7 @@ export class AudioFourierController {
   }
 
   public destroy() {
+    this.destroyed = true;
     this.eventController.abort();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;

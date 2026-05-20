@@ -2,12 +2,16 @@
  * Gallery JavaScript
  * Builds the editorial gallery experience from generated asset data plus
  * human-authored sequence metadata.
+ *
+ * Wrapped in an IIFE to avoid polluting the global scope.
  */
+(function () {
+  'use strict';
 
-const GALLERY_HASH_PREFIX = '#photo=';
-const MANIFEST_PATH = '../../assets/photos/photos.json';
-const SEQUENCE_PATH = '../../assets/photos/gallery-sequence.json';
-const HERO_QUEUE_LIMIT = 4;
+  const GALLERY_HASH_PREFIX = '#photo=';
+  const MANIFEST_PATH = '../../assets/photos/photos.json';
+  const SEQUENCE_PATH = '../../assets/photos/gallery-sequence.json';
+  const HERO_QUEUE_LIMIT = 4;
 
 const gallery = {
   entries: [],
@@ -26,6 +30,8 @@ const gallery = {
   inertFallbackState: new Map(),
   lightboxFocusables: [],
   supportsScrollIntoViewInline: null,
+  preloadImages: [],
+  heroRevealTimers: [],
   elements: {}
 };
 
@@ -34,6 +40,8 @@ document.addEventListener('DOMContentLoaded', () => {
   bindStaticEvents();
   initGalleryHeroReveal();
   initGallery().catch((error) => {
+    gallery.heroRevealTimers.forEach((t) => window.clearTimeout(t));
+    gallery.heroRevealTimers = [];
     console.error('Gallery initialization error:', error);
     showErrorState('The archive data could not be loaded. Refresh the page or try again later.');
   });
@@ -73,7 +81,10 @@ function cacheElements() {
     lightboxMeta: document.getElementById('lightboxMeta'),
     lightboxThumbStrip: document.getElementById('lightboxThumbStrip')
   };
-  gallery.inertElements = Array.from(document.body.children).filter((element) => element.id !== 'lightbox');
+  gallery.inertElements = Array.from(document.body.children).filter((element) => {
+    if (element.id === 'lightbox') return false;
+    return element.querySelector('a[href], button, input, select, textarea, [tabindex]') !== null;
+  });
 }
 
 function replaceChildrenCompat(container, ...children) {
@@ -103,14 +114,16 @@ function initGalleryHeroReveal() {
   }
 
   // Nav dot fades in at ~2s (during the calibrate animation)
-  window.setTimeout(() => {
+  const timer1 = window.setTimeout(() => {
     window.revealNavDot?.();
   }, 2000);
 
   // Deferred elements fade in after both hero animations complete (~4.1s)
-  window.setTimeout(() => {
+  const timer2 = window.setTimeout(() => {
     window.revealDeferredElements?.();
   }, 4100);
+
+  gallery.heroRevealTimers = [timer1, timer2];
 }
 
 function bindStaticEvents() {
@@ -791,7 +804,8 @@ function navigateLightbox(direction) {
   }, 150);
 }
 
-function cleanupLightboxImageOpacity() {
+function cleanupLightboxImageOpacity(event) {
+  if (event.propertyName !== 'opacity') return;
   gallery.elements.lightboxImage?.style.removeProperty('opacity');
 }
 
@@ -924,13 +938,13 @@ function supportsScrollIntoViewInline() {
 
   gallery.supportsScrollIntoViewInline = false;
   try {
-    document.createElement('div').scrollIntoView({
-      block: 'nearest',
-      get inline() {
-        gallery.supportsScrollIntoViewInline = true;
-        return 'center';
-      }
-    });
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+    // Feature-detect via string inspection of the native method's source,
+    // avoiding the need to create detached DOM nodes.
+    if (typeof descriptor?.value === 'function') {
+      const source = descriptor.value.toString();
+      gallery.supportsScrollIntoViewInline = source.includes('inline');
+    }
   } catch (_error) {
     gallery.supportsScrollIntoViewInline = false;
   }
@@ -999,6 +1013,8 @@ function cleanupGalleryEvents() {
   if (gallery.hashChangeTimer) {
     window.clearTimeout(gallery.hashChangeTimer);
   }
+  gallery.heroRevealTimers.forEach((t) => window.clearTimeout(t));
+  gallery.heroRevealTimers = [];
 }
 
 function readHashEntryId() {
@@ -1007,12 +1023,14 @@ function readHashEntryId() {
 }
 
 function preloadAdjacentEntries(index) {
+  gallery.preloadImages = [];
   [index - 1, index + 1].forEach((targetIndex) => {
     const entry = gallery.entries[(targetIndex + gallery.entries.length) % gallery.entries.length];
     const source = entry?.assets?.largeJpg || entry?.assets?.mediumJpg;
     if (!source) return;
     const image = new Image();
     image.src = source;
+    gallery.preloadImages.push(image);
   });
 }
 
@@ -1123,3 +1141,5 @@ function formatShortDate(dateValue) {
     year: 'numeric'
   }).format(parsed);
 }
+
+})();

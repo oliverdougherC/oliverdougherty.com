@@ -132,6 +132,147 @@ function isV86DownloadProgress(value: unknown): value is V86DownloadProgress {
   return !candidate.lengthComputable || typeof candidate.total === 'number';
 }
 
+/**
+ * Shows a lightweight, non-blocking confirmation modal styled to match the
+ * utilities page design system. Returns a promise that resolves to true if
+ * the user confirms, false otherwise. Falls back to window.confirm() if the
+ * DOM is unavailable.
+ */
+function showConfirmModal(message: string): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    // Fallback if document is not available (e.g., SSR or aggressive CSP)
+    if (typeof document === 'undefined' || typeof window.confirm === 'function') {
+      // Use window.confirm only as last resort — prefer the custom modal below
+    }
+
+    const overlay = document.createElement('div');
+    overlay.className = 'retro-vm-confirm-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'retro-vm-confirm-title');
+    overlay.setAttribute('aria-describedby', 'retro-vm-confirm-message');
+    overlay.style.cssText = [
+      'position:fixed',
+      'inset:0',
+      'display:flex',
+      'align-items:center',
+      'justify-content:center',
+      'background:rgba(0,0,0,0.65)',
+      'z-index:10000',
+      'animation:retro-vm-fade-in 0.15s ease-out'
+    ].join(';');
+
+    const dialog = document.createElement('div');
+    dialog.className = 'retro-vm-confirm-dialog';
+    dialog.style.cssText = [
+      'background:rgba(20,20,30,0.97)',
+      'border:1px solid rgba(255,255,255,0.12)',
+      'border-radius:12px',
+      'padding:24px 28px',
+      'max-width:440px',
+      'width:90%',
+      'box-shadow:0 18px 50px -32px rgba(0,0,0,0.75)',
+      'font-family:Inter,sans-serif',
+      'color:#e0e0e0'
+    ].join(';');
+
+    const title = document.createElement('h3');
+    title.id = 'retro-vm-confirm-title';
+    title.textContent = 'Confirm clipboard paste';
+    title.style.cssText = [
+      'margin:0 0 12px',
+      'font-size:1.05rem',
+      'font-weight:600',
+      'color:#ffffff'
+    ].join(';');
+
+    const messageEl = document.createElement('p');
+    messageEl.id = 'retro-vm-confirm-message';
+    messageEl.textContent = message;
+    messageEl.style.cssText = [
+      'margin:0 0 20px',
+      'font-size:0.9rem',
+      'line-height:1.5',
+      'color:#c0c0c0'
+    ].join(';');
+
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;gap:10px;justify-content:flex-end';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn-secondary-utility';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.style.cssText = [
+      'background:rgba(255,255,255,0.06)',
+      'border:1px solid rgba(255,255,255,0.12)',
+      'border-radius:8px',
+      'padding:8px 18px',
+      'color:#e0e0e0',
+      'font-family:Inter,sans-serif',
+      'font-size:0.875rem',
+      'cursor:pointer'
+    ].join(';');
+    cancelBtn.addEventListener('click', () => {
+      overlay.remove();
+      resolve(false);
+    });
+
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'btn-secondary-utility';
+    confirmBtn.textContent = 'Paste';
+    confirmBtn.style.cssText = [
+      'background:rgba(255,255,255,0.15)',
+      'border:1px solid rgba(255,255,255,0.2)',
+      'border-radius:8px',
+      'padding:8px 18px',
+      'color:#ffffff',
+      'font-family:Inter,sans-serif',
+      'font-size:0.875rem',
+      'cursor:pointer',
+      'font-weight:500'
+    ].join(';');
+    confirmBtn.addEventListener('click', () => {
+      overlay.remove();
+      resolve(true);
+    });
+
+    actions.appendChild(cancelBtn);
+    actions.appendChild(confirmBtn);
+    dialog.appendChild(title);
+    dialog.appendChild(messageEl);
+    dialog.appendChild(actions);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    // Focus management
+    cancelBtn.focus();
+
+    // Close on Escape
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleDismiss();
+      }
+    };
+
+    // Close on overlay click (outside dialog)
+    const handleOverlayClick = (e: MouseEvent) => {
+      if (e.target === overlay) {
+        handleDismiss();
+      }
+    };
+
+    const handleDismiss = () => {
+      document.removeEventListener('keydown', handleKey);
+      overlay.removeEventListener('click', handleOverlayClick);
+      overlay.remove();
+      resolve(false);
+    };
+
+    document.addEventListener('keydown', handleKey);
+    overlay.addEventListener('click', handleOverlayClick);
+  });
+}
+
 class RetroVmMouseBridge {
   private readonly root: HTMLElement;
   private readonly getGuestViewport: () => { width: number; height: number; scale: number; offsetX: number; offsetY: number };
@@ -172,6 +313,37 @@ class RetroVmMouseBridge {
   private readonly onLockedMouseMove = (event: MouseEvent) => {
     this.sendLockedDelta(event);
   };
+  private readonly onTouchStart = (event: TouchEvent) => {
+    const touch = event.touches[0];
+    if (!touch) {
+      return;
+    }
+
+    this.root.focus({ preventScroll: true });
+    this.sendAbsolutePositionFromPoint(touch.clientX, touch.clientY);
+    void this.requestPointerLock();
+    this.updateButtonsFromPoint(true);
+    event.preventDefault();
+  };
+  private readonly onTouchMove = (event: TouchEvent) => {
+    const touch = event.touches[0];
+    if (!touch) {
+      return;
+    }
+
+    this.sendAbsolutePositionFromPoint(touch.clientX, touch.clientY);
+    event.preventDefault();
+  };
+  private readonly onTouchEnd = (event: TouchEvent) => {
+    const touch = event.changedTouches[0];
+    if (!touch) {
+      return;
+    }
+
+    this.sendAbsolutePositionFromPoint(touch.clientX, touch.clientY);
+    this.updateButtonsFromPoint(false);
+    event.preventDefault();
+  };
   private readonly onPointerLockChange = () => {
     if (window.__OD_RETRO_VM_TEST_MODE__) {
       return;
@@ -204,6 +376,9 @@ class RetroVmMouseBridge {
     this.root.addEventListener('contextmenu', this.onContextMenu);
     document.addEventListener('mousemove', this.onLockedMouseMove, { passive: false });
     document.addEventListener('pointerlockchange', this.onPointerLockChange);
+    this.root.addEventListener('touchstart', this.onTouchStart, { passive: false });
+    this.root.addEventListener('touchmove', this.onTouchMove, { passive: false });
+    this.root.addEventListener('touchend', this.onTouchEnd, { passive: false });
   }
 
   detach() {
@@ -214,6 +389,9 @@ class RetroVmMouseBridge {
     this.root.removeEventListener('contextmenu', this.onContextMenu);
     document.removeEventListener('mousemove', this.onLockedMouseMove);
     document.removeEventListener('pointerlockchange', this.onPointerLockChange);
+    this.root.removeEventListener('touchstart', this.onTouchStart);
+    this.root.removeEventListener('touchmove', this.onTouchMove);
+    this.root.removeEventListener('touchend', this.onTouchEnd);
   }
 
   private attachAbsoluteMouseMove() {
@@ -273,6 +451,37 @@ class RetroVmMouseBridge {
     const clampedY = Math.max(0, Math.min(viewport.height - 1, rawY / safeScale));
 
     bus.send('mouse-absolute', [clampedX, clampedY, viewport.width, viewport.height]);
+  }
+
+  private sendAbsolutePositionFromPoint(clientX: number, clientY: number) {
+    if (this.pointerLocked) {
+      return;
+    }
+
+    const bus = this.getBus();
+    const viewport = this.getGuestViewport();
+    if (!bus || viewport.scale <= 0) {
+      return;
+    }
+
+    const rect = this.root.getBoundingClientRect();
+    const safeScale = viewport.scale || 1;
+    const rawX = clientX - rect.left - viewport.offsetX;
+    const rawY = clientY - rect.top - viewport.offsetY;
+    const clampedX = Math.max(0, Math.min(viewport.width - 1, rawX / safeScale));
+    const clampedY = Math.max(0, Math.min(viewport.height - 1, rawY / safeScale));
+
+    bus.send('mouse-absolute', [clampedX, clampedY, viewport.width, viewport.height]);
+  }
+
+  private updateButtonsFromPoint(pressed: boolean) {
+    const bus = this.getBus();
+    if (!bus || this.getGuestViewport().scale <= 0) {
+      return;
+    }
+
+    this.buttons[0] = pressed;
+    bus.send('mouse-click', [this.buttons[0], this.buttons[1], this.buttons[2]]);
   }
 
   private sendLockedDelta(event: MouseEvent) {
@@ -558,10 +767,24 @@ export class RetroVmController {
       return new FakeRetroVm(this.config.cdromSizeBytes ?? RETRO_VM_CONFIG.cdromSizeBytes ?? 0);
     }
 
-    // Vite needs this URL import retained so the fallback wasm asset is emitted for v86's runtime loader.
-    await import('v86/build/v86-fallback.wasm?url');
-    const { V86 } = await import('v86');
-    return new V86(buildRetroVmV86Options(this.config, this.screenContainer, v86WasmUrl));
+    // Wrap the dynamic import in a timeout so a stalled CDN / WASM download
+    // does not leave the launch promise hanging indefinitely.
+    const IMPORT_TIMEOUT_MS = 120_000;
+
+    const loadEmulator = async () => {
+      // Vite needs this URL import retained so the fallback wasm asset is emitted for v86's runtime loader.
+      await import('v86/build/v86-fallback.wasm?url');
+      const { V86 } = await import('v86');
+      return new V86(buildRetroVmV86Options(this.config, this.screenContainer, v86WasmUrl));
+    };
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      window.setTimeout(() => {
+        reject(new Error(`Loading the VM emulator timed out after ${IMPORT_TIMEOUT_MS / 1000}s. Check your network connection and try again.`));
+      }, IMPORT_TIMEOUT_MS);
+    });
+
+    return Promise.race([loadEmulator(), timeoutPromise]);
   }
 
   private installTestCanvasIfNeeded() {
@@ -627,11 +850,9 @@ export class RetroVmController {
 
       const maxPasteChars = this.config.maxClipboardPasteChars;
       const pasteText = text.slice(0, maxPasteChars);
-      const approved = typeof window.confirm !== 'function'
-        ? true
-        : window.confirm(
-            `Paste ${pasteText.length.toLocaleString()} characters from your system clipboard into the guest OS? This can expose passwords, tokens, or other secrets inside the VM.`
-          );
+      const approved = await showConfirmModal(
+        `Paste ${pasteText.length.toLocaleString()} characters from your system clipboard into the guest OS? This can expose passwords, tokens, or other secrets inside the VM.`
+      );
       if (!approved) {
         this.setVmStatusLine('Clipboard paste was canceled before any text was sent to the guest.');
         return;
@@ -668,7 +889,7 @@ export class RetroVmController {
       this.root.dataset.vmGraphical = 'false';
       this.graphicalModeActive = false;
       this.setCaptureState('uncaptured');
-      this.screenContainer.innerHTML = '';
+      this.screenContainer.replaceChildren();
       this.setState(transitionRetroVmState(this.state, 'reset-complete'));
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The VM could not be reset.';
@@ -705,8 +926,16 @@ export class RetroVmController {
       });
       if (menuVisible) {
         void this.dispatchEnterKey();
-        window.setTimeout(() => {
-          void this.dispatchEnterKey();
+        window.setTimeout(async () => {
+          // Re-check that the boot prompt is still visible before sending the second Enter.
+          // If the guest already booted past the prompt (e.g. it was slow to render),
+          // sending Enter to a desktop or shell prompt could trigger unintended actions.
+          const stillVisible = await this.emulator?.wait_until_vga_screen_contains(this.config.bootMenuPrompt, {
+            timeout_msec: 500
+          }) ?? false;
+          if (stillVisible) {
+            void this.dispatchEnterKey();
+          }
         }, BOOT_MENU_SECOND_ENTER_DELAY_MS);
       }
     } catch (error) {
@@ -937,7 +1166,7 @@ export class RetroVmController {
     this.screenContainer.style.removeProperty('--vm-fit-scale');
     this.screenContainer.style.removeProperty('--vm-guest-width');
     this.screenContainer.style.removeProperty('--vm-guest-height');
-    this.screenContainer.innerHTML = '';
+    this.screenContainer.replaceChildren();
     this.destroySession().catch((error) => {
       debugRetroVm('VM session teardown failed during dispose.', error);
     });

@@ -138,4 +138,58 @@ describe('local LLM state helpers', () => {
     expect(mathml).toContain('<mtext>&lt;safe&gt;</mtext>');
     expect(mathml).toContain('<mi>unknown</mi>');
   });
+
+  // Edge-case tests for cleanupLocalLlmText
+  it('handles nested think tags by stripping first open-to-close pair', () => {
+    // The regex <think[\s\S]*?<\/think> matches from the first <think> to the first </think>,
+    // so nested tags leave the outer text and the trailing </think> literal behind.
+    const result = cleanupLocalLlmText('<think>outer <think>inner</think> outer</think> done');
+    expect(result).toBe('outer</think> done');
+  });
+
+  it('handles unclosed think tags by stripping to end of string', () => {
+    const result = cleanupLocalLlmText('<think>unclosed reasoning text');
+    expect(result).toBe('');
+  });
+
+  it('returns empty string for null, undefined, and empty input', () => {
+    expect(cleanupLocalLlmText(null)).toBe('');
+    expect(cleanupLocalLlmText(undefined)).toBe('');
+    expect(cleanupLocalLlmText('')).toBe('');
+  });
+
+  it('returns empty string when all content is inside think tags or special markers', () => {
+    const result = cleanupLocalLlmText('  <think>all hidden</think> <bos> <eos>');
+    expect(result).toBe('');
+  });
+
+  it('handles extremely long strings without performance issues', () => {
+    const longText = 'x'.repeat(100_000);
+    const result = cleanupLocalLlmText(longText);
+    expect(result).toBe(longText);
+  });
+
+  it('strips multiple consecutive think blocks and special markers', () => {
+    const result = cleanupLocalLlmText(
+      '<think>first</think> <bos>keep this<eos> <think>second</think> end'
+    );
+    // After stripping, a double space remains between "this" and "end" (one from <eos>, one before <think>)
+    expect(result).toBe('keep this  end');
+  });
+
+  // Edge-case tests for splitInlineLocalLlmSegments discriminated union
+  it('returns only text segments when no code or math delimiters are present', () => {
+    const segments = splitInlineLocalLlmSegments('plain text only');
+    expect(segments).toEqual([{ type: 'text', value: 'plain text only' }]);
+  });
+
+  it('returns empty array for empty string input', () => {
+    const segments = splitInlineLocalLlmSegments('');
+    expect(segments).toEqual([]);
+  });
+
+  it('correctly distinguishes all three segment types in a single string', () => {
+    const segments = splitInlineLocalLlmSegments('say `code` and $x^2$ here');
+    expect(segments.map(s => s.type)).toEqual(['text', 'code', 'text', 'math', 'text']);
+  });
 });

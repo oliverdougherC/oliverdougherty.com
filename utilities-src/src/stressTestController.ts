@@ -473,6 +473,9 @@ export class StressTestController {
     this.stopCpuVisuals();
     this.stopMetricLoop();
     this.totalIterations = 0;
+    this.frameCount = 0;
+    this.droppedFrames = 0;
+    this.lastFps = 0;
     this.gpuBackend = 'none';
     this.gpuWorkloadLevel = 0;
     this.gpuCanvasActive = false;
@@ -572,7 +575,7 @@ export class StressTestController {
     const backends = resolveGpuBackendFallbacks({
       hasWebGpu: Boolean(getNavigatorGpu()),
       hasWebGl2: this.canCreateContext('webgl2'),
-      hasWebGl1: this.canCreateContext('webgl') || this.canCreateContext('experimental-webgl')
+      hasWebGl1: this.canCreateContext('webgl')
     });
 
     for (const backend of backends) {
@@ -595,7 +598,7 @@ export class StressTestController {
     return null;
   }
 
-  private canCreateContext(type: 'webgl2' | 'webgl' | 'experimental-webgl') {
+  private canCreateContext(type: 'webgl2' | 'webgl') {
     let canvas: HTMLCanvasElement | null = document.createElement('canvas');
     try {
       return Boolean(canvas.getContext(type, {
@@ -626,11 +629,12 @@ export class StressTestController {
     };
 
     if (backend === 'webgl2-fragment') {
-      return this.canvas.getContext('webgl2', options) as WebGL2RenderingContext | null;
+      const ctx = this.canvas.getContext('webgl2', options);
+      return ctx instanceof WebGL2RenderingContext ? ctx : null;
     }
 
-    return (this.canvas.getContext('webgl', options) ??
-      this.canvas.getContext('experimental-webgl', options)) as WebGLRenderingContext | null;
+    const ctx = this.canvas.getContext('webgl', options);
+    return ctx instanceof WebGLRenderingContext ? ctx : null;
   }
 
   private async startWebGpuStress(): Promise<ActiveWebGpuStress> {
@@ -862,6 +866,11 @@ export class StressTestController {
   }
 
   private startWebGlStress(backend: 'webgl2-fragment' | 'webgl1-fragment'): ActiveWebGlStress | null {
+    const contextType = backend === 'webgl2-fragment' ? 'webgl2' : 'webgl';
+    if (!this.canCreateContext(contextType)) {
+      return null;
+    }
+
     this.prepareGpuCanvas();
     const gl = this.getWebGlContext(backend);
     if (!gl) {
@@ -1094,8 +1103,22 @@ export class StressTestController {
 
     let ctx = this.canvas.getContext('2d', { alpha: true });
     if (!ctx) {
-      this.replaceCanvasElement();
-      ctx = this.canvas.getContext('2d', { alpha: true });
+      const parent = this.canvas.parentElement;
+      if (parent) {
+        const rect = this.canvas.getBoundingClientRect();
+        const nextCanvas = document.createElement('canvas');
+        nextCanvas.id = this.canvas.id;
+        nextCanvas.setAttribute('aria-label', this.canvas.getAttribute('aria-label') ?? 'Stress test output');
+        nextCanvas.dataset.stressIdle = this.canvas.dataset.stressIdle ?? 'true';
+        nextCanvas.style.cssText = this.canvas.style.cssText;
+        parent.replaceChild(nextCanvas, this.canvas);
+        this.canvas = nextCanvas;
+        this.bindCanvasResizeObserver();
+        const scale = Math.min(window.devicePixelRatio || 1, 3);
+        this.canvas.width = Math.max(1, Math.floor(rect.width * scale));
+        this.canvas.height = Math.max(1, Math.floor(rect.height * scale));
+        ctx = this.canvas.getContext('2d', { alpha: true });
+      }
     }
     if (!ctx) return;
 
@@ -1355,7 +1378,7 @@ export class StressTestController {
     let hiddenCount = 0;
     let remainingOverflow = controlPanel.scrollHeight - controlPanel.clientHeight;
     if (remainingOverflow > 1) {
-      const gapValue = window.getComputedStyle(this.metricsPanel).rowGap || window.getComputedStyle(this.metricsPanel).gap;
+      const gapValue = window.getComputedStyle(this.metricsPanel).gap || window.getComputedStyle(this.metricsPanel).rowGap;
       const rowGap = Number.parseFloat(gapValue || '0') || 0;
       const cardsToHide: HTMLElement[] = [];
 

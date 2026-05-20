@@ -3,6 +3,8 @@ import {
   buildEnergyBandEnvelopes,
   buildSampleEnvelope,
   buildWindowedFourierAnalysis,
+  estimateReconstructionScratchSize,
+  mapSliderValueToComponentCount,
   mapSliderValueToEnergyPercent,
   mixEnergyBandEnvelopes,
   mixEnergyBands,
@@ -502,5 +504,57 @@ describe('audio Fourier core', () => {
     for (let i = 0; i < analysis.componentEnergies.length; i++) {
       expect(Number.isFinite(analysis.componentEnergies[i])).toBe(true);
     }
+  });
+
+  it('maps slider values to component counts using an exponential curve', () => {
+    const totalComponents = 1000;
+    const max = 100;
+
+    // Edge cases
+    expect(mapSliderValueToComponentCount(0, max, totalComponents)).toBe(1);
+    expect(mapSliderValueToComponentCount(-10, max, totalComponents)).toBe(1);
+    expect(mapSliderValueToComponentCount(max, max, totalComponents)).toBe(totalComponents);
+    expect(mapSliderValueToComponentCount(max + 50, max, totalComponents)).toBe(totalComponents);
+
+    // Single component
+    expect(mapSliderValueToComponentCount(50, max, 1)).toBe(1);
+    expect(mapSliderValueToComponentCount(100, max, 1)).toBe(1);
+
+    // Exponential curve: mid slider should give far fewer than half the components
+    const midCount = mapSliderValueToComponentCount(50, max, totalComponents);
+    expect(midCount).toBeGreaterThan(1);
+    expect(midCount).toBeLessThan(totalComponents / 2);
+
+    // Monotonic: higher slider value always yields more components
+    expect(mapSliderValueToComponentCount(25, max, totalComponents)).toBeLessThan(midCount);
+    expect(mapSliderValueToComponentCount(75, max, totalComponents)).toBeGreaterThan(midCount);
+  });
+
+  it('estimates reconstruction scratch size deterministically', () => {
+    const sampleRate = 256;
+    const samples = new Float32Array(512);
+    for (let i = 0; i < samples.length; i++) {
+      samples[i] = Math.sin(2 * Math.PI * 8 * i / sampleRate) * 0.5;
+    }
+
+    const analysis = buildWindowedFourierAnalysis(samples, sampleRate, {
+      frameSize: 64,
+      hopSize: 32,
+      displaySampleCount: 128
+    });
+
+    const estimate = estimateReconstructionScratchSize(analysis);
+    expect(estimate.sampleCount).toBe(512);
+    expect(estimate.frameCount).toBe(analysis.frameCount);
+    expect(estimate.frameSize).toBe(64);
+    expect(estimate.bytes).toBeGreaterThan(0);
+    expect(Number.isFinite(estimate.bytes)).toBe(true);
+  });
+
+  it('resolveEnvelopeBucketSampleCount clamps to at least 1', () => {
+    expect(resolveEnvelopeBucketSampleCount(44100, 420)).toBe(105);
+    expect(resolveEnvelopeBucketSampleCount(100, 1)).toBe(100);
+    expect(resolveEnvelopeBucketSampleCount(100, 0)).toBe(100);
+    expect(resolveEnvelopeBucketSampleCount(1, 1000)).toBe(1);
   });
 });

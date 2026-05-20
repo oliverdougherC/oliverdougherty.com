@@ -597,6 +597,10 @@ html {
   padding: 1px;
   background: linear-gradient(to bottom, rgba(255, 255, 255, 0.1), transparent);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  /* NOTE: -webkit-mask-composite: xor is the WebKit equivalent of mask-composite: exclude.
+     Rendering may differ slightly across WebKit versions (Safari < 15.4, older iOS).
+     The @supports fallback below disables the pseudo-element entirely where mask-composite
+     is unsupported, which also avoids the -webkit-mask-composite path in those browsers. */
   -webkit-mask-composite: xor;
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask-composite: exclude;
@@ -1461,4 +1465,41 @@ html[data-color-mode="light"] .theme-toggle {
   z-index: 9999;
   opacity: 0.015;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+}
+
+/* ========================================
+   Smooth scroll target offset (used by main.js)
+   Replaces inline scrollMarginTop with a CSS class
+   to avoid forced reflows and residual styles.
+   ======================================== */
+
+.smooth-scroll-target {
+  scroll-margin-top: var(--smooth-scroll-offset, 100px);
+}
+
+/* ========================================
+   Shared Nav Dot (canonical definition)
+   Used by schematic.css, gallery.css, resume.css.
+   Each page's stylesheet may add size/inner-content overrides.
+   ======================================== */
+
+.nav-dot {
+  position: fixed;
+  top: 1rem;
+  right: 1.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #000000;
+  cursor: pointer;
+  z-index: 1000;
+  transition: transform 120ms ease, opacity 160ms ease;
+}
+
+.nav-dot:hover {
+  transform: scale(1.08);
+}
+
+body.nav-open .nav-dot {
+  opacity: 0.6;
 }

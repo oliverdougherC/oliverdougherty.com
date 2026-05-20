@@ -74,7 +74,7 @@ export const AUDIO_FOURIER_PRESETS: Record<AudioFourierPresetId, AudioFourierPre
     id: 'detailed',
     label: 'Detailed',
     proxySampleRate: 32_000,
-    maxProxySampleCount: 8_000_000,
+    maxProxySampleCount: 6_000_000,
     maxDurationSeconds: 8 * 60,
     frameSize: 4096,
     hopSize: 2048,

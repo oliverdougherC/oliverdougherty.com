@@ -30,10 +30,25 @@
   <link rel="stylesheet" href="../../css/design-system.css">
   <link rel="stylesheet" href="../../css/resume.css">
   <link rel="stylesheet" href="../../css/cursor.css">
+
+  <!-- Fallback: show data-animate elements if JS is disabled -->
+  <noscript>
+    <style>
+      [data-animate] {
+        opacity: 1 !important;
+        transform: none !important;
+      }
+    </style>
+  </noscript>
 </head>
 <body>
 
-  <button class="nav-dot" id="navToggle" aria-label="Open menu" aria-expanded="false" style="opacity: 0;">
+  <button class="nav-dot resume-hidden" id="navToggle" aria-label="Open menu" aria-expanded="false">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <line x1="4" y1="6" x2="20" y2="6"/>
+      <line x1="4" y1="12" x2="20" y2="12"/>
+      <line x1="4" y1="18" x2="20" y2="18"/>
+    </svg>
     <span class="sr-only" data-nav-toggle-label>Open menu</span>
   </button>
 
@@ -59,7 +74,7 @@
     <header class="resume-hero schematic-wrapper">
       <div class="schematic-grid" aria-hidden="true">
         <div class="grid-cell">
-          <div class="meta-tiny top-left-pos" style="opacity: 0;"><span class="resume-accent-swatch">#2BA84A</span> // RESUME</div>
+          <div class="meta-tiny top-left-pos resume-hidden"><span class="resume-accent-swatch">#2BA84A</span> // RESUME</div>
         </div>
         <div class="grid-cell"></div>
         <div class="grid-cell"></div>
@@ -70,10 +85,10 @@
         <div class="container">
           <div class="hero-content" id="officeSpaceMemo">
             <h1 class="hero-title text-display">
-              <span id="typeTargetName1">Oliver</span> <span class="name-flair" id="typeTargetName2" style="white-space: nowrap;">Dougherty<span class="typewriter-cursor" id="typeCursor" style="display: none;"></span></span>
+              <span id="typeTargetName1">Oliver</span> <span class="name-flair" id="typeTargetName2" style="white-space: nowrap;">Dougherty<span class="typewriter-cursor resume-cursor-hidden" id="typeCursor"></span></span>
             </h1>
-            <p class="hero-subtitle" id="typeTargetSubtitle" style="opacity: 0;">Electrical Engineering Student</p>
-            <div class="hero-contact" style="opacity: 0;">
+            <p class="hero-subtitle resume-hidden" id="typeTargetSubtitle">Electrical Engineering Student</p>
+            <div class="hero-contact resume-hidden">
               <a href="mailto:oliverfdougherty@gmail.com" class="contact-item">
                 <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
                   <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>

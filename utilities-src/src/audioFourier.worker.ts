@@ -283,33 +283,37 @@ function queueProcessing() {
 }
 
 self.onmessage = (event: MessageEvent<unknown>) => {
-  const request = event.data;
-  if (isAudioFourierCancelRequest(request)) {
-    cancelledRequests.add(request.requestId);
-    return;
-  }
+  try {
+    const request = event.data;
+    if (isAudioFourierCancelRequest(request)) {
+      cancelledRequests.add(request.requestId);
+      return;
+    }
 
-  if (!isAudioFourierAnalyzeRequest(request)) {
-    postMessage({
-      type: 'audio-fourier-error',
-      requestId: resolveWorkerRequestId(request),
-      message: 'Malformed worker message: missing or unrecognized type.'
-    });
-    return;
-  }
+    if (!isAudioFourierAnalyzeRequest(request)) {
+      postMessage({
+        type: 'audio-fourier-error',
+        requestId: resolveWorkerRequestId(request),
+        message: 'Malformed worker message: missing or unrecognized type.'
+      });
+      return;
+    }
 
-  if (!request.presetId) {
-    postMessage({
-      type: 'audio-fourier-error',
-      requestId: request.requestId,
-      message: 'Malformed worker message: missing presetId.'
-    });
-    return;
-  }
+    if (!request.presetId) {
+      postMessage({
+        type: 'audio-fourier-error',
+        requestId: request.requestId,
+        message: 'Malformed worker message: missing presetId.'
+      });
+      return;
+    }
 
-  if (pendingRequests.length >= MAX_PENDING_REQUESTS) {
-    pendingRequests.shift();
+    if (pendingRequests.length >= MAX_PENDING_REQUESTS) {
+      pendingRequests.shift();
+    }
+    pendingRequests.push(request);
+    queueProcessing();
+  } catch (error) {
+    postUnexpectedWorkerError(error);
   }
-  pendingRequests.push(request);
-  queueProcessing();
 };

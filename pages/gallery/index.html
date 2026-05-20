@@ -1,4 +1,9 @@
 <!DOCTYPE html>
+<!--
+  data-disable-color-mode: Prevents the global color-mode toggle (light/dark switch)
+  from overriding this page's theme. Gallery and resume pages use a fixed light
+  aesthetic and should not inherit the site-wide dark mode.
+-->
 <html lang="en" data-theme="gallery" data-disable-color-mode>
 
 <head>
@@ -28,7 +33,7 @@
   </button>
 
   <div class="nav-overlay" id="navOverlay" aria-hidden="true">
-    <div class="nav-overlay-bg" style="background-color: #FFFFFF;"></div>
+    <div class="nav-overlay-bg"></div>
     <div class="nav-links container" id="navLinks">
       <div class="nav-menu-header">Menu</div>
       <a href="../../index.html" class="nav-link nav-link--home">Home</a>
@@ -49,7 +54,7 @@
     <header class="schematic-wrapper gallery-hero">
       <div class="schematic-grid">
         <div class="grid-cell">
-          <div class="meta-tiny top-left-pos hero-deferred"><span style="color:#004BA8">#004BA8</span> // GALLERY</div>
+          <div class="meta-tiny top-left-pos hero-deferred"><span class="gallery-accent-text">#004BA8</span> // GALLERY</div>
         </div>
         <div class="grid-cell"></div>
         <div class="grid-cell"></div>

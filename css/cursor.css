@@ -163,3 +163,10 @@ textarea,
 #retroVmApp[data-vm-capture-state='captured'] #retroVmScreenShell:fullscreen #retroVmScreen * {
   cursor: none !important;
 }
+
+/* Keyboard focus indicator for the VM screen surface. */
+#retroVmScreen:focus-visible {
+  outline: var(--utilities-focus-outline);
+  outline-offset: var(--utilities-focus-offset);
+  box-shadow: var(--utilities-focus-shadow);
+}

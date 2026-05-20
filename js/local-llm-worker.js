@@ -15,38 +15,49 @@ const TOKEN_BATCH_SIZE = 4;
 const TOKEN_BATCH_MS = 100;
 
 self.addEventListener('message', (event) => {
-  const message = event.data || {};
+  try {
+    const message = event.data || {};
 
-  if (message.type === 'load') {
-    void loadModel();
-    return;
-  }
-
-  if (message.type === 'generate') {
-    if (pendingGenerateCount >= MAX_PENDING_GENERATE_MESSAGES) {
+    if (message.type === 'load') {
+      void loadModel();
       return;
     }
-    pendingGenerateCount += 1;
-    void generateReply(message.messages || []);
-    return;
-  }
 
-  if (message.type === 'interrupt' || message.type === 'cancel') {
-    interruptGeneration();
-    return;
-  }
+    if (message.type === 'generate') {
+      if (pendingGenerateCount >= MAX_PENDING_GENERATE_MESSAGES) {
+        return;
+      }
+      pendingGenerateCount += 1;
+      void generateReply(message.messages || []);
+      return;
+    }
 
-  if (message.type === 'reset') {
-    resetChatState();
-    return;
-  }
+    if (message.type === 'interrupt' || message.type === 'cancel') {
+      interruptGeneration();
+      return;
+    }
 
-  if (message.type === 'dispose') {
-    void disposeModel(message.clearCache === true);
-    return;
-  }
+    if (message.type === 'reset') {
+      resetChatState();
+      return;
+    }
 
-  console.debug('Unknown local assistant worker message type:', message.type);
+    if (message.type === 'dispose') {
+      void disposeModel(message.clearCache === true);
+      return;
+    }
+
+    console.debug('Unknown local assistant worker message type:', message.type);
+  } catch (error) {
+    console.error(error);
+    postMessage({
+      type: 'error',
+      status: WORKER_STATE.ERROR,
+      category: 'runtime-failed',
+      message: 'The local model worker encountered an unexpected error.',
+      detail: normalizeError(error)
+    });
+  }
 });
 
 async function loadModel() {
@@ -61,22 +72,15 @@ async function loadModel() {
     return;
   }
 
-  loadPromise = loadModelInternal()
-    .catch((error) => {
+  loadPromise = loadModelInternal().catch((error) => {
       const failure = buildLoadError(error);
       setState(failure.status, failure.message, failure);
-      throw error;
     })
     .finally(() => {
       loadPromise = null;
     });
 
-  try {
-    await loadPromise;
-  } catch (error) {
-    console.error(error);
-    // The UI receives a structured error message.
-  }
+  await loadPromise;
 }
 
 async function loadModelInternal() {

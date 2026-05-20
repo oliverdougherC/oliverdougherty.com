@@ -3,6 +3,18 @@
  * Editorial 2D gallery with a curated hero, featured grid, and inspection panel.
  */
 
+/* Gallery-specific color utility: accent blue used in schematic metadata */
+.meta-tiny .gallery-accent-text {
+  color: #004BA8;
+}
+
+/* Gallery-specific nav overlay background override (replaces inline style) */
+.page-gallery .nav-overlay-bg {
+  background-color: #FFFFFF;
+}
+
+/* Gallery-specific color scheme override: forces light mode for system UI (scrollbars, form controls).
+ * This is intentional for the gallery's light editorial theme, even if the user prefers dark mode. */
 html {
   color-scheme: light;
 }
@@ -891,28 +903,12 @@ body.gallery-lightbox-open .nav-dot {
   line-height: 1.4;
 }
 
-/* Nav dot */
+/* Nav dot
+   Base styles inherited from design-system.css.
+   This block adds gallery-page size override. */
 .nav-dot {
-  position: fixed;
-  top: 1rem;
-  right: 1.25rem;
   width: 20px;
   height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: #000000;
-  cursor: pointer;
-  z-index: 1000;
-  transition: transform 120ms ease, opacity 160ms ease;
-}
-
-.nav-dot:hover {
-  transform: scale(1.08);
-}
-
-body.nav-open .nav-dot {
-  opacity: 0.6;
 }
 
 .nav-overlay-bg {
@@ -1026,8 +1022,8 @@ body.nav-open .nav-dot {
     grid-template-columns: 1fr;
   }
 
-  .photo-card {
-    --reveal-delay: 0ms !important;
+  .page-gallery .photo-card {
+    --reveal-delay: 0ms;
   }
 }
 
