@@ -44,19 +44,29 @@ document.addEventListener('DOMContentLoaded', () => {
       const observer = new IntersectionObserver((entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            entry.target.classList.add('visible');
+            if (entry.target.classList.contains('redact-target')) {
+              // Slight random delay so they don't all reveal perfectly in sync if they enter at the exact same time
+              setTimeout(() => {
+                entry.target.classList.add('is-revealing');
+              }, Math.random() * 200);
+            } else {
+              entry.target.classList.add('visible');
+            }
             observer.unobserve(entry.target);
           }
         });
       }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
 
-      document.querySelectorAll('.resume-main [data-animate]').forEach((el) => {
+      document.querySelectorAll('.resume-main [data-animate], .resume-content .redact-target').forEach((el) => {
         observer.observe(el);
       });
     } else {
       // Fallback: reveal all if IntersectionObserver not available
       document.querySelectorAll('.resume-main [data-animate]').forEach((el) => {
         el.classList.add('visible');
+      });
+      document.querySelectorAll('.resume-content .redact-target').forEach((el) => {
+        el.classList.add('is-revealing');
       });
     }
   };
