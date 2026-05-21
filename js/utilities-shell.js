@@ -118,7 +118,7 @@
       var attempt = String(localAssistantLoadAttempt + 1);
       localAssistantLoadAttempt += 1;
       script.type = 'module';
-      script.src = '../../js/local-llm-chat.js?v=utilities-2026-05-16-local-assistant-copy';
+      script.src = '../../js/local-llm-chat.js?v=utilities-2026-05-21-todos';
       script.dataset.localLlmChat = 'true';
       script.dataset.localLlmAttempt = attempt;
       script.onload = function() {

@@ -45,6 +45,7 @@ const LOAD_SPINNER_STEP_MS = 90;
 const LOAD_SEQUENCE_STEP_MS = 2000;
 const LOAD_SEQUENCE_VISIBLE_FLOOR_MS = 1000;
 const LOAD_SEQUENCE_FINAL_HOLD_MS = 1800;
+const GENERATION_IDLE_TIMEOUT_MS = 30_000;
 const LOAD_SEQUENCE_COPY = [
   'Loading Bonsai 1.7B',
   'This is a teensy LLM (~290 MB)',
@@ -73,7 +74,9 @@ export class LocalLlmUtility {
     this._workerMessageHandler = null;
     this._workerErrorHandler = null;
     this._pagehideHandler = null;
+    this._beforeUnloadHandler = null;
     this._deactivateHandler = null;
+    this._generationTimeoutId = 0;
     this._inputFrameId = 0;
     this._statePanelFrameId = 0;
     this._lastAssistantWasInterrupted = false;
@@ -211,7 +214,8 @@ export class LocalLlmUtility {
         this.clearModelCache();
       }
     });
-    this._pagehideHandler = () => this.endModelSession({ clearMessages: false, updateUi: false });
+    this._pagehideHandler = () => this.endModelSession({ clearMessages: false, updateUi: false, unload: true });
+    this._beforeUnloadHandler = () => this.endModelSession({ clearMessages: false, updateUi: false, unload: true });
     this._deactivateHandler = () => {
       if (this.status === WORKER_STATE.THINKING || this.status === WORKER_STATE.STREAMING) {
         this.interruptGeneration();
@@ -219,6 +223,7 @@ export class LocalLlmUtility {
       this.endModelSession({ clearMessages: false, updateUi: true });
     };
     window.addEventListener('pagehide', this._pagehideHandler);
+    window.addEventListener('beforeunload', this._beforeUnloadHandler);
     this.root.addEventListener('utility-deactivate', this._deactivateHandler);
   }
 
@@ -245,7 +250,9 @@ export class LocalLlmUtility {
     if (window.__OD_LOCAL_LLM_TEST_MODE__) {
       return new LocalLlmMockWorker(window.__OD_LOCAL_LLM_TEST_MODE__);
     }
-    return new Worker(new URL('./local-llm-worker.js', import.meta.url), { type: 'module' });
+    const workerUrl = new URL('./local-llm-worker.js', import.meta.url);
+    workerUrl.search = '';
+    return new Worker(workerUrl, { type: 'module' });
   }
 
   startChat() {
@@ -301,17 +308,22 @@ export class LocalLlmUtility {
     }
 
     if (message.type === 'status') {
+      if (message.state === WORKER_STATE.THINKING || message.state === WORKER_STATE.STREAMING) {
+        this.armGenerationTimeout();
+      }
       this.updateStatusFromWorker(message);
       return;
     }
 
     if (message.type === 'start') {
+      this.armGenerationTimeout();
       this.ensureAssistantDraft();
       this.showTypingAfterDelay();
       return;
     }
 
     if (message.type === 'token') {
+      this.armGenerationTimeout();
       this.hideTypingIndicator();
       this.tps = Number.isFinite(message.tps) ? message.tps : this.tps;
       this.numTokens = Number.isFinite(message.numTokens) ? message.numTokens : this.numTokens;
@@ -321,6 +333,7 @@ export class LocalLlmUtility {
     }
 
     if (message.type === 'complete') {
+      this.clearGenerationTimeout();
       this.tps = Number.isFinite(message.tps) ? message.tps : this.tps;
       this.numTokens = Number.isFinite(message.numTokens) ? message.numTokens : this.numTokens;
       this.updateTelemetry();
@@ -329,11 +342,13 @@ export class LocalLlmUtility {
     }
 
     if (message.type === 'interrupted') {
+      this.clearGenerationTimeout();
       this.finishInterruptedGeneration();
       return;
     }
 
     if (message.type === 'reset') {
+      this.clearGenerationTimeout();
       this.hideTypingIndicator();
       this.assistantDraft = null;
       this.updateStatus(this.modelReady ? WORKER_STATE.READY : WORKER_STATE.IDLE, this.modelReady ? 'Chat reset.' : STATE_COPY.idle);
@@ -342,13 +357,19 @@ export class LocalLlmUtility {
     }
 
     if (message.type === 'error') {
+      this.clearGenerationTimeout();
       this.stopLoadingSequence({ clearPending: true });
-      this.showLoadFailure(message);
-      this.finishAssistantMessage('');
+      if (this.assistantDraft || this.status === WORKER_STATE.THINKING || this.status === WORKER_STATE.STREAMING) {
+        this.showGenerationFailure(message);
+      } else {
+        this.showLoadFailure(message);
+        this.finishAssistantMessage('');
+      }
       return;
     }
 
     if (message.type === 'disposed') {
+      this.clearGenerationTimeout();
       if (this.assistantDraft) {
         this.messages = this.messages.filter((msg) => msg !== this.assistantDraft);
         this.assistantDraft = null;
@@ -743,6 +764,7 @@ export class LocalLlmUtility {
     this.updateStatus(WORKER_STATE.THINKING, 'Thinking locally.');
     this.renderStatePanel();
     this.showTypingAfterDelay();
+    this.armGenerationTimeout();
     this.worker.postMessage({ type: 'generate', messages: this.messages });
   }
 
@@ -813,6 +835,7 @@ export class LocalLlmUtility {
 
   interruptGeneration() {
     if (!this.worker || (this.status !== WORKER_STATE.THINKING && this.status !== WORKER_STATE.STREAMING)) return;
+    this.clearGenerationTimeout();
     this.worker.postMessage({ type: 'interrupt' });
   }
 
@@ -964,6 +987,17 @@ export class LocalLlmUtility {
     this.renderStatePanel();
   }
 
+  showGenerationFailure(message) {
+    const fallback = buildFailureCopy(message, this.diagnostics);
+    fallback.title = message.category === 'generation-busy' ? 'Local model is busy' : 'Local reply failed';
+    fallback.detail = message.detail || fallback.detail;
+    fallback.likelyFix = message.likelyFix || 'Retry the message. If it happens again, reset the model and reload it.';
+    this.hideTypingIndicator();
+    this.updateStatus(WORKER_STATE.ERROR, message.message || 'Local generation failed.');
+    this.showDiagnostics(fallback);
+    this.finishAssistantMessage(message.message || 'The local model could not finish this reply.');
+  }
+
   showDiagnostics(copy) {
     this.diagnosticsPanel.hidden = false;
     this.diagnosticsPanel.innerHTML = '';
@@ -1065,16 +1099,21 @@ export class LocalLlmUtility {
       window.removeEventListener('pagehide', this._pagehideHandler);
       this._pagehideHandler = null;
     }
+    if (this._beforeUnloadHandler) {
+      window.removeEventListener('beforeunload', this._beforeUnloadHandler);
+      this._beforeUnloadHandler = null;
+    }
     if (this._deactivateHandler) {
       this.root.removeEventListener('utility-deactivate', this._deactivateHandler);
       this._deactivateHandler = null;
     }
     if (this.worker) {
-      this.terminateWorker({ clearCache: true, delayMs: 800 });
       this.clearBrowserModelCaches().catch((error) => {
         console.debug('Local assistant cache cleanup failed during dispose.', error);
       });
+      this.terminateWorker({ clearCache: true, delayMs: 400 });
     }
+    this.clearGenerationTimeout();
     if (this._inputFrameId) {
       window.cancelAnimationFrame(this._inputFrameId);
       this._inputFrameId = 0;
@@ -1096,11 +1135,12 @@ export class LocalLlmUtility {
     this.root.dataset.localLlmMounted = 'false';
   }
 
-  endModelSession({ clearMessages = false, updateUi = true } = {}) {
-    this.terminateWorker({ clearCache: true, delayMs: 800 });
+  endModelSession({ clearMessages = false, updateUi = true, unload = false } = {}) {
     this.clearBrowserModelCaches().catch((error) => {
       console.debug('Local assistant cache cleanup failed while ending session.', error);
     });
+    this.terminateWorker({ clearCache: true, delayMs: unload ? 0 : 400 });
+    this.clearGenerationTimeout();
     this.modelReady = false;
     this.progress = 0;
     this.tps = null;
@@ -1155,6 +1195,32 @@ export class LocalLlmUtility {
     const cacheCleared = await deleteLocalModelCaches();
     this.root.dataset.localLlmCacheCleared = cacheCleared ? 'true' : 'false';
     return cacheCleared;
+  }
+
+  armGenerationTimeout() {
+    this.clearGenerationTimeout();
+    this._generationTimeoutId = window.setTimeout(() => this.handleGenerationTimeout(), GENERATION_IDLE_TIMEOUT_MS);
+  }
+
+  clearGenerationTimeout() {
+    if (!this._generationTimeoutId) return;
+    window.clearTimeout(this._generationTimeoutId);
+    this._generationTimeoutId = 0;
+  }
+
+  handleGenerationTimeout() {
+    this._generationTimeoutId = 0;
+    if (this.status !== WORKER_STATE.THINKING && this.status !== WORKER_STATE.STREAMING) return;
+
+    this.terminateWorker();
+    this.modelReady = false;
+    this.showGenerationFailure({
+      status: WORKER_STATE.ERROR,
+      category: 'generation-timeout',
+      message: 'The local model stopped responding before it produced a reply.',
+      detail: 'No generation progress arrived for 30 seconds, so the worker was reset.',
+      likelyFix: 'Press Retry or Load, then try a shorter prompt.'
+    });
   }
 }
 

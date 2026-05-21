@@ -7,6 +7,9 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   base: './',
+  worker: {
+    format: 'es'
+  },
   build: {
     outDir: path.resolve(__dirname, '../pages/utilities/assets'),
     emptyOutDir: true,

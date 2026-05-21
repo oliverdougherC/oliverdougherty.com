@@ -399,9 +399,17 @@ export class StressTestController {
     this.canvas.dataset.stressIdle = 'false';
     this.setState(transitionStressState(this.state, 'start'), 'Starting stress workload...');
 
+    let cpuStartError = '';
     try {
       if (shouldStressCpu(this.mode)) {
-        this.startCpuStress(requestId);
+        try {
+          this.startCpuStress(requestId);
+        } catch (error) {
+          cpuStartError = error instanceof Error ? error.message : 'CPU stress failed to start.';
+          if (this.mode === 'cpu') {
+            throw error;
+          }
+        }
       }
 
       if (shouldStressGpu(this.mode)) {
@@ -427,13 +435,21 @@ export class StressTestController {
         return;
       }
 
-      if (this.mode === 'both' && !this.gpu) {
+      if (this.mode === 'both' && this.gpu && cpuStartError) {
+        this.lastError = cpuStartError;
+        this.setState(transitionStressState(this.state, 'running'), 'GPU stress is running. CPU stress is unavailable in this browser.');
+      } else if (this.mode === 'both' && !this.gpu && !this.workers.length) {
+        this.lastError = cpuStartError || 'No stress backend was available.';
+        this.setState(transitionStressState(this.state, 'error'), this.lastError);
+        this.syncMetrics(true);
+        return;
+      } else if (this.mode === 'both' && !this.gpu) {
         this.setState(transitionStressState(this.state, 'running'), 'CPU stress is running. GPU stress is unavailable in this browser.');
       } else {
         this.setState(transitionStressState(this.state, 'running'), 'Stress test running until you stop it or leave this utility.');
       }
 
-      if (!this.gpu) {
+      if (!this.gpu && this.workers.length > 0) {
         this.startCpuVisuals();
       }
 
@@ -500,14 +516,9 @@ export class StressTestController {
         this.handleWorkerMessage(record, event.data);
       };
       const errorListener = (event: ErrorEvent) => {
-        this.stopCpuStress();
-        this.stopGpuStress({ loseContext: true });
-        this.stopMetricLoop();
         console.error('[StressTest] CPU worker error', event.message, event.filename, event.lineno);
-        this.setState(
-          transitionStressState(this.state, 'error'),
-          event.message ? `CPU stress worker failed: ${event.message}` : 'A CPU stress worker failed.'
-        );
+        const details = [event.message, event.filename, event.lineno ? `line ${event.lineno}` : ''].filter(Boolean).join(' ');
+        this.handleCpuStressFailure(details ? `CPU stress worker failed: ${details}` : 'A CPU stress worker failed.');
       };
       const record: StressWorkerRecord = {
         worker,
@@ -558,17 +569,28 @@ export class StressTestController {
 
     if (message.type === 'cpu-stress-error' && message.message) {
       record.stopped = true;
-      this.stopCpuStress();
-      if (this.mode !== 'cpu') {
-        this.stopGpuStress({ loseContext: true });
-      }
-      this.lastError = message.message;
-      this.setState(transitionStressState(this.state, 'error'), message.message);
-      this.syncMetrics(true);
+      this.handleCpuStressFailure(message.message);
       return;
     }
 
     console.warn(`[StressTest] Ignoring unexpected CPU worker message type: ${message.type}`);
+  }
+
+  private handleCpuStressFailure(message: string) {
+    this.stopCpuStress();
+    this.stopCpuVisuals();
+    this.lastError = message;
+
+    if (this.mode === 'both' && this.gpu) {
+      this.setState(transitionStressState(this.state, 'running'), 'GPU stress is still running. CPU stress worker failed.');
+      this.syncMetrics(true);
+      return;
+    }
+
+    this.stopGpuStress({ loseContext: true });
+    this.stopMetricLoop();
+    this.setState(transitionStressState(this.state, 'error'), message);
+    this.syncMetrics(true);
   }
 
   private async startGpuStress() {

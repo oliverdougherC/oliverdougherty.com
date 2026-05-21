@@ -366,13 +366,34 @@ function syncHeroFeature() {
   );
 
   if (gallery.elements.heroImage) {
-    gallery.elements.heroImage.src = entry.assets.largeJpg || entry.assets.mediumJpg || entry.assets.original;
-    gallery.elements.heroImage.alt = entry.displayTitle;
-    gallery.elements.heroImage.srcset = buildSrcset([
+    const heroImage = gallery.elements.heroImage;
+    const heroOpen = gallery.elements.heroOpen;
+    const heroSrc = entry.assets.largeJpg || entry.assets.mediumJpg || entry.assets.original;
+
+    heroImage.classList.remove('is-loaded');
+    heroOpen?.classList.remove('is-loaded');
+    heroImage.alt = '';
+    heroImage.dataset.entryId = entry.id;
+
+    const markHeroLoaded = () => {
+      if (heroImage.dataset.entryId !== entry.id) return;
+      heroImage.alt = entry.displayTitle;
+      heroImage.classList.add('is-loaded');
+      heroOpen?.classList.add('is-loaded');
+    };
+
+    heroImage.addEventListener('load', markHeroLoaded, { once: true });
+    heroImage.addEventListener('error', markHeroLoaded, { once: true });
+    heroImage.srcset = buildSrcset([
       makeResponsiveCandidate(entry.assets.mediumJpg, entry.assets.mediumWidth),
       makeResponsiveCandidate(entry.assets.largeJpg, entry.assets.largeWidth)
     ]);
     gallery.elements.heroImage.sizes = '(max-width: 900px) 100vw, 40vw';
+    heroImage.src = heroSrc;
+
+    if (heroImage.complete && heroImage.naturalWidth > 0) {
+      markHeroLoaded();
+    }
   }
 
   if (gallery.elements.heroOpen) {

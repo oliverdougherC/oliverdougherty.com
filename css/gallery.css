@@ -147,7 +147,7 @@ body.gallery-lightbox-open .nav-dot {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
   padding: 0;
   border: none;
-  background: transparent;
+  background: #ffffff;
   color: inherit;
   display: block;
   width: 100%;
@@ -165,7 +165,10 @@ body.gallery-lightbox-open .nav-dot {
 }
 
 .hero-feature-image {
-  transition: transform var(--duration-slow) var(--ease-smooth);
+  opacity: 0;
+  transition:
+    opacity var(--duration-base) var(--ease-smooth),
+    transform var(--duration-slow) var(--ease-smooth);
 }
 
 .hero-feature-media picture,
@@ -177,6 +180,11 @@ body.gallery-lightbox-open .nav-dot {
 .hero-feature-image {
   display: block;
   object-fit: cover;
+}
+
+.hero-feature-media.is-loaded .hero-feature-image,
+.hero-feature-image.is-loaded {
+  opacity: 1;
 }
 
 @supports not (aspect-ratio: 1) {
