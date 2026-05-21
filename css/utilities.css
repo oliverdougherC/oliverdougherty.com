@@ -515,6 +515,13 @@ html[data-active-utility] .nav-back-btn {
   padding: 0 1rem;
 }
 
+.btn-secondary-utility--compact {
+  min-height: 2rem;
+  padding: 0 0.65rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
 .btn-primary-utility {
   -webkit-appearance: none;
   appearance: none;
@@ -2515,6 +2522,7 @@ html[data-active-utility] .nav-back-btn {
   display: flex;
   align-items: center;
   gap: 0.6rem;
+  min-width: 0;
   min-height: 2.4rem;
   padding: 0.45rem 0.85rem;
   border-bottom: 1px solid var(--utilities-border-soft);
@@ -2561,6 +2569,10 @@ html[data-active-utility] .nav-back-btn {
 }
 
 .vm-toolbar-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
   letter-spacing: var(--tracking-widest);
@@ -2569,6 +2581,10 @@ html[data-active-utility] .nav-back-btn {
 }
 
 .vm-toolbar-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   margin-left: 0.5rem;
   color: rgba(255, 255, 255, 0.4);
   font-size: 0.7rem;
@@ -2576,8 +2592,13 @@ html[data-active-utility] .nav-back-btn {
 
 .vm-toolbar-actions {
   display: flex;
-  flex-wrap: wrap;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
   gap: 0.5rem;
+}
+
+.vm-toolbar .utility-status-chip {
+  min-width: 4.5rem;
 }
 
 .vm-capture-badge,
@@ -2590,6 +2611,10 @@ html[data-active-utility] .nav-back-btn {
 
 .vm-capture-badge {
   margin-left: auto;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: 0.22rem 0.55rem;
   border-radius: var(--radius-full);
   border: 1px solid var(--utilities-border-soft);

@@ -273,6 +273,10 @@ function showConfirmModal(message: string): Promise<boolean> {
   });
 }
 
+function isPointInsideRect(clientX: number, clientY: number, rect: DOMRect) {
+  return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+}
+
 class RetroVmMouseBridge {
   private readonly root: HTMLElement;
   private readonly getGuestViewport: () => { width: number; height: number; scale: number; offsetX: number; offsetY: number };
@@ -281,7 +285,9 @@ class RetroVmMouseBridge {
   private readonly onCaptureStateChange: (captured: boolean) => void;
   private buttons = [false, false, false];
   private pointerLocked = false;
+  private lockRequested = false;
   private absoluteMouseMoveAttached = false;
+  private lastAbsolutePosition: { x: number; y: number; width: number; height: number } | null = null;
   private readonly onMouseMove = (event: MouseEvent) => {
     this.sendAbsolutePosition(event);
   };
@@ -350,6 +356,10 @@ class RetroVmMouseBridge {
     }
 
     this.pointerLocked = document.pointerLockElement === this.root;
+    this.lockRequested = false;
+    if (this.pointerLocked) {
+      this.sendLastAbsolutePosition();
+    }
     this.syncAbsoluteMouseMoveListener();
     this.onCaptureStateChange(this.pointerLocked);
   };
@@ -399,7 +409,7 @@ class RetroVmMouseBridge {
       return;
     }
 
-    this.root.addEventListener('mousemove', this.onMouseMove, { passive: false });
+    document.addEventListener('mousemove', this.onMouseMove, { passive: false });
     this.absoluteMouseMoveAttached = true;
   }
 
@@ -408,7 +418,7 @@ class RetroVmMouseBridge {
       return;
     }
 
-    this.root.removeEventListener('mousemove', this.onMouseMove);
+    document.removeEventListener('mousemove', this.onMouseMove);
     this.absoluteMouseMoveAttached = false;
   }
 
@@ -444,12 +454,16 @@ class RetroVmMouseBridge {
     }
 
     const rect = this.root.getBoundingClientRect();
+    if (!isPointInsideRect(event.clientX, event.clientY, rect)) {
+      return;
+    }
     const safeScale = viewport.scale || 1;
     const rawX = event.clientX - rect.left - viewport.offsetX;
     const rawY = event.clientY - rect.top - viewport.offsetY;
     const clampedX = Math.max(0, Math.min(viewport.width - 1, rawX / safeScale));
     const clampedY = Math.max(0, Math.min(viewport.height - 1, rawY / safeScale));
 
+    this.lastAbsolutePosition = { x: clampedX, y: clampedY, width: viewport.width, height: viewport.height };
     bus.send('mouse-absolute', [clampedX, clampedY, viewport.width, viewport.height]);
   }
 
@@ -465,12 +479,16 @@ class RetroVmMouseBridge {
     }
 
     const rect = this.root.getBoundingClientRect();
+    if (!isPointInsideRect(clientX, clientY, rect)) {
+      return;
+    }
     const safeScale = viewport.scale || 1;
     const rawX = clientX - rect.left - viewport.offsetX;
     const rawY = clientY - rect.top - viewport.offsetY;
     const clampedX = Math.max(0, Math.min(viewport.width - 1, rawX / safeScale));
     const clampedY = Math.max(0, Math.min(viewport.height - 1, rawY / safeScale));
 
+    this.lastAbsolutePosition = { x: clampedX, y: clampedY, width: viewport.width, height: viewport.height };
     bus.send('mouse-absolute', [clampedX, clampedY, viewport.width, viewport.height]);
   }
 
@@ -495,36 +513,40 @@ class RetroVmMouseBridge {
       return;
     }
 
-    const safeScale = viewport.scale || 1;
-    const deltaX = (typeof event.movementX === 'number' ? event.movementX : 0) / safeScale;
-    const deltaY = (typeof event.movementY === 'number' ? event.movementY : 0) / safeScale;
+    const deltaX = typeof event.movementX === 'number' ? event.movementX : 0;
+    const deltaY = typeof event.movementY === 'number' ? event.movementY : 0;
 
     if (deltaX === 0 && deltaY === 0) {
       return;
     }
 
     bus.send('mouse-delta', [deltaX, -deltaY]);
+    event.preventDefault();
   }
 
   private async requestPointerLock() {
-    if (this.pointerLocked || !this.canCapture()) {
+    if (this.pointerLocked || this.lockRequested || !this.canCapture()) {
       return;
     }
 
     if (window.__OD_RETRO_VM_TEST_MODE__) {
       this.pointerLocked = true;
+      this.lockRequested = false;
+      this.sendLastAbsolutePosition();
       this.syncAbsoluteMouseMoveListener();
       this.onCaptureStateChange(true);
       return;
     }
 
     try {
+      this.lockRequested = true;
       // Pointer lock keeps relative mouse input flowing even when the host cursor
       // would have left the VM viewport.
       await this.root
         .requestPointerLock({ unadjustedMovement: true })
         .catch(() => this.root.requestPointerLock());
     } catch (error) {
+      this.lockRequested = false;
       // Ignore browsers that deny pointer lock; the unlocked fallback still works.
       debugRetroVm('Pointer lock request was denied; continuing with absolute mouse input.', error);
     }
@@ -533,6 +555,7 @@ class RetroVmMouseBridge {
   async releasePointerLock() {
     if (window.__OD_RETRO_VM_TEST_MODE__) {
       this.pointerLocked = false;
+      this.lockRequested = false;
       this.syncAbsoluteMouseMoveListener();
       this.onCaptureStateChange(false);
       return;
@@ -540,12 +563,23 @@ class RetroVmMouseBridge {
 
     if (!this.pointerLocked || document.pointerLockElement !== this.root) {
       this.pointerLocked = false;
+      this.lockRequested = false;
       this.syncAbsoluteMouseMoveListener();
       this.onCaptureStateChange(false);
       return;
     }
 
     document.exitPointerLock();
+  }
+
+  private sendLastAbsolutePosition() {
+    const bus = this.getBus();
+    if (!bus || !this.lastAbsolutePosition) {
+      return;
+    }
+
+    const { x, y, width, height } = this.lastAbsolutePosition;
+    bus.send('mouse-absolute', [x, y, width, height]);
   }
 }
 

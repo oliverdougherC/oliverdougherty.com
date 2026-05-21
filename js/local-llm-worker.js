@@ -25,6 +25,13 @@ self.addEventListener('message', (event) => {
 
     if (message.type === 'generate') {
       if (pendingGenerateCount >= MAX_PENDING_GENERATE_MESSAGES) {
+        postMessage({
+          type: 'error',
+          status: WORKER_STATE.ERROR,
+          category: 'generation-busy',
+          message: 'The local model is still processing the previous prompt.',
+          detail: 'A new generate request arrived while the worker queue was full.'
+        });
         return;
       }
       pendingGenerateCount += 1;
@@ -132,7 +139,7 @@ function postReady() {
 
 async function generateReply(messages) {
   const generationId = ++activeGeneration;
-  pendingGenerateCount = Math.max(0, pendingGenerateCount - 1);
+  let flushTimer = 0;
 
   try {
     await loadModel();
@@ -146,14 +153,14 @@ async function generateReply(messages) {
     const { DynamicCache, InterruptableStoppingCriteria, TextStreamer } = transformersModule;
     stoppingCriteria ??= new InterruptableStoppingCriteria();
     stoppingCriteria.reset();
-    pastKeyValuesCache ??= new DynamicCache();
+    disposePastKeyValues();
+    pastKeyValuesCache = new DynamicCache();
 
     let startedAt = 0;
     let numTokens = 0;
     let streamedText = '';
     let tokenBuffer = '';
     let bufferedTokens = 0;
-    let flushTimer = 0;
     const flushTokens = () => {
       if (!tokenBuffer) return;
       const token = tokenBuffer;
@@ -224,6 +231,8 @@ async function generateReply(messages) {
     if (generationId !== activeGeneration) return;
 
     if (isAbortError(error)) {
+      if (flushTimer) clearTimeout(flushTimer);
+      disposePastKeyValues();
       setState(WORKER_STATE.READY, 'Generation stopped.');
       postMessage({ type: 'interrupted' });
       return;
@@ -233,6 +242,9 @@ async function generateReply(messages) {
     console.error(error);
     setState(WORKER_STATE.ERROR, failure.message, failure);
     disposePastKeyValues();
+  } finally {
+    if (flushTimer) clearTimeout(flushTimer);
+    pendingGenerateCount = Math.max(0, pendingGenerateCount - 1);
   }
 }
 
@@ -240,6 +252,7 @@ function interruptGeneration() {
   if (state !== WORKER_STATE.THINKING && state !== WORKER_STATE.STREAMING) return;
   activeGeneration += 1;
   stoppingCriteria?.interrupt?.();
+  disposePastKeyValues();
   setState(WORKER_STATE.READY, 'Generation stopped.');
   postMessage({ type: 'interrupted' });
 }
