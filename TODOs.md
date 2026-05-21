@@ -1,233 +1,541 @@
-# Website Code Review TODOs
-Generated: Thursday, May 21, 2026
+# TODOs
+
+## Gallery Hero Image (Lighthouse) Loading Issue
 
-## Home Page
+### Problem
+On the gallery page, the hero feature card shows the text "Lighthouse" briefly before the image loads. This happens because the hero image has no loading-state management, and the browser renders the `alt` text as a fallback while the image downloads.
 
-### Accessibility
+### Root Cause Analysis
 
-- [ ] [Priority: LOW] [Accessibility] `.marquee-track` animation on the home page relies on the global `prefers-reduced-motion` rule in design-system.css to stop. Consider adding an explicit pause in schematic.css for clarity and resilience if the global rule is ever removed. (css/schematic.css:402-405, handled by css/design-system.css:1442-1452)
+**1. Hero image has no `load` event listener or loading state classes**
+- File: `js/gallery.js` — `syncHeroFeature()` (lines 345–381)
+- The function sets `src`, `srcset`, `sizes`, and `alt` on `#galleryHeroImage` but never attaches a `load` event listener or toggles any loading class.
+- Contrast with `createPhotoCard()` (lines 466–578) which correctly adds `is-loading` on creation and switches to `is-loaded` on the image `load` event (lines 543–546).
+
+**2. Hero image CSS has no hidden/unloaded state**
+- File: `css/gallery.css` — `.hero-feature-image` (lines 167–180)
+- `.photo-image` (line 411–415) starts at `opacity: 0` and transitions to `opacity: 1` when `.photo-card.is-loaded` is applied.
+- `.hero-feature-image` has no equivalent `opacity: 0` default or loading-state class. It renders immediately once `src` is set, showing alt text during the download gap.
+
+**3. No `<link rel="preload">` for the hero image**
+- File: `pages/gallery/index.html`
+- The hero image (lighthouse, `a7rii_474`) is the highest-priority visual element on the page but has no preload hint in the `<head>`. The browser only discovers it after JS parses and runs `syncHeroFeature()`, adding unnecessary latency.
+- The hero image uses responsive `srcset` with medium (124K JPG / 51K AVIF) and large (278K JPG / 84K AVIF) variants. Preloading the medium AVIF variant would be the most impactful single optimization.
+
+**4. `alt` attribute set before image is loaded**
+- File: `js/gallery.js` line 370: `gallery.elements.heroImage.alt = entry.displayTitle;`
+- This sets `alt="Lighthouse"` synchronously alongside `src`. Browsers render the alt text in the image slot until the image data arrives, causing the visible "Lighthouse" text flicker.
+
+### Actionable Fixes
+
+1. **Add loading state to hero image** (`js/gallery.js` / `css/gallery.css`):
+   - Set `.hero-feature-image` to `opacity: 0` by default (like `.photo-image`).
+   - Add a `load` event listener in `syncHeroFeature()` that adds an `is-loaded` class to the hero picture/button.
+   - Add `.hero-feature-image.is-loaded { opacity: 1; }` CSS rule with a smooth transition.
+
+2. **Add a white placeholder background** (`css/gallery.css`):
+   - Set `.hero-feature-media` background to `#FFFFFF` so the frame appears white while the image loads, matching the desired "empty white frame" behavior.
+   - Current value is `background: transparent` (line 150).
+
+3. **Preload the hero image** (`pages/gallery/index.html`):
+   - Add a `<link rel="preload">` for the hero image's medium AVIF variant in the `<head>`.
+   - Since the hero entry is dynamic (loaded from JSON), one approach is to hardcode the known hero preload in HTML, or alternatively use a `<link rel="modulepreload">`-style dynamic preload via JS before `syncHeroFeature()` runs.
+   - The lighthouse is currently `hero.priority: 1` in `assets/photos/gallery-sequence.json`, making it the definitive hero. A hardcoded preload is safe as long as the hero doesn't rotate frequently.
+
+4. **Consider deferring `alt` attribute** (`js/gallery.js`):
+   - Set `alt=""` initially and only set the real alt text after the image loads. This prevents the browser from showing fallback text during the download window.
+
+### Asset Sizes (Lighthouse: `a7rii_474`)
+| Variant | AVIF | WebP | JPG |
+|---------|------|------|-----|
+| Thumb   | 17K  | 22K  | 28K |
+| Medium  | 51K  | 113K | 124K |
+| Large   | 84K  | 253K | 278K |
+
+The AVIF encoding is already well-optimized (84K for large). Preloading the medium AVIF (51K) would give the fastest perceived load time for most viewports.
+
+### Relevant Files
+- `js/gallery.js` — `syncHeroFeature()` (line 345), `createPhotoCard()` (line 466) for reference pattern
+- `css/gallery.css` — `.hero-feature-image` (line 167), `.hero-feature-media` (line 141), `.photo-image` (line 411) as reference
+- `pages/gallery/index.html` — `<head>` for preload link insertion
+- `assets/photos/gallery-sequence.json` — hero priority metadata
+- `assets/photos/photos.json` — asset manifest
+
+## Audio Fourier "Worker failure" on Deployed Site (CRITICAL)
+
+### Problem
+The Fourier Reconstruction utility is completely broken on the deployed GitHub Pages site. Both the built-in demo songs and uploaded audio files fail immediately with the error message "Worker failure" / "Audio worker unavailable. Press Generate to retry." The utility works perfectly in local development.
+
+### Root Cause Analysis
+
+**1. Worker type mismatch: `{ type: 'module' }` vs IIFE-bundled output**
+
+- Source file: `utilities-src/src/audioFourierController.ts` (line 704)
+  ```ts
+  this.worker = new Worker(new URL('./audioFourier.worker.ts', import.meta.url), {
+    type: 'module'
+  });
+  ```
+- The worker is created with `{ type: 'module' }`, telling the browser to parse the fetched file as an ES module.
+- However, Vite 7 bundles the worker output as a classic IIFE script:
+  - Built file: `pages/utilities/assets/assets/audioFourier.worker-CsfLzLF1.js`
+  - Content starts with `(function(){"use strict";...` — this is a classic script, not an ES module.
+  - Contains zero `import` statements and no module syntax at all.
+- **Why it works locally**: Vite's dev server intercepts the `new URL('./audioFourier.worker.ts', import.meta.url)` resolution and serves the TypeScript source as a proper ES module via HMR, bypassing the bundled output entirely.
+- **Why it fails on GitHub Pages**: The static server delivers the IIFE-bundled file. The browser tries to parse `(function(){...})()` as an ES module, which is not valid module syntax. This triggers the worker's `error` event, which calls `handleWorkerFailure()` at line 736–745, producing the "Worker failure" message.
+
+**2. Same issue affects all three utility workers**
+
+All three worker files are bundled as IIFE but loaded with `{ type: 'module' }`:
+- `audioFourier.worker.ts` → `audioFourier.worker-CsfLzLF1.js` (IIFE, loaded as module)
+- `stressTest.worker.ts` → `stressTest.worker-B6MGbhnL.js` (IIFE, loaded as module)
+- `transform.worker.ts` → `transform.worker-dAD06nWs.js` (IIFE, loaded as module)
+- `matching.worker.ts` → `matching.worker-el_56P4a.js` (IIFE, loaded as module)
+
+The Image Transform utility has a fallback mechanism (falls back to main thread on worker failure), so it degrades gracefully. The Stress Test may also fail on deployment but hasn't been reported. The Audio Fourier has no fallback, making it completely broken.
+
+**3. Vite config does not set `workerFormat`**
+
+- File: `config/vite.utilities.mts`
+- The config does not specify a `workerFormat` option. Vite 7 defaults to bundling workers as IIFE (classic script format) when `build.rollupOptions.output.format` is `'es'`. This creates the mismatch.
+- The `build.rollupOptions.output.format` is set to `'es'` (line 18), which controls the main bundle format but workers get their own handling.
+
+**4. Secondary issue: Hardcoded relative asset paths for built-in audio presets**
+
+- File: `utilities-src/src/audioPresets.ts` (line 23)
+  ```ts
+  const FOURIER_DECOMPOSE_ASSET_BASE = '../../assets/utilities/fourier-decompose';
+  ```
+- These paths are relative to the HTML page (`pages/utilities/index.html`), not to the JS module.
+- The `audioFourierController.js` chunk is loaded as an ES module from `./assets/utilities-app.js`, and `audioFourierController.js` imports from `./utilities-app.js`.
+- When `resolveAudioSource()` calls `fetch(preset.url, { mode: 'same-origin' })` at line 637, the relative URL `../../assets/utilities/fourier-decompose/Best Friends.flac` is resolved relative to the HTML document URL (not the module URL), which should resolve correctly to `/assets/utilities/fourier-decompose/Best Friends.flac`.
+- This is a secondary concern that would only surface after the worker issue is fixed.
 
-### Performance
+### Actionable Fixes
 
-- [ ] [Priority: MED] [Performance] Google Fonts loaded via `<link rel="stylesheet">` without `rel="preload"` for the critical font CSS. This can cause FOIT (Flash of Invisible Text) on the hero wordmark which depends on JetBrains Mono. Consider preloading the font CSS or using `font-display: optional`. (index.html:16-18)
-- [ ] [Priority: LOW] [Performance] `starfield.js` fallback renderer registers `resize`, `visibilitychange`, and `utilities-load-state` listeners at script-load time (outside DOMContentLoaded). If the canvas element is absent, these listeners persist for the page lifetime with no cleanup. (js/starfield.js:622-640)
+1. **Set `workerFormat: 'module'` in Vite config** (`config/vite.utilities.mts`):
+   - Add `workerFormat: 'module'` to the build options. This tells Vite to bundle workers as proper ES modules instead of IIFE scripts.
+   - Example:
+     ```ts
+     export default defineConfig({
+       base: './',
+       build: {
+         workerFormat: 'module',
+         // ...existing options...
+       }
+     });
+     ```
+   - Alternatively, set `build.rollupOptions.output.format: 'es'` (already set) and ensure the worker bundling respects this. In Vite 7, `workerFormat` may need to be explicitly set.
 
-### Code Quality
+2. **Or remove `{ type: 'module' }` from Worker constructors** if workers don't actually need module syntax:
+   - Change `new Worker(new URL('./audioFourier.worker.ts', import.meta.url), { type: 'module' })` to `new Worker(new URL('./audioFourier.worker.ts', import.meta.url))`.
+   - This matches the IIFE output format. Since the worker code has no `import`/`export` statements in its bundled form, it doesn't need module mode.
+   - This would also need to be changed in `stressTestController.ts` (line 498) and `main.ts` (line 927).
 
-- [ ] [Priority: MED] [Code Quality] Worker body serialized via `Function.prototype.toString()` is fragile under minification (comments stripped, arrow functions rewritten, unused locals removed). If a build pipeline is ever introduced, this will silently break. Consider extracting the worker to a separate file. (js/starfield.js:49-53)
-- [ ] [Priority: LOW] [Code Quality] Dead CSS rules for legacy cursor elements (`.cursor-dot`, `.cursor-circle`) set to `display: none`. Safe to remove since the comment confirms they are no longer used. (css/design-system.css:906-911)
-- [ ] [Priority: LOW] [Code Quality] `debounce()` utility defined at line 677 is only called once (line 287, as a ResizeObserver fallback). Consider inlining or removing if the fallback path is deemed unnecessary for modern browsers. (js/main.js:677-686, used at js/main.js:287)
-- [ ] [Priority: LOW] [Code Quality] `typeof Element === 'undefined'` guard at line 526 is unnecessary in a browser-only context. The check never triggers. (js/main.js:526)
+3. **Or use Vite's `worker` plugin options** to ensure consistent bundling:
+   - Configure `build.commonjsOptions` or use `@rollup/wasm-node` to ensure workers are bundled correctly.
+   - The `__vite-browser-external.js` file exists but is empty, suggesting some external handling is in place.
+
+4. **Add worker error diagnostics for production** (`audioFourierController.ts`):
+   - The `handleWorkerFailure()` method (line 736) currently has no logging. Adding `console.error` with the event details (filename, lineno, message) would help diagnose the exact error on deployed sites.
+   - The `shouldDebugAudioFourierWarnings` function already exists but only enables warnings on localhost. Consider extending this or adding a separate production error logger.
 
-### Security
+5. **Rebuild after fix**: Run `npm run utilities:build` and verify the worker file starts with proper module syntax (or that the `{ type: 'module' }` flag is removed).
 
-- [ ] [Priority: LOW] [Security] `window.revealNavDot` and `window.revealDeferredElements` are exposed on the global `window` object for cross-script use. While documented and intentional, this pollutes the global namespace. Consider a more scoped approach (e.g., `window.oliver` namespace or CustomEvents) if the surface grows. (js/main.js:38-39)
+### Relevant Files
+- `utilities-src/src/audioFourierController.ts` — worker instantiation (line 704), `handleWorkerFailure()` (line 736), `supportsModuleWorkers()` (line 44)
+- `utilities-src/src/audioFourier.worker.ts` — worker source (bundled as IIFE by Vite)
+- `utilities-src/src/audioPresets.ts` — hardcoded relative asset paths (line 23)
+- `config/vite.utilities.mts` — Vite build config (missing `workerFormat` option)
+- `utilities-src/src/stressTestController.ts` — same pattern at line 498
+- `utilities-src/src/main.ts` — same pattern at line 927
+- `pages/utilities/assets/assets/audioFourier.worker-CsfLzLF1.js` — built output (IIFE format)
+- `pages/utilities/assets/audioFourierController.js` — built controller (line 108: `new Worker(...{type:"module"})`)
+- `pages/utilities/assets/__vite-browser-external.js` — Vite browser-external shim (empty object)
 
-## Resume Page
+## Local LLM Chat — Model Cached After Hard Refresh (CRITICAL)
 
-### Accessibility
+### Problem
+The Bonsai model remains cached in the browser even after a hard refresh (Cmd+Shift+R / Ctrl+Shift+R). The user expects the model to be cleared from cache when not actively loaded, but it persists across page reloads.
 
-- [ ] [Priority: MED] [Accessibility] Empty typewriter cursor `<span id="typeCursor">` lacks `aria-hidden="true"`. Screen readers may announce it as empty content. Since it is a purely decorative animation element, add `aria-hidden="true"`. (pages/resume/index.html:88)
-- [ ] [Priority: LOW] [Accessibility] Redundant `<span class="sr-only" data-nav-toggle-label>Open menu</span>` inside the nav toggle button. The button already has `aria-label="Open menu"` which provides the accessible name. The inner span duplicates it and adds no value. (pages/resume/index.html:52)
+### Root Cause Analysis
 
-### Code Quality
+**1. Hard refresh does not clear the Cache API**
 
-- [ ] [Priority: MED] [Code Quality] Dead CSS: `.footer` and `.footer-text` rules are defined but no `<footer>` element exists in the resume page HTML. Either add a footer element or remove these rules. (css/resume.css:728-736)
-- [ ] [Priority: LOW] [Code Quality] Redundant selector `a.skill-tag { color: #000000; }` — `.skill-tag` already sets `color: #000000` at line 645. The `a.skill-tag` override does nothing. (css/resume.css:654-656)
-- [ ] [Priority: LOW] [Code Quality] Redundant `a.skill-tag:hover` in the hover rule — `.skill-tag:hover` already covers all `.skill-tag` elements regardless of tag type. (css/resume.css:658-661)
+- The model is cached via the **Browser Cache API** (not HTTP cache, not localStorage, not IndexedDB).
+- Transformers.js enables this at `js/local-llm-worker.js` line 354: `env.useBrowserCache = true`.
+- A hard refresh clears the browser's HTTP fetch cache but **does not touch the Cache API**. The Cache API is a persistent JavaScript-managed storage that survives hard refreshes, tab closures, and even browser restarts.
+- The `deleteLocalModelCaches()` function in `js/local-llm-cache.js` (lines 1–13) targets cache names matching `/huggingface|transformers|local-llm|bonsai/i` and calls `cacheStorage.delete(name)`. This works, but it is only invoked programmatically.
 
-### Performance
+**2. Cache cleanup on pagehide is unreliable (fire-and-forget async)**
 
-- [ ] [Priority: LOW] [Performance] `mobile-gate.js` is loaded as a non-deferred blocking script in the `<head>`. It runs before DOM construction which is intentional for mobile redirection, but consider adding `async` or moving it lower if the redirect logic does not need to block parsing. (pages/resume/index.html:18)
+- File: `js/local-llm-chat.js` line 214: `_pagehideHandler` calls `endModelSession({ clearMessages: false, updateUi: false })`.
+- `endModelSession()` (line 1099) calls `terminateWorker({ clearCache: true, delayMs: 800 })` and `this.clearBrowserModelCaches().catch(...)`.
+- `terminateWorker()` (line 1127) sends a `{ type: 'dispose', clearCache: true }` message to the worker, then waits `delayMs: 800` before calling `worker.terminate()`.
+- The worker's `disposeModel()` (line 258) calls `deleteLocalModelCaches(self.caches, ...)` — but this is async.
+- **The problem**: On `pagehide`, the browser may abort pending async operations before they complete. The `clearBrowserModelCaches()` call on the main thread is fire-and-forget (`.catch()` only, no `.then()`), and the worker's cleanup is gated behind an 800ms delay. The browser does not wait for either during page unload.
+- Even if the cache deletion starts, the 800ms delay means the worker might still be processing when the page is torn down.
 
-### Structure
+**3. No cache-busting for model files themselves**
 
-- [ ] [Priority: LOW] [Structure] Page has no `<footer>` element. The CSS defines `.footer` styles and the `year.js` script likely targets a footer year element, but the HTML lacks a footer section. This breaks semantic page structure (header/main/footer). (pages/resume/index.html)
+- The script tag uses a versioned query param: `?v=utilities-2026-05-16-local-assistant-copy` (line 121 of `js/utilities-shell.js`). This only affects the JS/CSS file cache, not the model files cached by Transformers.js.
+- Transformers.js caches model files under its own cache names (typically matching `transformers` or `huggingface`). The version string in the script URL has no effect on these.
 
-## Photo Gallery Page
+### Actionable Fixes
 
-### Accessibility
+1. **Use `beforeunload` instead of (or in addition to) `pagehide` for cache cleanup**:
+   - The `beforeunload` event is synchronous — the browser waits for handlers to complete before unloading. Move the cache deletion logic to `beforeunload` or use it as a backup.
+   - Alternatively, use the `navigator.sendBeacon()` API to signal cache cleanup, though this doesn't directly help with Cache API deletion.
 
-- [ ] NOTE: [Priority: MED] [Accessibility] Hero `<img>` has empty `alt=""` attribute — FALSE POSITIVE. JS (`syncHeroFeature()` at gallery.js:370) populates `alt` with `entry.displayTitle` before the image is visible. The image is dynamically populated by JS. (pages/gallery/index.html:76)
-- [ ] NOTE: [Priority: MED] [Accessibility] Lightbox `<img>` has empty `alt=""` attribute — FALSE POSITIVE. JS (`renderLightboxEntry()` at gallery.js:695) populates `alt` with `entry.displayTitle` before the image is displayed. The image is dynamically populated by JS. (pages/gallery/index.html:168)
-- [ ] [Priority: LOW] [Accessibility] Redundant `<span class="sr-only" data-nav-toggle-label>Open menu</span>` inside the nav toggle button. The button already has `aria-label="Open menu"` which provides the accessible name. The inner span duplicates it and adds no value. Same issue found on the resume page. (pages/gallery/index.html:32)
+2. **Reduce or eliminate the `delayMs` for cache-clearing terminations**:
+   - In `terminateWorker()`, when `clearCache` is true, the 800ms delay gives the worker time to clean up, but on pagehide this delay is counterproductive. Consider a shorter delay (e.g., 100ms) or immediate termination when clearing cache on unload.
 
-### Code Quality
+3. **Clear cache synchronously on the main thread before pagehide**:
+   - Call `deleteLocalModelCaches(window.caches, ...)` directly in the `pagehide` handler without waiting for the worker. The worker's own cleanup is redundant if the main thread already deleted the caches.
 
-- [ ] [Priority: MED] [Code Quality] `cleanupLightboxImageOpacity()` is called without an `event` argument in `closeLightbox()` (line 819). The function checks `event.propertyName !== 'opacity'` which evaluates to `undefined !== 'opacity'` = `true`, causing an early return. The inline `style.opacity` set during navigation is therefore never cleaned up when the lightbox closes, leaving a stale inline style on the element. (js/gallery.js:819)
-- [ ] [Priority: MED] [Code Quality] `gallery.preloadImages` array is populated in `preloadAdjacentEntries()` (lines 1026, 1033) but is never read, iterated, or used for cleanup. It is reset to `[]` on the next call, so the previous Image objects are simply orphaned for GC. The array serves no purpose and can be removed. (js/gallery.js:1026,1033)
-- [ ] [Priority: MED] [Code Quality] `refreshLightboxFocusables()` is called redundantly on lightbox open: once in `openLightboxById` (line 657) and again inside `renderLightboxEntry` (line 716), which is called by `openLightboxById` at line 656. Each call iterates all lightbox children and calls `getComputedStyle`, so this double-calls layout-triggering code unnecessarily. (js/gallery.js:656-657, 716)
+4. **Add a "Clear cache" option to the Reset button or make it default on dispose**:
+   - Currently the "Clear cache" button only appears in the diagnostics panel after an error. Consider always showing it or making cache clearing part of the normal dispose flow.
 
-### Performance
+5. **Consider using a versioned cache name in Transformers.js**:
+   - If Transformers.js allows customizing the cache name, include a version suffix. This way, updating the model version automatically bypasses the old cache without needing explicit deletion.
 
-- [ ] [Priority: LOW] [Performance] `refreshLightboxFocusables()` calls `window.getComputedStyle(element)` for every focusable element inside the lightbox (line 928). This forces synchronous layout recalculation on each call. Consider caching the result or using a less expensive visibility check. (js/gallery.js:928)
-- [ ] [Priority: LOW] [Performance] `buildLightboxThumbStrip()` renders all thumbnail buttons at once (lines 611-642). For large galleries (100+ photos), this creates hundreds of DOM nodes and image elements simultaneously. Consider lazy-rendering or virtualizing the thumb strip. (js/gallery.js:611-642)
+### Relevant Files
+- `js/local-llm-worker.js` — `env.useBrowserCache = true` (line 354), `disposeModel()` (line 258)
+- `js/local-llm-chat.js` — `_pagehideHandler` (line 214), `endModelSession()` (line 1099), `terminateWorker()` (line 1127), `clearModelCache()` (line 1037)
+- `js/local-llm-cache.js` — `deleteLocalModelCaches()` (line 1)
+- `js/utilities-shell.js` — script loading with `?v=` param (line 121)
 
-### Structure
+## Local LLM Chat — Non-Responsive After Model Load (CRITICAL)
 
-- [ ] [Priority: LOW] [Structure] Page has no `<footer>` element. The `year.js` script likely targets a footer year element. This breaks semantic page structure (header/main/footer). Same issue found on the resume page. (pages/gallery/index.html)
+### Problem
+The utility does not respond to user messages even when the model shows as "Loaded" / READY. The user types a message, clicks Send, but no response is generated.
 
-## Utilities Home Page
+### Root Cause Analysis
 
-### Accessibility
+**1. Worker module import chain may fail silently on GitHub Pages**
 
-- [ ] [Priority: MED] [Accessibility] Decorative `<canvas id="starfield">` lacks `aria-hidden="true"`. Screen readers may attempt to announce the canvas as an empty image or ignore it inconsistently across browsers. Add `aria-hidden="true"` to signal it is purely visual background. (pages/utilities/index.html:24)
-- [ ] [Priority: MED] [Accessibility] Decorative `<div class="noise-overlay">` lacks `aria-hidden="true"`. It renders a visual noise texture but has no accessible markup to indicate it is decorative. (pages/utilities/index.html:25)
+- File: `js/local-llm-chat.js` line 248: `new Worker(new URL('./local-llm-worker.js', import.meta.url), { type: 'module' })`
+- The parent script is loaded via `<script type="module" src="../../js/local-llm-chat.js?v=utilities-2026-05-16-local-assistant-copy">` (line 121 of `js/utilities-shell.js`).
+- The `import.meta.url` of the parent includes the `?v=` query parameter. When resolving `new URL('./local-llm-worker.js', import.meta.url)`, the worker URL inherits this query param.
+- The worker's own ES module imports (`./local-llm-config.js`, `./local-llm-cache.js`, `./local-llm-rendering.js` at lines 1–3 of `js/local-llm-worker.js`) also inherit the query param. GitHub Pages serves these correctly (ignoring query params), but the import resolution chain adds complexity.
+- **Unlike the Vite-bundled utility workers** (which have the documented IIFE/module mismatch), this worker is a raw JS file, so `{ type: 'module' }` is correct. The import chain should resolve.
 
-### Performance
+**2. Dynamic import of Transformers.js from CDN inside the worker**
 
-- [ ] [Priority: MED] [Performance] `.demo-chip-minimal` uses `transition: all` (css/utilities.css:1092). Transitioning `all` properties can trigger expensive layout recalculations when non-composited properties change. Replace `all` with the specific properties being animated (e.g., `background, border-color, color, transform, opacity`). (css/utilities.css:1092)
+- File: `js/local-llm-worker.js` line 97: `transformersModule = await import(LOCAL_LLM_CONFIG.runtime.moduleUrl)`
+- This resolves to `https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0`.
+- This is a cross-origin dynamic import inside a Web Worker. While jsDelivr serves CORS headers, some browser configurations or network conditions may block or silently fail this import.
+- If the import fails, `loadModelInternal()` catches the error and sends an error message — but the error handler in `handleWorkerMessage` (line 344–348) shows diagnostics. If the user dismisses diagnostics or the error message is subtle, the UI may appear "stuck" at READY from a previous session.
 
-### Code Quality
+**3. `pastKeyValuesCache` reuse across generations may cause silent hangs**
 
-- [ ] NOTE: [Priority: MED] [Code Quality] Excessive `!important` usage in css/utilities.css (9 instances across lines 60, 86, 88, 1332, 1872, 1873, 2102, 3389, 3390) — FALSE POSITIVE. All 9 instances are intentional forced state overrides: line 60 (`.nav-home-btn:hover` opacity), lines 86/88 (`.nav-home-btn` hidden via `html[data-active-utility]`), line 1332 (`[hidden]` display), lines 1872/1873 (reduced-motion animation/transition kill), line 2102 (`.death-screen[hidden]` display), lines 3389/3390 (`.utility-stage.is-active [data-animate]` forced visibility). These are legitimate utility class overrides, not specificity management issues. (css/utilities.css)
-- [ ] [Priority: LOW] [Code Quality] `window['__utilitiesShellController__']` at line 338 exposes a controller object on the global `window` namespace. While the key is obfuscated, this pollutes the global scope. Consider using a `WeakMap` keyed by the DOM root element or a `window.oliver` namespace object instead. (js/utilities-shell.js:338)
-- [ ] [Priority: LOW] [Code Quality] Inline `<script type="application/json" id="retroVmConfig">` block (281-295) embeds VM configuration directly in the HTML. This is reasonable for a static site, but if configuration grows or needs server-side injection, consider moving to a separate `.json` file loaded via `fetch()`. (pages/utilities/index.html:281-295)
+- File: `js/local-llm-worker.js` line 8: `let pastKeyValuesCache = null`
+- Line 149: `pastKeyValuesCache ??= new DynamicCache()`
+- Line 208: `past_key_values: pastKeyValuesCache`
+- The `DynamicCache` is reused across all generations. After `generateReply` completes, `disposePastKeyValues()` (line 222) calls `pastKeyValuesCache?.dispose?.()` and sets it to null.
+- However, if generation is interrupted (line 240–245), `disposePastKeyValues()` is NOT called. The next generation reuses a potentially corrupted cache via `pastKeyValuesCache ??= new DynamicCache()`.
+- Similarly, if an error occurs during generation that doesn't trigger the `disposePastKeyValues()` call in the catch block, the cache may be in an inconsistent state.
 
-### Error Handling
+**4. `pendingGenerateCount` silently drops messages**
 
-- [ ] [Priority: LOW] [Error Handling] `loadLocalAssistantScript()` caches its result in `localAssistantScriptPromise`. On failure, the promise is reset to `null` (line 129), allowing retries. However, the `.catch()` attached at line 139 runs on every rejection before the caller's `.catch()` at line 186. This means errors are logged twice (once here, once in `activateStage`). Consider removing the redundant catch at line 139-147 and letting `activateStage` handle error rendering, or use a single error-handling path. (js/utilities-shell.js:139-147, 186-193)
+- File: `js/local-llm-worker.js` lines 27–32: If `pendingGenerateCount >= MAX_PENDING_GENERATE_MESSAGES` (2), the message is silently dropped.
+- The main thread has no way to know the message was dropped — it just waits for a response that never comes.
 
-## Fourier Utility
+**5. Model state may desync between main thread and worker**
 
-### Code Quality
+- The main thread tracks `this.modelReady` and `this.status`. The worker tracks its own `state` variable.
+- If the worker encounters an error during `generateReply` but the main thread's status is still READY, subsequent messages will be sent to a worker that may be in an inconsistent state.
+- The `generationId` guard (`activeGeneration`) prevents stale responses, but if the worker is stuck, no new response arrives.
 
-- [ ] [Priority: HIGH] [Code Quality] No test files exist for the Fourier Utility module. The glob `utilities-src/tests/audioFourier*.test.ts` matches nothing -- the `tests` directory appears to be empty or absent entirely. This module contains complex FFT logic, Web Worker message passing, and WebGL rendering, all of which would benefit from unit tests. (utilities-src/tests/)
-- [ ] [Priority: MED] [Code Quality] `AudioFourierController` is a single monolithic class at 1444 lines handling UI state, Web Worker lifecycle, Audio API playback, Canvas/WebGL rendering, and resize management. Consider splitting into smaller focused classes (e.g., `AudioFourierPlayback`, `AudioFourierVisualizer`, `AudioFourierWorkerManager`) for testability and maintainability. (utilities-src/src/audioFourierController.ts)
-- [ ] [Priority: LOW] [Code Quality] Redundant check in worker message handler: `isAudioFourierAnalyzeRequest` already validates that `presetId` is a string (line 50), but the handler re-checks `if (!request.presetId)` at line 302. The second check can never trigger. (utilities-src/src/audioFourier.worker.ts:302-309)
-- [ ] [Priority: LOW] [Code Quality] Worker maintains module-level mutable state (`cancelledRequests` Set, `pendingRequests` array, `isProcessing` flag) that persists across requests. If the worker is reused across multiple `AudioFourierController` instances or if the page creates multiple workers, stale state from prior requests could leak. Consider scope guards or explicit reset paths. (utilities-src/src/audioFourier.worker.ts:15-18)
+### Actionable Fixes
 
-### Error Handling
+1. **Add error logging to `pendingGenerateCount` drop path**:
+   - Log a warning when a generate message is dropped, and optionally send an error message back to the main thread.
 
-- [ ] [Priority: MED] [Error Handling] Worker `messageerror` handler calls `handleWorkerFailure()` without inspecting `event.data` or `event.filename`/`event.message`. The `messageerror` event fires when deserialization fails (e.g., transferred ArrayBuffer was already consumed). Logging the event details would help diagnose serialization bugs. (utilities-src/src/audioFourierController.ts:721-726)
-- [ ] [Priority: LOW] [Error Handling] `onended` callback is only attached to `firstNode.source` (line 1096). If the first band buffer is shorter than others (e.g., due to a decoding edge case), playback could end before all bands finish, leaving orphaned AudioBufferSourceNodes still running. (utilities-src/src/audioFourierController.ts:1094-1111)
+2. **Call `disposePastKeyValues()` in `interruptGeneration()`**:
+   - Add `disposePastKeyValues()` to the interrupt handler (line 240–245) to prevent cache corruption on interrupted generations.
 
-### Performance
+3. **Add worker health check before sending generate messages**:
+   - In `sendMessage()`, add a heartbeat/ping mechanism to verify the worker is responsive before sending a generate request.
 
-- [ ] [Priority: MED] [Performance] Worker silently drops oldest pending request when queue exceeds `MAX_PENDING_REQUESTS` (line 311-313) without notifying the main thread. The dropped request's `requestId` is never matched, so the controller stays in `processing` state until timeout or manual reset. (utilities-src/src/audioFourier.worker.ts:311-313)
-- [ ] [Priority: LOW] [Performance] `resolveVisibleMixedAmplitude` iterates all bands for every bucket on every render frame during animation. With 12-20 bands and hundreds of buckets, this is O(bands * buckets) per frame. Consider caching or incremental updates when band gains haven't changed. (utilities-src/src/audioFourierController.ts:961-980)
+4. **Strip query params from worker URL**:
+   - In `createWorker()`, resolve the worker URL without inheriting the parent script's query params:
+     ```js
+     const workerUrl = new URL('./local-llm-worker.js', import.meta.url);
+     workerUrl.search = ''; // Strip query params
+     return new Worker(workerUrl, { type: 'module' });
+     ```
 
-### TypeScript
+5. **Add a timeout to generation requests**:
+   - If no tokens arrive within a configurable timeout (e.g., 30 seconds), treat it as a failure and reset the worker state.
 
-- [ ] [Priority: LOW] [TypeScript] `isAudioFourierAnalyzeRequest` casts `request` to `{ source?: unknown }` and checks `=== 'object'`, which passes for `null` and arrays. The subsequent null check on line 52 catches `null`, but arrays would pass the guard. The function should add `Array.isArray` exclusion or check for the specific `channelBuffers` property. (utilities-src/src/audioFourier.worker.ts:44-53)
+6. **Improve error visibility**:
+   - When the worker sends an error during generation, ensure the main thread surfaces it prominently (not just in a diagnostics panel that may be hidden).
 
-## Local Assistant Utility
+### Relevant Files
+- `js/local-llm-chat.js` — `createWorker()` (line 244), `sendMessage()` (line 722), `handleWorkerMessage()` (line 285)
+- `js/local-llm-worker.js` — `generateReply()` (line 133), `interruptGeneration()` (line 239), `pendingGenerateCount` guard (line 27), `pastKeyValuesCache` (line 8, 149, 208)
+- `js/local-llm-config.js` — `runtime.moduleUrl` (line 26)
+- `js/utilities-shell.js` — script loading with `?v=` param (line 121)
 
-### Performance
+## Retro VM — Mouse Capture Is Buggy (HIGH)
 
-- [ ] [Priority: HIGH] [Performance] `renderMessages()` has an O(n*m) WeakMap lookup pattern. Lines 841-848 iterate all DOM `<article>` children and, for each one, iterate the entire `_messageElements` WeakMap to find the matching message object. With N messages this is O(N^2). Replace with a `Map<HTMLElement, LocalLlmMessage>` for O(1) lookups, or store a data attribute on the article referencing the message. (js/local-llm-chat.js:841-848)
+### Problem
+The mouse capture in the Retro VM (v86 x86 emulator running Tiny Core Linux) is described as "very buggy and not at all smooth or natural feeling."
 
-### Security
+### Root Cause Analysis
 
-- [ ] NOTE: [Priority: MED] [Security] `flushStatePanelRender()` sets `this.loadCopy.innerHTML` at lines 621, 625, 629 with `safeCopy` — FALSE POSITIVE. `safeCopy` is computed via `escapeHtml(copy)` (for busy states) or `renderSafeInlineText(copy)` (for non-busy states, which itself calls `escapeHtml()` first). All data sources are static constants (`STATE_COPY`, `LOAD_SEQUENCE_COPY`, `READY_SUGGESTIONS`). The content is sanitized before being set via innerHTML. (js/local-llm-chat.js:621,625,629)
+**1. Absolute mousemove listener is scoped to the screen container, not document**
 
-### Accessibility
+- File: `utilities-src/src/retroVmController.ts` — `RetroVmMouseBridge.attachAbsoluteMouseMove()` (line 402)
+- The `mousemove` listener for absolute mode is attached to `this.root` (the `.vm-screen` container). When the host cursor leaves the VM viewport boundary, `mousemove` events stop firing entirely. The guest mouse freezes at the last known position until the cursor re-enters the viewport.
+- Contrast with pointer-locked mode: `onLockedMouseMove` is correctly attached to `document` (line 377), which receives events even when the cursor is "captured."
+- **Impact**: Before pointer lock is acquired (the default state), any mouse movement that exits the VM screen area causes the guest cursor to freeze. This feels "stuck" and unresponsive.
 
-- [ ] [Priority: MED] [Accessibility] The typing indicator (`<span class="local-llm-typing" id="localLlmTyping">` at line 146) is a purely visual animation with no `aria-live` region or `aria-label` to announce the "assistant is typing" state to screen readers. The status chip has `aria-live="polite"` but it announces "Thinking locally" / "Streaming locally" text, not the typing dots. Consider adding `aria-hidden="true"` to the typing dots and ensuring the live region or status chip communicates the typing state. (js/local-llm-chat.js:146, css/local-llm-chat.css:626-650)
+**2. `requestPointerLock()` is called on every mousedown, not just the first click**
 
-### Code Quality
+- File: `utilities-src/src/retroVmController.ts` — `onMouseDown` (line 291)
+- `void this.requestPointerLock()` fires on every mouse click inside the VM, even when pointer lock is already active.
+- `requestPointerLock()` has a guard (`if (this.pointerLocked || !this.canCapture()) return` at line 510), but the `pointerLocked` flag is only updated asynchronously via the `pointerlockchange` event (line 347–355). Between the first click and the `pointerlockchange` event firing, a second click can attempt a redundant lock request.
+- **Impact**: Redundant lock requests can cause brief visual glitches (browser cursor flicker) and unnecessary event churn, making the capture feel "jittery."
 
-- [ ] [Priority: LOW] [Code Quality] The `didTrim` check at line 780 is unnecessarily complex. `trimmed.some((message, index) => message !== this.messages[index])` compares object references, but `trimHistory()` always returns a new array with new references (from `slice` and spread), so this check is effectively always true when lengths match. The whole `didTrim` branch can be simplified to `trimmed.length !== this.messages.length`. (js/local-llm-chat.js:780)
+**3. Delta mouse movement is divided by display scale — wrong for pointer lock**
+
+- File: `utilities-src/src/retroVmController.ts` — `sendLockedDelta` (lines 498–506)
+- The code divides `movementX` and `movementY` by `safeScale` (the display scaling factor):
+  ```ts
+  const deltaX = (typeof event.movementX === 'number' ? event.movementX : 0) / safeScale;
+  const deltaY = (typeof event.movementY === 'number' ? event.movementY : 0) / safeScale;
+  ```
+- With `{ unadjustedMovement: true }` (line 525), `movementX/Y` are already raw pixel deltas from the OS. Dividing by scale means:
+  - At 0.5x display scale (VM fits in half the viewport), deltas are doubled → mouse feels 2x hypersensitive.
+  - At 1.5x display scale (VM fills most of viewport), deltas are reduced by 0.67x → mouse feels sluggish.
+- **Impact**: Mouse sensitivity changes based on window size. At smaller windows, the guest mouse flies around; at larger windows, it feels heavy. This is the most likely cause of the "not natural feeling" complaint.
 
-- [ ] [Priority: LOW] [Code Quality] `buildFailureCopy()` uses `console.warn` at line 1253 when diagnostics are unavailable. Since this function is only called during error states, `console.warn` adds noise to the error console. Downgrade to `console.debug` to match the error-handling logging pattern used elsewhere (e.g., lines 1053, 1075, 1102). (js/local-llm-chat.js:1253)
+**4. No `event.preventDefault()` in `sendLockedDelta` for non-zero deltas**
 
-- [ ] [Priority: LOW] [Code Quality] `renderSafeInlineText()` (lines 1278-1283) is a local function that duplicates the escape-then-render pattern of the imported `renderSafeText` but with a simpler markdown subset. If the two rendering paths ever diverge in security behavior, this creates a maintenance risk. Consider extracting the escape step and having both functions share it. (js/local-llm-chat.js:1278-1283)
+- File: `utilities-src/src/retroVmController.ts` — `sendLockedDelta` (lines 487–507)
+- The function returns early if both deltas are zero (line 502–504), but for non-zero deltas it sends the event to the bus without calling `event.preventDefault()`.
+- **Impact**: If pointer lock is somehow lost mid-drag (e.g., via Alt+Tab or browser tab switch), the `mousemove` event could still propagate and cause page scroll. Minor issue but worth fixing.
 
-### Browser Compatibility
+**5. Position jump when transitioning from absolute to delta mode**
 
-- [ ] [Priority: LOW] [Browser Compatibility] `color-mix()` is used extensively throughout `css/local-llm-chat.css` (50+ instances). While rgba fallbacks are provided via duplicate declarations, the comment at lines 18-25 notes these are "visually matched, not mathematically identical." Browsers that don't support `color-mix()` (Safari < 16.4, Firefox < 124, Edge < 124) will see slightly different colors. For a personal portfolio this is acceptable, but worth noting. (css/local-llm-chat.css)
-
-## Virtual Machine Utility
-
-### Error Handling
-
-- [ ] [Priority: HIGH] [Error Handling] `showConfirmModal()` has a dead fallback path. The guard at line 144 checks `typeof document === 'undefined' || typeof window.confirm === 'function'` but the if block is empty. If `document` is undefined (SSR), the function crashes at line 148 calling `document.createElement()`. If the intent was to fall back to `window.confirm()`, the call is missing. Either implement the `window.confirm` fallback or remove the dead guard. (utilities-src/src/retroVmController.ts:144-146)
-
-### TypeScript
-
-- [ ] [Priority: MED] [TypeScript] `readRetroVmJsonConfig()` at line 24 uses `parsed && typeof parsed === 'object'` which passes for `null` and arrays. The `null` case is caught by the `parsed &&` truthiness check, but arrays would pass through to `readRetroVmDatasetConfig()`. Add `!Array.isArray(parsed)` to the guard. (utilities-src/src/retroVmController.ts:24)
-
-- [ ] [Priority: LOW] [TypeScript] Test file uses `(window as any).__OD_RETRO_VM_TEST_MODE__` at lines 136 and 140. The global interface is declared in `retroVmController.ts` (lines 33-37) but the test file does not import the controller module in a way that exposes the global augmentation. Import the controller or declare the augmentation locally to eliminate the `as any` cast. (utilities-src/tests/retroVmController.test.ts:136,140)
-
-### Security
-
-- [ ] [Priority: LOW] [Security] `pasteClipboard()` reads raw clipboard text and sends it directly to the guest VM via `keyboard_send_text()` (line 861). While there is a confirmation modal and a 2048-char truncation limit, the pasted text is sent as keystrokes without any content filtering. A user could accidentally paste malicious shell commands (e.g., reverse shells, token exfiltration scripts) into the guest OS. Consider adding a warning for text containing shell metacharacters or common command patterns. (utilities-src/src/retroVmController.ts:861)
-
-### Code Quality
-
-- [ ] [Priority: LOW] [Code Quality] `sendAbsolutePosition()` (line 447) and `sendAbsolutePositionFromPoint()` (line 468) both compute `safeScale = viewport.scale || 1`. The `||` fallback is redundant since both callers already check `viewport.scale <= 0` and return early. The `|| 1` can never trigger. Same pattern in `sendLockedDelta()` at line 498. (utilities-src/src/retroVmController.ts:447,468,498)
-
-- [ ] [Priority: LOW] [Code Quality] `autoAdvanceBootMenu()` at line 933 uses a very short `timeout_msec: 500` for the second boot-menu visibility check. If the guest rendering is slow, this 500ms timeout may miss the prompt and skip the second Enter key dispatch, leaving the VM stuck at the boot menu. Consider increasing to at least 1000-2000ms. (utilities-src/src/retroVmController.ts:933-935)
-
-- [ ] [Priority: LOW] [Code Quality] `build-retro-vm-image.sh` mounts the entire repository root into the Docker container at line 61 (`-v "${ROOT_DIR}:/repo"`). This exposes all project files to the container's filesystem. Consider narrowing the mount to only the required subdirectories (e.g., `assets/utilities/vm`, `vm-src`, `.tmp`) to reduce the attack surface. (scripts/build-retro-vm-image.sh:61)
-
-### Performance
-
-- [ ] [Priority: LOW] [Performance] `syncUi()` at line 1102 is called on every state change, progress update, and capture state change. It performs DOM writes (textContent, className, style.width) and calls `applyRuntimeLabels()` and `applyInteractionStatusCopy()` on every invocation. Consider batching DOM updates with `document.startViewTransition()` or deferring non-critical updates when rapid state changes occur (e.g., during download progress). (utilities-src/src/retroVmController.ts:1102-1138)
-
-### Browser Compatibility
-
-- [ ] [Priority: LOW] [Browser Compatibility] `requestPointerLock({ unadjustedMovement: true })` at line 525 uses the `unadjustedMovement` option which is not supported in all browsers (e.g., Firefox does not support it). The fallback at line 526 calls `requestPointerLock()` without options, which is correct, but the `.catch()` on line 526 swallows the error from the first attempt silently before the fallback fires. Consider using a feature detection check before passing the option. (utilities-src/src/retroVmController.ts:525-526)
-
-## Stress Test Utility
-
-### Performance
-
-- [ ] [Priority: MED] [Performance] `resolveDisplayRefreshRate()` is called on every WebGL frame inside `resolveWebGlWorkloadLevel()` (line 1052). This reads `window.screen.refreshRate` on every animation frame, which is unnecessary since the display refresh rate does not change during a stress test session. Cache the result at session start or in the constructor. (utilities-src/src/stressTestController.ts:1052, 215-218)
-- [ ] [Priority: LOW] [Performance] `renderCpuVisualsFrame()` creates multiple `CanvasGradient` objects per frame (radial gradients for 42 thermal nodes, a linear gradient for background, and linear gradients for each worker packet). These allocations on every animation frame create GC pressure. Consider pre-allocating and reusing gradient objects, or drawing with `arc()` strokes instead of gradient fills. (utilities-src/src/stressTestController.ts:1160-1267)
-- [ ] [Priority: LOW] [Performance] `syncMetrics()` writes 11+ `dataset` attributes to `this.root` on every metric update (lines 1318-1327). While throttled to 250ms, each `dataset` write can trigger CSS attribute selector re-evaluation. Consider batching writes or using a single serialized data attribute. (utilities-src/src/stressTestController.ts:1318-1327)
-
-### Accessibility
-
-- [ ] NOTE: [Priority: MED] [Accessibility] The status text element (`stressStatusText`) updated via `setState()` (line 1346) uses `textContent` but the element likely lacks `aria-live="polite"` or `role="status"` — FALSE POSITIVE. The element at `pages/utilities/index.html:337` already has `aria-live="polite"`: `<p class="stress-warning" id="stressStatusText" aria-live="polite">`. (utilities-src/src/stressTestController.ts:1346, pages/utilities/index.html)
-- [ ] [Priority: LOW] [Accessibility] The stress test canvas is an animated visualization whose information is fully conveyed by the metrics panel. Consider adding `aria-hidden="true"` to the canvas when the stress test is running so screen readers focus on the metrics rather than encountering a canvas with a generic "Stress test output" label. (utilities-src/src/stressTestController.ts:291, 1449)
-
-### Code Quality
-
-- [ ] [Priority: MED] [Code Quality] `replaceCanvasElement()` (lines 1441-1458) duplicates the canvas replacement logic found in `startCpuVisuals()` (lines 1106-1121). Both methods create a new canvas, copy `id`, `aria-label`, `dataset.stressIdle`, `style.cssText`, replace in DOM, rebind the ResizeObserver, and set dimensions. The logic in `startCpuVisuals()` should call `replaceCanvasElement()` instead of duplicating it. (utilities-src/src/stressTestController.ts:1106-1121, 1441-1458)
-- [ ] [Priority: LOW] [Code Quality] `canCreateContext()` sets `canvas.width = 0` and `canvas.height = 0` in the `finally` block (lines 615-616) for a detached canvas element that was never appended to the DOM. These assignments have no effect on a detached element and can be removed. (utilities-src/src/stressTestController.ts:615-616)
-- [ ] [Priority: LOW] [Code Quality] `syncCanvasSize()` is called both directly (from `prepareGpuCanvas()`, `startCpuVisuals()`, `clearCanvasSurface()`) and indirectly via `queueCanvasResizeSync()`. The rAF-based deduplication in `queueCanvasResizeSync()` only helps for rapid resize events, not for the synchronous call chains. The direct callers could benefit from the same deduplication guard. (utilities-src/src/stressTestController.ts:1419-1439)
-
-### TypeScript
-
-- [ ] [Priority: LOW] [TypeScript] `WebGpuShaderModuleLike`, `WebGpuBindGroupLayoutLike`, `WebGpuPipelineLayoutLike`, `WebGpuComputePipelineLike`, and `WebGpuBindGroupLike` are empty interfaces (lines 49-57). These provide no compile-time type safety -- they are equivalent to `object` and will accept any non-nullish value. Consider adding a branded property (e.g., `readonly _brand: 'WebGpuShaderModuleLike'`) or using `unknown` with runtime type guards. (utilities-src/src/stressTestController.ts:49-57)
-
-### Error Handling
-
-- [ ] [Priority: LOW] [Error Handling] `getWebGpuUsageFlag()` and `getWebGpuTextureUsageFlag()` return `0` when the requested flag is unavailable (lines 203, 212). A value of `0` is a valid bitflag (meaning "no usage"), so the caller in `startWebGpuStress()` (lines 758, 772) would create buffers with zero usage, which WebGPU would reject at runtime. The `console.warn` at lines 201 and 210 provides visibility, but the function should throw instead of silently returning an invalid value. (utilities-src/src/stressTestController.ts:197-213, 758, 772)
-
-## Archive/Mobile/Game Pages
-
-### Bug
-
-- [ ] [Priority: HIGH] [Bug] `debounce()` is called in `js/archive.js` at line 44 but is not available globally. The `debounce` utility is defined inside the IIFE in `js/main.js` (line 677) and is never exposed on `window`. Since both scripts use `defer` and main.js loads first, the IIFE executes but `debounce` remains scoped. This throws a `ReferenceError` during `DOMContentLoaded`, completely breaking the archive search functionality. Expose `debounce` on `window` or inline a local debounce in archive.js. (js/archive.js:44, js/main.js:677-686)
-
-- [ ] [Priority: HIGH] [Bug] Malformed closing script tag in archive sub-page. Line 10 ends with `</script>script>` -- the extra `script>` is parsed as text content after the script closes, which is invalid HTML. While most browsers recover gracefully, this is a clear HTML error that could cause unpredictable parsing in strict parsers. (pages/archive/av1/av1.html:10)
-
-- [ ] [Priority: MED] [Bug] Extra `</div>` in footer of archive sub-page. The footer at lines 305-309 has a nested closing structure: `</div>    </div>` inside the footer, suggesting an extra closing div tag. This breaks the footer's DOM structure. (pages/archive/av1/av1.html:308)
-
-### Accessibility
-
-- [ ] [Priority: MED] [Accessibility] Tab buttons in archive sub-pages lack ARIA tab roles and keyboard navigation. The tabs at lines 129-131 use plain `<button>` elements without `role="tab"`, `aria-selected`, or `role="tablist"` on the container. Arrow key navigation between tabs is not implemented. Screen readers announce them as generic buttons with no relationship. (pages/archive/av1/av1.html:129-131)
-
-- [ ] [Priority: MED] [Accessibility] Chart `<canvas>` element lacks accessible description. The performance chart canvas at line 246 has no `role="img"`, `aria-label`, or associated `<figcaption>`. Screen readers cannot describe the chart data. Add an aria-label like "Bar chart showing AV1 bitrate savings versus H.264, VP9, and H.265" and consider adding a data table fallback. (pages/archive/av1/av1.html:246)
-
-- [ ] [Priority: LOW] [Accessibility] `nav-overlay` in mobile/resume/index.html lacks initial `aria-hidden="true"`. Before `main.js` runs and calls `closeMobileNav()`, the overlay is technically visible to assistive technologies. Add `aria-hidden="true"` to the initial HTML. (mobile/resume/index.html:167)
-
-### Performance
-
-- [ ] [Priority: MED] [Performance] Chart.js defaults are modified globally in archive sub-pages. Lines 338-339 set `Chart.defaults.color` and `Chart.defaults.borderColor`, which affects ALL Chart.js instances on the page and persists if the user navigates to another page using the same Chart.js instance (SPAs or bfcache). Use per-chart configuration instead of modifying global defaults. (pages/archive/av1/av1.html:338-339)
-
-- [ ] [Priority: LOW] [Performance] Archive sub-pages load Chart.js from CDN synchronously (no `defer`/`async` on the script tag at line 19). While `defer` is present, the script blocks parsing until downloaded. Since Chart.js (~200KB minified) is only needed for the chart near the bottom of the page, consider lazy-loading it when the chart section enters the viewport. (pages/archive/av1/av1.html:19)
-
-### Code Quality
-
-- [ ] [Priority: MED] [Code Quality] Inline script in archive sub-pages modifies global Chart.js configuration. The entire tab-switching and chart logic (lines 311-403) is embedded inline rather than extracted to a shared module. This pattern is repeated across multiple archive sub-pages (videocodecs, ft_fft, etc.), creating maintenance duplication. (pages/archive/av1/av1.html:311-403)
-
-- [ ] [Priority: LOW] [Code Quality] Favicon swap inline script is duplicated across every page. The same minified `visibilitychange` listener appears on lines 10-11 of nearly every HTML file (archive, game, mobile, archive sub-pages, etc.). Extract to a shared `js/favicon-swap.js` file. (pages/archive/index.html:10, pages/game/index.html:10, mobile/index.html:11, and all archive sub-pages)
-
-- [ ] [Priority: LOW] [Code Quality] `createArchiveState()` at line 17 maps all report cards at page load time, extracting text content for search. If the HTML is ever generated dynamically or loaded via fetch, this initial snapshot would be stale. Currently fine since cards are static, but worth noting for future-proofing. (js/archive.js:17-27)
-
-### Security
-
-- [ ] [Priority: LOW] [Security] Archive sub-pages load Chart.js from `cdn.jsdelivr.net` via HTTPS with SRI integrity check, which is good practice. However, the inline script at lines 311-403 accesses the global `Chart` object without verifying it loaded successfully. If the CDN is blocked or fails, `new Chart()` throws a ReferenceError. Add a guard checking `typeof Chart !== 'undefined'`. (pages/archive/av1/av1.html:341)
+- When the user clicks to capture:
+  1. `onMouseDown` sends the current absolute position (`sendAbsolutePosition` at line 290).
+  2. Pointer lock is requested.
+  3. `pointerlockchange` fires, `syncAbsoluteMouseMoveListener()` detaches the absolute listener.
+  4. Subsequent `mousemove` events fire `onLockedMouseMove` → `sendLockedDelta`.
+- The problem: the first `mousemove` after pointer lock acquires sends a delta from wherever the OS cursor was "locked." v86's mouse driver may not have a consistent origin, causing the guest cursor to jump.
+- **Impact**: After clicking to capture, the guest mouse cursor may jump to a different position before settling, feeling "glitchy."
+
+### Actionable Fixes
+
+1. **Remove scale division from delta movement** (`retroVmController.ts` line 498–500):
+   - For pointer-locked mouse input, use raw `movementX`/`movementY` directly without dividing by `safeScale`. The OS already sends raw pixel deltas, and v86 expects 1:1 mapping.
+   - Change to:
+     ```ts
+     const deltaX = typeof event.movementX === 'number' ? event.movementX : 0;
+     const deltaY = typeof event.movementY === 'number' ? event.movementY : 0;
+     ```
+   - This is the single most impactful fix for the "not natural feeling" issue.
+
+2. **Add `event.preventDefault()` to `sendLockedDelta`** (line 506):
+   - Add `event.preventDefault()` after `bus.send('mouse-delta', ...)` to prevent any page-level side effects.
+
+3. **Send an initial absolute position after pointer lock acquires** (in `onPointerLockChange`):
+   - After pointer lock is confirmed, send a `mouse-absolute` event with the last known position to anchor the guest cursor. This prevents the positional jump when transitioning modes.
+   - Track the last absolute position in a private field, then send it via `bus.send('mouse-absolute', ...)` in `onPointerLockChange` after confirming lock.
+
+4. **Extend absolute mousemove listener to a broader scope** (`attachAbsoluteMouseMove`):
+   - Instead of attaching `mousemove` to `this.root`, attach it to `document` when not pointer-locked. This ensures the guest mouse keeps receiving position updates even when the host cursor leaves the VM viewport.
+   - Guard with a bounds check: only send `mouse-absolute` if the cursor is within the VM container's bounding rect.
+   - Alternatively, request pointer lock on `mouseenter` of the VM screen instead of waiting for `mousedown`, giving smoother initial capture.
+
+5. **Guard `requestPointerLock()` more aggressively** (`onMouseDown`):
+   - Add a cooldown or flag to prevent redundant lock requests. The existing `this.pointerLocked` guard is race-prone because it's updated asynchronously. Add a `lockRequested` flag that is set immediately when `requestPointerLock()` is called and cleared on `pointerlockchange`.
+
+### Relevant Files
+- `utilities-src/src/retroVmController.ts` — `RetroVmMouseBridge` class (lines 276–550), especially:
+  - `attachAbsoluteMouseMove()` (line 397)
+  - `onMouseDown` (line 288)
+  - `sendLockedDelta` (line 487)
+  - `requestPointerLock` (line 509)
+  - `onPointerLockChange` (line 347)
+  - `sendAbsolutePosition` (line 435)
+- `pages/utilities/index.html` — VM HTML structure (line 280–330)
+
+## Retro VM — Top Bar Buttons Stack Vertically at Reasonable Width (MEDIUM)
+
+### Problem
+The VM toolbar buttons (Launch, Paste, Fullscreen, Wipe) start stacking vertically when the browser window narrows, and this happens at a "very reasonable width" — meaning the breakpoint is too wide and the buttons wrap prematurely.
+
+### Root Cause Analysis
+
+**1. `.vm-toolbar-actions` has `flex-wrap: wrap` with no min-width protection**
+
+- File: `css/utilities.css` line 2577–2581:
+  ```css
+  .vm-toolbar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  ```
+- `flex-wrap: wrap` allows buttons to flow to a second line whenever horizontal space is insufficient. There is no `min-width` on the container to force a wider breakpoint before wrapping.
+
+**2. `btn-secondary-utility--compact` class has no CSS definition**
+
+- The buttons use class `btn-secondary-utility btn-secondary-utility--compact` (HTML line 310–313).
+- The `--compact` modifier has **zero CSS rules** defined in `css/utilities.css`. A search for `btn-secondary-utility--compact` finds only the HTML usage and one usage in `js/local-llm-chat.js`.
+- Without the compact styles, buttons inherit the full `.btn-secondary-utility` sizing: `min-height: 2.65rem` and `padding: 0 1rem` (line 514–516).
+
+**3. Toolbar is packed with 9 elements, none of which can shrink**
+
+- The `.vm-toolbar` (line 2514–2522) contains these elements in a single flex row:
+  1. `.vm-status-dot` — 0.4rem circle (flex-shrink: 0)
+  2. `.vm-toolbar-title` — "Idle" text (no flex-shrink override)
+  3. `.vm-toolbar-meta` — "Tiny Core Linux 11" (no flex-shrink override)
+  4. `.utility-status-chip` — "Idle" chip with `min-width: 6rem` (line 269)
+  5. `.sr-only` — screen reader text (visually hidden)
+  6. `.vm-capture-badge` — "Click desktop to capture mouse" (no truncation)
+  7. `.vm-screen-badge` — "Local only" (no flex-shrink override)
+  8. `.vm-toolbar-actions` div containing 4 buttons
+  9. (implicit gap between each)
+- The `.vm-capture-badge` has `margin-left: auto` (line 2592), which pushes it and everything after it to the right edge. Combined with the long text "Click desktop to capture mouse," this consumes significant horizontal space.
+
+**4. No text truncation on any toolbar text elements**
+
+- `.vm-toolbar-title`, `.vm-toolbar-meta`, `.vm-capture-badge`, and `.vm-screen-badge` have no `overflow: hidden`, `text-overflow: ellipsis`, or `white-space: nowrap` rules. Long text expands the toolbar width.
+
+**5. `.utility-status-chip` has `min-width: 6rem`**
+
+- File: `css/utilities.css` line 269
+- This forces the status chip to always take at least 96px, which is a large fixed commitment in a narrow toolbar.
+
+### Actionable Fixes
+
+1. **Define `.btn-secondary-utility--compact` CSS** (`css/utilities.css`):
+   - Add a compact variant with reduced padding and smaller font:
+     ```css
+     .btn-secondary-utility--compact {
+       min-height: 2rem;
+       padding: 0 0.65rem;
+       font-size: 0.8rem;
+     }
+     ```
+   - This alone would save ~20-30px per button (4 buttons × ~25px = ~100px of horizontal space).
+
+2. **Add `flex-shrink: 0` to `.vm-toolbar-actions`** (`css/utilities.css` line 2577):
+   - Prevent the actions container from shrinking below its natural width, which forces other elements to compress first:
+     ```css
+     .vm-toolbar-actions {
+       flex-shrink: 0;
+       /* ...existing rules... */
+     }
+     ```
+
+3. **Truncate `.vm-capture-badge` text** (`css/utilities.css`):
+   - Add text truncation to the capture badge since its text is long ("Click desktop to capture mouse" / "Mouse captured · Press Escape to release"):
+     ```css
+     .vm-capture-badge {
+       max-width: 12rem;
+       overflow: hidden;
+       text-overflow: ellipsis;
+       white-space: nowrap;
+     }
+     ```
+
+4. **Reduce `.utility-status-chip` min-width in VM context** (`css/utilities.css`):
+   - Override the global `min-width: 6rem` for the VM toolbar specifically:
+     ```css
+     .vm-toolbar .utility-status-chip {
+       min-width: 4.5rem;
+     }
+     ```
+
+5. **Remove `flex-wrap: wrap` or add a `min-width` to `.vm-toolbar-actions`**:
+   - Either remove `flex-wrap: wrap` entirely (buttons stay on one line, overflow scrolls if needed), or add a minimum width that forces wrapping only at very narrow viewports:
+     ```css
+     .vm-toolbar-actions {
+       min-width: 18rem; /* forces buttons to stay inline until toolbar is very narrow */
+     }
+     ```
+
+### Relevant Files
+- `css/utilities.css` — `.vm-toolbar` (line 2514), `.vm-toolbar-actions` (line 2577), `.utility-status-chip` (line 265), `.vm-capture-badge` (line 2591)
+- `pages/utilities/index.html` — VM toolbar HTML (line 300–315)
+
+## CPU Stress Test Not Working on Deployed Site (CRITICAL)
+
+### Problem
+The CPU stress test does not work on the deployed GitHub Pages site. The GPU stress test works fine. The user reports: "The CPU stress test just doesn't work. The GPU test seems to be alright though."
+
+### Root Cause Analysis
+
+**1. Same worker type mismatch as Audio Fourier: `{ type: 'module' }` vs IIFE-bundled output**
+
+This is the exact same root cause documented in the "Audio Fourier Worker failure" section above. The CPU stress test was already flagged as potentially affected (TODOs.md line 91–92: "`stressTest.worker.ts` → `stressTest.worker-B6MGbhnL.js` (IIFE, loaded as module)") but noted as "hasn't been reported." It is now confirmed broken.
+
+- Source file: `utilities-src/src/stressTestController.ts` (line 498)
+  ```ts
+  const worker = new Worker(new URL('./stressTest.worker.ts', import.meta.url), { type: 'module' });
+  ```
+- Built file: `pages/utilities/assets/assets/stressTest.worker-B6MGbhnL.js`
+- Built file starts with: `(function(){"use strict";...` — classic IIFE script, not an ES module.
+- The browser tries to parse IIFE code as ES module, triggers the worker's `error` event, which calls the error handler at lines 502–510 of `stressTestController.ts`, producing a "CPU stress worker failed" error state.
+
+**2. Why GPU stress works but CPU stress doesn't**
+
+The GPU stress test does NOT use Web Workers at all. It runs entirely on the main thread:
+- WebGPU path: `startWebGpuStress()` (line 640) — creates compute/render pipelines directly on the main thread, drives animation via `requestAnimationFrame`.
+- WebGL path: `startWebGlStress()` (line 868) — compiles shaders and renders via `requestAnimationFrame` on the main thread.
+- No worker instantiation, no `{ type: 'module' }` flag, no IIFE/module mismatch. This is why GPU stress works perfectly on GitHub Pages.
+
+The CPU stress test, by contrast, spawns N workers (based on `navigator.hardwareConcurrency`) at line 497–528. Each worker fails immediately because of the module type mismatch.
+
+**3. No fallback mechanism for CPU stress workers**
+
+Unlike the Image Transform utility (which falls back to main thread on worker failure), the CPU stress test has zero fallback:
+- `supportsModuleWorkers()` (line 165–184) checks if the browser supports module workers via a blob URL test — this always returns `true` in modern browsers. It does NOT check whether the Vite-bundled worker file is actually parseable as a module.
+- If `supportsModuleWorkers()` returns false, it throws: "This browser does not support module workers required for CPU stress."
+- If workers are created but fail to parse, the `error` event fires (line 502–510), which stops ALL stress (both CPU and GPU) and sets state to `'error'`.
+- In "both" mode (the default), the GPU stress starts successfully, then the CPU workers fail, and the error handler at line 503–504 calls `stopGpuStress()` — killing the working GPU stress too.
+
+**4. Error handler kills GPU stress when CPU workers fail**
+
+This is a critical interaction bug. In the default "both" mode:
+1. `startCpuStress()` runs (line 404) — spawns workers, they fail.
+2. `startGpuStress()` runs (line 408) — succeeds.
+3. A CPU worker's `error` event fires asynchronously (line 502–510).
+4. The error handler calls `stopGpuStress({ loseContext: true })` (line 504).
+5. GPU stress is killed even though it was working fine.
+6. State is set to `'error'` with message like "CPU stress worker failed: [error details]."
+
+This means even in "both" mode, the user sees an error state rather than "GPU running, CPU unavailable."
+
+**5. `supportsModuleWorkers()` blob test is misleading**
+
+The function at line 165–184 creates a blank blob worker with `{ type: 'module' }`. This tests browser support for module workers in general, but it does NOT test whether the actual Vite-bundled worker file is valid module syntax. The blob contains `''` (empty string), which is valid module syntax. The real worker file contains IIFE code, which is NOT valid module syntax. The check passes but the actual workers fail.
+
+### Actionable Fixes
+
+1. **Apply the same fix as Audio Fourier** — either set `workerFormat: 'module'` in `config/vite.utilities.mts` or remove `{ type: 'module' }` from the Worker constructor at line 498. This is the primary fix and will resolve both the CPU stress test and Audio Fourier simultaneously.
+
+2. **Isolate CPU worker failures from GPU stress** (`stressTestController.ts` line 502–510):
+   - The error handler should check `this.mode` before stopping GPU stress. Currently it unconditionally calls `stopGpuStress()` on any CPU worker error.
+   - In "both" mode, a CPU worker failure should degrade to GPU-only (like the existing "GPU unavailable" path at line 431), not kill everything.
+   - Suggested fix: Only call `stopGpuStress()` if `this.mode === 'cpu'` (i.e., the user only asked for CPU stress). In "both" mode, stop only the CPU workers and continue with GPU.
+
+3. **Replace `supportsModuleWorkers()` with actual worker validation**:
+   - The blob-based check is not sufficient. Consider spawning a test worker with the actual bundled URL and verifying it sends a ready message before spawning the full worker pool.
+   - Alternatively, wrap `startCpuStress()` in a try-catch that catches the first worker error and falls back to "GPU only" mode gracefully.
+
+4. **Add error diagnostics to the worker error handler**:
+   - The current error handler logs via `console.error` (line 506) but the user-facing message is generic. Include the worker filename and line number in the status text to help diagnose the IIFE/module mismatch on deployed sites.
+
+### Relevant Files
+- `utilities-src/src/stressTestController.ts` — worker instantiation (line 498), error handler (line 502–510), `supportsModuleWorkers()` (line 165), `startCpuStress()` (line 487)
+- `utilities-src/src/stressTest.worker.ts` — worker source (bundled as IIFE by Vite)
+- `config/vite.utilities.mts` — Vite build config (missing `workerFormat` option)
+- `pages/utilities/assets/assets/stressTest.worker-B6MGbhnL.js` — built output (IIFE format, confirmed broken)
+- `pages/utilities/assets/stressTestController.js` — built controller (line 1: `new Worker(...{type:"module"})`)
