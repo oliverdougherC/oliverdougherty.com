@@ -23,8 +23,8 @@ Static portfolio site for me (Oliver Dougherty, duh).
 
 ```bash
 # Clone
-git clone git@github.com:oliverdougherC/Oliver-Unified.git
-cd Oliver-Unified
+git clone git@github.com:oliverdougherC/oliverdougherty.com.git
+cd oliverdougherty.com
 
 # One-command setup (installs deps, builds bundles, runs quality checks)
 npm run setup
