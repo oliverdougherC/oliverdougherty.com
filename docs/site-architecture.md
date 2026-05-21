@@ -13,7 +13,7 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `pages/gallery/index.html`: editorial photo gallery powered by JSON metadata in `assets/photos/`.
 - `pages/archive/index.html`: archive index for technical writeups.
 - `pages/archive/*/*.html`: article-style archive pages using the abstract/article layout.
-- `pages/dashboard/index.html`: utilities page shell (alias; actual path is `pages/utilities/index.html`).
+- `pages/utilities/index.html`: utilities page shell.
 - `pages/game/index.html`: generated entrypoint for the shipped game build.
 
 ## Shared browser layer

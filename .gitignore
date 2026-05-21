@@ -39,3 +39,6 @@ pages/game/assets/*.map
 
 # TypeScript build artifacts
 *.tsbuildinfo
+
+# Hermes agent state
+.hermes/

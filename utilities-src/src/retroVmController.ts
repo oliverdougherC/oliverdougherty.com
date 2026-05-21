@@ -930,9 +930,10 @@ export class RetroVmController {
           // Re-check that the boot prompt is still visible before sending the second Enter.
           // If the guest already booted past the prompt (e.g. it was slow to render),
           // sending Enter to a desktop or shell prompt could trigger unintended actions.
-          const stillVisible = await this.emulator?.wait_until_vga_screen_contains(this.config.bootMenuPrompt, {
+          const stillVisible = (this.config.bootMenuPrompt != null
+            && await this.emulator?.wait_until_vga_screen_contains(this.config.bootMenuPrompt, {
             timeout_msec: 500
-          }) ?? false;
+          })) ?? false;
           if (stillVisible) {
             void this.dispatchEnterKey();
           }

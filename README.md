@@ -24,7 +24,7 @@ Static portfolio site for me (Oliver Dougherty, duh).
 ```bash
 # Clone
 git clone git@github.com:oliverdougherC/Oliver-Unified.git
-cd oliverdougherty.com
+cd Oliver-Unified
 
 # One-command setup (installs deps, builds bundles, runs quality checks)
 npm run setup
@@ -41,8 +41,8 @@ Open `http://localhost:3000`. Done.
 ### Step-by-step (if you prefer manual control)
 
 ```bash
-git clone git@github.com:oliverdougherC/oliverdougherty.com.git
-cd oliverdougherty.com
+git clone git@github.com:oliverdougherC/Oliver-Unified.git
+cd Oliver-Unified
 
 npm install              # dependencies
 npm run utilities:build  # build utilities dashboard
@@ -87,7 +87,7 @@ npm run optimize-images
 ### Utilities
 
 - `npm run utilities:build` — Rebuild shipped bundle into `pages/utilities/assets/`
-- `npm run utilities:check` — TypeScript check + 21 unit tests
+- `npm run utilities:check` — TypeScript check + 176 unit tests
 - `npm run utilities:browser-check` — Playwright regression (Image Transform, Audio Fourier, Retro VM, Local Assistant, Stress Test)
 - `npm run utilities:perf` — Transform timing probe (image + audio)
 - `npm run utilities:cache:build` — Precompute built-in transform cache JSON
