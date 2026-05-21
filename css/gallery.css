@@ -3,37 +3,57 @@
  * Editorial 2D gallery with a curated hero, featured grid, and inspection panel.
  */
 
+/* Gallery-specific color utility: accent blue used in schematic metadata */
+.meta-tiny .gallery-accent-text {
+  color: #004BA8;
+}
+
+/* Gallery-specific nav overlay background override (replaces inline style) */
+.page-gallery .nav-overlay-bg {
+  background-color: #FFFFFF;
+}
+
+/* Gallery-specific color scheme override: forces light mode for system UI (scrollbars, form controls).
+ * This is intentional for the gallery's light editorial theme, even if the user prefers dark mode. */
+html {
+  color-scheme: light;
+}
+
+body, html {
+  background-color: #FFFFFF;
+  color: #000000;
+}
+
+::selection {
+  background-color: #000000;
+  color: #FFFFFF;
+}
+
 :root {
-  --gallery-panel: rgba(15, 15, 26, 0.95);
-  --gallery-panel-strong: rgba(11, 11, 18, 0.98);
-  --gallery-line: rgba(150, 147, 204, 0.1);
+  --font-display: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-interface: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-body: 'JetBrains Mono', 'Fira Code', monospace;
+
+  --gallery-panel: #FFFFFF;
+  --gallery-panel-strong: #FFFFFF;
+  --gallery-line: #000000;
   --gallery-shadow: none;
   --gallery-soft-shadow: none;
   --gallery-hero-surface: transparent;
   --gallery-hero-body: transparent;
   --gallery-hero-queue: transparent;
   --gallery-hero-chip: transparent;
-  --gallery-hero-chip-text: rgba(255, 255, 255, 0.7);
+  --gallery-hero-chip-text: rgba(0, 0, 0, 0.7);
   --gallery-hero-note: transparent;
   --gallery-section-offset: calc(var(--nav-height) + 6rem);
 }
 
-html[data-color-mode="light"][data-theme="gallery"] {
-  --gallery-panel: rgba(255, 255, 255, 0.95);
-  --gallery-panel-strong: rgba(255, 255, 255, 0.98);
-  --gallery-line: rgba(90, 88, 132, 0.1);
-  --gallery-shadow: none;
-  --gallery-soft-shadow: none;
-  --gallery-hero-surface: transparent;
-  --gallery-hero-body: transparent;
-  --gallery-hero-queue: transparent;
-  --gallery-hero-chip: transparent;
-  --gallery-hero-chip-text: rgba(24, 34, 28, 0.7);
-  --gallery-hero-note: transparent;
-}
-
 body.gallery-lightbox-open {
   overflow: hidden;
+}
+
+body.gallery-lightbox-open .nav-dot {
+  display: none;
 }
 
 .gallery-main {
@@ -46,83 +66,73 @@ body.gallery-lightbox-open {
   position: relative;
   padding: calc(var(--nav-height) + var(--space-10)) 0 var(--space-10);
 }
+
 .hero-aurora {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  pointer-events: none;
-  opacity: 0.4;
-  transform: translateZ(0);
-}
-
-.hero-aurora--one {
-  top: 7rem;
-  right: min(12vw, 9rem);
-  width: min(40vw, 32rem);
-  height: min(36vw, 24rem);
-  background:
-    radial-gradient(circle at 30% 30%, rgba(170, 212, 140, 0.2), transparent 60%),
-    radial-gradient(circle at 70% 55%, rgba(150, 147, 204, 0.18), transparent 62%);
-}
-
-.hero-aurora--two {
-  left: -6rem;
-  bottom: 2rem;
-  width: min(34vw, 24rem);
-  height: min(26vw, 18rem);
-  background:
-    radial-gradient(circle at 35% 45%, rgba(255, 214, 138, 0.14), transparent 58%),
-    radial-gradient(circle at 65% 50%, rgba(150, 147, 204, 0.16), transparent 64%);
-}
-
-html[data-color-mode="light"] .hero-aurora {
-  opacity: 0.25;
+  display: none;
 }
 
 .gallery-hero-layout {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(320px, 45vw);
+  gap: var(--space-12);
   gap: clamp(var(--space-8), 8vw, var(--space-24));
   align-items: center;
+  width: 100%;
+}
+
+.gallery-hero-overlay {
+  position: relative;
+  top: 0;
+  left: 0;
+  transform: none;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  padding: calc(var(--nav-height) + var(--space-10)) 0 var(--space-10);
+}
+
+.gallery-hero.schematic-wrapper {
+  padding: 0;
+}
+
+.gallery-hero .schematic-grid {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
 }
 
 .hero-copy {
   max-width: none;
-  margin-right: -10vw;
+  margin-right: 0;
   position: relative;
   z-index: 10;
 }
 
 .hero-title {
   margin: 0;
-  background: var(--gradient-accent);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #000000;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 6rem;
   font-size: clamp(4.2rem, 11.5vw, 10rem);
   line-height: 1.0;
   letter-spacing: -0.02em;
   overflow: visible;
+  text-align: left;
 }
-
-.hero-title em {
-  display: block;
-  font-style: italic;
-  padding-left: 0.5em;
-  font-weight: 400;
-  overflow: visible;
-  line-height: 1.0;
-  transform: translateY(-0.05em);
-}
-
 
 .hero-feature-card {
   position: relative;
   display: block;
   width: 100%;
+  max-width: 34rem;
   max-width: clamp(24rem, 45vw, 40rem);
-  justify-self: end;
   background: transparent;
   box-shadow: none;
   margin-top: 0;
@@ -134,13 +144,19 @@ html[data-color-mode="light"] .hero-aurora {
   max-height: 70vh;
   overflow: hidden;
   border-radius: var(--radius-lg);
-  box-shadow: 0 30px 60px -15px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.06);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
   padding: 0;
   border: none;
   background: transparent;
   color: inherit;
   display: block;
   width: 100%;
+}
+
+.hero-feature-media.schematic-border {
+  border-radius: 0;
+  border: 1px solid #000000 !important;
+  box-shadow: none;
 }
 
 .hero-feature-media:hover .hero-feature-image,
@@ -163,6 +179,75 @@ html[data-color-mode="light"] .hero-aurora {
   object-fit: cover;
 }
 
+@supports not (aspect-ratio: 1) {
+  .hero-feature-media,
+  .photo-media {
+    height: 0;
+    padding-top: 75%;
+  }
+
+  .hero-feature-media picture,
+  .hero-feature-media img,
+  .photo-media picture,
+  .photo-media img {
+    position: absolute;
+    inset: 0;
+  }
+
+  .lightbox-thumb img {
+    height: 110px;
+  }
+}
+
+/* Bespoke Optical Calibration Animation */
+.calibrate-text {
+  animation: textCalibrate 3.8s cubic-bezier(0.25, 1, 0.35, 1) 0.3s forwards;
+  will-change: filter, letter-spacing, opacity, transform;
+  opacity: 0;
+}
+
+@keyframes textCalibrate {
+  0% {
+    opacity: 0;
+    filter: blur(20px);
+    letter-spacing: 0.5em;
+    transform: scale(1.05) translateX(-20px);
+  }
+  30% {
+    opacity: 1;
+    filter: blur(10px);
+    letter-spacing: 0.15em;
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0);
+    letter-spacing: -0.02em;
+    transform: scale(1) translateX(0);
+  }
+}
+
+/* Scanner Image Animation */
+.scanner-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.scanned-image {
+  filter: grayscale(100%) contrast(1.2) brightness(0.8);
+  animation: colorReveal 3.4s cubic-bezier(0.25, 1, 0.35, 1) 0.6s forwards;
+}
+
+@keyframes colorReveal {
+  0% {
+    filter: grayscale(100%) contrast(1.2) brightness(0.8);
+  }
+  50% {
+    filter: grayscale(50%) contrast(1.1) brightness(0.9);
+  }
+  100% {
+    filter: grayscale(0%) contrast(1) brightness(1);
+  }
+}
 
 .gallery-status-section {
   min-height: 0;
@@ -171,6 +256,7 @@ html[data-color-mode="light"] .hero-aurora {
 .gallery-status-section > .container-wide,
 .gallery-section > .container-wide {
   max-width: 1440px;
+  padding-inline: var(--space-8);
   padding-inline: clamp(var(--space-6), 4vw, var(--space-10));
 }
 
@@ -192,7 +278,7 @@ html[data-color-mode="light"] .hero-aurora {
   width: 40px;
   height: 40px;
   border: 2px solid var(--gallery-line);
-  border-top-color: var(--color-accent);
+  border-top-color: #004BA8;
   border-radius: 50%;
   animation: spin 0.9s linear infinite;
 }
@@ -213,6 +299,7 @@ html[data-color-mode="light"] .hero-aurora {
 .empty-title {
   margin: 0;
   font-family: var(--font-display);
+  font-size: 2.4rem;
   font-size: clamp(2rem, 4vw, 2.8rem);
 }
 
@@ -240,6 +327,7 @@ html[data-color-mode="light"] .hero-aurora {
 .archive-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4rem 2.5rem;
   gap: clamp(3.5rem, 5.5vw, 5.5rem) clamp(2rem, 3vw, 3rem);
   align-items: start;
   max-width: 1220px;
@@ -284,7 +372,8 @@ html[data-color-mode="light"] .hero-aurora {
 }
 
 .photo-card-button:focus-visible {
-  outline: none;
+  outline: 3px solid var(--lb-accent, #004BA8);
+  outline-offset: 4px;
 }
 
 .photo-media {
@@ -293,38 +382,18 @@ html[data-color-mode="light"] .hero-aurora {
   max-height: 85vh;
   overflow: hidden;
   border-radius: var(--radius-lg);
-  background:
-    linear-gradient(115deg,
-      rgba(150, 147, 204, 0.08) 12%,
-      rgba(184, 182, 228, 0.18) 38%,
-      rgba(150, 147, 204, 0.08) 62%);
-  background-size: 220% 100%;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
+  background: #F5F5F5;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
   transition: box-shadow var(--duration-slow) var(--ease-smooth);
 }
 
 .photo-card:hover .photo-media,
 .photo-card:focus-within .photo-media {
-  box-shadow:
-    0 0 0 1px rgba(150, 147, 204, 0.08),
-    0 20px 40px -12px rgba(0, 0, 0, 0.5),
-    0 0 24px rgba(150, 147, 204, 0.06);
-}
-
-html[data-color-mode="light"] .photo-media {
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
-}
-
-html[data-color-mode="light"] .photo-card:hover .photo-media,
-html[data-color-mode="light"] .photo-card:focus-within .photo-media {
-  box-shadow:
-    0 0 0 1px rgba(90, 88, 132, 0.1),
-    0 20px 40px -12px rgba(0, 0, 0, 0.15),
-    0 0 24px rgba(90, 88, 132, 0.06);
+  box-shadow: 0 0 0 1px #000000;
 }
 
 .photo-card.is-loading .photo-media {
-  animation: media-shimmer 1.25s linear infinite;
+  animation: none;
 }
 
 @keyframes media-shimmer {
@@ -356,7 +425,7 @@ html[data-color-mode="light"] .photo-card:focus-within .photo-media {
 }
 
 .photo-card--broken .photo-media {
-  background: rgba(255, 255, 255, 0.06);
+  background: #F5F5F5;
 }
 
 .photo-card--prominent {
@@ -408,21 +477,15 @@ html[data-color-mode="light"] .photo-card:focus-within .photo-media {
   justify-content: center;
   padding: var(--space-3);
 
-  --lb-text: var(--color-text-primary);
-  --lb-text-secondary: var(--color-text-secondary);
-  --lb-text-muted: var(--color-text-muted);
-  --lb-accent: var(--color-accent);
-  --lb-surface: var(--color-surface);
-  --lb-line: var(--color-border);
-  --lb-overlay-bg: rgba(20, 20, 20, 0.65);
-  --lb-overlay-hover: rgba(40, 40, 40, 0.75);
-  --lb-overlay-border: rgba(255, 255, 255, 0.1);
-}
-
-html[data-color-mode="light"] .lightbox {
+  --lb-text: #000000;
+  --lb-text-secondary: rgba(0, 0, 0, 0.6);
+  --lb-text-muted: rgba(0, 0, 0, 0.45);
+  --lb-accent: #004BA8;
+  --lb-surface: #FFFFFF;
+  --lb-line: rgba(0, 0, 0, 0.1);
   --lb-overlay-bg: rgba(255, 255, 255, 0.65);
-  --lb-overlay-hover: rgba(255, 255, 255, 0.85);
-  --lb-overlay-border: rgba(0, 0, 0, 0.08);
+  --lb-overlay-hover: rgba(240, 240, 240, 0.85);
+  --lb-overlay-border: rgba(0, 0, 0, 0.1);
 }
 
 .lightbox[hidden] {
@@ -482,7 +545,6 @@ html[data-color-mode="light"] .lightbox {
   background: var(--lb-surface);
   box-shadow: none;
   transform: translateZ(0);
-  will-change: transform;
 }
 
 .lightbox-topbar {
@@ -590,12 +652,6 @@ html[data-color-mode="light"] .lightbox {
   height: 100%;
 }
 
-.lightbox-picture {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
 .lightbox-image {
   max-width: 100%;
   max-height: 100%;
@@ -635,6 +691,18 @@ html[data-color-mode="light"] .lightbox {
   color: var(--lb-text);
 }
 
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .lightbox-backdrop {
+    background: rgba(246, 246, 244, 0.98);
+  }
+
+  .lightbox-counter,
+  .lightbox-close,
+  .lightbox-nav {
+    background: rgba(255, 255, 255, 0.96);
+  }
+}
+
 .lightbox-panel {
   display: flex;
   flex-direction: column;
@@ -649,7 +717,6 @@ html[data-color-mode="light"] .lightbox {
   scrollbar-width: none;
   min-height: 0;
   transform: translateZ(0);
-  will-change: transform;
 }
 
 .lightbox-panel::-webkit-scrollbar {
@@ -672,6 +739,7 @@ html[data-color-mode="light"] .lightbox {
 .lightbox-title {
   margin: 0;
   font-family: var(--font-display);
+  font-size: 2.5rem;
   font-size: clamp(2rem, 4vw, 3rem);
   line-height: 0.94;
   color: var(--lb-text);
@@ -796,6 +864,11 @@ html[data-color-mode="light"] .lightbox {
   gap: var(--space-3);
   overflow-x: auto;
   padding-bottom: var(--space-1);
+  scrollbar-width: none;
+}
+
+.lightbox-thumbs::-webkit-scrollbar {
+  display: none;
 }
 
 .lightbox-thumb {
@@ -830,9 +903,20 @@ html[data-color-mode="light"] .lightbox {
   line-height: 1.4;
 }
 
-.gallery-footer {
-  margin-top: var(--space-24);
-  border-top: 1px solid var(--gallery-line);
+/* Nav dot
+   Base styles inherited from design-system.css.
+   This block adds gallery-page size override. */
+.nav-dot {
+  width: 20px;
+  height: 20px;
+}
+
+.nav-overlay-bg {
+  background-color: #FFFFFF;
+}
+
+.nav-overlay .nav-link {
+  color: #000000;
 }
 
 @media (max-width: 1280px) {
@@ -845,10 +929,12 @@ html[data-color-mode="light"] .lightbox {
 @media (max-width: 1024px) {
   .gallery-hero-layout {
     grid-template-columns: minmax(0, 1fr) minmax(220px, 38vw);
+    gap: var(--space-10);
     gap: clamp(var(--space-6), 6vw, var(--space-14));
   }
 
   .hero-feature-card {
+    max-width: 20rem;
     max-width: clamp(16rem, 44vw, 24rem);
   }
 
@@ -903,7 +989,7 @@ html[data-color-mode="light"] .lightbox {
     max-height: 52vh;
     padding-top: var(--space-5);
     border-radius: 28px 28px 0 0;
-    background: var(--gallery-panel-strong);
+    background: #FFFFFF;
     transform: translateY(calc(100% - 82px));
     transition:
       transform var(--duration-base) var(--ease-smooth),
@@ -923,11 +1009,12 @@ html[data-color-mode="light"] .lightbox {
 }
 
 @media (max-width: 768px) {
-  .gallery-hero {
+  .gallery-hero-overlay {
     padding-top: calc(var(--nav-height) + var(--space-12));
   }
 
   .hero-title {
+    font-size: 4rem;
     font-size: clamp(3.2rem, 16vw, 5.2rem);
   }
 
@@ -935,13 +1022,13 @@ html[data-color-mode="light"] .lightbox {
     grid-template-columns: 1fr;
   }
 
-  .photo-card {
-    --reveal-delay: 0ms !important;
+  .page-gallery .photo-card {
+    --reveal-delay: 0ms;
   }
 }
 
 @media (max-width: 560px) {
-  .gallery-hero {
+  .gallery-hero-overlay {
     padding-bottom: var(--space-10);
   }
 
@@ -971,5 +1058,10 @@ html[data-color-mode="light"] .lightbox {
 
   .lightbox-image {
     transition: none;
+  }
+
+  .calibrate-text,
+  .scanned-image {
+    animation: none !important;
   }
 }

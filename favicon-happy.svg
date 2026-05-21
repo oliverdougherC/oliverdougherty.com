@@ -1,14 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Happy pixel face" shape-rendering="crispEdges">
-  <!-- Dark background -->
-  <rect width="32" height="32" rx="4" fill="#0e1f1b"/>
+  <!-- White background -->
+  <rect width="32" height="32" rx="4" fill="#ffffff"/>
   <!-- Left eye (3x3) -->
-  <rect x="10" y="9" width="3" height="3" fill="#cce5db"/>
+  <rect x="10" y="9" width="3" height="3" fill="#000000"/>
   <!-- Right eye (3x3) -->
-  <rect x="19" y="9" width="3" height="3" fill="#cce5db"/>
+  <rect x="19" y="9" width="3" height="3" fill="#000000"/>
   <!-- Smile left side -->
-  <rect x="10" y="19" width="2" height="2" fill="#cce5db"/>
+  <rect x="10" y="19" width="2" height="2" fill="#000000"/>
   <!-- Smile right side -->
-  <rect x="20" y="19" width="2" height="2" fill="#cce5db"/>
+  <rect x="20" y="19" width="2" height="2" fill="#000000"/>
   <!-- Smile bottom -->
-  <rect x="12" y="21" width="8" height="2" fill="#cce5db"/>
+  <rect x="12" y="21" width="8" height="2" fill="#000000"/>
 </svg>

@@ -3,9 +3,13 @@ import { buildTransformRenderPlan } from '@utilities/transformRenderPlan';
 import { analyzeTransformImages } from '@utilities/transformIntelligence';
 import {
   buildResultPixels,
+  collectRankedCandidatesForTarget,
+  createMatchingSearchContext,
+  findBestAvailableSourceIndex,
   matchPackedPixels,
   packRgbPixels,
   resolveOutputDimensions,
+  TransformDimensionMismatchError,
   transformPreparedImages
 } from '@utilities/transformCore';
 
@@ -271,5 +275,149 @@ describe('transform core', () => {
     expect(result.matcherStats.averageGroupsPerTarget).toBeLessThanOrEqual(4.1);
     expect(result.matcherStats.evaluatedGroupCount).toBeLessThanOrEqual(256);
     expect(result.matcherStats.evaluatedCandidateCount).toBe(result.matcherStats.evaluatedGroupCount);
+  });
+
+  it('iterates duplicated donors across exact groups in one quantized bucket', () => {
+    const source = imageFromRgbTriples(
+      [
+        [1, 1, 1],
+        [2, 2, 2],
+        [2, 2, 2],
+        [15, 15, 15],
+        [240, 240, 240]
+      ],
+      5,
+      1
+    );
+    const target = imageFromRgbTriples(
+      [
+        [2, 2, 2],
+        [15, 15, 15],
+        [2, 2, 2],
+        [1, 1, 1],
+        [240, 240, 240]
+      ],
+      5,
+      1
+    );
+    const context = createMatchingSearchContext(
+      packRgbPixels(source.pixels),
+      packRgbPixels(target.pixels),
+      4
+    );
+    const candidates = collectRankedCandidatesForTarget(context, 0, 4);
+    const assignment = matchPackedPixels(packRgbPixels(source.pixels), packRgbPixels(target.pixels), 4);
+
+    expect(candidates.map((candidate) => candidate.sourceIndex)).toEqual([1, 2, 0, 3]);
+    expect(Array.from(assignment)).toEqual([1, 3, 2, 0, 4]);
+  });
+
+  it('validates empty matching inputs before building search state', () => {
+    expect(() => createMatchingSearchContext(new Uint32Array(), new Uint32Array(), 5)).toThrow(
+      'at least one pixel'
+    );
+  });
+
+  it('rejects quantization bits below 4', () => {
+    const packed = packRgbPixels(
+      imageFromRgbTriples([[0, 0, 0]], 1, 1).pixels
+    );
+    expect(() => createMatchingSearchContext(packed, packed, 2)).toThrow(
+      'Quantization bits must stay between 4 and 8'
+    );
+  });
+
+  it('rejects quantization bits above 8', () => {
+    const packed = packRgbPixels(
+      imageFromRgbTriples([[0, 0, 0]], 1, 1).pixels
+    );
+    expect(() => createMatchingSearchContext(packed, packed, 10)).toThrow(
+      'Quantization bits must stay between 4 and 8'
+    );
+  });
+
+  it('rejects mismatched source and target pixel counts', () => {
+    const sourcePacked = packRgbPixels(
+      imageFromRgbTriples([[0, 0, 0], [255, 255, 255]], 2, 1).pixels
+    );
+    const targetPacked = packRgbPixels(
+      imageFromRgbTriples([[128, 128, 128]], 1, 1).pixels
+    );
+    expect(() => createMatchingSearchContext(sourcePacked, targetPacked, 5)).toThrow(
+      'Source and target images must have the same pixel count'
+    );
+  });
+
+  it('reports structured dimension mismatch details', () => {
+    const source = imageFromRgbTriples([[0, 0, 0]], 1, 1);
+    const target = imageFromRgbTriples(
+      [
+        [0, 0, 0],
+        [255, 255, 255]
+      ],
+      2,
+      1
+    );
+
+    expect(() => transformPreparedImages(source, target, 5)).toThrow(TransformDimensionMismatchError);
+    try {
+      transformPreparedImages(source, target, 5);
+    } catch (error) {
+      expect(error).toMatchObject({
+        sourceWidth: 1,
+        sourceHeight: 1,
+        targetWidth: 2,
+        targetHeight: 1
+      });
+    }
+  });
+
+  it('continues fallback search past the first occupied shell for a better color match', () => {
+    const source = imageFromRgbTriples(
+      [
+        [0, 0, 0],
+        [16, 16, 16]
+      ],
+      2,
+      1
+    );
+    const target = imageFromRgbTriples(
+      [
+        [15, 15, 15],
+        [0, 0, 0]
+      ],
+      2,
+      1
+    );
+    const context = createMatchingSearchContext(packRgbPixels(source.pixels), packRgbPixels(target.pixels), 4);
+
+    expect(findBestAvailableSourceIndex(context, 0, new Uint8Array(2))).toBe(1);
+  });
+
+  it('continues grouped shell search past the first occupied shell for a better color match', () => {
+    const sourcePixels: Array<[number, number, number]> = [
+      [0, 0, 0],
+      [16, 16, 16]
+    ];
+
+    for (let red = 0; red < 16 && sourcePixels.length < 129; red += 1) {
+      for (let green = 0; green < 16 && sourcePixels.length < 129; green += 1) {
+        for (let blue = 0; blue < 16 && sourcePixels.length < 129; blue += 1) {
+          const bucketKey = (red << 16) | (green << 8) | blue;
+          if (bucketKey === 0 || bucketKey === 0x010101) {
+            continue;
+          }
+          sourcePixels.push([red << 4, green << 4, blue << 4]);
+        }
+      }
+    }
+
+    const targetPixels = sourcePixels.slice();
+    targetPixels[0] = [15, 15, 15];
+    const source = imageFromRgbTriples(sourcePixels, sourcePixels.length, 1);
+    const target = imageFromRgbTriples(targetPixels, targetPixels.length, 1);
+    const assignment = matchPackedPixels(packRgbPixels(source.pixels), packRgbPixels(target.pixels), 4);
+
+    expect(assignment[0]).toBe(1);
   });
 });

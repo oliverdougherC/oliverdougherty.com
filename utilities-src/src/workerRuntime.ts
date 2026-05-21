@@ -3,15 +3,12 @@ import { transformPreparedImages } from './transformCore';
 import type { MatchingWorkerLike } from './parallelMatcher';
 import type { PreparedImageData, PreparedImageTransfer, TransformMetadata } from './types';
 import type { WorkerRequest, WorkerResponse } from './workerTypes';
+import { arrayBufferLikeToArrayBuffer, sliceArrayBufferView } from './bufferUtils';
 
 class CancelledTransformError extends Error {
   constructor() {
     super('Transform cancelled.');
   }
-}
-
-function asArrayBuffer(buffer: ArrayBufferLike) {
-  return buffer as ArrayBuffer;
 }
 
 export interface PreparedBitmapResult {
@@ -42,7 +39,7 @@ function deflatePreparedImage(
   return {
     width: image.width,
     height: image.height,
-    pixels: asArrayBuffer(image.pixels.buffer),
+    pixels: sliceArrayBufferView(image.pixels),
     originalWidth,
     originalHeight,
     scaled
@@ -140,9 +137,6 @@ export function createWorkerRequestHandler(options: {
                 ? { start: 0.26, span: 0.22 }
                 : { start: 0.48, span: 0.52 };
           postProgress(stage, stageWeight.start + progress * stageWeight.span, message);
-        },
-        onProgress(completed, total) {
-          postProgress('assigning', 0.48 + (completed / total) * 0.52, `Assigning donors… ${completed}/${total}`);
         }
       });
 
@@ -206,10 +200,10 @@ export function createWorkerRequestHandler(options: {
           requestId,
           source: sourceTransfer,
           target: targetTransfer,
-          assignment: asArrayBuffer(assignment.buffer),
+          assignment: arrayBufferLikeToArrayBuffer(assignment.buffer),
           metadata
         },
-        [sourceTransfer.pixels, targetTransfer.pixels, asArrayBuffer(assignment.buffer)]
+        [sourceTransfer.pixels, targetTransfer.pixels, arrayBufferLikeToArrayBuffer(assignment.buffer)]
       );
     } catch (error) {
       if (error instanceof CancelledTransformError) {

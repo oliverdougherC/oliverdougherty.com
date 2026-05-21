@@ -52,6 +52,55 @@ describe('worker runtime', () => {
     expect(success && success.type === 'success' ? success.metadata.evaluatedCandidateCount : 0).toBeGreaterThan(0);
     expect(success && success.type === 'success' ? success.metadata.evaluatedGroupCount : 0).toBeGreaterThan(0);
     expect(success && success.type === 'success' ? success.metadata.workerCount : 0).toBe(1);
+    const assigningTicks = messages.filter(
+      (message) => message.type === 'progress' && message.stage === 'assigning' && message.message.startsWith('Assigning donors')
+    );
+    expect(assigningTicks).toHaveLength(1);
+  });
+
+  it('transfers only the visible pixel range for offset typed-array views', async () => {
+    const messages: WorkerResponse[] = [];
+    const padded = new Uint8ClampedArray([
+      99, 99, 99, 99,
+      255, 0, 0, 255,
+      0, 255, 0, 255,
+      0, 0, 255, 255,
+      255, 255, 0, 255,
+      77, 77, 77, 77
+    ]);
+    const pixels = new Uint8ClampedArray(padded.buffer, 4, 16);
+    const handler = createWorkerRequestHandler({
+      prepareBitmaps: async () => ({
+        source: { width: 2, height: 2, pixels },
+        target: { width: 2, height: 2, pixels: new Uint8ClampedArray(pixels) },
+        sourceOriginalWidth: 2,
+        sourceOriginalHeight: 2,
+        targetOriginalWidth: 2,
+        targetOriginalHeight: 2,
+        sourceScaled: false,
+        targetScaled: false
+      }),
+      postMessage(message) {
+        messages.push(message);
+      }
+    });
+
+    await handler({
+      type: 'transform',
+      requestId: 3,
+      presetId: 'fast',
+      sourceBitmap: {} as ImageBitmap,
+      targetBitmap: {} as ImageBitmap
+    });
+
+    const success = messages.find((message) => message.type === 'success');
+    expect(success && success.type === 'success' ? success.source.pixels.byteLength : 0).toBe(16);
+    expect(success && success.type === 'success' ? Array.from(new Uint8ClampedArray(success.source.pixels).slice(0, 4)) : []).toEqual([
+      255,
+      0,
+      0,
+      255
+    ]);
   });
 
   it('emits an error for mismatched prepared images', async () => {

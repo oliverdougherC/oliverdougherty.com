@@ -1,4 +1,17 @@
-import type { RetroVmProgress, RetroVmState, RetroVmStatusView, RetroVmSupport } from './retroVmTypes';
+import type { RetroVmEvent, RetroVmProgress, RetroVmState, RetroVmStatusView, RetroVmSupport } from './retroVmTypes';
+
+function debugRetroVmSupport(message: string, error?: unknown) {
+  if (typeof console === 'undefined' || typeof console.debug !== 'function') {
+    return;
+  }
+
+  if (error === undefined) {
+    console.debug(`[RetroVm] ${message}`);
+    return;
+  }
+
+  console.debug(`[RetroVm] ${message}`, error);
+}
 
 function readMatchMedia(matchMediaImpl: ((query: string) => MediaQueryList) | undefined, query: string) {
   if (!matchMediaImpl) {
@@ -7,7 +20,8 @@ function readMatchMedia(matchMediaImpl: ((query: string) => MediaQueryList) | un
 
   try {
     return matchMediaImpl(query).matches;
-  } catch {
+  } catch (error) {
+    debugRetroVmSupport(`matchMedia("${query}") failed.`, error);
     return false;
   }
 }
@@ -17,6 +31,8 @@ export function detectRetroVmSupport(input: {
   hasDocument?: boolean;
   hasWebAssembly?: boolean;
   hasWorker?: boolean;
+  hasFullscreen?: boolean;
+  hasPointerLock?: boolean;
   innerWidth?: number;
   maxTouchPoints?: number;
   matchMedia?: (query: string) => MediaQueryList;
@@ -25,8 +41,18 @@ export function detectRetroVmSupport(input: {
   const hasDocument = input.hasDocument ?? typeof document !== 'undefined';
   const hasWebAssembly = input.hasWebAssembly ?? typeof WebAssembly !== 'undefined';
   const hasWorker = input.hasWorker ?? typeof Worker !== 'undefined';
+  // `typeof HTMLElement` guards against SSR / non-browser environments where
+  // the global is absent. In a real browser it is always defined, so this
+  // effectively checks whether `requestPointerLock` exists on the prototype.
+  const requestPointerLock =
+    typeof HTMLElement !== 'undefined' ? HTMLElement.prototype.requestPointerLock : undefined;
+  const hasFullscreen =
+    input.hasFullscreen ??
+    (hasDocument && typeof document.fullscreenEnabled === 'boolean' ? document.fullscreenEnabled : false);
+  const hasPointerLock = input.hasPointerLock ?? typeof requestPointerLock === 'function';
   const innerWidth = input.innerWidth ?? (hasWindow ? window.innerWidth : 0);
-  const maxTouchPoints = input.maxTouchPoints ?? (hasWindow ? navigator.maxTouchPoints : 0);
+  const hasNavigator = typeof navigator !== 'undefined';
+  const maxTouchPoints = input.maxTouchPoints ?? (hasWindow && hasNavigator ? navigator.maxTouchPoints : 0);
   const matchMediaImpl = input.matchMedia ?? (hasWindow ? window.matchMedia.bind(window) : undefined);
   const coarsePointer = readMatchMedia(matchMediaImpl, '(pointer: coarse)');
   const narrowScreen = innerWidth > 0 && innerWidth < 900;
@@ -37,7 +63,9 @@ export function detectRetroVmSupport(input: {
     return {
       supported: false,
       reason: 'This VM needs a normal browser window to initialize.',
-      isMobileLike: false
+      isMobileLike: false,
+      hasFullscreen: false,
+      hasPointerLock: false
     };
   }
 
@@ -45,7 +73,9 @@ export function detectRetroVmSupport(input: {
     return {
       supported: false,
       reason: 'Your browser is missing the WebAssembly or worker features this emulator needs.',
-      isMobileLike
+      isMobileLike,
+      hasFullscreen,
+      hasPointerLock
     };
   }
 
@@ -53,23 +83,44 @@ export function detectRetroVmSupport(input: {
     return {
       supported: false,
       reason: 'The retro VM is desktop-first in v1. Use a keyboard-and-mouse browser window for the full experience.',
-      isMobileLike: true
+      isMobileLike: true,
+      hasFullscreen,
+      hasPointerLock
     };
+  }
+
+  const degradedReasons: string[] = [];
+  if (!hasFullscreen) {
+    degradedReasons.push('Fullscreen is unavailable, so use the embedded viewport.');
+  }
+  if (!hasPointerLock) {
+    degradedReasons.push('Pointer lock is unavailable, so mouse capture falls back to absolute positioning.');
   }
 
   return {
     supported: true,
-    reason: 'Ready to launch.',
-    isMobileLike: false
+    reason: degradedReasons.length > 0 ? `Ready to launch. ${degradedReasons.join(' ')}` : 'Ready to launch.',
+    isMobileLike: false,
+    hasFullscreen,
+    hasPointerLock
   };
 }
 
 function formatBytes(bytes: number) {
-  if (bytes >= 1024 * 1024) {
+  if (bytes < 1024) {
+    return `${Math.max(0, Math.round(bytes))} bytes`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  if (bytes < 1024 * 1024 * 1024) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
+  if (bytes < 1024 * 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  }
 
-  return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024 * 1024 * 1024)).toFixed(1)} TB`;
 }
 
 export function formatRetroVmProgress(progress: RetroVmProgress) {
@@ -83,6 +134,10 @@ export function formatRetroVmProgress(progress: RetroVmProgress) {
   }
 
   return 'Waiting to start.';
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected value: ${value}`);
 }
 
 export function resolveRetroVmStatusView(
@@ -99,7 +154,7 @@ export function resolveRetroVmStatusView(
         chipLabel: 'Idle',
         chipClass: 'utility-status-chip--idle',
         statusText: 'Launch a fresh local session when you are ready. Nothing persists after the tab closes.',
-        progressText: progress.loadedBytes > 0 ? progressLabel : 'Runtime is idle.'
+        progressText: progress.loadedBytes > 0 ? progressLabel : supportReason
       };
     case 'loading':
       return {
@@ -146,7 +201,7 @@ export function resolveRetroVmStatusView(
   }
 }
 
-export function transitionRetroVmState(current: RetroVmState, event: 'launch' | 'ready' | 'enter-fullscreen' | 'exit-fullscreen' | 'reset' | 'reset-complete' | 'error' | 'unsupported'): RetroVmState {
+export function transitionRetroVmState(current: RetroVmState, event: RetroVmEvent): RetroVmState {
   switch (event) {
     case 'unsupported':
       return 'unsupported';
@@ -164,5 +219,7 @@ export function transitionRetroVmState(current: RetroVmState, event: 'launch' | 
       return current === 'unsupported' ? current : 'idle';
     case 'error':
       return 'error';
+    default:
+      return assertNever(event);
   }
 }

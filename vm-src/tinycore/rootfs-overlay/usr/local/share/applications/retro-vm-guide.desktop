@@ -6,3 +6,4 @@ Exec=/usr/local/bin/retro-vm-guide
 Icon=/usr/local/share/pixmaps/retro-guide.png
 Categories=Utility;
 Terminal=false
+StartupNotify=false

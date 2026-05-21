@@ -53,6 +53,20 @@ class MockMatchingWorker implements MatchingWorkerLike {
   terminate() {}
 }
 
+class HangingMatchingWorker implements MatchingWorkerLike {
+  terminated = false;
+
+  addEventListener() {}
+
+  removeEventListener() {}
+
+  postMessage() {}
+
+  terminate() {
+    this.terminated = true;
+  }
+}
+
 describe('parallel matcher', () => {
   it('returns a complete one-to-one assignment when ranking work is split across workers', async () => {
     const source = imageFromRgbTriples(
@@ -151,5 +165,26 @@ describe('parallel matcher', () => {
         supportsNestedWorkers: true
       })
     ).toBe(false);
+  });
+
+  it('times out and terminates an unresponsive ranking worker', async () => {
+    const source = imageFromRgbTriples([[0, 0, 0]], 1, 1);
+    const target = imageFromRgbTriples([[0, 0, 0]], 1, 1);
+    const analysis = analyzeTransformImages(source, target, 5);
+    const worker = new HangingMatchingWorker();
+
+    await expect(
+      matchPackedPixelsInParallel({
+        sourcePacked: packRgbPixels(source.pixels),
+        targetPacked: packRgbPixels(target.pixels),
+        quantizationBits: 5,
+        targetOrder: resolveTargetOrder(1, analysis),
+        analysis,
+        createWorker: () => worker,
+        workerCount: 1,
+        workerTimeoutMs: 1
+      })
+    ).rejects.toThrow('timed out');
+    expect(worker.terminated).toBe(true);
   });
 });

@@ -1,13 +1,13 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="archive">
+<html lang="en" data-theme="archive" data-disable-color-mode>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Technical Archive - Oliver Dougherty</title>
   <meta name="description" content="Technical reports and deep dives into complex topics in computing, engineering, and science.">
-  <link rel="icon" type="image/svg+xml" href="/favicon-happy.svg?v=face-5" id="favicon">
-  <link rel="alternate icon" href="/favicon-happy.ico?v=face-5" id="favicon-fallback">
-  <script>document.addEventListener('visibilitychange',function(){var hidden=document.hidden;var f=document.getElementById('favicon');var i=document.getElementById('favicon-fallback');if(f)f.href=hidden?'/favicon-sad.svg?v=face-5':'/favicon-happy.svg?v=face-5';if(i)i.href=hidden?'/favicon-sad.ico?v=face-5':'/favicon-happy.ico?v=face-5'})</script>
+  <link rel="icon" type="image/svg+xml" href="/favicon-happy.svg?v=face-6" id="favicon">
+  <link rel="alternate icon" href="/favicon-happy.ico?v=face-6" id="favicon-fallback">
+  <script>document.addEventListener('visibilitychange',function(){var hidden=document.hidden;var f=document.getElementById('favicon');var i=document.getElementById('favicon-fallback');if(f)f.href=hidden?'/favicon-sad.svg?v=face-6':'/favicon-happy.svg?v=face-6';if(i)i.href=hidden?'/favicon-sad.ico?v=face-6':'/favicon-happy.ico?v=face-6'})</script>
   <script src="../../js/mobile-gate.js"></script>
 
   <!-- Fonts -->
@@ -26,14 +26,7 @@
   <!-- Navigation -->
   <nav class="nav" id="nav">
     <div class="nav-inner container">
-      <a href="../../index.html" class="nav-logo" data-cursor="hover">
-        <span class="logo-text">O<span class="logo-d">D</span></span>
-      </a>
-
       <div class="nav-controls">
-        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to light mode" aria-pressed="false" data-cursor="hover">
-          <span class="theme-toggle-icon" aria-hidden="true"></span>
-        </button>
         <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false" data-cursor="hover">
           <span></span>
           <span></span>
@@ -43,14 +36,14 @@
   </nav>
 
   <!-- Fullscreen Menu Overlay -->
-  <div class="nav-overlay" id="navOverlay">
+  <div class="nav-overlay" id="navOverlay" aria-hidden="true">
     <div class="nav-overlay-bg"></div>
     <div class="nav-links container" id="navLinks">
       <div class="nav-menu-header">Menu</div>
       <a href="../../index.html" class="nav-link nav-link--home" data-cursor="hover">Home</a>
       <a href="../resume/index.html" class="nav-link nav-link--resume" data-cursor="hover">Resume</a>
       <a href="../gallery/index.html" class="nav-link nav-link--gallery" data-cursor="hover">Gallery</a>
-      <a href="../dashboard/index.html" class="nav-link nav-link--utilities" data-cursor="hover">Utilities</a>
+      <a href="../utilities/index.html" class="nav-link nav-link--utilities" data-cursor="hover">Utilities</a>
 
       <div class="nav-menu-footer">
         <a href="mailto:oliverfdougherty@gmail.com" class="footer-link" data-cursor="hover">Contact</a>

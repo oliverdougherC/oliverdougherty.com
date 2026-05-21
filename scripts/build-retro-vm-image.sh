@@ -6,6 +6,7 @@ SOURCE_ISO="${ROOT_DIR}/assets/utilities/vm/TinyCore-11.0.iso"
 OUTPUT_ISO="${ROOT_DIR}/assets/utilities/vm/tinycore-retro-vm.iso"
 WORK_DIR="${ROOT_DIR}/.tmp/tinycore-retro-vm-build"
 GENERATED_DIR="${WORK_DIR}/generated"
+ALPINE_IMAGE="${ALPINE_IMAGE:-alpine:3.21}"
 
 require_tool() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -16,6 +17,11 @@ require_tool() {
 
 require_tool docker
 require_tool rsvg-convert
+
+if [ ! -f "${SOURCE_ISO}" ]; then
+  echo "Missing Tiny Core base ISO: ${SOURCE_ISO}" >&2
+  exit 1
+fi
 
 if ! docker info >/dev/null 2>&1; then
   echo "docker is installed but the daemon is not available" >&2
@@ -29,6 +35,17 @@ mkdir -p \
 
 cp "${ROOT_DIR}/vm-src/tinycore/branding/bliss-wallpaper.png" \
   "${GENERATED_DIR}/opt/backgrounds/retro-vm-wallpaper.png"
+
+# SVG-to-PNG conversion: check source existence before rsvg-convert so errors name the missing file
+for _svg_src in \
+  "${ROOT_DIR}/vm-src/tinycore/branding/retro-browser.svg" \
+  "${ROOT_DIR}/vm-src/tinycore/branding/retro-guide.svg"; do
+  if [ ! -f "$_svg_src" ]; then
+    echo "Missing SVG source: $_svg_src" >&2
+    exit 1
+  fi
+done
+
 rsvg-convert \
   --format=png \
   --output="${GENERATED_DIR}/usr/local/share/pixmaps/retro-browser.png" \
@@ -41,7 +58,7 @@ rsvg-convert \
 docker run --rm \
   --platform linux/amd64 \
   -v "${ROOT_DIR}:/repo" \
-  alpine:3.21 sh -lc '
+  "${ALPINE_IMAGE}" sh -lc '
     set -euo pipefail
     apk add --no-cache cpio gzip libarchive-tools xorriso >/dev/null
 
@@ -53,8 +70,12 @@ docker run --rm \
     gzip -dc /tmp/iso/boot/core.gz | cpio -idmu --quiet
     cpio_status=$?
     set -e
-    if [ "$cpio_status" -gt 2 ]; then
+    if [ "$cpio_status" -ge 2 ]; then
       exit "$cpio_status"
+    fi
+    if [ "$cpio_status" -eq 1 ]; then
+      echo "WARNING: cpio exited with status 1 — some files were not extracted" >&2
+      exit 1
     fi
 
     cp -R /repo/vm-src/tinycore/rootfs-overlay/. /tmp/rootfs/
@@ -63,6 +84,9 @@ docker run --rm \
     chmod 755 /tmp/rootfs/usr/local/bin/retro-vm-guide
     chmod 755 /tmp/rootfs/usr/local/bin/retro-vm-browser
     chmod 755 /tmp/rootfs/etc/skel/.setbackground
+
+    cd /repo/assets/utilities/vm
+    md5sum -c flwm_topside.tcz.md5.txt >/dev/null
 
     cp /repo/assets/utilities/vm/flwm_topside.tcz /tmp/iso/cde/optional/
     cp /repo/assets/utilities/vm/flwm_topside.tcz.md5.txt /tmp/iso/cde/optional/
@@ -87,6 +111,13 @@ docker run --rm \
 
 if [ ! -f "${OUTPUT_ISO}" ]; then
   echo "Tiny Core remaster build failed to produce ${OUTPUT_ISO}" >&2
+  exit 1
+fi
+
+# Validate output ISO is not empty or truncated (Tiny Core ISOs are ~10 MB minimum)
+_iso_size=$(stat -c%s "${OUTPUT_ISO}" 2>/dev/null || stat -f%z "${OUTPUT_ISO}" 2>/dev/null || echo 0)
+if [ "$_iso_size" -lt 1048576 ]; then
+  echo "Tiny Core remaster ISO is suspiciously small (${_iso_size} bytes) — build may have failed" >&2
   exit 1
 fi
 

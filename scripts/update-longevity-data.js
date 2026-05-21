@@ -354,7 +354,7 @@ function parseTitle(content) {
 async function fetchText(url) {
   const response = await fetch(url, {
     headers: {
-      'user-agent': 'Oliver-Unified-longevity-data-updater/1.0'
+      'user-agent': 'oliverdougherty.com-longevity-data-updater/1.0'
     }
   });
 
@@ -368,7 +368,7 @@ async function fetchText(url) {
 async function fetchArrayBuffer(url) {
   const response = await fetch(url, {
     headers: {
-      'user-agent': 'Oliver-Unified-longevity-data-updater/1.0'
+      'user-agent': 'oliverdougherty.com-longevity-data-updater/1.0'
     }
   });
 

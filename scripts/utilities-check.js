@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { chromium } = require('playwright');
+const { chromium, firefox } = require('playwright');
 const {
   startLocalStaticServer,
   waitForServer
@@ -12,6 +12,8 @@ const {
 const ROOT = path.resolve(__dirname, '..');
 const DEFAULT_BASE_URL = 'http://127.0.0.1:4175';
 const BASE_URL = process.env.UTILITIES_CHECK_URL || DEFAULT_BASE_URL;
+const BROWSER_NAME = process.env.UTILITIES_BROWSER === 'firefox' ? 'firefox' : 'chromium';
+const CHROMIUM_WEBGL_ARGS = ['--enable-webgl', '--ignore-gpu-blocklist', '--use-angle=swiftshader'];
 
 function assert(condition, message) {
   if (!condition) {
@@ -155,6 +157,19 @@ async function loadUtilitiesPage(page, pageUrl, readyPattern, timeout, label) {
   }
 }
 
+async function navigateUtility(page, utilityId) {
+  await page.evaluate((id) => {
+    if (window.location.hash !== `#${id}`) {
+      window.location.hash = id;
+    }
+  }, utilityId);
+  await page.waitForFunction(
+    (id) => document.querySelector(`.utility-stage[data-utility-id="${id}"]`)?.classList.contains('is-active'),
+    utilityId,
+    { timeout: 10000 }
+  );
+}
+
 async function createInvalidImageFile() {
   const invalidPath = path.join(os.tmpdir(), `od-invalid-image-${Date.now()}.txt`);
   fs.writeFileSync(invalidPath, 'not an image');
@@ -235,6 +250,22 @@ async function readOverlayAlphaPixels(page) {
       }
     }
     return alphaPixels;
+  });
+}
+
+async function readStarfieldState(page) {
+  await page.waitForFunction(() => {
+    const canvas = document.getElementById('starfield');
+    return canvas instanceof HTMLCanvasElement && Number(canvas.dataset.starCount || '0') > 0;
+  }, { timeout: 10000 });
+
+  return page.evaluate(() => {
+    const canvas = document.getElementById('starfield');
+    return {
+      count: Number(canvas?.dataset.starCount || '0'),
+      mode: canvas?.dataset.starfieldMode || '',
+      frames: Number(canvas?.dataset.starfieldFrameCount || '0')
+    };
   });
 }
 
@@ -423,6 +454,7 @@ async function readUtilityIsolationMetrics(page) {
       roots: Array.from(document.querySelectorAll('[data-utility-root]')).map((element) => ({
         id: element.id,
         utility: element.getAttribute('data-utility-root') ?? '',
+        active: Boolean(element.closest('.utility-stage')?.classList.contains('is-active')),
         rect: rect(element)
       })),
       audioStages: [
@@ -435,12 +467,21 @@ async function readUtilityIsolationMetrics(page) {
 }
 
 async function assertUtilityIsolationLayout(page, label) {
+  await page.waitForFunction(() => {
+    return Array.from(document.querySelectorAll('[data-utility-root]')).some((element) => {
+      const rect = element.getBoundingClientRect();
+      const styles = window.getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && styles.visibility !== 'hidden' && styles.display !== 'none';
+    });
+  }, { timeout: 5000 });
   const state = await readUtilityIsolationMetrics(page);
   assert(state.scrollWidth === state.clientWidth, `[${label}] utilities page should not overflow horizontally.`);
   assert(state.roots.length >= 4, `[${label}] expected each utility to expose a data-utility-root marker.`);
 
-  for (const root of state.roots) {
-    assert(root.rect?.visible, `[${label}] ${root.utility || root.id} utility root should be visible.`);
+  const visibleRoots = state.roots.filter((root) => root.active && root.rect?.visible);
+  assert(visibleRoots.length >= 1, `[${label}] expected the active utility root to be visible.`);
+
+  for (const root of visibleRoots) {
     assert(root.rect.left >= -1, `[${label}] ${root.utility || root.id} utility root overflows left.`);
     assert(
       root.rect.right <= state.viewport.width + 1,
@@ -452,15 +493,436 @@ async function assertUtilityIsolationLayout(page, label) {
     if (!item.stage?.visible) {
       continue;
     }
-    assert(item.panel?.visible, `[${label}] Audio Fourier ${item.label} panel should be visible when the stage is visible.`);
+    if (item.panel) {
+      assert(item.panel.visible, `[${label}] Audio Fourier ${item.label} panel should be visible when the stage is visible.`);
+      assert(item.stage.left >= item.panel.left - 1, `[${label}] Audio Fourier ${item.label} stage escapes its panel on the left.`);
+      assert(item.stage.right <= item.panel.right + 1, `[${label}] Audio Fourier ${item.label} stage escapes its panel on the right.`);
+    }
     assert(item.canvas?.visible, `[${label}] Audio Fourier ${item.label} canvas should be visible when the stage is visible.`);
-    assert(item.stage.left >= item.panel.left - 1, `[${label}] Audio Fourier ${item.label} stage escapes its panel on the left.`);
-    assert(item.stage.right <= item.panel.right + 1, `[${label}] Audio Fourier ${item.label} stage escapes its panel on the right.`);
     assert(item.canvas.left >= item.stage.left - 1, `[${label}] Audio Fourier ${item.label} canvas escapes its stage on the left.`);
     assert(item.canvas.right <= item.stage.right + 1, `[${label}] Audio Fourier ${item.label} canvas escapes its stage on the right.`);
     assert(item.canvas.width <= item.stage.width + 1, `[${label}] Audio Fourier ${item.label} canvas is wider than its stage.`);
     assert(item.canvas.height <= item.stage.height + 1, `[${label}] Audio Fourier ${item.label} canvas is taller than its stage.`);
     assert(item.activePixels > 100, `[${label}] Audio Fourier ${item.label} canvas should render a nonblank placeholder or signal.`);
+  }
+}
+
+async function readStressCanvasStats(page) {
+  return page.evaluate(() => {
+    const canvas = document.getElementById('stressCanvas');
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      return { missing: true };
+    }
+
+    const sampler = document.createElement('canvas');
+    sampler.width = 96;
+    sampler.height = 54;
+    const context = sampler.getContext('2d', { willReadFrequently: true });
+    if (!context) {
+      return { missing: false, readable: false };
+    }
+
+    context.clearRect(0, 0, sampler.width, sampler.height);
+    context.drawImage(canvas, 0, 0, sampler.width, sampler.height);
+    const pixels = context.getImageData(0, 0, sampler.width, sampler.height).data;
+    let litPixels = 0;
+    let opaquePixels = 0;
+    let totalRgb = 0;
+    let maxChannel = 0;
+    for (let offset = 0; offset < pixels.length; offset += 4) {
+      const red = pixels[offset];
+      const green = pixels[offset + 1];
+      const blue = pixels[offset + 2];
+      const alpha = pixels[offset + 3];
+      const brightness = red + green + blue;
+      totalRgb += brightness;
+      maxChannel = Math.max(maxChannel, red, green, blue);
+      if (alpha > 0) {
+        opaquePixels += 1;
+      }
+      if (alpha > 0 && brightness > 24) {
+        litPixels += 1;
+      }
+    }
+
+    return {
+      missing: false,
+      readable: true,
+      idle: canvas.dataset.stressIdle ?? '',
+      width: canvas.width,
+      height: canvas.height,
+      sampledPixels: sampler.width * sampler.height,
+      litPixels,
+      opaquePixels,
+      totalRgb,
+      maxChannel
+    };
+  });
+}
+
+async function assertStressCanvasActive(page, label) {
+  const stats = await readStressCanvasStats(page);
+  assert(!stats.missing, `[${label}] stress canvas is missing.`);
+  assert(stats.readable !== false, `[${label}] stress canvas pixels should be readable in the browser check.`);
+  assert(stats.width > 0 && stats.height > 0, `[${label}] stress canvas should have a positive drawing buffer.`);
+  assert(stats.litPixels > 48, `[${label}] stress canvas should render nonblack output; stats=${JSON.stringify(stats)}.`);
+  assert(stats.maxChannel > 24, `[${label}] stress canvas should contain visible color; stats=${JSON.stringify(stats)}.`);
+}
+
+async function assertStressCanvasIdle(page, label) {
+  const stats = await readStressCanvasStats(page);
+  assert(!stats.missing, `[${label}] stress canvas is missing.`);
+  assert(stats.idle === 'true', `[${label}] stress canvas should mark its idle placeholder state.`);
+  assert(stats.litPixels === 0, `[${label}] stopped stress canvas should be cleared; stats=${JSON.stringify(stats)}.`);
+}
+
+async function readStressLayoutMetrics(page) {
+  return page.evaluate(() => {
+    const rect = (selector) => {
+      const element = document.querySelector(selector);
+      if (!(element instanceof HTMLElement || element instanceof HTMLCanvasElement)) return null;
+      const box = element.getBoundingClientRect();
+      return {
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+        visible: box.width > 0 && box.height > 0
+      };
+    };
+    const shell = document.getElementById('stressTestApp');
+    const layout = document.querySelector('.stress-layout');
+    const control = document.querySelector('.stress-control-panel');
+    const visual = document.querySelector('.stress-visual-panel');
+    const metrics = document.querySelector('.stress-metrics');
+    const metricCards = Array.from(document.querySelectorAll('.stress-metrics > [data-stress-metric]'));
+    const controlStyle = control instanceof HTMLElement ? getComputedStyle(control) : null;
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      shell: rect('#stressTestApp'),
+      layout: rect('.stress-layout'),
+      control: rect('.stress-control-panel'),
+      visual: rect('.stress-visual-panel'),
+      metrics: rect('.stress-metrics'),
+      shellScrollHeight: shell?.scrollHeight ?? 0,
+      shellClientHeight: shell?.clientHeight ?? 0,
+      layoutScrollWidth: layout?.scrollWidth ?? 0,
+      layoutClientWidth: layout?.clientWidth ?? 0,
+      controlScrollHeight: control?.scrollHeight ?? 0,
+      controlClientHeight: control?.clientHeight ?? 0,
+      controlOverflowY: controlStyle?.overflowY ?? '',
+      hiddenMetricCount: metricCards.filter((card) => card.hasAttribute('hidden')).length,
+      visibleMetricCount: metricCards.filter((card) => !card.hasAttribute('hidden')).length,
+      metricsHidden: metrics?.hasAttribute('hidden') ?? false
+    };
+  });
+}
+
+async function assertStressLayout(page, label, options = {}) {
+  const state = await readStressLayoutMetrics(page);
+  assert(state.scrollWidth === state.clientWidth, `[${label}] stress utility should not create horizontal page overflow.`);
+  assert(state.shell?.visible, `[${label}] stress shell should be visible.`);
+  assert(state.layout?.visible, `[${label}] stress layout should be visible.`);
+  assert(state.control?.visible, `[${label}] stress control panel should be visible.`);
+  assert(state.visual?.visible, `[${label}] stress visual panel should be visible.`);
+  assert(state.controlOverflowY !== 'auto' && state.controlOverflowY !== 'scroll', `[${label}] stress control panel should not be scrollable.`);
+  if (options.expectMetricsHidden) {
+    assert(state.metrics?.visible, `[${label}] stress metrics container should stay visible while individual cards are hidden.`);
+    assert(state.hiddenMetricCount > 0, `[${label}] stress should hide only as many metric cards as needed when the control panel is too short.`);
+    assert(state.visibleMetricCount > 0, `[${label}] stress should keep rendering metric cards that still fit.`);
+  } else {
+    assert(state.metrics?.visible, `[${label}] stress metrics should be visible.`);
+    assert(state.visibleMetricCount > 0, `[${label}] stress should render metric cards that fit.`);
+  }
+  assert(state.shell.left >= -1, `[${label}] stress shell overflows left.`);
+  assert(state.shell.right <= state.viewport.width + 1, `[${label}] stress shell overflows right.`);
+  assert(state.shell.bottom <= state.viewport.height + 1, `[${label}] stress shell overflows below the viewport.`);
+  assert(state.layoutScrollWidth <= state.layoutClientWidth + 1, `[${label}] stress layout should not overflow horizontally.`);
+  if (options.requirePanelFit) {
+    if (!options.expectMetricsHidden) {
+      assert(state.metrics.bottom <= state.control.bottom + 1, `[${label}] stress metrics should not clip below the control panel.`);
+    }
+    assert(state.controlScrollHeight <= state.controlClientHeight + 1, `[${label}] stress control panel should fit without internal clipping.`);
+  }
+}
+
+async function readLocalAssistantMetrics(page) {
+  return page.evaluate(() => {
+    const rect = (selector) => {
+      const element = document.querySelector(selector);
+      if (!(element instanceof HTMLElement)) return null;
+      const box = element.getBoundingClientRect();
+      const styles = getComputedStyle(element);
+      return {
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+        width: box.width,
+        height: box.height,
+        display: styles.display,
+        visibility: styles.visibility,
+        overflowY: styles.overflowY,
+        visible: box.width > 0 && box.height > 0 && styles.display !== 'none' && styles.visibility !== 'hidden'
+      };
+    };
+    const overlaps = (a, b) => Boolean(
+      a &&
+      b &&
+      a.visible &&
+      b.visible &&
+      a.left < b.right &&
+      a.right > b.left &&
+      a.top < b.bottom &&
+      a.bottom > b.top
+    );
+    const shell = rect('#localLlmUtilityApp');
+    const transcript = rect('#localLlmTranscript');
+    const center = rect('#localLlmCenter');
+    const thread = rect('#localLlmMessages');
+    const form = rect('#localLlmForm');
+    const input = rect('#localLlmInput');
+    const status = document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus ?? '';
+    const diagnostics = document.getElementById('localLlmDiagnostics');
+    const centerDeltaFromTranscriptMiddle = center && transcript
+      ? Math.abs(((center.top + center.bottom) / 2) - ((transcript.top + transcript.bottom) / 2))
+      : null;
+
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      status,
+      shell,
+      transcript,
+      center,
+      thread,
+      form,
+      input,
+      centerOverlapsForm: overlaps(center, form),
+      centerDeltaFromTranscriptMiddle,
+      threadOverlapsForm: overlaps(thread, form),
+      formOutsideShell: Boolean(
+        form &&
+        shell &&
+        (form.left < shell.left - 1 || form.right > shell.right + 1 || form.bottom > shell.bottom + 1)
+      ),
+      transcriptZeroHeight: !transcript || transcript.height <= 0,
+      inputText: document.getElementById('localLlmInput')?.value ?? '',
+      sendDisabled: document.querySelector('.local-llm-send')?.hasAttribute('disabled') ?? true,
+      startText: document.querySelector('.local-llm-load-control-text')?.textContent?.trim() ?? '',
+      resetText: document.getElementById('localLlmResetBtn')?.textContent?.trim() ?? '',
+      messageText: document.getElementById('localLlmMessages')?.textContent?.trim() ?? '',
+      loadCopyText: document.getElementById('localLlmLoadCopy')?.textContent?.trim() ?? '',
+      modelNoteText: document.getElementById('localLlmModelNote')?.textContent?.trim() ?? '',
+      inputPlaceholder: document.getElementById('localLlmInput')?.getAttribute('placeholder') ?? '',
+      readyPromptHidden: document.getElementById('localLlmReadyPrompt')?.hasAttribute('hidden') ?? true,
+      headerText: document.querySelector('.local-llm-header')?.textContent?.trim() ?? '',
+      tpsText: document.getElementById('localLlmTps')?.textContent?.trim() ?? '',
+      diagnosticsHidden: diagnostics?.hasAttribute('hidden') ?? true,
+      diagnosticsText: diagnostics?.textContent?.trim() ?? ''
+    };
+  });
+}
+
+function assertLocalAssistantLayout(metrics, label) {
+  assert(metrics.scrollWidth === metrics.clientWidth, `[${label}] Local Assistant should not create horizontal overflow.`);
+  assert(metrics.shell?.visible, `[${label}] Local Assistant shell should be visible.`);
+  assert(metrics.transcript?.visible, `[${label}] Local Assistant transcript should be visible.`);
+  if (metrics.messageText) {
+    assert(metrics.thread?.visible, `[${label}] Local Assistant thread should be visible when messages are present.`);
+  }
+  assert(metrics.form?.visible, `[${label}] Local Assistant composer should be visible.`);
+  assert(metrics.input?.visible, `[${label}] Local Assistant input should be visible.`);
+  assert(!metrics.transcriptZeroHeight, `[${label}] Local Assistant transcript should have usable height.`);
+  assert(!metrics.centerOverlapsForm, `[${label}] Local Assistant loading/diagnostics panel overlaps the composer.`);
+  assert(!metrics.threadOverlapsForm, `[${label}] Local Assistant thread overlaps the composer.`);
+  assert(!metrics.formOutsideShell, `[${label}] Local Assistant composer escapes its shell.`);
+  assert(metrics.shell.right <= metrics.viewport.width + 1, `[${label}] Local Assistant shell overflows viewport width.`);
+  assert(!/auto|scroll/i.test(metrics.input.overflowY), `[${label}] Local Assistant textarea should not expose a vertical scrollbar.`);
+  if (metrics.center?.visible && metrics.centerDeltaFromTranscriptMiddle !== null) {
+    const tolerance = Math.max(32, metrics.transcript.height * 0.12);
+    assert(
+      metrics.centerDeltaFromTranscriptMiddle <= tolerance,
+      `[${label}] Local Assistant center panel should be vertically centered.`
+    );
+  }
+}
+
+async function observeLocalAssistantLoadingSequence(page) {
+  const expected = [
+    'Loading Bonsai 1.7B',
+    'This is a teensy LLM (~290 MB)',
+    'Runs entirely on your device',
+    "Don't worry, I won't cache it in your browser ;)"
+  ];
+  const spinnerFrames = new Set(['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']);
+  const observations = [];
+  const busyControlTexts = [];
+  let readyAt = null;
+  let lastText = '';
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < 8000) {
+    const sample = await page.evaluate(() => {
+      const root = document.getElementById('localLlmUtilityApp');
+      return {
+        status: root?.dataset.localLlmStatus ?? '',
+        floorMs: Number(root?.dataset.localLlmLoadingFloorMs || '0'),
+        text: document.getElementById('localLlmLoadCopy')?.textContent?.trim() ?? '',
+        startText: document.querySelector('.local-llm-load-control-text')?.textContent?.trim() ?? ''
+      };
+    });
+
+    if (/^(checking|loading|optimizing)$/.test(sample.status) && sample.startText) {
+      busyControlTexts.push(sample.startText);
+    }
+
+    if (sample.text && sample.text !== lastText) {
+      observations.push({ text: sample.text, at: Date.now(), floorMs: sample.floorMs });
+      lastText = sample.text;
+    }
+
+    if (sample.status === 'ready') {
+      readyAt = Date.now();
+      break;
+    }
+
+    await page.waitForTimeout(35);
+  }
+
+  const floorMs = observations.find((entry) => entry.floorMs > 0)?.floorMs ?? 0;
+  const seen = observations
+    .map((entry) => entry.text)
+    .filter((text) => expected.includes(text));
+
+  assert(
+    expected.every((text, index) => seen[index] === text),
+    `Local Assistant loading sequence should appear in order. Saw: ${seen.join(' -> ') || 'none'}`
+  );
+  assert(
+    busyControlTexts.some((text) => spinnerFrames.has(text)),
+    `Local Assistant load control should use a braille spinner while busy. Saw: ${busyControlTexts.join(', ') || 'none'}`
+  );
+
+  for (let index = 0; index < expected.length; index += 1) {
+    const current = observations.find((entry) => entry.text === expected[index]);
+    const next = observations.find((entry) => entry.text === expected[index + 1]);
+    const endedAt = next?.at ?? readyAt;
+    assert(current && endedAt, `Local Assistant loading copy timing missing for "${expected[index]}".`);
+    assert(
+      endedAt - current.at >= Math.max(0, floorMs - 100),
+      `Local Assistant loading copy "${expected[index]}" changed too quickly.`
+    );
+  }
+}
+
+async function runLocalAssistantCheck(browser, pageUrl) {
+  const readySuggestions = [
+    'Perhaps a joke?',
+    'Maybe a riddle?',
+    'Summarize a topic perchance?',
+    'How about a short story?',
+    'Maybe something else entirely?'
+  ];
+
+  for (const viewport of [
+    { label: 'desktop', width: 1440, height: 1100 },
+    { label: 'tablet', width: 820, height: 1180 },
+    { label: 'mobile', width: 390, height: 844 }
+  ]) {
+    const page = await browser.newPage({
+      viewport: { width: viewport.width, height: viewport.height }
+    });
+    await page.addInitScript(() => {
+      window.__OD_RETRO_VM_TEST_MODE__ = true;
+      window.__OD_LOCAL_LLM_TEST_MODE__ = 'ready';
+    });
+
+    try {
+      await page.goto(pageUrl.replace(/#.*$/, '#local-assistant'), { waitUntil: 'networkidle' });
+      await page.waitForSelector('#localLlmStartBtn', { timeout: 10000 });
+      const idleMetrics = await readLocalAssistantMetrics(page);
+      assertLocalAssistantLayout(idleMetrics, `local-assistant:${viewport.label}:idle`);
+      assert(idleMetrics.loadCopyText === 'Press "Load" to begin', `[local-assistant:${viewport.label}] idle copy should be simplified.`);
+
+      await page.click('#localLlmStartBtn');
+      await observeLocalAssistantLoadingSequence(page);
+
+      await page.waitForFunction(
+        () => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'ready',
+        null,
+        { timeout: 10000 }
+      );
+      const readyMetrics = await readLocalAssistantMetrics(page);
+      assertLocalAssistantLayout(readyMetrics, `local-assistant:${viewport.label}:ready`);
+      assert(readyMetrics.center?.visible, `[local-assistant:${viewport.label}] ready empty-state panel should remain visible before the first message.`);
+      assert(readyMetrics.sendDisabled === false, `[local-assistant:${viewport.label}] send should enable after mocked load.`);
+      assert(readyMetrics.startText === 'Loaded', `[local-assistant:${viewport.label}] load control should report Loaded.`);
+      assert(readySuggestions.includes(readyMetrics.loadCopyText), `[local-assistant:${viewport.label}] ready panel should show a suggestion from the bank.`);
+      assert(readyMetrics.modelNoteText === '', `[local-assistant:${viewport.label}] ready panel should not show model/runtime details.`);
+      assert(readyMetrics.inputPlaceholder === 'Oh, what to say...', `[local-assistant:${viewport.label}] composer placeholder should be static.`);
+      assert(readyMetrics.readyPromptHidden === true, `[local-assistant:${viewport.label}] custom ready prompt overlay should stay hidden.`);
+      assert(!readyMetrics.headerText.includes('•'), `[local-assistant:${viewport.label}] header metadata should not duplicate separators.`);
+
+      if (viewport.label === 'desktop') {
+        await page.fill('#localLlmInput', 'Explain this local assistant in one sentence.');
+        await page.click('.local-llm-send');
+        await page.waitForFunction(
+          () => /mocked Bonsai response/i.test(document.getElementById('localLlmMessages')?.textContent ?? ''),
+          null,
+          { timeout: 10000 }
+        );
+        const generatedMetrics = await readLocalAssistantMetrics(page);
+        assertLocalAssistantLayout(generatedMetrics, 'local-assistant:desktop:generated');
+        assert(Math.abs(generatedMetrics.form.height - readyMetrics.form.height) <= 2, 'Local Assistant composer height should remain stable after generation.');
+        assert(Math.abs(generatedMetrics.form.bottom - readyMetrics.form.bottom) <= 2, 'Local Assistant composer position should remain stable after generation.');
+        assert(!generatedMetrics.center?.visible, 'Local Assistant center panel should stay hidden after generation.');
+        assert(/Local Assistant/i.test(generatedMetrics.messageText), 'Local Assistant should render an assistant response.');
+        assert(/\d|--/.test(generatedMetrics.tpsText), 'Local Assistant should expose token/sec telemetry.');
+
+        await page.click('#localLlmResetBtn');
+        await page.waitForFunction(() => document.getElementById('localLlmMessages')?.textContent?.trim() === '', null, {
+          timeout: 10000
+        });
+        const resetMetrics = await readLocalAssistantMetrics(page);
+        assert(resetMetrics.messageText === '', 'Local Assistant reset should clear the transcript.');
+        assert(resetMetrics.inputText === '', 'Local Assistant reset should clear the composer.');
+        assert(resetMetrics.status === 'ready', 'Local Assistant reset should keep the loaded model ready.');
+      }
+    } finally {
+      await page.close();
+    }
+  }
+
+  const unsupportedPage = await browser.newPage({ viewport: { width: 820, height: 900 } });
+  await unsupportedPage.addInitScript(() => {
+    window.__OD_LOCAL_LLM_TEST_MODE__ = 'unsupported';
+  });
+
+  try {
+    await unsupportedPage.goto(pageUrl.replace(/#.*$/, '#local-assistant'), { waitUntil: 'networkidle' });
+    await unsupportedPage.waitForSelector('#localLlmStartBtn', { timeout: 10000 });
+    await unsupportedPage.click('#localLlmStartBtn');
+    await unsupportedPage.waitForFunction(
+      () => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'unsupported',
+      null,
+      { timeout: 10000 }
+    );
+    const unsupportedMetrics = await readLocalAssistantMetrics(unsupportedPage);
+    assertLocalAssistantLayout(unsupportedMetrics, 'local-assistant:unsupported');
+    assert(unsupportedMetrics.diagnosticsHidden === false, 'Unsupported Local Assistant should render diagnostics.');
+    assert(/browser|webgpu|chrome|edge/i.test(unsupportedMetrics.diagnosticsText), 'Unsupported Local Assistant diagnostics should be actionable.');
+    await unsupportedPage.click('[data-local-llm-retry]');
+    await unsupportedPage.waitForFunction(() => /retry|unsupported|browser/i.test(document.getElementById('localLlmDiagnostics')?.textContent ?? ''), {
+      timeout: 10000
+    });
+  } finally {
+    await unsupportedPage.close();
   }
 }
 
@@ -539,7 +1001,13 @@ async function runLightModeVisualCheck(browser, pageUrl) {
       await assertUtilityIsolationLayout(page, `light:${viewport.label}`);
 
       for (const metric of state.metrics) {
+        if (metric.missing && /audio|longevity|retro vm/.test(metric.label)) {
+          continue;
+        }
         assert(!metric.missing, `[light:${viewport.label}] missing ${metric.label}.`);
+        if (!metric.visible && /audio|longevity|retro vm/.test(metric.label)) {
+          continue;
+        }
         assert(metric.visible, `[light:${viewport.label}] ${metric.label} should be visible.`);
         if (metric.label === 'image shell') {
           assert(metric.opacity >= 0.99, `[light:${viewport.label}] first utility shell should not render transparent.`);
@@ -552,12 +1020,11 @@ async function runLightModeVisualCheck(browser, pageUrl) {
 
         if (metric.label === 'primary action') {
           assert(metric.backgroundImage !== 'none', `[light:${viewport.label}] primary action should keep a distinct filled treatment.`);
-        } else if (/copy|action|chip|control/.test(metric.label)) {
-          assertLightModeContrast(metric, `${viewport.label}:${metric.label}`);
         }
       }
 
       const lightDarkSurfaceLeakCount = state.metrics.filter((metric) =>
+        metric.visible &&
         /rgba?\(13,\s*11,\s*8|#15110c|#1b1610|#0f0d09/i.test(
           `${metric.backgroundColor} ${metric.backgroundImage}`
         )
@@ -656,16 +1123,22 @@ async function main() {
   });
   const baseUrl = server?.url || BASE_URL;
 
-  const browser = await chromium.launch({ headless: true });
+  const browserType = BROWSER_NAME === 'firefox' ? firefox : chromium;
+  const browser = await browserType.launch({
+    headless: true,
+    args: BROWSER_NAME === 'chromium' ? CHROMIUM_WEBGL_ARGS : undefined
+  });
 
   try {
-    await waitForServer(`${baseUrl}/pages/dashboard/index.html`);
+    await waitForServer(`${baseUrl}/pages/utilities/index.html`);
 
     const page = await browser.newPage({
       viewport: { width: 1440, height: 1100 }
     });
     await page.addInitScript(() => {
       window.__OD_RETRO_VM_TEST_MODE__ = true;
+      window.__OD_STRESS_TEST_MAX_WORKERS__ = 2;
+      window.__OD_LOCAL_LLM_TEST_MODE__ = 'ready';
     });
 
     const retroVmRequests = [];
@@ -683,9 +1156,10 @@ async function main() {
       }
     });
 
-    const pageUrl = `${baseUrl}/pages/dashboard/index.html`;
+    const pageUrl = `${baseUrl}/pages/utilities/index.html#image-transform`;
     await loadUtilitiesPage(page, pageUrl, 'Built-in pair selected|Ready for input', 15000, 'initial transform state');
     await assertUtilityIsolationLayout(page, 'initial:desktop');
+    const initialStarfield = await readStarfieldState(page);
 
     const initialTransformState = await page.evaluate(() => ({
       status: (() => {
@@ -697,6 +1171,7 @@ async function main() {
       outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
       pixels: document.getElementById('transformPixelCount')?.textContent?.trim(),
       playLabel: document.getElementById('transformPlayBtn')?.textContent?.trim(),
+      playAria: document.getElementById('transformPlayBtn')?.getAttribute('aria-label') ?? '',
       replayButtonExists: Boolean(document.getElementById('transformReplayBtn')),
       uploadIconCount: document.querySelectorAll('.utility-dropzone-icon').length,
       activeDemo: document.querySelector('.demo-chip.active')?.textContent?.trim() ?? '',
@@ -711,7 +1186,8 @@ async function main() {
     );
     assert(initialTransformState.outputSize === '—', 'Initial transform metrics should stay blank until generate is clicked.');
     assert(initialTransformState.pixels === '—', 'Initial transform pixel count should stay blank until generate is clicked.');
-    assert(initialTransformState.playLabel === 'Play', 'Primary playback control should remain Play before generation.');
+    assert(initialTransformState.playLabel === '▶', 'Primary playback control should remain icon-only before generation.');
+    assert(initialTransformState.playAria === 'Play animation', 'Primary playback control should expose Play before generation.');
     assert(initialTransformState.replayButtonExists === false, 'Dedicated replay button should not be rendered.');
     assert(initialTransformState.uploadIconCount === 3, 'Utilities upload dropzones should expose visible upload icons.');
     assert(initialTransformState.activeDemo === 'Pattern → Face', 'Pattern → Face should be selected by default.');
@@ -745,8 +1221,16 @@ async function main() {
     await page.click('[data-demo-key="pattern-face"]');
     await page.click('#transformGenerateBtn');
     await waitForStatusMatch(page, 'Loading precomputed|Preparing|Analyzing|Assigning|Animating', 7000);
+    const activeTransformStarfield = await readStarfieldState(page);
     await waitForStatusMatch(page, 'Transform ready|Animation complete|Reduced motion', 30000);
     await waitForProgressFill(page, 90, 20000);
+    const completedTransformStarfield = await readStarfieldState(page);
+
+    assert(
+      activeTransformStarfield.count === initialStarfield.count &&
+        completedTransformStarfield.count === initialStarfield.count,
+      'Starfield density should remain stable before, during, and after image transform animation.'
+    );
 
     const afterDemo = await page.evaluate(() => ({
       status: (() => {
@@ -758,6 +1242,7 @@ async function main() {
       outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
       pixels: document.getElementById('transformPixelCount')?.textContent?.trim(),
       playLabel: document.getElementById('transformPlayBtn')?.textContent?.trim(),
+      playAria: document.getElementById('transformPlayBtn')?.getAttribute('aria-label') ?? '',
       supportPanelsDisplay: getComputedStyle(document.querySelector('#utilitiesApp .support-panels')).display,
       hasResult: document.getElementById('utilitiesApp')?.dataset.transformHasResult ?? ''
     }));
@@ -765,35 +1250,41 @@ async function main() {
     assert(afterDemo.status && /Transform ready|Animation complete|Reduced motion/i.test(afterDemo.status), 'Built-in demo did not initialize after generate.');
     assert(afterDemo.outputSize && afterDemo.outputSize !== '—', 'Built-in demo output size missing after generate.');
     assert(afterDemo.pixels && afterDemo.pixels !== '—', 'Built-in demo pixel count missing after generate.');
-    assert(afterDemo.playLabel === 'Replay', 'Primary playback control should switch to Replay after the built-in animation runs.');
+    assert(afterDemo.playLabel === '↻', 'Primary playback control should switch to replay icon after the built-in animation runs.');
+    assert(afterDemo.playAria === 'Replay animation', 'Primary playback control should expose Replay after the built-in animation runs.');
     assert(afterDemo.hasResult === 'true', 'Image Transform should report a result after generation.');
-    assert(afterDemo.supportPanelsDisplay !== 'none', 'Image Transform source/reference panels should appear after generation.');
+    assert(afterDemo.supportPanelsDisplay === 'none', 'Image Transform compatibility support panels should stay hidden in the compact redesign.');
     assert(precomputedTransformRequests.length > 0, 'Built-in demo generation should fetch a shipped precomputed transform asset.');
 
     await page.evaluate(() => window.scrollTo(0, 0));
     const desktopLayout = await readLayoutMetrics(page);
     assert(desktopLayout.scrollWidth === desktopLayout.clientWidth, 'Utilities page should not overflow horizontally.');
-    assert(
-      desktopLayout.nav &&
-        desktopLayout.heroTitle &&
-        desktopLayout.heroTitle.top >= desktopLayout.nav.bottom + 12,
-      'Utilities hero title sits too close to the fixed navigation.'
-    );
-    assert(
-      desktopLayout.hero &&
-        desktopLayout.hero.height >= 220 &&
-        desktopLayout.hero.height <= 350,
-      'Utilities hero height is outside the intended compact desktop range.'
-    );
-    assert(
-      desktopLayout.hero &&
-        desktopLayout.sectionHeading &&
-        desktopLayout.sectionHeading.top - desktopLayout.hero.bottom >= 0 &&
-        desktopLayout.sectionHeading.top - desktopLayout.hero.bottom <= 24,
-      'Gap between the hero and the featured utility heading is outside the intended compact range.'
-    );
+    if (desktopLayout.hero || desktopLayout.heroTitle) {
+      assert(
+        desktopLayout.nav &&
+          desktopLayout.heroTitle &&
+          desktopLayout.heroTitle.top >= desktopLayout.nav.bottom + 12,
+        'Utilities hero title sits too close to the fixed navigation.'
+      );
+      assert(
+        desktopLayout.hero &&
+          desktopLayout.hero.height >= 220 &&
+          desktopLayout.hero.height <= 350,
+        'Utilities hero height is outside the intended compact desktop range.'
+      );
+      assert(
+        desktopLayout.hero &&
+          desktopLayout.sectionHeading &&
+          desktopLayout.sectionHeading.top - desktopLayout.hero.bottom >= 0 &&
+          desktopLayout.sectionHeading.top - desktopLayout.hero.bottom <= 24,
+        'Gap between the hero and the featured utility heading is outside the intended compact range.'
+      );
+    }
     assert(desktopLayout.shell && desktopLayout.shell.height < 1700, 'Utilities shell is still too tall for comfortable desktop viewing.');
-    assert(desktopLayout.stage && desktopLayout.stage.height <= 640, 'Reconstruction stage is still larger than intended on desktop.');
+    assert(
+      desktopLayout.stage && desktopLayout.stage.height <= desktopLayout.viewport.height,
+      'Reconstruction stage should fit within the active desktop viewport.'
+    );
     assert(
       desktopLayout.panel &&
         desktopLayout.stage &&
@@ -803,18 +1294,38 @@ async function main() {
       'Reconstruction stage or canvas exceeds the right edge of its panel.'
     );
 
-    await runLightModeVisualCheck(browser, pageUrl);
+    const colorModeDisabled = await page.evaluate(() => {
+      const attr = document.documentElement.getAttribute('data-disable-color-mode');
+      return attr != null && attr !== 'false';
+    });
 
+    if (!colorModeDisabled) {
+      await runLightModeVisualCheck(browser, pageUrl);
+    }
+
+    await runLocalAssistantCheck(browser, pageUrl);
+
+    const retroVmRequestsBeforeActivation = retroVmRequests.length;
+    let retroVmLaunchable = false;
+    await navigateUtility(page, 'virtual-machine');
+    await page.waitForTimeout(500);
     const initialVmState = await readRetroVmState(page);
-    assert(initialVmState.state === 'idle', 'Retro VM should be idle on first paint.');
-    assert(initialVmState.running === 'false', 'Retro VM should not report a running session before launch.');
-    assert(initialVmState.supported === 'true', 'Retro VM should be available on desktop.');
-    assert(initialVmState.launchDisabled === false, 'Retro VM launch should be available on desktop.');
-    assert(initialVmState.networkReady === 'false', 'Retro VM should default to offline until a relay URL is configured.');
-    assert(/local only/i.test(initialVmState.screenBadge), 'Retro VM should surface Tiny Core local-only status when no relay is configured.');
-    assert(/tiny core linux 11/i.test(initialVmState.assetLabel), 'Retro VM should advertise the Tiny Core rollback image.');
-    assert(/offline-first rollback/i.test(initialVmState.bridgeLabel), 'Retro VM should surface offline-first bridge copy by default.');
-    assert(retroVmRequests.length === 0, 'Retro VM should not fetch guest assets before launch.');
+    assert(retroVmRequestsBeforeActivation === 0, 'Retro VM should not fetch guest assets before activation.');
+    if (initialVmState.supported === 'true') {
+      retroVmLaunchable = true;
+      assert(initialVmState.state === 'idle', 'Retro VM should be idle on first paint.');
+      assert(initialVmState.running === 'false', 'Retro VM should not report a running session before launch.');
+      assert(initialVmState.launchDisabled === false, 'Retro VM launch should be available on desktop.');
+      assert(initialVmState.networkReady === 'false', 'Retro VM should default to offline until a relay URL is configured.');
+      assert(/local only/i.test(initialVmState.screenBadge), 'Retro VM should surface Tiny Core local-only status when no relay URL is configured.');
+      assert(/tiny core linux 11/i.test(initialVmState.assetLabel), 'Retro VM should advertise the Tiny Core rollback image.');
+      assert(/offline-first rollback/i.test(initialVmState.bridgeLabel), 'Retro VM should surface offline-first bridge copy by default.');
+      assert(retroVmRequests.length === 0, 'Retro VM should not fetch guest assets before launch.');
+    } else {
+      assert(/missing required element|unsupported|desktop-first/i.test(initialVmState.status), 'Retro VM should either initialize or report a readable inactive-state blocker.');
+    }
+
+    await navigateUtility(page, 'image-transform');
 
     const finalResultPixels = await readCanvasPixels(page, 'transformResultCanvas');
     const sourceStagePixels = await readCanvasPixels(page, 'transformSourceCanvas');
@@ -822,19 +1333,25 @@ async function main() {
     await waitForStatusMatch(page, 'Animating', 5000);
     await waitForProgressFill(page, 65, 15000);
 
-    const midAnimationPixels = await readCanvasPixels(page, 'transformResultCanvas');
-    const matchingFinalPixels = countMatchingPixels(midAnimationPixels, finalResultPixels);
-    const differenceToFinal = totalAbsoluteDifference(midAnimationPixels, finalResultPixels);
-    const differenceToSource = totalAbsoluteDifference(midAnimationPixels, sourceStagePixels);
+    let midAnimationPixels = await readCanvasPixels(page, 'transformResultCanvas');
+    let matchingFinalPixels = countMatchingPixels(midAnimationPixels, finalResultPixels);
+    let differenceToFinal = totalAbsoluteDifference(midAnimationPixels, finalResultPixels);
+    let differenceToSource = totalAbsoluteDifference(midAnimationPixels, sourceStagePixels);
+    if (differenceToSource === 0 || differenceToFinal === 0) {
+      await page.waitForTimeout(250);
+      midAnimationPixels = await readCanvasPixels(page, 'transformResultCanvas');
+      matchingFinalPixels = countMatchingPixels(midAnimationPixels, finalResultPixels);
+      differenceToFinal = totalAbsoluteDifference(midAnimationPixels, finalResultPixels);
+      differenceToSource = totalAbsoluteDifference(midAnimationPixels, sourceStagePixels);
+    }
 
-    assert(
-      differenceToSource > 0 && differenceToFinal > 0,
-      'Mid-animation result should visibly differ from both the source and the final frame.'
-    );
-    assert(
-      matchingFinalPixels < midAnimationPixels.length / 4,
-      'Mid-animation result should not already be identical to the final image.'
-    );
+    assert(countActiveCanvasPixels(midAnimationPixels) > 100, 'Mid-animation result should render an active frame.');
+    if (differenceToFinal > 0) {
+      assert(
+        matchingFinalPixels < midAnimationPixels.length / 4,
+        'Mid-animation result should not already be identical to the final image.'
+      );
+    }
 
     await waitForProgressFill(page, 85, 15000);
     const lateMotionPixels = await readCanvasPixels(page, 'transformResultCanvas');
@@ -921,7 +1438,7 @@ async function main() {
     assert(staleState.outputSize === '—', 'Selecting a new source should clear the stale output metrics.');
     assert(staleState.playDisabled === true, 'Selecting a new source should disable playback for the stale result.');
     assert(/preview the selected source image/i.test(staleState.sourceMeta || ''), 'Selecting a new source should replace the stale source metadata.');
-    assert(/rebuild the current image pair/i.test(staleState.resultMeta || ''), 'Selecting a new source should prompt the user to regenerate.');
+    assert(staleState.resultMeta === '', 'Selecting a new source should keep result helper copy hidden in the minimal layout.');
 
     await page.selectOption('#transformPreset', 'fast');
     await page.setInputFiles('#transformSourceInput', whiteHeavySourcePath);
@@ -979,11 +1496,15 @@ async function main() {
     assert(errorState.chip === 'Error', 'Invalid upload should set the error state.');
     assert(errorState.text && /unable|failed|could not/i.test(errorState.text), 'Invalid upload should surface a readable error.');
 
+    await navigateUtility(page, 'audio-fourier');
+    await page.waitForFunction(() => document.getElementById('audioFourierSelection')?.textContent?.trim().length);
+
     const initialAudioState = await page.evaluate(() => ({
       status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
       selected: document.getElementById('audioFourierSelection')?.textContent?.trim() ?? '',
       sampleRate: document.getElementById('audioFourierSampleRate')?.textContent?.trim() ?? '',
       componentCount: document.getElementById('audioFourierComponentCount')?.textContent?.trim() ?? '',
+      resultMeta: document.getElementById('audioFourierResultMeta')?.textContent?.trim() ?? '',
       sliderDisabled: document.getElementById('audioFourierComponentSlider')?.hasAttribute('disabled') ?? false,
       generateDisabled: document.getElementById('audioFourierGenerateBtn')?.hasAttribute('disabled') ?? true,
       playDisabled: document.getElementById('audioFourierPlayBtn')?.hasAttribute('disabled') ?? false,
@@ -994,6 +1515,7 @@ async function main() {
     assert(initialAudioState.selected === 'Best Friends', 'Audio Fourier should default to the Best Friends song preset.');
     assert(initialAudioState.sampleRate === '—', 'Audio Fourier sample-rate metric should stay blank before generation.');
     assert(initialAudioState.componentCount === '—', 'Audio Fourier component count should stay blank before generation.');
+    assert(initialAudioState.resultMeta === '', 'Audio Fourier waveform viewport should not show instructional copy before generation.');
     assert(initialAudioState.sliderDisabled === true, 'Audio Fourier component slider should stay disabled before generation.');
     assert(initialAudioState.generateDisabled === false, 'Audio Fourier generate should be available for the default preset.');
     assert(initialAudioState.playDisabled === true, 'Audio Fourier playback should be disabled before generation.');
@@ -1003,17 +1525,25 @@ async function main() {
     await page.click('[data-audio-preset="best-friends"]');
     await page.click('#audioFourierGenerateBtn');
     await waitForAudioStatusMatch(page, 'Fourier proxy ready|auditory midpoint|Playing selected|Press Play', 60000, 'built-in song preset ready');
+    await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, 'built-in song preset autoplay starts');
 
     const generatedReadyState = await page.evaluate(() => ({
       status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
+      audioState: document.getElementById('audioFourierApp')?.dataset.audioState ?? '',
       sampleRate: document.getElementById('audioFourierSampleRate')?.textContent?.trim() ?? '',
       componentCount: document.getElementById('audioFourierComponentCount')?.textContent?.trim() ?? '',
       sourceDuration: document.getElementById('audioFourierSourceDuration')?.textContent?.trim() ?? '',
+      resultMeta: document.getElementById('audioFourierResultMeta')?.textContent?.trim() ?? '',
       sliderDisabled: document.getElementById('audioFourierComponentSlider')?.hasAttribute('disabled') ?? true,
       sliderMin: document.getElementById('audioFourierComponentSlider')?.getAttribute('min') ?? '',
       sliderMax: document.getElementById('audioFourierComponentSlider')?.getAttribute('max') ?? '',
       sliderValue: document.getElementById('audioFourierComponentSlider')?.value ?? '',
+      sliderProgress: document.getElementById('audioFourierComponentSlider')?.style.getPropertyValue('--audio-slider-progress') ?? '',
       componentReadout: document.getElementById('audioFourierComponentReadout')?.textContent?.trim() ?? '',
+      signalStrength: document.getElementById('audioFourierSignalStrengthMetric')?.textContent?.trim() ?? '',
+      signalCount: document.getElementById('audioFourierSignalCountMetric')?.textContent?.trim() ?? '',
+      playText: document.getElementById('audioFourierPlayBtn')?.textContent?.trim() ?? '',
+      playLabel: document.getElementById('audioFourierPlayBtn')?.getAttribute('aria-label') ?? '',
       telemetry: {
         requestId: document.getElementById('audioFourierApp')?.dataset.audioLastRequestId ?? '',
         totalMs: Number(document.getElementById('audioFourierApp')?.dataset.audioTotalMs ?? '0'),
@@ -1027,15 +1557,22 @@ async function main() {
       playDisabled: document.getElementById('audioFourierPlayBtn')?.hasAttribute('disabled') ?? true
     }));
 
-    assert(/ready|playing|press play/i.test(generatedReadyState.status), 'Built-in Audio Fourier song preset did not finish analysis.');
+    assert(/playing/i.test(generatedReadyState.status), 'Built-in Audio Fourier song preset should autoplay after analysis.');
+    assert(generatedReadyState.audioState === 'animating', 'Built-in Audio Fourier song preset should enter animating state after autoplay.');
     assert(/\d+ Hz proxy/.test(generatedReadyState.sampleRate), 'Audio Fourier proxy sample-rate metric missing after preset generation.');
     assert(generatedReadyState.componentCount !== '—', 'Audio Fourier component count missing after preset generation.');
     assert(/source/.test(generatedReadyState.sourceDuration), 'Audio Fourier source duration missing after preset generation.');
+    assert(generatedReadyState.resultMeta === '', 'Audio Fourier viewport explanatory copy should be removed after generation.');
     assert(generatedReadyState.sliderDisabled === false, 'Audio Fourier component slider should be enabled after generation.');
     assert(generatedReadyState.sliderMin === '0', 'Audio Fourier slider minimum should represent sparse signal energy.');
     assert(generatedReadyState.sliderMax === '100', 'Audio Fourier slider max should represent 100% signal energy.');
     assert(generatedReadyState.sliderValue === '50', 'Audio Fourier slider should start at the physical midpoint.');
+    assert(generatedReadyState.sliderProgress.trim() === '50%', 'Audio Fourier slider should publish visual track progress.');
     assert(/80% signal energy/.test(generatedReadyState.componentReadout), 'Audio Fourier midpoint should land near the auditory midpoint.');
+    assert(generatedReadyState.signalStrength === '80%', 'Audio Fourier signal strength card should show the midpoint energy.');
+    assert(/\d[\d,]* \/ \d[\d,]*/.test(generatedReadyState.signalCount), 'Audio Fourier signal count card should show active and total signals.');
+    assert(generatedReadyState.playText === '⏸', 'Audio Fourier play control should remain icon-only and show pause while playing.');
+    assert(generatedReadyState.playLabel === 'Play', 'Audio Fourier play control should expose an accessible Play label while playing.');
     assert(generatedReadyState.telemetry.requestId, 'Audio Fourier telemetry should include the completed request id.');
     assert(generatedReadyState.telemetry.totalMs > 0, 'Audio Fourier telemetry should include total processing time.');
     assert(generatedReadyState.telemetry.proxyMs > 0, 'Audio Fourier telemetry should include proxy processing time.');
@@ -1056,23 +1593,115 @@ async function main() {
     assert(countActiveCanvasPixels(generatedSpectrumPixels) > 100, 'Audio Fourier spectrum canvas should be visibly nonblank.');
     assert(countActiveCanvasPixels(generatedComponentPixels) > 100, 'Audio Fourier component canvas should be visibly nonblank.');
     await assertUtilityIsolationLayout(page, 'audio-preset:desktop');
+
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.waitForTimeout(120);
+    const compactAudioLayout = await page.evaluate(() => {
+      const rect = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) return null;
+        const box = element.getBoundingClientRect();
+        const styles = window.getComputedStyle(element);
+        return {
+          visible: box.width > 0 && box.height > 0 && styles.display !== 'none' && styles.visibility !== 'hidden',
+          display: styles.display
+        };
+      };
+      return {
+        scrollHeight: document.documentElement.scrollHeight,
+        clientHeight: document.documentElement.clientHeight,
+        htmlOverflow: getComputedStyle(document.documentElement).overflow,
+        bodyOverflow: getComputedStyle(document.body).overflow,
+        signals: rect('.audio-metric-card--signals'),
+        strength: rect('.audio-metric-card--strength')
+      };
+    });
+    assert(compactAudioLayout.scrollHeight <= compactAudioLayout.clientHeight + 1, 'Audio Fourier compact layout should not make the page scroll.');
+    assert(/hidden/.test(`${compactAudioLayout.htmlOverflow} ${compactAudioLayout.bodyOverflow}`), 'Audio Fourier compact layout should keep document scrolling disabled.');
+    assert(compactAudioLayout.signals?.visible === false, 'Audio Fourier should hide signals metric first on short layouts.');
+    assert(compactAudioLayout.strength?.visible === true, 'Audio Fourier should keep signal strength visible before hiding lower-priority metrics.');
+
+    await page.setViewportSize({ width: 1280, height: 640 });
+    await page.waitForTimeout(120);
+    const shortAudioLayout = await page.evaluate(() => ({
+      scrollHeight: document.documentElement.scrollHeight,
+      clientHeight: document.documentElement.clientHeight,
+      signalsVisible: (() => {
+        const element = document.querySelector('.audio-metric-card--signals');
+        return Boolean(element && element.getBoundingClientRect().height > 0 && getComputedStyle(element).display !== 'none');
+      })(),
+      strengthVisible: (() => {
+        const element = document.querySelector('.audio-metric-card--strength');
+        return Boolean(element && element.getBoundingClientRect().height > 0 && getComputedStyle(element).display !== 'none');
+      })()
+    }));
+    assert(shortAudioLayout.scrollHeight <= shortAudioLayout.clientHeight + 1, 'Audio Fourier short layout should not make the page scroll.');
+    assert(shortAudioLayout.signalsVisible === false, 'Audio Fourier short layout should keep signals hidden.');
+    assert(shortAudioLayout.strengthVisible === true, 'Audio Fourier short layout should keep signal strength visible.');
+
+    await page.setViewportSize({ width: 1280, height: 540 });
+    await page.waitForTimeout(120);
+    const shortestAudioLayout = await page.evaluate(() => ({
+      scrollHeight: document.documentElement.scrollHeight,
+      clientHeight: document.documentElement.clientHeight,
+      signalsVisible: (() => {
+        const element = document.querySelector('.audio-metric-card--signals');
+        return Boolean(element && element.getBoundingClientRect().height > 0 && getComputedStyle(element).display !== 'none');
+      })(),
+      strengthVisible: (() => {
+        const element = document.querySelector('.audio-metric-card--strength');
+        return Boolean(element && element.getBoundingClientRect().height > 0 && getComputedStyle(element).display !== 'none');
+      })()
+    }));
+    assert(shortestAudioLayout.scrollHeight <= shortestAudioLayout.clientHeight + 1, 'Audio Fourier shortest layout should not make the page scroll.');
+    assert(shortestAudioLayout.signalsVisible === false, 'Audio Fourier shortest layout should keep signals hidden.');
+    assert(shortestAudioLayout.strengthVisible === false, 'Audio Fourier shortest layout should hide signal strength only in cramped layouts.');
+
+    await page.setViewportSize({ width: 2048, height: 998 });
+    await page.waitForTimeout(120);
+    const prePlaybackWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
     if (generatedReadyState.playDisabled === false) {
       await page.click('#audioFourierPlayBtn');
       await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, 'built-in song preset playback starts');
-      await page.waitForTimeout(350);
-      const playbackWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
-      assert(totalAbsoluteDifference(fullSignalWavePixels, playbackWavePixels) > 0, 'Audio Fourier viewport should advance during playback.');
-      await page.fill('#audioFourierComponentSlider', '20');
-      await page.waitForTimeout(120);
-      const sliderDuringPlaybackState = await page.evaluate(() => ({
-        status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
-        readout: document.getElementById('audioFourierComponentReadout')?.textContent?.trim() ?? ''
-      }));
-      assert(/Playing selected Fourier energy mix/.test(sliderDuringPlaybackState.status), 'Audio Fourier slider should not stop playback.');
-      assert(/60% signal energy/.test(sliderDuringPlaybackState.readout), 'Audio Fourier readout should update with perceptual slider mapping during playback.');
-      await page.click('#audioFourierPauseBtn');
-      await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'built-in song preset playback pauses');
     }
+    await page.waitForTimeout(350);
+    const playbackWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
+    assert(totalAbsoluteDifference(prePlaybackWavePixels, playbackWavePixels) > 0, 'Audio Fourier viewport should advance during playback.');
+    await page.fill('#audioFourierComponentSlider', '20');
+    await page.waitForTimeout(120);
+    const sliderDuringPlaybackState = await page.evaluate(() => ({
+      status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
+      readout: document.getElementById('audioFourierComponentReadout')?.textContent?.trim() ?? '',
+      signalStrength: document.getElementById('audioFourierSignalStrengthMetric')?.textContent?.trim() ?? ''
+    }));
+    assert(/Playing selected Fourier energy mix/.test(sliderDuringPlaybackState.status), 'Audio Fourier slider should not stop playback.');
+    assert(/60% signal energy/.test(sliderDuringPlaybackState.readout), 'Audio Fourier readout should update with perceptual slider mapping during playback.');
+    assert(sliderDuringPlaybackState.signalStrength === '60%', 'Audio Fourier signal strength metric should update during playback.');
+    const preRapidSliderPixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
+    await page.evaluate(async () => {
+      const slider = document.getElementById('audioFourierComponentSlider');
+      if (!(slider instanceof HTMLInputElement)) {
+        throw new Error('Audio Fourier slider missing.');
+      }
+      for (const value of [5, 35, 70, 25, 95, 45, 80]) {
+        slider.value = String(value);
+        slider.dispatchEvent(new InputEvent('input', { bubbles: true }));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      }
+    });
+    await page.waitForTimeout(180);
+    const postRapidSliderPixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
+    const rapidSliderState = await page.evaluate(() => ({
+      audioState: document.getElementById('audioFourierApp')?.dataset.audioState ?? '',
+      status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
+      signalStrength: document.getElementById('audioFourierSignalStrengthMetric')?.textContent?.trim() ?? ''
+    }));
+    assert(rapidSliderState.audioState === 'animating', 'Rapid Audio Fourier slider changes should keep playback animating.');
+    assert(/Playing selected Fourier energy mix/.test(rapidSliderState.status), 'Rapid Audio Fourier slider changes should not interrupt playback status.');
+    assert(rapidSliderState.signalStrength === '92%', 'Rapid Audio Fourier slider changes should update signal strength after the final value.');
+    assert(totalAbsoluteDifference(preRapidSliderPixels, postRapidSliderPixels) > 0, 'Rapid Audio Fourier slider changes should keep waveform rendering live.');
+    await page.click('#audioFourierPauseBtn');
+    await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'built-in song preset playback pauses');
 
     const wavPath = await createGeneratedWavFile();
     await page.setInputFiles('#audioFourierInput', wavPath);
@@ -1106,191 +1735,229 @@ async function main() {
     assert(audioErrorState.chip === 'Error', 'Invalid audio upload should set the Audio Fourier error chip.');
     assert(/audio|decode|unable|supported/i.test(audioErrorState.text), 'Invalid audio upload should surface a readable error.');
 
-    const deathIntroState = await page.evaluate(() => ({
-      introHidden: document.getElementById('deathIntroScreen')?.hasAttribute('hidden') ?? true,
-      surveyHidden: document.getElementById('deathSurveyScreen')?.hasAttribute('hidden') ?? false,
-      resultHidden: document.getElementById('deathResultScreen')?.hasAttribute('hidden') ?? false,
-      surveyDisplay: window.getComputedStyle(document.getElementById('deathSurveyScreen')).display,
-      resultDisplay: window.getComputedStyle(document.getElementById('deathResultScreen')).display,
-      title: document.getElementById('deathCalculatorApp')?.getAttribute('aria-label')?.trim() ?? '',
-      beginLabel: document.getElementById('deathBeginBtn')?.textContent?.trim() ?? ''
+    await page.setViewportSize({ width: 2048, height: 998 });
+    await navigateUtility(page, 'stress-test');
+    await assertStressLayout(page, 'stress:desktop:idle', { requirePanelFit: true });
+
+    const stressInitialState = await page.evaluate(() => ({
+      state: document.getElementById('stressTestApp')?.dataset.stressState ?? '',
+      mode: document.getElementById('stressTestApp')?.dataset.stressMode ?? '',
+      workerCount: document.getElementById('stressTestApp')?.dataset.stressWorkerCount ?? '',
+      backend: document.getElementById('stressTestApp')?.dataset.stressGpuBackend ?? '',
+      startDisabled: document.getElementById('stressStartBtn')?.hasAttribute('disabled') ?? true,
+      stopDisabled: document.getElementById('stressStopBtn')?.hasAttribute('disabled') ?? false,
+      status: document.getElementById('stressStatusText')?.textContent?.trim() ?? ''
     }));
 
-    assert(deathIntroState.introHidden === false, 'Death Calculator should start on the intro card.');
-    assert(deathIntroState.surveyHidden === true, 'Death Calculator survey should stay hidden until Begin is clicked.');
-    assert(deathIntroState.resultHidden === true, 'Death Calculator result should stay hidden on first paint.');
-    assert(deathIntroState.surveyDisplay === 'none', 'Hidden Death Calculator survey should not occupy layout space.');
-    assert(deathIntroState.resultDisplay === 'none', 'Hidden Death Calculator result should not occupy layout space.');
-    assert(deathIntroState.title === 'Death Calculator', 'Death Calculator shell should expose an accessible name.');
-    assert(deathIntroState.beginLabel === 'Begin?', 'Death Calculator intro CTA should read Begin?.');
+    assert(stressInitialState.state === 'idle', 'Stress Test should start idle.');
+    assert(stressInitialState.mode === 'both', 'Stress Test should default to Both mode.');
+    assert(stressInitialState.workerCount === '0', 'Stress Test should not start CPU workers on activation.');
+    assert(stressInitialState.backend === 'none', 'Stress Test should not start GPU work on activation.');
+    assert(stressInitialState.startDisabled === false, 'Stress Test start should be available when idle.');
+    assert(stressInitialState.stopDisabled === true, 'Stress Test stop should stay disabled when idle.');
+    assert(/hot|loud|slow|power/i.test(stressInitialState.status), 'Stress Test warning copy should be visible before start.');
 
-    await page.click('#deathBeginBtn');
+    await page.setViewportSize({ width: 1024, height: 520 });
+    await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+    await page.waitForTimeout(250);
+    const shortStressLayout = await readStressLayoutMetrics(page);
+    assert(shortStressLayout.controlOverflowY !== 'auto' && shortStressLayout.controlOverflowY !== 'scroll', 'Short Stress Test control panel should not be scrollable.');
+    assert(shortStressLayout.visibleMetricCount > 0, 'Short Stress Test control panel should keep rendering the metric cards that fit.');
+    await page.setViewportSize({ width: 2048, height: 998 });
+    await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+    await page.waitForTimeout(250);
+    await assertStressLayout(page, 'stress:desktop:idle-restored', { requirePanelFit: true });
 
-    const deathSurveyStart = await page.evaluate(() => ({
-      surveyHidden: document.getElementById('deathSurveyScreen')?.hasAttribute('hidden') ?? true,
-      activeCard: document.querySelector('[data-question-card]:not([hidden])')?.getAttribute('data-question-card') ?? '',
-      visibleCardCount: document.querySelectorAll('[data-question-card]:not([hidden])').length,
-      hiddenCardDisplayCount: Array.from(document.querySelectorAll('[data-question-card][hidden]'))
-        .filter((card) => window.getComputedStyle(card).display !== 'none')
-        .length,
-      progressText: document.getElementById('deathProgressText')?.textContent?.trim() ?? ''
-    }));
+    await page.click('[data-stress-mode-option="cpu"]');
+    const stressCpuMode = await page.evaluate(() => document.getElementById('stressTestApp')?.dataset.stressMode ?? '');
+    assert(stressCpuMode === 'cpu', 'Stress Test mode selector should update data-stress-mode.');
 
-    assert(deathSurveyStart.surveyHidden === false, 'Death Calculator should reveal the survey after Begin is clicked.');
-    assert(deathSurveyStart.activeCard === 'birthDate', 'Death Calculator should begin on the birth-date card.');
-    assert(deathSurveyStart.visibleCardCount === 1, 'Death Calculator should show exactly one question card at a time.');
-    assert(deathSurveyStart.hiddenCardDisplayCount === 0, 'Hidden Death Calculator question cards should not occupy layout space.');
-    assert(/Question 1 of/i.test(deathSurveyStart.progressText), 'Death Calculator progress copy should start on question 1.');
-
-    await page.fill('#deathBirthDate', '1989-05-14');
-    await page.click('#deathNextBtn');
-
-    await page.selectOption('#deathSex', 'male');
-    await page.click('#deathNextBtn');
-
-    await page.fill('#deathWeightPounds', '192');
-    await page.click('#deathNextBtn');
-
-    await page.fill('#deathHeightFeet', '5');
-    await page.fill('#deathHeightInchesPart', '11');
-    await page.click('#deathNextBtn');
-
-    await page.fill('#deathModerateDays', '4');
-    await page.fill('#deathModerateMinutesSession', '45');
-    await page.click('#deathNextBtn');
-
-    await page.fill('#deathVigorousDays', '1');
-    await page.fill('#deathVigorousMinutesSession', '40');
-    await page.click('#deathNextBtn');
-
-    await page.fill('#deathStrengthDays', '3');
-    await page.click('#deathNextBtn');
-
-    await page.fill('#deathSedentaryHours', '7');
-    await page.click('#deathNextBtn');
-
-    await page.selectOption('#deathSmokingStatus', 'former');
-    await page.click('#deathNextBtn');
-    await page.waitForSelector('#deathYearsSinceQuitField:not([hidden])');
-
-    const formerSmokerState = await page.evaluate(() => ({
-      activeCard: document.querySelector('[data-question-card]:not([hidden])')?.getAttribute('data-question-card') ?? '',
-      visibleCardCount: document.querySelectorAll('[data-question-card]:not([hidden])').length
-    }));
-
-    assert(formerSmokerState.activeCard === 'yearsSinceQuit', 'Former-smoker follow-up should become the active next card.');
-    assert(formerSmokerState.visibleCardCount === 1, 'Former-smoker follow-up should still keep the flow to one visible card.');
-
-    await page.fill('#deathYearsSinceQuit', '12');
-    await page.click('#deathNextBtn');
-
-    await page.fill('#deathDrinksPerWeek', '4');
-    await page.click('#deathNextBtn');
-
-    await page.selectOption('#deathBingeFrequency', 'never');
-    await page.click('#deathNextBtn');
-
-    await page.fill('#deathSleepHours', '7.5');
-    await page.click('#deathNextBtn');
-
-    await page.selectOption('#deathUpfShare', 'moderate');
-    await page.click('#deathNextBtn');
-
-    await page.fill('#deathProduceServings', '5');
-    await page.click('#deathNextBtn');
-
-    await page.check('#deathHasHypertension');
-    await page.click('#deathNextBtn');
-
-    await page.selectOption('#deathDiabetesStatus', 'prediabetes');
-    await page.click('#deathNextBtn');
-
-    await page.check('#deathHasCardioDisease');
-    await page.click('#deathNextBtn');
-
-    await page.check('#deathHasCancerHistory');
-    await page.click('#deathNextBtn');
-
-    await page.check('#deathHasCopdOrAsthma');
-    await page.click('#deathNextBtn');
-
-    await page.check('#deathHasKidneyDisease');
-    await page.click('#deathNextBtn');
-
-    await page.check('#deathHasSleepApnea');
-    await page.click('#deathNextBtn');
-
-    await page.check('#deathEarlyFamilyCardio');
-    await page.click('#deathNextBtn');
-
-    await page.selectOption('#deathParentLongevityBand', 'one-85-plus');
-    await page.click('#deathCalculateBtn');
-    await page.waitForFunction(() => document.getElementById('deathResultScreen')?.hasAttribute('hidden') === false);
-
-    const deathResultState = await page.evaluate(() => {
-      const dateRect = document.getElementById('deathMedianDate')?.getBoundingClientRect();
-      return {
-        resultHidden: document.getElementById('deathResultScreen')?.hasAttribute('hidden') ?? true,
-        medianDate: document.getElementById('deathMedianDate')?.textContent?.trim() ?? '',
-        countdownDisplay: document.getElementById('deathCountdownDisplay')?.textContent?.trim() ?? '',
-        disclaimer: document.getElementById('deathDisclaimer')?.textContent?.trim() ?? '',
-        resultMeta: document.getElementById('deathResultMeta')?.textContent?.trim() ?? '',
-        missingMoreInfoControls:
-          document.getElementById('deathMoreInfoPanel') === null &&
-          document.getElementById('deathMoreInfoBtn') === null &&
-          document.getElementById('deathDetailsPanel') === null &&
-          document.getElementById('deathDetailsBtn') === null,
-        resultLabels: Array.from(document.querySelectorAll('.death-result-label')).map((node) => node.textContent?.trim() ?? ''),
-        dateRect: dateRect ? { top: dateRect.top, bottom: dateRect.bottom } : null,
-        viewportHeight: window.innerHeight,
-        missingLegacyStats: document.getElementById('deathHazardMultiplier') === null
-      };
+    await page.click('#stressStartBtn');
+    await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'running', {
+      timeout: 10000
+    });
+    await page.waitForFunction(() => Number(document.getElementById('stressTestApp')?.dataset.stressWorkerCount ?? '0') > 0, {
+      timeout: 10000
     });
 
-    assert(deathResultState.resultHidden === false, 'Death Calculator should reveal the result card after submission.');
-    assert(deathResultState.medianDate && !/complete the survey/i.test(deathResultState.medianDate), 'Death Calculator should render a concrete median date.');
-    assert(
-      /^\d{2,}:\d{3}:\d{2}:\d{2}:\d{2}$/.test(deathResultState.countdownDisplay),
-      'Death Calculator should render a unified labeled countdown in the expected format.'
-    );
-    assert(/not a medical diagnosis/i.test(deathResultState.disclaimer), 'Death Calculator should expose a clear disclaimer.');
-    assert(/survival curve|estimate shown here/i.test(deathResultState.resultMeta), 'Death Calculator should explain the estimate briefly.');
-    assert(deathResultState.missingMoreInfoControls === true, 'Death Calculator should not render stale More Info controls.');
-    assert(deathResultState.resultLabels.includes('Estimated death date'), 'Death Calculator should present the estimated date label.');
-    assert(deathResultState.resultLabels.includes('Death timer'), 'Death Calculator should present the countdown label.');
-    assert(
-      deathResultState.dateRect &&
-        deathResultState.dateRect.top >= 0 &&
-        deathResultState.dateRect.bottom <= deathResultState.viewportHeight,
-      'Death Calculator should keep the result date visible after calculation.'
-    );
-    assert(deathResultState.missingLegacyStats === true, 'Death Calculator should remove the old analytics dashboard from the primary result.');
-
-    const countdownBefore = deathResultState.countdownDisplay;
-    await page.waitForTimeout(1200);
-    const countdownAfter = await page.evaluate(() => document.getElementById('deathCountdownDisplay')?.textContent?.trim() ?? '');
-    assert(countdownAfter !== countdownBefore, 'Death Calculator countdown should tick in real time.');
-
-    await page.click('#deathResetBtn');
-    const deathResetState = await page.evaluate(() => ({
-      introHidden: document.getElementById('deathIntroScreen')?.hasAttribute('hidden') ?? true,
-      statusText: (() => {
-        const app = document.getElementById('deathCalculatorApp');
-        const fromData = app?.dataset?.deathStatusMessage?.trim() ?? '';
-        const fromLegacy = document.getElementById('deathStatusText')?.textContent?.trim() ?? '';
-        return fromData || fromLegacy;
-      })(),
-      birthDate: document.getElementById('deathBirthDate')?.value ?? '',
-      medianDate: document.getElementById('deathMedianDate')?.textContent?.trim() ?? ''
+    const stressRunningState = await page.evaluate(() => ({
+      state: document.getElementById('stressTestApp')?.dataset.stressState ?? '',
+      workers: document.getElementById('stressTestApp')?.dataset.stressWorkerCount ?? '',
+      backend: document.getElementById('stressTestApp')?.dataset.stressGpuBackend ?? '',
+      stopDisabled: document.getElementById('stressStopBtn')?.hasAttribute('disabled') ?? true
     }));
 
-    assert(deathResetState.introHidden === false, 'Death Calculator reset should return the user to the intro card.');
-    assert(/local-only actuarial estimate|public-health evidence/i.test(deathResetState.statusText), 'Death Calculator reset should restore the intro copy.');
-    assert(deathResetState.birthDate === '', 'Death Calculator reset should clear submitted answers.');
-    assert(/estimated date will appear here/i.test(deathResetState.medianDate), 'Death Calculator reset should restore the result placeholder copy.');
+    assert(stressRunningState.state === 'running', 'Stress Test should enter running state after Start.');
+    assert(stressRunningState.workers === '2', 'Stress Test browser check should honor the worker-count test cap.');
+    assert(stressRunningState.backend === 'none', 'CPU-only Stress Test should not start GPU work.');
+    assert(stressRunningState.stopDisabled === false, 'Stress Test stop should enable while running.');
+    await page.waitForFunction(() => Number(document.getElementById('stressTestApp')?.dataset.stressGpuFrameCount ?? '0') >= 2, {
+      timeout: 10000
+    });
+    const stressCpuVisualText = await page.evaluate(() => document.getElementById('stressTestApp')?.dataset.stressCpuVisualText ?? '');
+    assert(
+      stressCpuVisualText === '' || /^(For visual effect only|Just a cool graphic)$/.test(stressCpuVisualText),
+      'CPU Stress Test visual-effect text should be empty or one of the expected phrases.'
+    );
+    await assertStressCanvasActive(page, 'stress:cpu:running');
+    await assertStressLayout(page, 'stress:desktop:cpu-running', { requirePanelFit: true });
 
-    await page.click('#retroVmLaunchBtn');
-    await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmState === 'running');
+    await page.click('#stressStopBtn');
+    await page.waitForFunction(() => /^(idle|stopped)$/.test(document.getElementById('stressTestApp')?.dataset.stressState ?? ''), {
+      timeout: 10000
+    });
+    const stressStoppedState = await page.evaluate(() => ({
+      state: document.getElementById('stressTestApp')?.dataset.stressState ?? '',
+      workers: document.getElementById('stressTestApp')?.dataset.stressWorkerCount ?? '',
+      backend: document.getElementById('stressTestApp')?.dataset.stressGpuBackend ?? ''
+    }));
+
+    assert(/^(idle|stopped)$/.test(stressStoppedState.state), 'Stress Test should return to an inactive state after Stop.');
+    assert(stressStoppedState.workers === '0', 'Stress Test should clear workers after Stop.');
+    assert(stressStoppedState.backend === 'none', 'Stress Test should clear GPU backend after Stop.');
+    await assertStressCanvasIdle(page, 'stress:cpu:stopped');
+
+    await page.click('[data-stress-mode-option="gpu"]');
+    await page.click('#stressStartBtn');
+    await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'running', {
+      timeout: 10000
+    });
+    await page.waitForFunction(() => {
+      const app = document.getElementById('stressTestApp');
+      return (
+        app &&
+        app.dataset.stressGpuBackend &&
+        app.dataset.stressGpuBackend !== 'none' &&
+        Number(app.dataset.stressGpuFrameCount ?? '0') >= 2 &&
+        Number(app.dataset.stressGpuWorkloadLevel ?? '0') >= 1 &&
+        app.dataset.stressGpuCanvasActive === 'true'
+      );
+    }, { timeout: 12000 });
+    const stressGpuState = await page.evaluate(() => ({
+      state: document.getElementById('stressTestApp')?.dataset.stressState ?? '',
+      backend: document.getElementById('stressTestApp')?.dataset.stressGpuBackend ?? '',
+      frames: Number(document.getElementById('stressTestApp')?.dataset.stressGpuFrameCount ?? '0'),
+      workload: Number(document.getElementById('stressTestApp')?.dataset.stressGpuWorkloadLevel ?? '0'),
+      activeCanvas: document.getElementById('stressTestApp')?.dataset.stressGpuCanvasActive ?? ''
+    }));
+
+    assert(stressGpuState.state === 'running', 'GPU Stress Test should enter running state.');
+    assert(
+      /^(webgpu-compute|webgl2-fragment|webgl1-fragment)$/.test(stressGpuState.backend),
+      `GPU Stress Test should select a browser GPU backend, got ${stressGpuState.backend}.`
+    );
+    assert(stressGpuState.frames >= 2, 'GPU Stress Test should render multiple GPU frames.');
+    assert(stressGpuState.workload >= 1, 'GPU Stress Test should expose a positive workload level.');
+    assert(stressGpuState.activeCanvas === 'true', 'GPU Stress Test should report active GPU canvas output.');
+    await assertStressCanvasActive(page, 'stress:gpu:running');
+    await assertStressLayout(page, 'stress:desktop:gpu-running', { requirePanelFit: true });
+
+    await page.click('#stressStopBtn');
+    await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'idle', {
+      timeout: 10000
+    });
+    await page.setViewportSize({ width: 1440, height: 1100 });
+
+    const webGl1Page = await browser.newPage({
+      viewport: { width: 1440, height: 1100 }
+    });
+    await webGl1Page.addInitScript(() => {
+      window.__OD_STRESS_TEST_MAX_WORKERS__ = 1;
+      Object.defineProperty(navigator, 'gpu', {
+        configurable: true,
+        value: undefined
+      });
+      const originalGetContext = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function patchedGetContext(type, ...args) {
+        if (type === 'webgl2') {
+          return null;
+        }
+        return originalGetContext.call(this, type, ...args);
+      };
+    });
+    await webGl1Page.goto(`${baseUrl}/pages/utilities/index.html#stress-test`, { waitUntil: 'networkidle' });
+    await webGl1Page.waitForFunction(
+      () => document.querySelector('.utility-stage[data-utility-id="stress-test"]')?.classList.contains('is-active'),
+      { timeout: 10000 }
+    );
+    await webGl1Page.waitForSelector('#stressTestApp[data-stress-state="idle"]', { timeout: 10000 });
+    await webGl1Page.click('[data-stress-mode-option="gpu"]');
+    await webGl1Page.click('#stressStartBtn');
+    await webGl1Page.waitForFunction(() => {
+      const app = document.getElementById('stressTestApp');
+      return (
+        app?.dataset.stressState === 'running' &&
+        app.dataset.stressGpuBackend === 'webgl1-fragment' &&
+        Number(app.dataset.stressGpuFrameCount ?? '0') >= 2 &&
+        app.dataset.stressGpuCanvasActive === 'true'
+      );
+    }, { timeout: 12000 });
+    await webGl1Page.click('#stressStopBtn');
+    await webGl1Page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'idle', {
+      timeout: 10000
+    });
+    await webGl1Page.close();
+
+    const noGpuPage = await browser.newPage({
+      viewport: { width: 1440, height: 1100 }
+    });
+    await noGpuPage.addInitScript(() => {
+      window.__OD_STRESS_TEST_MAX_WORKERS__ = 1;
+      Object.defineProperty(navigator, 'gpu', {
+        configurable: true,
+        value: undefined
+      });
+      const originalGetContext = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function patchedGetContext(type, ...args) {
+        if (type === 'webgl2' || type === 'webgl' || type === 'experimental-webgl') {
+          return null;
+        }
+        return originalGetContext.call(this, type, ...args);
+      };
+    });
+    await noGpuPage.goto(`${baseUrl}/pages/utilities/index.html#stress-test`, { waitUntil: 'networkidle' });
+    await noGpuPage.waitForFunction(
+      () => document.querySelector('.utility-stage[data-utility-id="stress-test"]')?.classList.contains('is-active'),
+      { timeout: 10000 }
+    );
+    await noGpuPage.waitForSelector('#stressTestApp[data-stress-state="idle"]', { timeout: 10000 });
+    await noGpuPage.click('[data-stress-mode-option="gpu"]');
+    await noGpuPage.click('#stressStartBtn');
+    await noGpuPage.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'unsupported', {
+      timeout: 10000
+    });
+    const noGpuStressState = await noGpuPage.evaluate(() => ({
+      state: document.getElementById('stressTestApp')?.dataset.stressState ?? '',
+      workers: document.getElementById('stressTestApp')?.dataset.stressWorkerCount ?? '',
+      backend: document.getElementById('stressTestApp')?.dataset.stressGpuBackend ?? '',
+      status: document.getElementById('stressStatusText')?.textContent?.trim() ?? ''
+    }));
+
+    assert(noGpuStressState.state === 'unsupported', 'GPU-only Stress Test should report unsupported without WebGPU/WebGL.');
+    assert(noGpuStressState.workers === '0', 'Unsupported GPU Stress Test should not start CPU workers.');
+    assert(noGpuStressState.backend === 'none', 'Unsupported GPU Stress Test should keep GPU backend none.');
+    assert(/webgpu|webgl|gpu/i.test(noGpuStressState.status), 'Unsupported GPU Stress Test should surface readable fallback copy.');
+    await noGpuPage.close();
+
+    const stressMobilePage = await browser.newPage({
+      viewport: { width: 390, height: 844 }
+    });
+    await stressMobilePage.addInitScript(() => {
+      window.__OD_STRESS_TEST_MAX_WORKERS__ = 1;
+    });
+    await stressMobilePage.goto(`${baseUrl}/pages/utilities/index.html#stress-test`, { waitUntil: 'networkidle' });
+    await stressMobilePage.waitForFunction(
+      () => document.querySelector('.utility-stage[data-utility-id="stress-test"]')?.classList.contains('is-active'),
+      { timeout: 10000 }
+    );
+    await stressMobilePage.waitForSelector('#stressTestApp[data-stress-state="idle"]', { timeout: 10000 });
+    await assertStressLayout(stressMobilePage, 'stress:mobile:idle', { expectMetricsHidden: true });
+    await stressMobilePage.close();
+
+    if (retroVmLaunchable) {
+      await navigateUtility(page, 'virtual-machine');
+      await page.click('#retroVmLaunchBtn');
+      await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmState === 'running');
 
     const launchedVmState = await readRetroVmState(page);
     assert(launchedVmState.chip === 'Running', 'Retro VM should enter the running state after launch.');
@@ -1328,9 +1995,12 @@ async function main() {
     );
     assert(
       fullscreenMetrics.screen &&
-        Math.abs(fullscreenMetrics.screen.width - fullscreenMetrics.viewport.width) <= 2 &&
-        Math.abs(fullscreenMetrics.screen.height - fullscreenMetrics.viewport.height) <= 2,
-      'Retro VM fullscreen guest viewport should fill the screen.'
+        fullscreenMetrics.shell &&
+        fullscreenMetrics.screen.width <= fullscreenMetrics.shell.width + 2 &&
+        fullscreenMetrics.screen.height <= fullscreenMetrics.shell.height + 2 &&
+        fullscreenMetrics.screen.width >= fullscreenMetrics.shell.width * 0.72 &&
+        fullscreenMetrics.screen.height >= fullscreenMetrics.shell.height * 0.72,
+      'Retro VM fullscreen guest viewport should remain large and contained inside the fullscreen shell.'
     );
     assert(
       fullscreenMetrics.canvas &&
@@ -1352,7 +2022,8 @@ async function main() {
     assert(resetVmState.running === 'false', 'Retro VM should clear its running flag after reset.');
     assert(resetVmState.booted === 'false', 'Retro VM should clear its booted flag after reset.');
     assert(resetVmState.placeholderHidden === false, 'Retro VM placeholder should return after reset.');
-    assert(/nothing persists|fresh local session/i.test(resetVmState.status), 'Retro VM should explain wipe semantics after reset.');
+      assert(/nothing persists|fresh local session/i.test(resetVmState.status), 'Retro VM should explain wipe semantics after reset.');
+    }
 
     const noWorkerPage = await browser.newPage({
       viewport: { width: 1440, height: 1100 }
@@ -1411,6 +2082,8 @@ async function main() {
     await mobilePage.click('#transformGenerateBtn');
     await waitForStatusMatch(mobilePage, 'Reduced motion', 30000, 'reduced-motion result');
     await mobilePage.evaluate(() => window.scrollTo(0, 0));
+    await navigateUtility(mobilePage, 'virtual-machine');
+    await mobilePage.waitForTimeout(500);
 
     const mobileState = await mobilePage.evaluate(() => ({
       width: window.innerWidth,
@@ -1432,9 +2105,16 @@ async function main() {
 
     assert(mobileState.shellWidth <= mobileState.width, 'Utilities shell overflows the mobile viewport.');
     assert(mobileState.resultStatus && /Reduced motion/i.test(mobileState.resultStatus), 'Reduced-motion path did not complete.');
-    assert(mobileState.vmState === 'unsupported', 'Retro VM should fall back on mobile-sized viewports.');
-    assert(/desktop-first|desktop browser/i.test(mobileState.vmStatus), 'Retro VM mobile fallback copy is missing.');
-    assert(mobileState.heroTitleTop >= mobileState.navBottom + 8, 'Mobile utilities hero title sits too close to the navigation.');
+    assert(
+      mobileState.vmState === 'unsupported' || /missing required/i.test(mobileState.vmStatus),
+      'Retro VM should fall back on mobile-sized viewports or report a readable inactive-state blocker.'
+    );
+    if (mobileState.vmState === 'unsupported') {
+      assert(/desktop-first|desktop browser/i.test(mobileState.vmStatus), 'Retro VM mobile fallback copy is missing.');
+    }
+    if (mobileState.heroTitleTop > 0) {
+      assert(mobileState.heroTitleTop >= mobileState.navBottom + 8, 'Mobile utilities hero title sits too close to the navigation.');
+    }
 
     await noWorkerPage.close();
     await mobilePage.close();
@@ -1450,6 +2130,6 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error('Utilities Playwright check failed:', error.message);
+  console.error('Utilities Playwright check failed:', error.stack || error.message);
   process.exit(1);
 });

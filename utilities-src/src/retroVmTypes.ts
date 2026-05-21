@@ -1,4 +1,5 @@
 export type RetroVmState = 'idle' | 'loading' | 'running' | 'fullscreen' | 'resetting' | 'error' | 'unsupported';
+export type RetroVmEvent = 'launch' | 'ready' | 'enter-fullscreen' | 'exit-fullscreen' | 'reset' | 'reset-complete' | 'error' | 'unsupported';
 export type RetroVmNicType = 'ne2k' | 'virtio';
 export type RetroVmDnsMethod = 'static' | 'doh';
 
@@ -6,6 +7,8 @@ export interface RetroVmSupport {
   supported: boolean;
   reason: string;
   isMobileLike: boolean;
+  hasFullscreen: boolean;
+  hasPointerLock: boolean;
 }
 
 export interface RetroVmNetworkConfig {
@@ -48,6 +51,7 @@ export interface RetroVmConfig {
   bootOrder: number;
   bootHintDelayMs: number;
   bootMenuPrompt: RegExp | null;
+  maxClipboardPasteChars: number;
   copy: RetroVmCopyConfig;
   network: RetroVmNetworkConfig;
 }

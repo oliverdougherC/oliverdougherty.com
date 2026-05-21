@@ -1,4 +1,4 @@
-import { downmixToMono, normalizeSignal, prepareAudioSignal } from '@utilities/audioSignal';
+import { downmixToMono, normalizeSignal, prepareAudioSignal, resampleLinear } from '@utilities/audioSignal';
 
 describe('audio signal preparation', () => {
   it('downmixes matching channels to mono', () => {
@@ -81,5 +81,114 @@ describe('audio signal preparation', () => {
     expect(prepared.samples.length).toBe(400);
     expect(prepared.sampleRate).toBeCloseTo(40, 5);
     expect(prepared.proxyDurationSeconds).toBeCloseTo(durationSeconds, 5);
+  });
+
+  it('removes DC offset during normalization', () => {
+    const dcOffset = 0.5;
+    const signal = new Float32Array(128);
+    for (let i = 0; i < signal.length; i++) {
+      signal[i] = Math.sin(2 * Math.PI * 2 * i / signal.length) * 0.3 + dcOffset;
+    }
+
+    const result = normalizeSignal(signal);
+
+    let sum = 0;
+    for (let i = 0; i < result.samples.length; i++) {
+      sum += result.samples[i];
+    }
+    const mean = sum / result.samples.length;
+
+    expect(Math.abs(mean)).toBeLessThan(0.01);
+  });
+
+  it('normalizes output peak to the target value', () => {
+    const target = 0.85;
+    const signal = new Float32Array([0.1, 0.3, -0.2, 0.5, -0.4]);
+
+    const result = normalizeSignal(signal, target);
+
+    expect(result.peak).toBeCloseTo(target, 5);
+
+    let actualPeak = 0;
+    for (let i = 0; i < result.samples.length; i++) {
+      actualPeak = Math.max(actualPeak, Math.abs(result.samples[i]));
+    }
+    expect(actualPeak).toBeCloseTo(target, 5);
+  });
+
+  it('downmixes more than two channels to mono', () => {
+    const mono = downmixToMono([
+      new Float32Array([0.9, 0.3, -0.1]),
+      new Float32Array([0.3, 0.3, 0.5]),
+      new Float32Array([-0.3, 0.3, -0.1])
+    ]);
+
+    expect(mono.length).toBe(3);
+    expect(mono[0]).toBeCloseTo(0.3649427, 5);
+    expect(mono[1]).toBeCloseTo(0.3, 5);
+    expect(mono[2]).toBeCloseTo(0.1216476, 5);
+  });
+
+  it('linearly resamples a sine wave with acceptable quality', () => {
+    const N = 256;
+    const signal = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      signal[i] = Math.sin(2 * Math.PI * 4 * i / N);
+    }
+
+    const resampled = resampleLinear(signal, 128);
+
+    expect(resampled.length).toBe(128);
+    expect(resampled[0]).toBeCloseTo(signal[0], 5);
+    expect(resampled[resampled.length - 1]).toBeCloseTo(signal[signal.length - 1], 5);
+
+    let maxDiff = 0;
+    for (let i = 0; i < resampled.length; i++) {
+      const srcIdx = Math.round(i * (N - 1) / (resampled.length - 1));
+      maxDiff = Math.max(maxDiff, Math.abs(resampled[i] - signal[srcIdx]));
+    }
+
+    expect(maxDiff).toBeLessThan(0.1);
+  });
+
+  it('rejects very short audio during preparation', () => {
+    const samples = new Float32Array([0.1, -0.2, 0.3]);
+
+    expect(() =>
+      prepareAudioSignal(
+        { sampleRate: 44100, channels: [samples] },
+        { proxySampleRate: 64, maxDurationSeconds: 60 }
+      )
+    ).toThrow(/too short/i);
+  });
+
+  it('rejects very long audio during preparation', () => {
+    const sampleRate = 100;
+    const durationSeconds = 10 * 60;
+    const samples = new Float32Array(sampleRate * durationSeconds);
+    for (let i = 0; i < samples.length; i++) {
+      samples[i] = Math.sin(2 * Math.PI * 3 * i / sampleRate) * 0.5;
+    }
+
+    expect(() =>
+      prepareAudioSignal(
+        { sampleRate, channels: [samples] },
+        { proxySampleRate: 64, maxDurationSeconds: 5 * 60 }
+      )
+    ).toThrow(/too long/i);
+  });
+
+  it('rejects an invalid sample rate', () => {
+    const samples = new Float32Array(1000);
+    for (let i = 0; i < samples.length; i++) {
+      samples[i] = Math.sin(2 * Math.PI * i / samples.length) * 0.5;
+    }
+
+    expect(() =>
+      prepareAudioSignal(
+        { sampleRate: -1, channels: [samples] },
+        { proxySampleRate: 64, maxDurationSeconds: 60 }
+      )
+    ).toThrow(/invalid sample rate/i);
   });
 });

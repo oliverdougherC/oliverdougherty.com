@@ -13,6 +13,12 @@
   if (!coarseNarrow && !narrowViewport) return;
 
   const path = window.location.pathname;
+  const explicitTarget = document.currentScript?.dataset?.mobileTarget;
+  if (explicitTarget) {
+    window.location.replace(new URL(explicitTarget, window.location.href).href);
+    return;
+  }
+
   const pagesIndex = path.indexOf('/pages/');
   const siteRoot = pagesIndex >= 0 ? path.slice(0, pagesIndex) : '';
   const mobileHome = `${siteRoot}/mobile/`;

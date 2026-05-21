@@ -1,32 +1,184 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="resume">
+<html lang="en" data-disable-color-mode>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mobile Resume - Oliver Dougherty</title>
   <meta name="description" content="Mobile-first resume for Oliver Dougherty.">
   <link rel="canonical" href="../../pages/resume/index.html">
-  <link rel="icon" type="image/svg+xml" href="/favicon-happy.svg?v=face-5" id="favicon">
-  <link rel="alternate icon" href="/favicon-happy.ico?v=face-5" id="favicon-fallback">
-  <script>document.addEventListener('visibilitychange',function(){var hidden=document.hidden;var f=document.getElementById('favicon');var i=document.getElementById('favicon-fallback');if(f)f.href=hidden?'/favicon-sad.svg?v=face-5':'/favicon-happy.svg?v=face-5';if(i)i.href=hidden?'/favicon-sad.ico?v=face-5':'/favicon-happy.ico?v=face-5'})</script>
+  <link rel="icon" type="image/svg+xml" href="/favicon-happy.svg?v=face-6" id="favicon">
+  <link rel="alternate icon" href="/favicon-happy.ico?v=face-6" id="favicon-fallback">
+  <script>document.addEventListener('visibilitychange',function(){var hidden=document.hidden;var f=document.getElementById('favicon');var i=document.getElementById('favicon-fallback');if(f)f.href=hidden?'/favicon-sad.svg?v=face-6':'/favicon-happy.svg?v=face-6';if(i)i.href=hidden?'/favicon-sad.ico?v=face-6':'/favicon-happy.ico?v=face-6'})</script>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link
-    href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap"
-    rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=JetBrains+Mono:wght@200;800&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="../../css/design-system.css">
   <link rel="stylesheet" href="../../css/mobile.css">
+  <style>
+    /* Industrialist overrides for mobile resume */
+    .mobile-page {
+      --mobile-bg: #FFFFFF;
+      --mobile-surface: #FFFFFF;
+      --mobile-surface-strong: #FFFFFF;
+      --mobile-text: #000000;
+      --mobile-muted: #000000;
+      --mobile-soft: #000000;
+      --mobile-border: #000000;
+      --mobile-accent: #2BA84A;
+      --mobile-accent-strong: #2BA84A;
+      background: #FFFFFF;
+      color: #000000;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    .mobile-page a {
+      color: #000000;
+    }
+
+    .mobile-page h1,
+    .mobile-page h2,
+    .mobile-page h3 {
+      color: #000000;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    .mobile-kicker,
+    .mobile-section-label,
+    .mobile-item-meta {
+      color: #000000;
+      font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+
+    .mobile-page .mobile-button-primary {
+      color: #FFFFFF;
+      background: #2BA84A;
+      border-color: #2BA84A;
+      box-shadow: none;
+      border-radius: 0;
+      font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+
+    .mobile-chip-group span {
+      border: 1px solid #000000;
+      background: transparent;
+      color: #000000;
+      border-radius: 0;
+      font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+
+    .mobile-skill-stack h3 {
+      color: #000000;
+      font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+
+    .mobile-footer {
+      border-top: 1px solid #000000;
+      color: #000000;
+    }
+
+    .mobile-footer a {
+      color: #000000;
+    }
+
+    .mobile-footer a:hover,
+    .mobile-contact-links a:hover,
+    .mobile-list-item a:hover {
+      color: #2BA84A;
+    }
+
+    .mobile-button:hover,
+    .mobile-nav-link:hover {
+      border-color: #2BA84A;
+    }
+
+    .mobile-contact-links a {
+      border: 1px solid #000000;
+      background: #FFFFFF;
+      color: #000000;
+    }
+
+    .mobile-detail-block,
+    .mobile-list-item {
+      border: 1px solid #000000;
+      background: #FFFFFF;
+    }
+
+    .mobile-section {
+      border-bottom: 1px solid #000000;
+    }
+
+    .mobile-hero-copy,
+    .mobile-detail-block p,
+    .mobile-list-item p {
+      color: #000000;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-weight: 200;
+    }
+
+    /* Nav dot */
+    .nav-dot {
+      position: fixed;
+      top: 1rem;
+      right: 1.25rem;
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      border: 0;
+      border-radius: 999px;
+      background: #000000;
+      cursor: pointer;
+      z-index: 1000;
+      transition: transform 120ms ease, opacity 160ms ease;
+    }
+
+    .nav-dot:hover {
+      transform: scale(1.08);
+    }
+
+    body.nav-open .nav-dot {
+      opacity: 0.6;
+    }
+
+    /* Nav overlay overrides */
+    .nav-overlay-bg {
+      background-color: #FFFFFF !important;
+    }
+
+    .nav-overlay .nav-link,
+    .nav-overlay .nav-menu-header,
+    .nav-overlay .footer-link {
+      color: #000000;
+    }
+
+    .nav-overlay .nav-link:hover,
+    .nav-overlay .nav-link.active,
+    .nav-overlay .footer-link:hover {
+      color: #2BA84A;
+    }
+  </style>
 </head>
 <body class="mobile-page mobile-resume-page">
-  <header class="mobile-topbar">
-    <a class="mobile-brand" href="../">OD</a>
-    <nav class="mobile-nav" aria-label="Mobile site">
-      <a class="mobile-nav-link" href="../">Home</a>
-      <a class="mobile-nav-link mobile-nav-link-active" href="./" aria-current="page">Resume</a>
-    </nav>
-  </header>
+
+  <button class="nav-dot" id="navToggle" aria-label="Open menu" aria-expanded="false"></button>
+
+  <!-- Fullscreen Menu Overlay -->
+  <div class="nav-overlay" id="navOverlay">
+    <div class="nav-overlay-bg"></div>
+    <div class="nav-links container" id="navLinks">
+      <div class="nav-menu-header">Menu</div>
+      <a href="../../index.html" class="nav-link nav-link--home">Home</a>
+      <a href="." class="nav-link nav-link--resume active" aria-current="page">Resume</a>
+      <a href="../../pages/gallery/index.html" class="nav-link nav-link--gallery">Gallery</a>
+      <a href="../../pages/utilities/index.html" class="nav-link nav-link--utilities">Utilities</a>
+
+      <div class="nav-menu-footer">
+        <a href="mailto:oliverfdougherty@gmail.com" class="footer-link">Contact</a>
+        <a href="https://github.com/oliverdougherC" class="footer-link" target="_blank" rel="noopener noreferrer">Github</a>
+      </div>
+    </div>
+  </div>
 
   <main>
     <section class="mobile-hero mobile-section">
@@ -86,16 +238,16 @@
         <article class="mobile-list-item">
           <div>
             <p class="mobile-item-meta">Aug. 2025 - Present</p>
-            <h3>Encoding DB</h3>
+            <h3>Better VMAF</h3>
           </div>
-          <p>Public FFmpeg-based video encoding database for finding encoding settings by application.</p>
-          <p>Architected a RESTful backend with Node.js, Express, Prisma, and PostgreSQL.</p>
-          <a href="https://encodingdb.platinumlabs.dev" target="_blank" rel="noopener noreferrer">EncodingDB.PlatinumLabs.dev</a>
+          <p>Native macOS app for calculating VMAF scores between two videos with single and batch modes.</p>
+          <p>Built with Swift and SwiftUI, includes bundled FFmpeg and libvmaf for zero-config setup.</p>
+          <a href="https://github.com/oliverdougherC/BetterVMAF" target="_blank" rel="noopener noreferrer">github.com/oliverdougherC/BetterVMAF</a>
           <div class="mobile-chip-group">
-            <span>Node.js</span>
-            <span>Express</span>
-            <span>PostgreSQL</span>
+            <span>Swift</span>
             <span>FFmpeg</span>
+            <span>VMAF</span>
+            <span>Video Analysis</span>
           </div>
         </article>
       </div>
@@ -157,8 +309,8 @@
         <p><strong>Founder and Vice-President</strong></p>
         <p class="mobile-item-meta">Nov. 2024 - Present</p>
         <ul class="mobile-bullet-list">
-          <li>Building and maintaining a Dell PowerEdge R620 server running Nginx and Nginx Proxy Manager.</li>
-          <li>Led Docker and CUDA workshops for 20+ members.</li>
+          <li>Scaled club from 0 members to 100+ in a single year</li>
+          <li>Designed and led workshops on Docker, CUDA, Soldering, KiCAD, and more</li>
         </ul>
       </div>
     </section>
@@ -170,5 +322,6 @@
   </footer>
 
   <script src="../../js/year.js" defer></script>
+  <script src="../../js/main.js" defer></script>
 </body>
 </html>

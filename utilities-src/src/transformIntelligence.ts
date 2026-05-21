@@ -8,9 +8,7 @@ export interface TransformImageAnalysis {
   targetPriorityByIndex: Float32Array;
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
+import { clamp } from './math';
 
 function quantizeColorKey(red: number, green: number, blue: number, shift: number) {
   return ((red >> shift) << 16) | ((green >> shift) << 8) | (blue >> shift);
@@ -28,66 +26,192 @@ function computeNearWhite(red: number, green: number, blue: number) {
 
 function computeLocalContrast(pixels: Uint8ClampedArray, width: number, height: number) {
   const localContrastByIndex = new Float32Array(width * height);
+  const rowStride = width * 4;
 
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < width; x += 1) {
+  if (width < 2 || height < 2) {
+    return localContrastByIndex;
+  }
+
+  for (let y = 1; y < height - 1; y += 1) {
+    const rowBaseOffset = y * rowStride;
+    const aboveRowOffset = rowBaseOffset - rowStride;
+    const belowRowOffset = rowBaseOffset + rowStride;
+
+    for (let x = 1; x < width - 1; x += 1) {
+      const offset = rowBaseOffset + x * 4;
       const pixelIndex = y * width + x;
-      const offset = pixelIndex * 4;
       const red = pixels[offset];
       const green = pixels[offset + 1];
       const blue = pixels[offset + 2];
-      let contrast = 0;
-      let neighborCount = 0;
-
-      if (x > 0) {
-        const neighborOffset = offset - 4;
-        contrast +=
-          (channelDistance(red, pixels[neighborOffset]) +
-            channelDistance(green, pixels[neighborOffset + 1]) +
-            channelDistance(blue, pixels[neighborOffset + 2])) /
+      const contrast =
+        (channelDistance(red, pixels[offset - 4]) +
+          channelDistance(green, pixels[offset - 3]) +
+          channelDistance(blue, pixels[offset - 2])) /
+          3 +
+        (channelDistance(red, pixels[offset + 4]) +
+          channelDistance(green, pixels[offset + 5]) +
+          channelDistance(blue, pixels[offset + 6])) /
+          3 +
+        (channelDistance(red, pixels[aboveRowOffset + x * 4]) +
+          channelDistance(green, pixels[aboveRowOffset + x * 4 + 1]) +
+          channelDistance(blue, pixels[aboveRowOffset + x * 4 + 2])) /
+          3 +
+        (channelDistance(red, pixels[belowRowOffset + x * 4]) +
+          channelDistance(green, pixels[belowRowOffset + x * 4 + 1]) +
+          channelDistance(blue, pixels[belowRowOffset + x * 4 + 2])) /
           3;
-        neighborCount += 1;
-      }
-
-      if (x + 1 < width) {
-        const neighborOffset = offset + 4;
-        contrast +=
-          (channelDistance(red, pixels[neighborOffset]) +
-            channelDistance(green, pixels[neighborOffset + 1]) +
-            channelDistance(blue, pixels[neighborOffset + 2])) /
-          3;
-        neighborCount += 1;
-      }
-
-      if (y > 0) {
-        const neighborOffset = offset - width * 4;
-        contrast +=
-          (channelDistance(red, pixels[neighborOffset]) +
-            channelDistance(green, pixels[neighborOffset + 1]) +
-            channelDistance(blue, pixels[neighborOffset + 2])) /
-          3;
-        neighborCount += 1;
-      }
-
-      if (y + 1 < height) {
-        const neighborOffset = offset + width * 4;
-        contrast +=
-          (channelDistance(red, pixels[neighborOffset]) +
-            channelDistance(green, pixels[neighborOffset + 1]) +
-            channelDistance(blue, pixels[neighborOffset + 2])) /
-          3;
-        neighborCount += 1;
-      }
-
-      localContrastByIndex[pixelIndex] = neighborCount > 0 ? contrast / neighborCount : 0;
+      localContrastByIndex[pixelIndex] = contrast / 4;
     }
   }
+
+  for (let x = 1; x < width - 1; x += 1) {
+    const pixelIndex = x;
+    const offset = x * 4;
+    const red = pixels[offset];
+    const green = pixels[offset + 1];
+    const blue = pixels[offset + 2];
+    const contrast =
+      (channelDistance(red, pixels[offset - 4]) +
+        channelDistance(green, pixels[offset - 3]) +
+        channelDistance(blue, pixels[offset - 2])) /
+        3 +
+      (channelDistance(red, pixels[offset + 4]) +
+        channelDistance(green, pixels[offset + 5]) +
+        channelDistance(blue, pixels[offset + 6])) /
+        3 +
+      (channelDistance(red, pixels[rowStride + x * 4]) +
+        channelDistance(green, pixels[rowStride + x * 4 + 1]) +
+        channelDistance(blue, pixels[rowStride + x * 4 + 2])) /
+        3;
+    localContrastByIndex[pixelIndex] = contrast / 3;
+  }
+
+  for (let x = 1; x < width - 1; x += 1) {
+    const y = height - 1;
+    const pixelIndex = y * width + x;
+    const offset = y * rowStride + x * 4;
+    const red = pixels[offset];
+    const green = pixels[offset + 1];
+    const blue = pixels[offset + 2];
+    const contrast =
+      (channelDistance(red, pixels[offset - 4]) +
+        channelDistance(green, pixels[offset - 3]) +
+        channelDistance(blue, pixels[offset - 2])) /
+        3 +
+      (channelDistance(red, pixels[offset + 4]) +
+        channelDistance(green, pixels[offset + 5]) +
+        channelDistance(blue, pixels[offset + 6])) /
+        3 +
+      (channelDistance(red, pixels[offset - rowStride]) +
+        channelDistance(green, pixels[offset - rowStride + 1]) +
+        channelDistance(blue, pixels[offset - rowStride + 2])) /
+        3;
+    localContrastByIndex[pixelIndex] = contrast / 3;
+  }
+
+  for (let y = 1; y < height - 1; y += 1) {
+    const pixelIndex = y * width;
+    const offset = y * rowStride;
+    const red = pixels[offset];
+    const green = pixels[offset + 1];
+    const blue = pixels[offset + 2];
+    const contrast =
+      (channelDistance(red, pixels[offset + 4]) +
+        channelDistance(green, pixels[offset + 5]) +
+        channelDistance(blue, pixels[offset + 6])) /
+        3 +
+      (channelDistance(red, pixels[offset - rowStride]) +
+        channelDistance(green, pixels[offset - rowStride + 1]) +
+        channelDistance(blue, pixels[offset - rowStride + 2])) /
+        3 +
+      (channelDistance(red, pixels[offset + rowStride]) +
+        channelDistance(green, pixels[offset + rowStride + 1]) +
+        channelDistance(blue, pixels[offset + rowStride + 2])) /
+        3;
+    localContrastByIndex[pixelIndex] = contrast / 3;
+  }
+
+  for (let y = 1; y < height - 1; y += 1) {
+    const x = width - 1;
+    const pixelIndex = y * width + x;
+    const offset = y * rowStride + x * 4;
+    const red = pixels[offset];
+    const green = pixels[offset + 1];
+    const blue = pixels[offset + 2];
+    const contrast =
+      (channelDistance(red, pixels[offset - 4]) +
+        channelDistance(green, pixels[offset - 3]) +
+        channelDistance(blue, pixels[offset - 2])) /
+        3 +
+      (channelDistance(red, pixels[offset - rowStride]) +
+        channelDistance(green, pixels[offset - rowStride + 1]) +
+        channelDistance(blue, pixels[offset - rowStride + 2])) /
+        3 +
+      (channelDistance(red, pixels[offset + rowStride]) +
+        channelDistance(green, pixels[offset + rowStride + 1]) +
+        channelDistance(blue, pixels[offset + rowStride + 2])) /
+        3;
+    localContrastByIndex[pixelIndex] = contrast / 3;
+  }
+
+  const tlPixelIndex = 0;
+  const tlOffset = 0;
+  localContrastByIndex[tlPixelIndex] =
+    ((channelDistance(pixels[tlOffset], pixels[tlOffset + 4]) +
+      channelDistance(pixels[tlOffset + 1], pixels[tlOffset + 5]) +
+      channelDistance(pixels[tlOffset + 2], pixels[tlOffset + 6])) /
+      3 +
+      (channelDistance(pixels[tlOffset], pixels[rowStride]) +
+        channelDistance(pixels[tlOffset + 1], pixels[rowStride + 1]) +
+        channelDistance(pixels[tlOffset + 2], pixels[rowStride + 2])) /
+        3) /
+      2;
+
+  const trX = width - 1;
+  const trOffset = trX * 4;
+  localContrastByIndex[trX] =
+    ((channelDistance(pixels[trOffset], pixels[trOffset - 4]) +
+      channelDistance(pixels[trOffset + 1], pixels[trOffset - 3]) +
+      channelDistance(pixels[trOffset + 2], pixels[trOffset - 2])) /
+      3 +
+      (channelDistance(pixels[trOffset], pixels[rowStride + trX * 4]) +
+        channelDistance(pixels[trOffset + 1], pixels[rowStride + trX * 4 + 1]) +
+        channelDistance(pixels[trOffset + 2], pixels[rowStride + trX * 4 + 2])) /
+        3) /
+      2;
+
+  const blY = height - 1;
+  const blOffset = blY * rowStride;
+  localContrastByIndex[blY * width] =
+    ((channelDistance(pixels[blOffset], pixels[blOffset + 4]) +
+      channelDistance(pixels[blOffset + 1], pixels[blOffset + 5]) +
+      channelDistance(pixels[blOffset + 2], pixels[blOffset + 6])) /
+      3 +
+      (channelDistance(pixels[blOffset], pixels[blOffset - rowStride]) +
+        channelDistance(pixels[blOffset + 1], pixels[blOffset - rowStride + 1]) +
+        channelDistance(pixels[blOffset + 2], pixels[blOffset - rowStride + 2])) /
+        3) /
+      2;
+
+  const brY = height - 1;
+  const brX = width - 1;
+  const brOffset = brY * rowStride + brX * 4;
+  localContrastByIndex[brY * width + brX] =
+    ((channelDistance(pixels[brOffset], pixels[brOffset - 4]) +
+      channelDistance(pixels[brOffset + 1], pixels[brOffset - 3]) +
+      channelDistance(pixels[brOffset + 2], pixels[brOffset - 2])) /
+      3 +
+      (channelDistance(pixels[brOffset], pixels[brOffset - rowStride]) +
+        channelDistance(pixels[brOffset + 1], pixels[brOffset - rowStride + 1]) +
+        channelDistance(pixels[brOffset + 2], pixels[brOffset - rowStride + 2])) /
+        3) /
+      2;
 
   return localContrastByIndex;
 }
 
 function buildSourceBucketCounts(source: PreparedImageData, quantizationBits: number) {
-  const shift = Math.max(1, 8 - Math.min(quantizationBits, 6));
+  const shift = 8 - quantizationBits;
   const counts = new Map<number, number>();
 
   for (let pixelIndex = 0; pixelIndex < source.width * source.height; pixelIndex += 1) {
@@ -104,20 +228,35 @@ function buildSourceBucketCounts(source: PreparedImageData, quantizationBits: nu
   return { counts, shift };
 }
 
-export function weightedRgbDistance(left: number, right: number) {
-  const leftRed = (left >> 16) & 0xff;
-  const leftGreen = (left >> 8) & 0xff;
-  const leftBlue = left & 0xff;
-  const rightRed = (right >> 16) & 0xff;
-  const rightGreen = (right >> 8) & 0xff;
-  const rightBlue = right & 0xff;
-
+export function weightedRgbDistanceFromChannels(
+  leftRed: number,
+  leftGreen: number,
+  leftBlue: number,
+  rightRed: number,
+  rightGreen: number,
+  rightBlue: number
+) {
   const redMean = (leftRed + rightRed) >> 1;
   const deltaRed = leftRed - rightRed;
   const deltaGreen = leftGreen - rightGreen;
   const deltaBlue = leftBlue - rightBlue;
 
-  return (((512 + redMean) * deltaRed * deltaRed) >> 8) + 4 * deltaGreen * deltaGreen + (((767 - redMean) * deltaBlue * deltaBlue) >> 8);
+  return (
+    (((512 + redMean) * deltaRed * deltaRed) >> 8) +
+    4 * deltaGreen * deltaGreen +
+    (((767 - redMean) * deltaBlue * deltaBlue) >> 8)
+  );
+}
+
+export function weightedRgbDistance(left: number, right: number) {
+  return weightedRgbDistanceFromChannels(
+    (left >> 16) & 0xff,
+    (left >> 8) & 0xff,
+    left & 0xff,
+    (right >> 16) & 0xff,
+    (right >> 8) & 0xff,
+    right & 0xff
+  );
 }
 
 export function analyzeTransformImages(

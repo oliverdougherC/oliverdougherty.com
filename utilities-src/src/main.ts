@@ -1,4 +1,4 @@
-import { getPreset } from './presets';
+import { getPreset, isTransformPresetId } from './presets';
 import { PRECOMPUTED_BUILT_IN_TRANSFORM_ASSETS } from './builtInTransformAssets';
 import { buildTransformRenderPlan } from './transformRenderPlan';
 import {
@@ -9,19 +9,17 @@ import {
   type SerializedPrecomputedBuiltInTransform,
   type CachedBuiltInTransform
 } from './transformCache';
-import { DeathCalculatorController } from './deathCalculatorController';
-import { AudioFourierController } from './audioFourierController';
 import {
   createTransformAnimationState,
   renderTransformAnimationPixels,
-  resolveAccentParticlesFrame,
   type TransformAnimationState
 } from './transformAnimation';
 import { resolveOutputDimensions, transformPreparedImages } from './transformCore';
-import { RetroVmController } from './retroVmController';
 import type { PreparedImageTransfer, TransformMetadata, TransformPresetId } from './types';
-import { DEMOS, resolvePlaybackButtonLabel, type ImageSelection, type SelectionKind, type StateKind } from './uiState';
+import { DEMOS, type ImageSelection, type SelectionKind, type StateKind } from './uiState';
 import type { WorkerRequest, WorkerResponse, WorkerSuccessMessage } from './workerTypes';
+import { clamp } from './math';
+import { arrayBufferLikeToArrayBuffer } from './bufferUtils';
 
 interface HydratedTransfer {
   width: number;
@@ -36,16 +34,12 @@ interface ActiveTransform {
   assignment: Uint32Array;
 }
 
-function asArrayBuffer(buffer: ArrayBufferLike) {
-  return buffer as ArrayBuffer;
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
+const MAX_IMAGE_FILE_BYTES = 20 * 1024 * 1024;
+const TARGET_ANIMATION_FRAME_MS = 1000 / 60;
 
 class UtilitiesApp {
-  private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  private readonly reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
   private readonly root: HTMLElement;
   private readonly sourceInput: HTMLInputElement;
   private readonly targetInput: HTMLInputElement;
@@ -54,7 +48,6 @@ class UtilitiesApp {
   private readonly swapButton: HTMLButtonElement;
   private readonly resetButton: HTMLButtonElement;
   private readonly playButton: HTMLButtonElement;
-  private readonly pauseButton: HTMLButtonElement;
   private readonly statusChip: HTMLElement | null;
   private readonly statusText: HTMLElement | null;
   private readonly progressText: HTMLElement;
@@ -97,6 +90,7 @@ class UtilitiesApp {
   private finalResultImageData: ImageData | null = null;
   private animationFrameId = 0;
   private animationStartedAt = 0;
+  private lastAnimationFrameTimestamp = 0;
   private animationElapsedMs = 0;
   private state: StateKind = 'idle';
   private workerUnavailable = false;
@@ -111,7 +105,6 @@ class UtilitiesApp {
     this.swapButton = this.requireElement('transformSwapBtn');
     this.resetButton = this.requireElement('transformResetBtn');
     this.playButton = this.requireElement('transformPlayBtn');
-    this.pauseButton = this.requireElement('transformPauseBtn');
     this.statusChip = document.getElementById('transformStatusChip');
     this.statusText = document.getElementById('transformStatusText');
     this.progressText = this.requireElement('transformProgressText');
@@ -161,7 +154,6 @@ class UtilitiesApp {
       this.resetAll();
     });
     this.playButton.addEventListener('click', () => this.handlePlaybackButton());
-    this.pauseButton.addEventListener('click', () => this.pauseAnimation());
     this.presetSelect.addEventListener('change', () => {
       const preset = getPreset(this.selectedPreset);
       if (this.activeTransform) {
@@ -181,6 +173,15 @@ class UtilitiesApp {
       });
     });
 
+    this.reducedMotionQuery.addEventListener('change', (e: MediaQueryListEvent) => {
+      this.reducedMotion = e.matches;
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && this.state === 'animating') {
+        this.pauseAnimation();
+      }
+    });
+
     this.bindDropzone(this.sourceDropzone, 'source');
     this.bindDropzone(this.targetDropzone, 'target');
     this.syncSelectionLabels();
@@ -189,21 +190,23 @@ class UtilitiesApp {
   }
 
   private get selectedPreset(): TransformPresetId {
-    return this.presetSelect.value as TransformPresetId;
+    return isTransformPresetId(this.presetSelect.value) ? this.presetSelect.value : 'balanced';
   }
 
   private requireElement<T extends HTMLElement>(id: string) {
-    const element = document.getElementById(id) as T | null;
+    const element = document.getElementById(id);
     if (!element) {
       throw new Error(`Missing required element: ${id}`);
     }
-    return element;
+    if (!(element instanceof HTMLElement)) {
+      throw new Error(`Required element is not an HTMLElement: ${id}`);
+    }
+    return element as T;
   }
 
-  private setResultMetaCopy(text: string) {
-    this.root.dataset.resultMetaMessage = text;
+  private setResultMetaCopy(_text: string) {
     if (this.resultMeta) {
-      this.resultMeta.textContent = text;
+      this.resultMeta.textContent = '';
     }
   }
 
@@ -253,6 +256,15 @@ class UtilitiesApp {
       return;
     }
 
+    if (!file.type.startsWith('image/')) {
+      this.rejectFileSelection(kind, 'Unable to load unsupported file type.', 'Please select an image file.', file);
+      return;
+    }
+    if (file.size > MAX_IMAGE_FILE_BYTES) {
+      this.rejectFileSelection(kind, 'Unable to load image because it is too large.', 'Please choose an image smaller than 20 MB.');
+      return;
+    }
+
     const nextSelection: ImageSelection = {
       kind: 'file',
       label: file.name,
@@ -271,6 +283,29 @@ class UtilitiesApp {
     this.clearActiveDemo();
     this.syncSelectionLabels();
     this.invalidateComputedState('Selection updated. Generate again to rebuild the transform.');
+  }
+
+  private rejectFileSelection(kind: SelectionKind, message: string, meta: string, file?: File) {
+    const nextSelection: ImageSelection | null = file
+      ? {
+          kind: 'file',
+          label: file.name,
+          file
+        }
+      : null;
+
+    this.discardActiveRequest();
+    this.clearActiveDemo();
+    if (kind === 'source') {
+      this.sourceSelection = nextSelection;
+      this.sourceInput.value = '';
+    } else {
+      this.targetSelection = nextSelection;
+      this.targetInput.value = '';
+    }
+    this.syncSelectionLabels();
+    this.setState('error', message);
+    this.setProgress(0, message, meta);
   }
 
   private applyDemo(demoKey: string) {
@@ -324,20 +359,31 @@ class UtilitiesApp {
     const hasResult = Boolean(this.activeTransform);
     const isProcessing = this.state === 'processing';
     const isAnimating = this.state === 'animating';
+    const isPaused = this.state === 'paused';
+    const isComplete = this.state === 'complete';
 
-    this.playButton.textContent = resolvePlaybackButtonLabel({
-      hasResult,
-      isProcessing,
-      isAnimating,
-      reducedMotion: this.reducedMotion,
-      animationElapsedMs: this.animationElapsedMs
-    });
+    if (isComplete) {
+      this.playButton.textContent = '↻';
+      this.playButton.disabled = false;
+      this.playButton.setAttribute('aria-label', 'Replay animation');
+    } else if (isAnimating) {
+      this.playButton.textContent = '⏸';
+      this.playButton.disabled = false;
+      this.playButton.setAttribute('aria-label', 'Pause playback');
+    } else if (isPaused) {
+      this.playButton.textContent = '▶';
+      this.playButton.disabled = false;
+      this.playButton.setAttribute('aria-label', 'Resume playback');
+    } else {
+      this.playButton.textContent = '▶';
+      this.playButton.disabled = !hasResult || isProcessing;
+      this.playButton.setAttribute('aria-label', 'Play animation');
+    }
+
     this.presetSelect.disabled = isProcessing;
     this.generateButton.disabled = !hasBothSelections || isProcessing;
     this.swapButton.disabled = !hasBothSelections || isProcessing;
     this.resetButton.disabled = isProcessing && !hasResult;
-    this.playButton.disabled = !hasResult || isProcessing || isAnimating || this.reducedMotion;
-    this.pauseButton.disabled = !hasResult || !isAnimating;
   }
 
   private setState(state: StateKind, text: string) {
@@ -347,12 +393,18 @@ class UtilitiesApp {
     }
     this.root.dataset.transformStatusMessage = text;
     const chipLabel =
-      state === 'ready' ? 'Ready' : state === 'complete' ? 'Complete' : state[0].toUpperCase() + state.slice(1);
+      state === 'ready' ? 'Ready' : state === 'complete' ? 'Complete' : state === 'paused' ? 'Paused' : state[0].toUpperCase() + state.slice(1);
     this.root.dataset.transformStatusChip = chipLabel;
     if (this.statusChip) {
       this.statusChip.textContent = chipLabel;
       this.statusChip.className = `utility-status-chip utility-status-chip--${state}`;
     }
+    window.dispatchEvent(new CustomEvent('utilities-load-state', {
+      detail: {
+        source: 'image-transform',
+        active: state === 'processing' || state === 'animating' || state === 'paused'
+      }
+    }));
     this.syncButtons();
   }
 
@@ -845,13 +897,13 @@ class UtilitiesApp {
           requestId,
           source: {
             ...prepared.source,
-            pixels: asArrayBuffer(sourcePixels.buffer)
+            pixels: arrayBufferLikeToArrayBuffer(sourcePixels.buffer)
           },
           target: {
             ...prepared.target,
-            pixels: asArrayBuffer(targetPixels.buffer)
+            pixels: arrayBufferLikeToArrayBuffer(targetPixels.buffer)
           },
-          assignment: asArrayBuffer(result.assignment.buffer),
+          assignment: arrayBufferLikeToArrayBuffer(result.assignment.buffer),
           metadata
         });
       }
@@ -964,7 +1016,7 @@ class UtilitiesApp {
       metadata: message.metadata,
       source: this.inflateTransfer(message.source),
       target: this.inflateTransfer(message.target),
-      assignment: new Uint32Array(asArrayBuffer(message.assignment))
+      assignment: new Uint32Array(arrayBufferLikeToArrayBuffer(message.assignment))
     };
 
     this.activeTransform = transform;
@@ -1040,7 +1092,6 @@ class UtilitiesApp {
         'Transform complete.',
         `${transform.metadata.matcherStrategy} · analyze ${transform.metadata.timingsMs.analyze.toFixed(0)} ms · assign ${transform.metadata.timingsMs.assign.toFixed(0)} ms`
       );
-      this.setResultMetaCopy('Final result rendered immediately for reduced motion.');
     } else {
       this.setState('ready', 'Transform ready. Press play or replay to run the animation.');
       this.setProgress(
@@ -1048,7 +1099,6 @@ class UtilitiesApp {
         'Transform ready to animate.',
         `${transform.metadata.matcherStrategy} · analyze ${transform.metadata.timingsMs.analyze.toFixed(0)} ms · assign ${transform.metadata.timingsMs.assign.toFixed(0)} ms`
       );
-      this.setResultMetaCopy('Pixels from the source image shift into their assigned landing positions.');
       this.playAnimation();
     }
   }
@@ -1057,7 +1107,7 @@ class UtilitiesApp {
     return {
       width: transfer.width,
       height: transfer.height,
-      pixels: new Uint8ClampedArray(asArrayBuffer(transfer.pixels))
+      pixels: new Uint8ClampedArray(arrayBufferLikeToArrayBuffer(transfer.pixels))
     };
   }
 
@@ -1096,6 +1146,7 @@ class UtilitiesApp {
 
     this.animationElapsedMs = 0;
     this.animationStartedAt = 0;
+    this.lastAnimationFrameTimestamp = 0;
     this.resultCanvas.width = this.activeTransform.metadata.outputWidth;
     this.resultCanvas.height = this.activeTransform.metadata.outputHeight;
     this.overlayCanvas.width = this.activeTransform.metadata.outputWidth;
@@ -1118,10 +1169,14 @@ class UtilitiesApp {
       return;
     }
 
+    if (!this.animationFramePixels || this.animationFramePixels.length !== this.animationState.finalPixels.length) {
+      this.animationFramePixels = new Uint8ClampedArray(this.animationState.finalPixels.length);
+    }
+
     const framePixels = renderTransformAnimationPixels(
       this.animationState,
       phase,
-      this.animationFramePixels ?? undefined
+      this.animationFramePixels
     );
     const imageDataPixels =
       framePixels.buffer instanceof ArrayBuffer ? framePixels : new Uint8ClampedArray(framePixels);
@@ -1132,23 +1187,20 @@ class UtilitiesApp {
     );
 
     this.overlayContext.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
-
-    for (const particle of resolveAccentParticlesFrame(this.animationState, phase)) {
-      this.overlayContext.save();
-      this.overlayContext.globalAlpha = particle.alpha;
-      this.overlayContext.fillStyle = particle.color;
-      this.overlayContext.fillRect(
-        Math.round(particle.x - particle.size / 2),
-        Math.round(particle.y - particle.size / 2),
-        particle.size,
-        particle.size
-      );
-      this.overlayContext.restore();
-    }
   }
 
   private handlePlaybackButton() {
-    if (this.animationElapsedMs > 0) {
+    if (this.state === 'animating') {
+      this.pauseAnimation();
+      return;
+    }
+
+    if (this.state === 'paused') {
+      this.resumeAnimation();
+      return;
+    }
+
+    if (this.state === 'complete' || this.state === 'ready') {
       this.replayAnimation();
       return;
     }
@@ -1158,14 +1210,12 @@ class UtilitiesApp {
 
   private playAnimation() {
     if (!this.activeTransform || this.reducedMotion) {
-      this.syncButtons();
       return;
     }
 
     const preset = getPreset(this.activeTransform.metadata.presetId);
     const durationMs = preset.animationDurationMs;
     this.setState('animating', 'Animating the result image…');
-    this.setResultMetaCopy('The source pixels are physically rearranging into the new image.');
     this.syncButtons();
 
     const step = (timestamp: number) => {
@@ -1176,6 +1226,14 @@ class UtilitiesApp {
       if (!this.animationStartedAt) {
         this.animationStartedAt = timestamp;
       }
+      if (
+        this.lastAnimationFrameTimestamp &&
+        timestamp - this.lastAnimationFrameTimestamp < TARGET_ANIMATION_FRAME_MS
+      ) {
+        this.animationFrameId = window.requestAnimationFrame(step);
+        return;
+      }
+      this.lastAnimationFrameTimestamp = timestamp;
 
       const elapsedMs = this.animationElapsedMs + (timestamp - this.animationStartedAt);
       const phase = clamp(elapsedMs / durationMs, 0, 1);
@@ -1189,9 +1247,9 @@ class UtilitiesApp {
       if (phase >= 1) {
         this.animationElapsedMs = durationMs;
         this.animationFrameId = 0;
+        this.lastAnimationFrameTimestamp = 0;
         this.renderCompleteResult();
         this.setState('complete', 'Animation complete.');
-        this.setResultMetaCopy('Every source pixel has reached its final landing position.');
         this.syncButtons();
         return;
       }
@@ -1213,9 +1271,22 @@ class UtilitiesApp {
         this.animationElapsedMs += performance.now() - this.animationStartedAt;
         this.animationStartedAt = 0;
       }
-      this.setState('ready', 'Animation stopped. Press replay to run it again.');
-      this.setResultMetaCopy('The current pass stopped. Replay restarts the full rearrangement from frame zero.');
+      this.lastAnimationFrameTimestamp = 0;
+      this.setState('paused', 'Animation paused.');
     }
+  }
+
+  private resumeAnimation() {
+    if (this.animationElapsedMs >= this.getAnimationDurationMs()) {
+      this.replayAnimation();
+      return;
+    }
+    this.playAnimation();
+  }
+
+  private getAnimationDurationMs(): number {
+    const preset = getPreset(this.activeTransform?.metadata.presetId ?? this.selectedPreset);
+    return preset.animationDurationMs;
   }
 
   private replayAnimation() {
@@ -1224,8 +1295,11 @@ class UtilitiesApp {
     }
 
     this.pauseAnimation();
+    this.animationElapsedMs = 0;
+    this.animationStartedAt = 0;
+    this.lastAnimationFrameTimestamp = 0;
     this.resetResultCanvas();
-    this.setProgress(0, 'Animation reset. Replaying from the beginning.');
+    this.setState('animating', 'Animating the result image…');
     this.playAnimation();
   }
 
@@ -1257,7 +1331,7 @@ class UtilitiesApp {
     }
 
     if (selection.kind === 'demo' && selection.url) {
-      const response = await fetch(selection.url);
+      const response = await fetch(selection.url, { mode: 'same-origin' });
       if (!response.ok) {
         throw new Error(`Unable to load demo asset: ${selection.label}`);
       }
@@ -1302,10 +1376,16 @@ class UtilitiesApp {
       throw new Error('Unable to create a canvas for image preparation.');
     }
 
+    const scale = Math.max(width / bitmap.width, height / bitmap.height);
+    const drawnWidth = bitmap.width * scale;
+    const drawnHeight = bitmap.height * scale;
+    const drawnX = (width - drawnWidth) / 2;
+    const drawnY = (height - drawnHeight) / 2;
+
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = 'high';
     context.clearRect(0, 0, width, height);
-    context.drawImage(bitmap, 0, 0, width, height);
+    context.drawImage(bitmap, drawnX, drawnY, drawnWidth, drawnHeight);
     const imageData = context.getImageData(0, 0, width, height);
 
     return {
@@ -1317,57 +1397,137 @@ class UtilitiesApp {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const transformRoot = document.getElementById('utilitiesApp');
-  if (transformRoot) {
-    try {
-      new UtilitiesApp(transformRoot).init();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Utilities failed to initialize.';
-      const statusText = document.getElementById('transformStatusText');
-      if (statusText) {
-        statusText.textContent = message;
-      }
-      transformRoot.dataset.transformStatusMessage = message;
+  const initializedUtilities = new Set<string>();
+  const initializationPromises = new Map<string, Promise<void>>();
+
+  async function initializeUtility(utilityId: string) {
+    if (initializedUtilities.has(utilityId)) {
+      return;
     }
+
+    const pending = initializationPromises.get(utilityId);
+    if (pending) {
+      await pending;
+      return;
+    }
+
+    const promise = (async () => {
+      if (utilityId === 'image-transform') {
+        const transformRoot = document.getElementById('utilitiesApp');
+        if (!transformRoot) {
+          return;
+        }
+        try {
+          new UtilitiesApp(transformRoot).init();
+          initializedUtilities.add(utilityId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Utilities failed to initialize.';
+          const statusText = document.getElementById('transformStatusText');
+          if (statusText) {
+            statusText.textContent = message;
+          }
+          transformRoot.dataset.transformStatusMessage = message;
+        }
+        return;
+      }
+
+      if (utilityId === 'audio-fourier') {
+        const audioFourierRoot = document.getElementById('audioFourierApp');
+        if (!audioFourierRoot) {
+          return;
+        }
+        try {
+          const { AudioFourierController } = await import('./audioFourierController');
+          new AudioFourierController(audioFourierRoot).init();
+          initializedUtilities.add(utilityId);
+        } catch (error) {
+          const statusText = document.getElementById('audioFourierStatusText');
+          if (statusText) {
+            statusText.textContent = error instanceof Error ? error.message : 'Audio Fourier utility failed to initialize.';
+          }
+        }
+        return;
+      }
+
+      if (utilityId === 'death-calculator') {
+        const deathCalculatorRoot = document.getElementById('deathCalculatorApp');
+        if (!deathCalculatorRoot) {
+          return;
+        }
+        try {
+          const { DeathCalculatorController } = await import('./deathCalculatorController');
+          const deathController = new DeathCalculatorController(deathCalculatorRoot);
+          deathController.init();
+          initializedUtilities.add(utilityId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Death Calculator failed to initialize.';
+          const statusText = document.getElementById('deathStatusText');
+          if (statusText) {
+            statusText.textContent = message;
+          }
+          deathCalculatorRoot.dataset.deathStatusMessage = message;
+        }
+        return;
+      }
+
+      if (utilityId === 'virtual-machine') {
+        const vmRoot = document.getElementById('retroVmApp');
+        if (!vmRoot) {
+          return;
+        }
+        try {
+          const { RetroVmController } = await import('./retroVmController');
+          new RetroVmController(vmRoot).init();
+          initializedUtilities.add(utilityId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Retro VM failed to initialize.';
+          const statusText = document.getElementById('retroVmStatusText');
+          if (statusText) {
+            statusText.textContent = message;
+          }
+          vmRoot.dataset.vmStatusMessage = message;
+        }
+        return;
+      }
+
+      if (utilityId === 'stress-test') {
+        const stressRoot = document.getElementById('stressTestApp');
+        if (!stressRoot) {
+          return;
+        }
+        try {
+          const { StressTestController } = await import('./stressTestController');
+          new StressTestController(stressRoot).init();
+          initializedUtilities.add(utilityId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Stress Test failed to initialize.';
+          const statusText = document.getElementById('stressStatusText');
+          if (statusText) {
+            statusText.textContent = message;
+          }
+          stressRoot.dataset.stressStatusMessage = message;
+          stressRoot.dataset.stressState = 'error';
+        }
+      }
+    })().finally(() => {
+      initializationPromises.delete(utilityId);
+    });
+
+    initializationPromises.set(utilityId, promise);
+    await promise;
   }
 
-  const audioFourierRoot = document.getElementById('audioFourierApp');
-  if (audioFourierRoot) {
-    try {
-      new AudioFourierController(audioFourierRoot).init();
-    } catch (error) {
-      const statusText = document.getElementById('audioFourierStatusText');
-      if (statusText) {
-        statusText.textContent = error instanceof Error ? error.message : 'Audio Fourier utility failed to initialize.';
-      }
+  document.addEventListener('utility-activate', (event) => {
+    const stage = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-utility-id]') : null;
+    const utilityId = stage?.dataset.utilityId;
+    if (utilityId) {
+      void initializeUtility(utilityId);
     }
-  }
+  });
 
-  const deathCalculatorRoot = document.getElementById('deathCalculatorApp');
-  if (deathCalculatorRoot) {
-    try {
-      new DeathCalculatorController(deathCalculatorRoot).init();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Death Calculator failed to initialize.';
-      const statusText = document.getElementById('deathStatusText');
-      if (statusText) {
-        statusText.textContent = message;
-      }
-      deathCalculatorRoot.dataset.deathStatusMessage = message;
+  document.querySelectorAll<HTMLElement>('.utility-stage.is-active[data-utility-id]').forEach((stage) => {
+    if (stage.dataset.utilityId) {
+      void initializeUtility(stage.dataset.utilityId);
     }
-  }
-
-  const vmRoot = document.getElementById('retroVmApp');
-  if (vmRoot) {
-    try {
-      new RetroVmController(vmRoot).init();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Retro VM failed to initialize.';
-      const statusText = document.getElementById('retroVmStatusText');
-      if (statusText) {
-        statusText.textContent = message;
-      }
-      vmRoot.dataset.vmStatusMessage = message;
-    }
-  }
+  });
 });

@@ -1,32 +1,28 @@
 /// <reference lib="webworker" />
 
 import {
+  buildEnergyBandEnvelopes,
   buildEnergyBandReconstruction,
+  buildSampleEnvelope,
   buildWindowedFourierAnalysis,
-  type WindowedFourierAnalysis
+  resolveEnvelopeBucketSampleCount
 } from './audioFourierCore';
-import type { AudioFourierWorkerRequest, AudioFourierWorkerResponse } from './audioFourierWorkerTypes';
+import type { AudioFourierAnalyzeRequest, AudioFourierWorkerRequest, AudioFourierWorkerResponse } from './audioFourierWorkerTypes';
 import { getAudioFourierPreset } from './audioPresets';
 import { prepareAudioSignal } from './audioSignal';
+import { arrayBufferLikeToArrayBuffer } from './bufferUtils';
 
-const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 const cancelledRequests = new Set<number>();
-const analyses = new Map<number, WindowedFourierAnalysis>();
-
-function asArrayBuffer(buffer: ArrayBufferLike) {
-  return buffer as ArrayBuffer;
-}
-
-function cloneBuffer(buffer: ArrayBufferLike) {
-  return asArrayBuffer(buffer.slice(0));
-}
+const pendingRequests: AudioFourierAnalyzeRequest[] = [];
+const MAX_PENDING_REQUESTS = 2;
+let isProcessing = false;
 
 function now() {
   return performance.now();
 }
 
 function postMessage(message: AudioFourierWorkerResponse, transfer?: Transferable[]) {
-  workerScope.postMessage(message, transfer ?? []);
+  self.postMessage(message, { transfer: transfer ?? [] });
 }
 
 function assertNotCancelled(requestId: number) {
@@ -35,11 +31,57 @@ function assertNotCancelled(requestId: number) {
   }
 }
 
+function resolveWorkerRequestId(request: unknown) {
+  if (!request || typeof request !== 'object') {
+    return 0;
+  }
+  if (!('requestId' in request)) {
+    return 0;
+  }
+  return typeof request.requestId === 'number' ? request.requestId : 0;
+}
+
+function isAudioFourierAnalyzeRequest(request: unknown): request is AudioFourierAnalyzeRequest {
+  if (!request || typeof request !== 'object') {
+    return false;
+  }
+  return (request as { type?: unknown }).type === 'analyze-audio-fourier'
+    && typeof (request as { requestId?: unknown }).requestId === 'number'
+    && typeof (request as { presetId?: unknown }).presetId === 'string'
+    && typeof (request as { source?: unknown }).source === 'object'
+    && (request as { source?: { channelBuffers?: unknown } }).source !== null;
+}
+
+function isAudioFourierCancelRequest(request: unknown): request is Extract<AudioFourierWorkerRequest, { type: 'cancel-audio-fourier' }> {
+  if (!request || typeof request !== 'object') {
+    return false;
+  }
+  return (request as { type?: unknown }).type === 'cancel-audio-fourier'
+    && typeof (request as { requestId?: unknown }).requestId === 'number';
+}
+
+function postUnexpectedWorkerError(error: unknown, requestId = 0) {
+  postMessage({
+    type: 'audio-fourier-error',
+    requestId,
+    message: error instanceof Error ? error.message : 'Unexpected worker failure during Fourier analysis.'
+  });
+}
+
 async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, { type: 'analyze-audio-fourier' }>) {
   const startedAt = now();
   const preset = getAudioFourierPreset(request.presetId);
 
   try {
+    const maxSourceBytes = preset.maxProxySampleCount * Float32Array.BYTES_PER_ELEMENT * 8;
+    let sourceBytes = 0;
+    for (const buffer of request.source.channelBuffers) {
+      sourceBytes += buffer.byteLength;
+    }
+    if (sourceBytes > maxSourceBytes) {
+      throw new Error('Audio source is too large for worker analysis.');
+    }
+
     const channels = request.source.channelBuffers.map((buffer) => new Float32Array(buffer));
     postMessage({
       type: 'audio-fourier-progress',
@@ -62,7 +104,7 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
     postMessage({
       type: 'audio-fourier-progress',
       requestId: request.requestId,
-      progress: 0.1,
+      progress: 0.12,
       message: 'Running windowed Fourier analysis...'
     });
 
@@ -82,13 +124,12 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
       }
     );
     const analysisMs = now() - analysisStartedAt;
-    analyses.set(request.requestId, analysis);
     assertNotCancelled(request.requestId);
 
     postMessage({
       type: 'audio-fourier-progress',
       requestId: request.requestId,
-      progress: 0.82,
+      progress: 0.62,
       message: 'Rendering live energy bands...'
     });
     const bandsStartedAt = now();
@@ -108,7 +149,36 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
     const bandsMs = now() - bandsStartedAt;
     assertNotCancelled(request.requestId);
 
+    const envelopeBucketSampleCount = resolveEnvelopeBucketSampleCount(prepared.sampleRate);
+    postMessage({
+      type: 'audio-fourier-progress',
+      requestId: request.requestId,
+      progress: 0.96,
+      message: 'Building waveform envelopes...'
+    });
+    const envelopesStartedAt = now();
+    const originalEnvelope = buildSampleEnvelope(analysis.samples, envelopeBucketSampleCount);
+    assertNotCancelled(request.requestId);
+    const bandEnvelopes = buildEnergyBandEnvelopes(
+      bands.bandSamples,
+      bands.sampleCount,
+      bands.bandCount,
+      envelopeBucketSampleCount
+    );
+    const envelopesMs = now() - envelopesStartedAt;
+    assertNotCancelled(request.requestId);
+
     const totalMs = now() - startedAt;
+    const bandSamplesBuffer = arrayBufferLikeToArrayBuffer(bands.bandSamples.buffer);
+    const originalEnvelopeMinBuffer = arrayBufferLikeToArrayBuffer(originalEnvelope.min.buffer);
+    const originalEnvelopeMaxBuffer = arrayBufferLikeToArrayBuffer(originalEnvelope.max.buffer);
+    const bandEnvelopeMinBuffer = arrayBufferLikeToArrayBuffer(bandEnvelopes.min.buffer);
+    const bandEnvelopeMaxBuffer = arrayBufferLikeToArrayBuffer(bandEnvelopes.max.buffer);
+    const bandEndComponentCountsBuffer = arrayBufferLikeToArrayBuffer(bands.bandEndComponentCounts.buffer);
+    const bandEnergyFractionsBuffer = arrayBufferLikeToArrayBuffer(bands.bandEnergyFractions.buffer);
+    const componentFrequenciesBuffer = arrayBufferLikeToArrayBuffer(analysis.componentFrequencies.buffer);
+    const componentAmplitudesBuffer = arrayBufferLikeToArrayBuffer(analysis.componentAmplitudes.buffer);
+    const componentPhasesBuffer = arrayBufferLikeToArrayBuffer(analysis.componentPhases.buffer);
 
     postMessage(
       {
@@ -125,6 +195,8 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
           proxySampleCount: prepared.samples.length,
           componentCount: analysis.componentOrder.length,
           bandCount: bands.bandCount,
+          envelopeBucketSampleCount,
+          envelopeBucketCount: originalEnvelope.bucketCount,
           displaySampleCount: preset.displaySampleCount,
           frameCount: analysis.frameCount,
           frameSize: preset.frameSize,
@@ -134,29 +206,34 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
             proxy: proxyMs,
             analysis: analysisMs,
             bands: bandsMs,
+            envelopes: envelopesMs,
             total: totalMs
           }
         },
-        originalSamples: cloneBuffer(analysis.samples.buffer),
-        bandSamples: asArrayBuffer(bands.bandSamples.buffer),
-        bandEndComponentCounts: asArrayBuffer(bands.bandEndComponentCounts.buffer),
-        bandEnergyFractions: asArrayBuffer(bands.bandEnergyFractions.buffer),
-        fullMixFrame: asArrayBuffer(bands.mixedDisplayFrame.buffer),
-        componentFrequencies: asArrayBuffer(analysis.componentFrequencies.buffer),
-        componentAmplitudes: asArrayBuffer(analysis.componentAmplitudes.buffer),
-        componentPhases: asArrayBuffer(analysis.componentPhases.buffer),
-        componentEnergies: asArrayBuffer(analysis.componentEnergies.buffer)
+        bandSamples: bandSamplesBuffer,
+        originalEnvelopeMin: originalEnvelopeMinBuffer,
+        originalEnvelopeMax: originalEnvelopeMaxBuffer,
+        bandEnvelopeMin: bandEnvelopeMinBuffer,
+        bandEnvelopeMax: bandEnvelopeMaxBuffer,
+        bandEndComponentCounts: bandEndComponentCountsBuffer,
+        bandEnergyFractions: bandEnergyFractionsBuffer,
+        componentFrequencies: componentFrequenciesBuffer,
+        componentAmplitudes: componentAmplitudesBuffer,
+        componentPhases: componentPhasesBuffer
       },
       [
-        asArrayBuffer(bands.bandSamples.buffer),
-        asArrayBuffer(bands.bandEndComponentCounts.buffer),
-        asArrayBuffer(bands.bandEnergyFractions.buffer),
-        asArrayBuffer(bands.mixedDisplayFrame.buffer),
-        asArrayBuffer(analysis.componentFrequencies.buffer),
-        asArrayBuffer(analysis.componentAmplitudes.buffer),
-        asArrayBuffer(analysis.componentPhases.buffer),
-        asArrayBuffer(analysis.componentEnergies.buffer)
+        bandSamplesBuffer,
+        originalEnvelopeMinBuffer,
+        originalEnvelopeMaxBuffer,
+        bandEnvelopeMinBuffer,
+        bandEnvelopeMaxBuffer,
+        bandEndComponentCountsBuffer,
+        bandEnergyFractionsBuffer,
+        componentFrequenciesBuffer,
+        componentAmplitudesBuffer,
+        componentPhasesBuffer
       ]
+      // None of the above ArrayBuffers share backing stores: bands.* and envelopes are freshly allocated, and the component arrays (frequencies/amplitudes/phases) own their buffers from the analysis constructor.
     );
   } catch (error) {
     if (/cancelled/i.test(error instanceof Error ? error.message : '')) {
@@ -177,12 +254,66 @@ async function handleAnalyzeRequest(request: Extract<AudioFourierWorkerRequest, 
   }
 }
 
-workerScope.onmessage = (event: MessageEvent<AudioFourierWorkerRequest>) => {
-  const request = event.data;
-  if (request.type === 'cancel-audio-fourier') {
-    cancelledRequests.add(request.requestId);
-    return;
-  }
+async function processQueue() {
+  if (isProcessing || pendingRequests.length === 0) return;
+  isProcessing = true;
 
-  void handleAnalyzeRequest(request);
+  try {
+    while (pendingRequests.length > 0) {
+      const request = pendingRequests.shift()!;
+      if (cancelledRequests.has(request.requestId)) {
+        cancelledRequests.delete(request.requestId);
+        continue;
+      }
+      await handleAnalyzeRequest(request);
+    }
+  } finally {
+    isProcessing = false;
+    if (pendingRequests.length > 0) {
+      queueProcessing();
+    }
+  }
+}
+
+function queueProcessing() {
+  void processQueue().catch((error) => {
+    isProcessing = false;
+    postUnexpectedWorkerError(error);
+  });
+}
+
+self.onmessage = (event: MessageEvent<unknown>) => {
+  try {
+    const request = event.data;
+    if (isAudioFourierCancelRequest(request)) {
+      cancelledRequests.add(request.requestId);
+      return;
+    }
+
+    if (!isAudioFourierAnalyzeRequest(request)) {
+      postMessage({
+        type: 'audio-fourier-error',
+        requestId: resolveWorkerRequestId(request),
+        message: 'Malformed worker message: missing or unrecognized type.'
+      });
+      return;
+    }
+
+    if (!request.presetId) {
+      postMessage({
+        type: 'audio-fourier-error',
+        requestId: request.requestId,
+        message: 'Malformed worker message: missing presetId.'
+      });
+      return;
+    }
+
+    if (pendingRequests.length >= MAX_PENDING_REQUESTS) {
+      pendingRequests.shift();
+    }
+    pendingRequests.push(request);
+    queueProcessing();
+  } catch (error) {
+    postUnexpectedWorkerError(error);
+  }
 };

@@ -1,6 +1,10 @@
 /*
  * Oliver Unified design system
  * A bespoke, elegant design language with contextual variations
+ *
+ * NOTE: When editing design tokens (colors, typography, spacing), refer to
+ * the project root Design.md for the canonical industrialist aesthetic,
+ * base colors, and per-page flare-color assignments.
  */
 
 /* ========================================
@@ -220,25 +224,54 @@
   --gradient-subtle: linear-gradient(135deg, #0f0f16 0%, #0a0a0e 100%);
 }
 
-/* Utilities Theme - Warm experimental palette anchored by Vanilla Custard */
-[data-theme="utilities"],
-[data-theme="dashboard"] {
-  --color-bg-primary: #0f0d09;
-  --color-bg-secondary: #17130e;
-  --color-bg-tertiary: #201a13;
-  --color-bg-elevated: #282017;
-  --color-surface: #15110c;
-  --color-surface-hover: #1c1710;
-  --color-surface-active: #241d14;
-  --color-border: rgba(235, 228, 179, 0.11);
-  --color-accent: #EBE4B3;
-  --color-accent-hover: #f5efc7;
-  --color-accent-muted: #d2c98d;
-  --color-accent-subtle: rgba(235, 228, 179, 0.1);
-  --shadow-glow: 0 0 20px rgba(235, 228, 179, 0.14);
-  --shadow-glow-lg: 0 0 40px rgba(235, 228, 179, 0.18);
-  --gradient-accent: linear-gradient(135deg, #f5efc7 0%, #ebe4b3 52%, #c69c5e 100%);
-  --gradient-subtle: linear-gradient(135deg, #17130e 0%, #0f0d09 100%);
+/* Utilities Theme - Pure-black technical palette */
+[data-theme="utilities"] {
+  --font-display: 'JetBrains Mono', 'Fira Code', monospace;
+  --color-bg-primary: #000000;
+  --color-bg-secondary: #050505;
+  --color-bg-tertiary: #0a0a0a;
+  --color-bg-elevated: #111111;
+  --color-surface: #080808;
+  --color-surface-hover: #0e0e0e;
+  --color-surface-active: #131313;
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #a0a0a0;
+  --color-text-tertiary: #666666;
+  --color-text-muted: #555555;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-subtle: rgba(255, 255, 255, 0.04);
+  --color-border-emphasis: rgba(255, 255, 255, 0.14);
+  --color-border-glass: rgba(255, 255, 255, 0.08);
+  --color-accent: #ffffff;
+  --color-accent-hover: #e0e0e0;
+  --color-accent-muted: #888888;
+  --color-accent-subtle: rgba(255, 255, 255, 0.1);
+  --shadow-glow: 0 0 20px rgba(255, 255, 255, 0.1);
+  --shadow-glow-lg: 0 0 40px rgba(255, 255, 255, 0.14);
+  --gradient-accent: linear-gradient(135deg, #ffffff, #aaaaaa);
+  --gradient-subtle: linear-gradient(135deg, #050505, #000000);
+}
+
+/* ========================================
+   Starfield Background
+   ======================================== */
+
+#starfield {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+  background: #000000;
+  opacity: 0;
+  animation: fade-in-stars 2s ease-in forwards;
+}
+
+@keyframes fade-in-stars {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* Global Light Mode */
@@ -312,13 +345,9 @@ html[data-color-mode="light"][data-theme="resume"] {
   --gradient-accent: linear-gradient(135deg, #5f84cc 0%, #2f5cae 50%, #244a92 100%);
 }
 
-html[data-color-mode="light"][data-theme="utilities"],
-html[data-color-mode="light"][data-theme="dashboard"] {
-  --color-accent: #8d7130;
-  --color-accent-hover: #775d24;
-  --color-accent-muted: #a1833f;
-  --color-accent-subtle: rgba(141, 113, 48, 0.14);
-  --gradient-accent: linear-gradient(135deg, #f1e7b1 0%, #d9c276 52%, #8d7130 100%);
+/* Light mode disabled on utilities page via data-disable-color-mode */
+html[data-color-mode="light"][data-theme="utilities"] {
+  /* Inert: utilities page forces dark mode; these tokens are unused. */
 }
 
 /* ========================================
@@ -331,6 +360,18 @@ html[data-color-mode="light"][data-theme="dashboard"] {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 html {
@@ -346,7 +387,7 @@ html[data-color-mode="light"] {
 }
 
 body {
-  font-family: var(--font-body);
+  font-family: var(--font-body), sans-serif;
   font-size: var(--text-base);
   line-height: var(--leading-normal);
   color: var(--color-text-primary);
@@ -363,23 +404,13 @@ body {
   color: white;
 }
 
-/* Scrollbar styling */
+/* Scrollbar removed globally */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  display: none;
 }
 
-::-webkit-scrollbar-track {
-  background: var(--color-bg-secondary);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--color-border-emphasis);
-  border-radius: var(--radius-full);
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-muted);
+html {
+  scrollbar-width: none;
 }
 
 /* ========================================
@@ -387,7 +418,7 @@ body {
    ======================================== */
 
 .text-display {
-  font-family: var(--font-display);
+  font-family: var(--font-display), serif;
   font-weight: var(--weight-normal);
   text-shadow: 0.012em 0 currentColor, -0.012em 0 currentColor;
   letter-spacing: var(--tracking-tighter);
@@ -395,20 +426,20 @@ body {
 }
 
 .text-heading {
-  font-family: var(--font-body);
+  font-family: var(--font-body), sans-serif;
   font-weight: var(--weight-semibold);
   letter-spacing: var(--tracking-tight);
   line-height: var(--leading-snug);
 }
 
 .text-body {
-  font-family: var(--font-body);
+  font-family: var(--font-body), sans-serif;
   font-weight: var(--weight-normal);
   line-height: var(--leading-relaxed);
 }
 
 .text-mono {
-  font-family: var(--font-mono);
+  font-family: var(--font-mono), monospace;
   font-size: 0.9em;
 }
 
@@ -566,10 +597,20 @@ body {
   padding: 1px;
   background: linear-gradient(to bottom, rgba(255, 255, 255, 0.1), transparent);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  /* NOTE: -webkit-mask-composite: xor is the WebKit equivalent of mask-composite: exclude.
+     Rendering may differ slightly across WebKit versions (Safari < 15.4, older iOS).
+     The @supports fallback below disables the pseudo-element entirely where mask-composite
+     is unsupported, which also avoids the -webkit-mask-composite path in those browsers. */
   -webkit-mask-composite: xor;
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask-composite: exclude;
   pointer-events: none;
+}
+
+@supports not (mask-composite: exclude) {
+  .card::before {
+    content: none;
+  }
 }
 
 .card:hover {
@@ -585,6 +626,8 @@ body {
 }
 
 html[data-color-mode="light"] .card {
+  background: #F7F8F6;
+  border-color: #C7D1C4;
   background: color-mix(in srgb, white 88%, var(--color-surface) 12%);
   border-color: color-mix(in srgb, var(--color-border-emphasis) 72%, white 28%);
 }
@@ -594,6 +637,8 @@ html[data-color-mode="light"] .card::before {
 }
 
 html[data-color-mode="light"] .card:hover {
+  border-color: #A7B99E;
+  background: #F1F3EF;
   border-color: color-mix(in srgb, var(--color-accent) 28%, var(--color-border-emphasis));
   background: color-mix(in srgb, white 84%, var(--color-surface-hover) 16%);
   box-shadow: var(--shadow-xl), 0 0 16px rgba(17, 23, 20, 0.08);
@@ -606,7 +651,7 @@ html[data-color-mode="light"] .card:hover {
   justify-content: center;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-6);
-  font-family: var(--font-body);
+  font-family: var(--font-body), sans-serif;
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
   letter-spacing: var(--tracking-wide);
@@ -645,6 +690,7 @@ html[data-color-mode="light"] .card:hover {
 }
 
 html[data-color-mode="light"] .btn-secondary {
+  background: #F8F9F7;
   background: color-mix(in srgb, white 90%, var(--color-surface) 10%);
 }
 
@@ -910,6 +956,7 @@ body.nav-open .nav.scrolled {
 }
 
 .nav.scrolled {
+  background: rgba(13, 15, 13, 0.85);
   background: color-mix(in srgb, var(--color-bg-primary) 85%, transparent);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -939,7 +986,7 @@ body.nav-open .nav.scrolled {
 }
 
 .logo-text {
-  font-family: var(--font-display);
+  font-family: var(--font-display), serif;
   font-size: var(--text-3xl);
   text-shadow: 0.01em 0 currentColor, -0.01em 0 currentColor;
   color: var(--color-text-primary);
@@ -1002,7 +1049,7 @@ body.nav-open .nav.scrolled {
 
 .nav-overlay .nav-link {
   --nav-link-shift-x: 0px;
-  font-family: var(--font-display);
+  font-family: var(--font-display), serif;
   font-size: clamp(3rem, 6vw, 6rem);
   line-height: var(--leading-none);
   color: var(--color-text-primary);
@@ -1016,33 +1063,32 @@ body.nav-open .nav.scrolled {
   opacity: 0;
   transform: translate3d(var(--nav-link-shift-x), 40px, 0) rotate(2deg);
   transform-origin: left center;
-  transition: opacity 0.24s ease, transform 0.16s ease, color 0.14s ease;
+  transition: opacity 0.24s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s ease, text-shadow 0.2s ease;
 }
 
 .nav-overlay .nav-link:is(:hover, :focus-visible) {
-  --nav-link-shift-x: 12px;
+  --nav-link-shift-x: 24px;
 }
 
 /* Per-destination nav link hover colors */
 .nav-overlay .nav-link--home:is(:hover, :focus-visible) {
-  color: #2A6356;
+  text-shadow: 0 0 20px rgba(255, 103, 0, 0.8), 0 0 40px rgba(255, 103, 0, 0.4), 0.012em 0 currentColor, -0.012em 0 currentColor;
 }
 
 .nav-overlay .nav-link--gallery:is(:hover, :focus-visible) {
-  color: #9693CC;
+  text-shadow: 0 0 20px rgba(0, 75, 168, 0.8), 0 0 40px rgba(0, 75, 168, 0.4), 0.012em 0 currentColor, -0.012em 0 currentColor;
 }
 
 .nav-overlay .nav-link--archive:is(:hover, :focus-visible) {
-  color: #CDDBCD;
+  text-shadow: 0 0 20px rgba(205, 219, 205, 0.8), 0 0 40px rgba(205, 219, 205, 0.4), 0.012em 0 currentColor, -0.012em 0 currentColor;
 }
 
 .nav-overlay .nav-link--resume:is(:hover, :focus-visible) {
-  color: #6C8FD5;
+  text-shadow: 0 0 20px rgba(43, 168, 74, 0.8), 0 0 40px rgba(43, 168, 74, 0.4), 0.012em 0 currentColor, -0.012em 0 currentColor;
 }
 
-.nav-overlay .nav-link--utilities:is(:hover, :focus-visible),
-.nav-overlay .nav-link--dashboard:is(:hover, :focus-visible) {
-  color: #EBE4B3;
+.nav-overlay .nav-link--utilities:is(:hover, :focus-visible) {
+  text-shadow: 0 0 20px rgba(93, 63, 211, 0.8), 0 0 40px rgba(93, 63, 211, 0.4), 0.012em 0 currentColor, -0.012em 0 currentColor;
 }
 
 /* Entrance animations */
@@ -1149,7 +1195,7 @@ body.nav-open .nav.scrolled {
   z-index: calc(var(--z-modal) + 2);
   width: 48px;
   height: 48px;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
 }
 
@@ -1192,6 +1238,7 @@ body.nav-open .nav.scrolled {
   padding: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
+  background: rgba(13, 15, 13, 0.84);
   background: color-mix(in srgb, var(--color-bg-primary) 84%, transparent);
   color: var(--color-text-secondary);
   transition: all var(--duration-base) var(--ease-smooth);
@@ -1253,6 +1300,7 @@ body.nav-open .nav.scrolled {
 }
 
 html[data-color-mode="light"] .theme-toggle {
+  background: #F8F9F7;
   background: color-mix(in srgb, white 88%, var(--color-bg-primary) 12%);
   color: var(--color-accent-muted);
 }
@@ -1417,4 +1465,41 @@ html[data-color-mode="light"] .theme-toggle {
   z-index: 9999;
   opacity: 0.015;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+}
+
+/* ========================================
+   Smooth scroll target offset (used by main.js)
+   Replaces inline scrollMarginTop with a CSS class
+   to avoid forced reflows and residual styles.
+   ======================================== */
+
+.smooth-scroll-target {
+  scroll-margin-top: var(--smooth-scroll-offset, 100px);
+}
+
+/* ========================================
+   Shared Nav Dot (canonical definition)
+   Used by schematic.css, gallery.css, resume.css.
+   Each page's stylesheet may add size/inner-content overrides.
+   ======================================== */
+
+.nav-dot {
+  position: fixed;
+  top: 1rem;
+  right: 1.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #000000;
+  cursor: pointer;
+  z-index: 1000;
+  transition: transform 120ms ease, opacity 160ms ease;
+}
+
+.nav-dot:hover {
+  transform: scale(1.08);
+}
+
+body.nav-open .nav-dot {
+  opacity: 0.6;
 }

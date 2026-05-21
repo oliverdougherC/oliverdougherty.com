@@ -1,4 +1,6 @@
-export type BuiltInAudioPresetId = 'best-friends' | 'i-cant-wait-to-get-there' | 'party-after-party';
+import type { WindowedFourierOptions } from './audioFourierCore';
+
+export type BuiltInAudioPresetId = 'best-friends' | 'i-cant-wait-to-get-there' | 'tell-your-friends';
 export type AudioFourierPresetId = 'fast' | 'balanced' | 'detailed';
 
 export interface BuiltInAudioPreset {
@@ -8,15 +10,12 @@ export interface BuiltInAudioPreset {
   url: string;
 }
 
-export interface AudioFourierPreset {
+export interface AudioFourierPreset extends WindowedFourierOptions {
   id: AudioFourierPresetId;
   label: string;
   proxySampleRate: number;
   maxProxySampleCount: number;
   maxDurationSeconds: number;
-  frameSize: number;
-  hopSize: number;
-  displaySampleCount: number;
   sliderSteps: number;
   energyBandCount: number;
 }
@@ -38,11 +37,11 @@ export const BUILT_IN_AUDIO_PRESETS: Record<BuiltInAudioPresetId, BuiltInAudioPr
     description: 'Song source for Fourier proxy reconstruction.',
     url: `${FOURIER_DECOMPOSE_ASSET_BASE}/I Can't Wait To Get There.flac`
   },
-  'party-after-party': {
-    id: 'party-after-party',
-    label: 'The Party & The After Party',
+  'tell-your-friends': {
+    id: 'tell-your-friends',
+    label: 'Tell Your Friends',
     description: 'Song source for Fourier proxy reconstruction.',
-    url: `${FOURIER_DECOMPOSE_ASSET_BASE}/The Party & The After Party.flac`
+    url: `${FOURIER_DECOMPOSE_ASSET_BASE}/Tell Your Friends.flac`
   }
 };
 
@@ -56,8 +55,8 @@ export const AUDIO_FOURIER_PRESETS: Record<AudioFourierPresetId, AudioFourierPre
     frameSize: 1024,
     hopSize: 512,
     displaySampleCount: 768,
-    sliderSteps: 100,
-    energyBandCount: 12
+    sliderSteps: 80,
+    energyBandCount: 8
   },
   balanced: {
     id: 'balanced',
@@ -75,16 +74,27 @@ export const AUDIO_FOURIER_PRESETS: Record<AudioFourierPresetId, AudioFourierPre
     id: 'detailed',
     label: 'Detailed',
     proxySampleRate: 32_000,
-    maxProxySampleCount: 8_000_000,
+    maxProxySampleCount: 6_000_000,
     maxDurationSeconds: 8 * 60,
     frameSize: 4096,
     hopSize: 2048,
     displaySampleCount: 1280,
-    sliderSteps: 100,
-    energyBandCount: 12
+    sliderSteps: 120,
+    energyBandCount: 20
   }
 };
 
-export function getAudioFourierPreset(id: AudioFourierPresetId) {
+export function isAudioFourierPresetId(id: string): id is AudioFourierPresetId {
+  return Object.prototype.hasOwnProperty.call(AUDIO_FOURIER_PRESETS, id);
+}
+
+export function isBuiltInAudioPresetId(id: string): id is BuiltInAudioPresetId {
+  return Object.prototype.hasOwnProperty.call(BUILT_IN_AUDIO_PRESETS, id);
+}
+
+export function getAudioFourierPreset(id: string): AudioFourierPreset {
+  if (!isAudioFourierPresetId(id)) {
+    throw new Error(`Unknown audio Fourier preset: ${id}`);
+  }
   return AUDIO_FOURIER_PRESETS[id];
 }

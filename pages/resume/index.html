@@ -1,155 +1,103 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="resume">
+<html lang="en" data-disable-color-mode>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Resume - Oliver Dougherty</title>
+  <title>Resume</title>
   <meta name="description" content="Oliver Dougherty - Computer Engineering student, developer, and creator.">
   <link rel="alternate" media="only screen and (max-width: 760px)" href="../../mobile/resume/">
-  <link rel="icon" type="image/svg+xml" href="/favicon-happy.svg?v=face-5" id="favicon">
-  <link rel="alternate icon" href="/favicon-happy.ico?v=face-5" id="favicon-fallback">
-  <script>document.addEventListener('visibilitychange',function(){var hidden=document.hidden;var f=document.getElementById('favicon');var i=document.getElementById('favicon-fallback');if(f)f.href=hidden?'/favicon-sad.svg?v=face-5':'/favicon-happy.svg?v=face-5';if(i)i.href=hidden?'/favicon-sad.ico?v=face-5':'/favicon-happy.ico?v=face-5'})</script>
+  <meta property="og:title" content="Oliver Dougherty Resume">
+  <meta property="og:description" content="Electrical and Computer Engineering student focused on systems, signal processing, and creative technical work.">
+  <meta property="og:type" content="profile">
+  <meta property="og:url" content="https://oliverdougherty.com/pages/resume/">
+  <meta property="og:image" content="https://oliverdougherty.com/assets/images/blueprint-david.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Oliver Dougherty Resume">
+  <meta name="twitter:description" content="Electrical and Computer Engineering student focused on systems, signal processing, and creative technical work.">
+  <meta name="twitter:image" content="https://oliverdougherty.com/assets/images/blueprint-david.jpg">
+  <script src="../../js/mobile-gate.js" data-mobile-target="../../mobile/resume/"></script>
+  <link rel="icon" type="image/svg+xml" href="/favicon-happy.svg?v=face-6" id="favicon">
+  <link rel="alternate icon" href="/favicon-happy.ico?v=face-6" id="favicon-fallback">
+  <script src="../../js/favicon-swap.js" defer></script>
 
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=JetBrains+Mono:wght@200;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=JetBrains+Mono:wght@200;800&display=swap" rel="stylesheet"></noscript>
 
   <!-- Styles -->
   <link rel="stylesheet" href="../../css/design-system.css">
   <link rel="stylesheet" href="../../css/resume.css">
   <link rel="stylesheet" href="../../css/cursor.css">
+
+  <!-- Fallback: show data-animate elements if JS is disabled -->
+  <noscript>
+    <style>
+      [data-animate] {
+        opacity: 1 !important;
+        transform: none !important;
+      }
+    </style>
+  </noscript>
 </head>
 <body>
-  <div class="noise-overlay"></div>
 
-  <!-- Autonomous Fox AI V2.1 -->
-  <div class="cursor-fox" id="cursorFox">
-    <div class="fox-emote" id="foxEmote"></div>
-    <!-- Pre-rendered layers to prevent state-swap flicker -->
-    <div class="fox-layer" id="animIdle" style="background-image: url('../../assets/Fox_Idle_with_shadow.png'); opacity: 1;"></div>
-    <div class="fox-layer" id="animWalk" style="background-image: url('../../assets/Fox_walk_with_shadow.png'); opacity: 0;"></div>
-    <div class="fox-layer" id="animRun"  style="background-image: url('../../assets/Fox_Run_with_shadow.png');  opacity: 0;"></div>
-  </div>
-
-  <style>
-    .cursor-fox {
-      position: absolute;
-      z-index: 100;
-      width: 32px;
-      height: 32px;
-      transform-origin: center center;
-      opacity: 0;
-      transition: opacity 0.5s ease-in;
-      pointer-events: none;
-      will-change: transform;
-    }
-    .fox-layer {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 32px;
-      height: 32px;
-      background-repeat: no-repeat;
-      image-rendering: pixelated;
-      transform: scale(2); /* 64px visual size */
-      transform-origin: top left;
-      pointer-events: none;
-      cursor: default;
-      will-change: opacity, background-position;
-    }
-    .fox-emote {
-      position: absolute;
-      top: -24px;
-      left: 50%;
-      transform: translateX(-50%) scale(0);
-      background: white;
-      border: 2px solid #2C3E50;
-      border-radius: 10px;
-      padding: 2px 6px;
-      font-size: 14px;
-      font-weight: bold;
-      color: #2C3E50;
-      pointer-events: none;
-      white-space: nowrap;
-      opacity: 0;
-      transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-      z-index: 101;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .fox-emote.visible {
-      transform: translateX(-50%) scale(1);
-      opacity: 1;
-    }
-    /* Gentler happy wiggle (Faster vibration) */
-    @keyframes wiggle {
-      0%, 100% { transform: rotate(0deg) scale(2); }
-      25% { transform: rotate(-3deg) scale(2); }
-      75% { transform: rotate(3deg) scale(2); }
-    }
-    .fox-happy .fox-layer {
-      animation: wiggle 0.25s ease-in-out infinite;
-    }
-  </style>
-
-  <!-- Navigation -->
-  <nav class="nav" id="nav">
-    <div class="nav-inner container">
-      <a href="../../index.html" class="nav-logo" data-cursor="hover">
-        <span class="logo-text">O<span class="logo-d">D</span></span>
-      </a>
-
-      <div class="nav-controls">
-        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to light mode" aria-pressed="false" data-cursor="hover">
-          <span class="theme-toggle-icon" aria-hidden="true"></span>
-        </button>
-        <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false" data-cursor="hover">
-          <span></span>
-          <span></span>
-        </button>
-      </div>
-    </div>
-  </nav>
+  <button class="nav-dot resume-hidden" id="navToggle" aria-label="Open menu" aria-expanded="false" style="pointer-events: none;">
+    <span class="sr-only" data-nav-toggle-label>Open menu</span>
+  </button>
 
   <!-- Fullscreen Menu Overlay -->
-  <div class="nav-overlay" id="navOverlay">
+  <div class="nav-overlay" id="navOverlay" aria-hidden="true">
     <div class="nav-overlay-bg"></div>
-    <div class="nav-links container" id="navLinks">
+    <nav class="nav-links container" id="navLinks" aria-label="Primary">
       <div class="nav-menu-header">Menu</div>
-      <a href="../../index.html" class="nav-link nav-link--home" data-cursor="hover">Home</a>
-      <a href="." class="nav-link nav-link--resume active" aria-current="page" data-cursor="hover">Resume</a>
-      <a href="../gallery/index.html" class="nav-link nav-link--gallery" data-cursor="hover">Gallery</a>
-      <a href="../dashboard/index.html" class="nav-link nav-link--utilities" data-cursor="hover">Utilities</a>
+      <a href="../../index.html" class="nav-link nav-link--home">Home</a>
+      <a href="." class="nav-link nav-link--resume active" aria-current="page">Resume</a>
+      <a href="../gallery/index.html" class="nav-link nav-link--gallery">Gallery</a>
+      <a href="../utilities/index.html" class="nav-link nav-link--utilities">Utilities</a>
 
       <div class="nav-menu-footer">
-        <a href="mailto:oliverfdougherty@gmail.com" class="footer-link" data-cursor="hover">Contact</a>
-        <a href="https://github.com/oliverdougherC" class="footer-link" target="_blank" rel="noopener noreferrer" data-cursor="hover">Github</a>
+        <a href="mailto:oliverfdougherty@gmail.com" class="footer-link">Contact</a>
+        <a href="https://github.com/oliverdougherC" class="footer-link" target="_blank" rel="noopener noreferrer">Github</a>
       </div>
-    </div>
+    </nav>
   </div>
 
   <main class="resume-main">
     <!-- Hero -->
-    <header class="resume-hero">
-      <div class="container">
-        <div class="hero-content" data-animate="fade-up">
-          <span class="hero-tag">Resume</span>
-          <h1 class="hero-title text-display">Oliver Dougherty</h1>
-          <p class="hero-subtitle">Electrical Engineering Student</p>
-          <div class="hero-contact">
-            <a href="mailto:oliverfdougherty@gmail.com" class="contact-item">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
-                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-                <polyline points="22,6 12,13 2,6"/>
-              </svg>
-              <span>oliverfdougherty@gmail.com</span>
-            </a>
-            <a href="https://github.com/oliverdougherC" class="contact-item" target="_blank" rel="noopener noreferrer">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
-                <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
-              </svg>
-              <span>oliverdougherC</span>
-            </a>
+    <header class="resume-hero schematic-wrapper">
+      <div class="schematic-grid" aria-hidden="true">
+        <div class="grid-cell">
+          <div class="meta-tiny top-left-pos resume-hidden"><span class="resume-accent-swatch">#2BA84A</span> // RESUME</div>
+        </div>
+        <div class="grid-cell"></div>
+        <div class="grid-cell"></div>
+        <div class="grid-cell"></div>
+      </div>
+
+      <div class="resume-hero-overlay">
+        <div class="container">
+          <div class="hero-content" id="officeSpaceMemo">
+            <h1 class="hero-title text-display">
+              <span class="redact-target" id="typeTargetName1">Oliver</span> <span class="name-flair redact-target" id="typeTargetName2" style="white-space: nowrap;">Dougherty</span>
+            </h1>
+            <p class="hero-subtitle redact-target" id="typeTargetSubtitle">Electrical Engineering Student</p>
+            <div class="hero-contact resume-hidden">
+              <a href="mailto:oliverfdougherty@gmail.com" class="contact-item">
+                <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                  <polyline points="22,6 12,13 2,6"/>
+                </svg>
+                <span>oliverfdougherty@gmail.com</span>
+              </a>
+              <a href="https://github.com/oliverdougherC" class="contact-item" target="_blank" rel="noopener noreferrer">
+                <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                  <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
+                </svg>
+                <span>oliverdougherC</span>
+              </a>
+            </div>
           </div>
         </div>
       </div>
@@ -163,23 +111,17 @@
           <!-- Education -->
           <section class="resume-section" data-animate="fade-up">
             <h2 class="section-heading">
-              <span class="heading-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
-                  <path d="M6 12v5c3 3 9 3 12 0v-5"/>
-                </svg>
-              </span>
               Education
             </h2>
             <div class="education-card">
               <div class="edu-header">
-                <h3 class="edu-school">Oregon State University</h3>
-                <span class="edu-location">Corvallis, OR</span>
+                <h3 class="edu-school"><span class="redact-target">Oregon State University</span></h3>
+                <span class="edu-location redact-target">Corvallis, OR</span>
               </div>
               <div class="edu-details">
-                <p class="edu-degree">B.S. in Electrical and Computer Engineering</p>
-                <p class="edu-minor">Minor in Mathematics</p>
-                <p class="edu-date">Expected Graduation: June 2028</p>
+                <p class="edu-degree"><span class="redact-target">B.S. in Electrical and Computer Engineering</span></p>
+                <p class="edu-minor"><span class="redact-target">Minor in Mathematics</span></p>
+                <p class="edu-date"><span class="redact-target">Expected Graduation: June 2028</span></p>
               </div>
               <div class="edu-coursework">
                 <h4 class="coursework-title">Relevant Coursework</h4>
@@ -195,22 +137,15 @@
           <!-- Projects -->
           <section class="resume-section" data-animate="fade-up">
             <h2 class="section-heading">
-              <span class="heading-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polygon points="12 2 2 7 12 12 22 7 12 2"/>
-                  <polyline points="2 17 12 22 22 17"/>
-                  <polyline points="2 12 12 17 22 12"/>
-                </svg>
-              </span>
               Projects
             </h2>
 
             <div class="project-card">
               <div class="project-header">
-                <h3 class="project-name">NatGen</h3>
-                <span class="project-date">June 2025 - Present</span>
+                <h3 class="project-name"><span class="redact-target">NatGen</span></h3>
+                <span class="project-date redact-target">June 2025 - Present</span>
               </div>
-              <p class="project-type">Collaborative Project (Closed Source)</p>
+              <p class="project-type"><span class="redact-target">Collaborative Project (Closed Source)</span></p>
               <ul class="project-details">
                 <li>Developed a generative AI model using a diffusion architecture in PyTorch to synthesize nature sounds</li>
                 <li>Produced in collaboration with SoundTrip LLC</li>
@@ -224,19 +159,19 @@
 
             <div class="project-card">
               <div class="project-header">
-                <h3 class="project-name">Encoding DB</h3>
-                <span class="project-date">Aug. 2025 - Present</span>
+                <h3 class="project-name"><span class="redact-target">Better VMAF</span></h3>
+                <span class="project-date redact-target">Aug. 2025 - Present</span>
               </div>
-              <a href="https://encodingdb.platinumlabs.dev" class="project-link" target="_blank" rel="noopener noreferrer">EncodingDB.PlatinumLabs.dev</a>
+              <a href="https://github.com/oliverdougherC/BetterVMAF" class="project-link" target="_blank" rel="noopener noreferrer">github.com/oliverdougherC/BetterVMAF</a>
               <ul class="project-details">
-                <li>Public, FFmpeg-based video encoding database intended to help users find the right encoding settings for their application</li>
-                <li>Architected a RESTful backend using Node.js, Express, and Prisma with a PostgreSQL database</li>
+                <li>Native macOS app for calculating VMAF scores between two videos with single and batch modes</li>
+                <li>Built with Swift and SwiftUI, includes bundled FFmpeg and libvmaf for zero-config setup</li>
               </ul>
               <div class="project-tech">
-                <span class="tech-tag">Node.js</span>
-                <span class="tech-tag">Express</span>
-                <span class="tech-tag">PostgreSQL</span>
+                <span class="tech-tag">Swift</span>
                 <span class="tech-tag">FFmpeg</span>
+                <span class="tech-tag">VMAF</span>
+                <span class="tech-tag">Video Analysis</span>
               </div>
             </div>
           </section>
@@ -244,19 +179,13 @@
           <!-- Experience -->
           <section class="resume-section" data-animate="fade-up">
             <h2 class="section-heading">
-              <span class="heading-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
-                  <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
-                </svg>
-              </span>
               Experience
             </h2>
 
             <div class="experience-card">
               <div class="exp-header">
-                <h3 class="exp-title">UPS Store, Center Associate</h3>
-                <span class="exp-date">Feb. 2024 - Dec. 2025</span>
+                <h3 class="exp-title"><span class="redact-target">UPS Store, Center Associate</span></h3>
+                <span class="exp-date redact-target">Feb. 2024 - Dec. 2025</span>
               </div>
               <ul class="exp-details">
                 <li>Managing shipments and troubleshooting errors during high-volume operations</li>
@@ -271,12 +200,6 @@
           <!-- Skills -->
           <section class="resume-section sidebar-section" data-animate="fade-up">
             <h2 class="section-heading">
-              <span class="heading-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="16 18 22 12 16 6"/>
-                  <polyline points="8 6 2 12 8 18"/>
-                </svg>
-              </span>
               Technical Skills
             </h2>
 
@@ -317,24 +240,16 @@
           <!-- Clubs & Involvement -->
           <section class="resume-section sidebar-section" data-animate="fade-up">
             <h2 class="section-heading">
-              <span class="heading-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                  <circle cx="9" cy="7" r="4"/>
-                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                  <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                </svg>
-              </span>
               Clubs & Involvement
             </h2>
 
             <div class="involvement-card">
-              <h3 class="involvement-title">Computer Hardware Club at OSU</h3>
-              <p class="involvement-role">Founder and Vice-President</p>
-              <span class="involvement-date">Nov. 2024 - Present</span>
+              <h3 class="involvement-title"><span class="redact-target">Computer Hardware Club at OSU</span></h3>
+              <p class="involvement-role"><span class="redact-target">Founder and Vice-President</span></p>
+              <span class="involvement-date redact-target">Nov. 2024 - Present</span>
               <ul class="involvement-details">
-                <li>Building and maintaining Dell PowerEdge R620 server running Nginx and Nginx Proxy Manager</li>
-                <li>Led workshops on Docker and CUDA for 20+ members</li>
+                <li>Scaled club from 0 members to 100+ in a single year</li>
+                <li>Designed and led workshops on Docker, CUDA, Soldering, KiCAD, and more</li>
               </ul>
             </div>
           </section>
@@ -343,271 +258,8 @@
     </div>
   </main>
 
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="container">
-      <div class="footer-inner">
-        <p class="footer-text">&copy; <span data-current-year>2026</span> Oliver Dougherty</p>
-      </div>
-    </div>
-  </footer>
-
   <script src="../../js/year.js" defer></script>
   <script src="../../js/main.js" defer></script>
-  <script>
-    // Autonomous Fox AI V2.1
-    (function() {
-      const container = document.getElementById('cursorFox');
-      const emoteBubble = document.getElementById('foxEmote');
-
-      // Layers
-      const layers = {
-        IDLE: document.getElementById('animIdle'),
-        WALK: document.getElementById('animWalk'),
-        RUN: document.getElementById('animRun')
-      };
-
-      const FRAME_WIDTH = 32;
-      const FRAME_HEIGHT = 32;
-
-      const ANIMATIONS = {
-        IDLE: { id: 'IDLE', frames: 4, speed: 200 },
-        WALK: { id: 'WALK', frames: 6, speed: 100 },
-        RUN:  { id: 'RUN',  frames: 6, speed: 80 }
-      };
-
-      // State
-      let foxPos = { x: window.innerWidth / 2, y: 300 };
-      let targetPos = { x: window.innerWidth / 2, y: 300 };
-      let aiState = 'IDLE';
-      let facing = 0; // 0: Down, 1: Up, 2: Left, 3: Right
-      let mouse = { x: -1000, y: -1000 };
-
-      // Timers & Logic
-      let frameIndex = 0;
-      let lastTime = 0;
-      let decisionTimer = 0;
-      let emoteTimer = null;
-      let lastAnim = 'IDLE';
-
-      // Shake Detection
-      let lastMousePos = { x: 0, y: 0 };
-      let shakeScore = 0;
-      let pendingMouseSample = null;
-      let mouseSampleRaf = 0;
-
-      // Make visible when images loaded (simple delay for now, since divs pre-load)
-      setTimeout(() => container.style.opacity = '1', 500);
-
-      // --- Interaction Events ---
-
-      document.addEventListener('mousemove', (e) => {
-        pendingMouseSample = { x: e.pageX, y: e.pageY };
-        if (mouseSampleRaf) return;
-
-        mouseSampleRaf = requestAnimationFrame(() => {
-          mouseSampleRaf = 0;
-          if (!pendingMouseSample) return;
-
-          const dx = pendingMouseSample.x - lastMousePos.x;
-          const dy = pendingMouseSample.y - lastMousePos.y;
-          const dist = Math.hypot(dx, dy);
-          lastMousePos.x = pendingMouseSample.x;
-          lastMousePos.y = pendingMouseSample.y;
-
-          shakeScore = Math.min(800, shakeScore + dist);
-          mouse.x = pendingMouseSample.x;
-          mouse.y = pendingMouseSample.y;
-          pendingMouseSample = null;
-        });
-      });
-
-      document.addEventListener('click', (e) => {
-        if (e.target && e.target.closest('#nav, .nav-overlay, .nav-controls, a, button, input, textarea')) {
-          return;
-        }
-        targetPos = { x: e.pageX, y: e.pageY };
-        aiState = 'INVESTIGATING';
-        showEmote('!');
-      });
-
-      // --- AI Logic ---
-
-      function getDistance(p1, p2) {
-        return Math.hypot(p1.x - p2.x, p1.y - p2.y);
-      }
-
-      function showEmote(emoji) {
-        emoteBubble.innerText = emoji;
-        emoteBubble.classList.add('visible');
-
-        if (emoteTimer) clearTimeout(emoteTimer);
-        emoteTimer = setTimeout(() => {
-          emoteBubble.classList.remove('visible');
-        }, 2000);
-      }
-
-      function faceTarget(target) {
-        const dx = target.x - foxPos.x;
-        const dy = target.y - foxPos.y;
-        const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-
-        if (angle > -45 && angle <= 45) facing = 3;
-        else if (angle > 45 && angle <= 135) facing = 0;
-        else if (angle > -135 && angle <= -45) facing = 1;
-        else facing = 2;
-      }
-
-      function updateAI(dt) {
-        decisionTimer -= dt;
-        shakeScore = Math.max(0, shakeScore - dt * 2);
-
-        const distToMouse = getDistance(foxPos, mouse);
-
-        // Shake Startle
-        if (distToMouse < 250 && shakeScore > 400 && aiState !== 'STARTLED' && aiState !== 'HAPPY' && aiState !== 'INVESTIGATING') {
-            aiState = 'STARTLED';
-            showEmote('!');
-        }
-
-        if (aiState === 'STARTLED') {
-            faceTarget(mouse);
-            if (shakeScore < 50) {
-                aiState = 'INVESTIGATING';
-                targetPos = { ...mouse };
-            }
-            return;
-        }
-
-        if (aiState === 'HAPPY') {
-          faceTarget(mouse);
-          return;
-        }
-
-        if (aiState === 'INVESTIGATING') {
-            const dist = getDistance(foxPos, targetPos);
-            if (dist < 10) {
-                // Arrived
-                aiState = 'WATCHING';
-                decisionTimer = 3000;
-                showEmote('?');
-            }
-            return;
-        }
-
-        if (aiState === 'WATCHING') {
-            faceTarget(mouse);
-            if (decisionTimer <= 0 || distToMouse > 250) {
-                aiState = 'IDLE';
-                decisionTimer = 0;
-            }
-            return;
-        }
-
-        if (aiState === 'TRACKING') {
-            targetPos = { ...mouse };
-            if (distToMouse < 60) {
-                aiState = 'WATCHING';
-                decisionTimer = 4000;
-            } else if (distToMouse > 400) {
-                aiState = 'IDLE';
-            }
-            return;
-        }
-
-        if (decisionTimer <= 0) {
-            const roll = Math.random();
-            if (distToMouse < 250 && roll < 0.5) {
-                aiState = 'TRACKING';
-                decisionTimer = 8000;
-                showEmote('?');
-            }
-            else if (roll < 0.4) {
-                aiState = 'IDLE';
-                decisionTimer = 1000 + Math.random() * 2000;
-            }
-            else {
-                aiState = 'WANDER';
-                const rad = 200 + Math.random() * 200;
-                targetPos.x = Math.max(50, Math.min(document.body.scrollWidth - 50, foxPos.x + (Math.random()-0.5)*rad*2));
-                targetPos.y = Math.max(100, Math.min(document.body.scrollHeight - 100, foxPos.y + (Math.random()-0.5)*rad*2));
-                decisionTimer = 5000;
-            }
-        }
-      }
-
-      function animate(time) {
-        const dt = time - lastTime;
-        lastTime = time;
-
-        updateAI(dt);
-
-        let currentAnim = 'IDLE';
-
-        if (aiState === 'WANDER' || aiState === 'TRACKING' || aiState === 'INVESTIGATING') {
-            const dist = getDistance(foxPos, targetPos);
-            if (dist > 5) {
-                let moveSpeed = 0.1;
-                if (aiState === 'INVESTIGATING') moveSpeed = 0.25;
-                if (aiState === 'TRACKING') moveSpeed = 0.12;
-
-                foxPos.x += ((targetPos.x - foxPos.x) / dist) * moveSpeed * dt;
-                foxPos.y += ((targetPos.y - foxPos.y) / dist) * moveSpeed * dt;
-
-                faceTarget(targetPos);
-                currentAnim = moveSpeed > 0.15 ? 'RUN' : 'WALK';
-            } else if (aiState === 'WANDER') {
-                aiState = 'IDLE';
-                decisionTimer = 1000;
-            }
-        } else if (aiState === 'STARTLED') {
-            currentAnim = 'IDLE';
-        }
-
-        // --- Render Layer Logic ---
-
-        // Hide all, show current
-        Object.values(layers).forEach(el => el.style.opacity = '0');
-        const activeLayer = layers[currentAnim];
-        if (activeLayer) activeLayer.style.opacity = '1';
-
-        // Check for state change to reset frame
-        if (currentAnim !== lastAnim) {
-            frameIndex = 0;
-            lastAnim = currentAnim;
-        }
-
-        // Frame Cycle
-        const animConfig = ANIMATIONS[currentAnim];
-        let animSpeed = animConfig.speed;
-
-        if (Math.floor(time / animSpeed) > Math.floor((time - dt) / animSpeed)) {
-             frameIndex = (frameIndex + 1) % animConfig.frames;
-        }
-
-        // RUN DIRECTION FIX
-        let renderFacing = facing;
-        if (currentAnim === 'RUN') {
-            // Swap Left (2) and Right (3) for Run animation only
-            if (facing === 2) renderFacing = 3;
-            else if (facing === 3) renderFacing = 2;
-        }
-
-        const bgX = -(frameIndex * FRAME_WIDTH);
-        const bgY = -(renderFacing * FRAME_HEIGHT);
-
-        activeLayer.style.backgroundPosition = `${bgX}px ${bgY}px`;
-        container.style.transform = `translate(${foxPos.x - 16}px, ${foxPos.y - 16}px)`;
-
-        requestAnimationFrame(animate);
-      }
-
-      requestAnimationFrame(animate);
-      if ('ontouchstart' in window) container.style.display = 'none';
-    })();
-  </script>
-
-  <div class="cursor-dot" id="cursorDot"></div>
-  <div class="cursor-circle" id="cursorCircle"></div>
+  <script src="../../js/resume-typing.js" defer></script>
 </body>
 </html>

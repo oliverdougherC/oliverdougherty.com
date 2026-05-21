@@ -2,12 +2,16 @@
  * Gallery JavaScript
  * Builds the editorial gallery experience from generated asset data plus
  * human-authored sequence metadata.
+ *
+ * Wrapped in an IIFE to avoid polluting the global scope.
  */
+(function () {
+  'use strict';
 
-const GALLERY_HASH_PREFIX = '#photo=';
-const MANIFEST_PATH = '../../assets/photos/photos.json';
-const SEQUENCE_PATH = '../../assets/photos/gallery-sequence.json';
-const HERO_QUEUE_LIMIT = 4;
+  const GALLERY_HASH_PREFIX = '#photo=';
+  const MANIFEST_PATH = '../../assets/photos/photos.json';
+  const SEQUENCE_PATH = '../../assets/photos/gallery-sequence.json';
+  const HERO_QUEUE_LIMIT = 4;
 
 const gallery = {
   entries: [],
@@ -19,13 +23,25 @@ const gallery = {
   lightboxOpen: false,
   infoPanelOpen: false,
   triggerElement: null,
+  lightboxNavigationTimer: 0,
+  hashChangeTimer: 0,
+  scrollRevealObserver: null,
+  inertElements: [],
+  inertFallbackState: new Map(),
+  lightboxFocusables: [],
+  supportsScrollIntoViewInline: null,
+  preloadImages: [],
+  heroRevealTimers: [],
   elements: {}
 };
 
 document.addEventListener('DOMContentLoaded', () => {
   cacheElements();
   bindStaticEvents();
+  initGalleryHeroReveal();
   initGallery().catch((error) => {
+    gallery.heroRevealTimers.forEach((t) => window.clearTimeout(t));
+    gallery.heroRevealTimers = [];
     console.error('Gallery initialization error:', error);
     showErrorState('The archive data could not be loaded. Refresh the page or try again later.');
   });
@@ -65,6 +81,49 @@ function cacheElements() {
     lightboxMeta: document.getElementById('lightboxMeta'),
     lightboxThumbStrip: document.getElementById('lightboxThumbStrip')
   };
+  gallery.inertElements = Array.from(document.body.children).filter((element) => {
+    if (element.id === 'lightbox') return false;
+    return element.querySelector('a[href], button, input, select, textarea, [tabindex]') !== null;
+  });
+}
+
+function replaceChildrenCompat(container, ...children) {
+  if (typeof container.replaceChildren === 'function') {
+    container.replaceChildren(...children);
+    return;
+  }
+
+  while (container.firstChild) {
+    container.removeChild(container.firstChild);
+  }
+  container.append(...children);
+}
+
+/**
+ * Gallery hero: reveal nav dot mid-animation, then deferred elements once
+ * the calibrate + color-reveal animations complete.
+ * Calibrate: 3.8s duration + 0.3s delay = 4.1s
+ * Color reveal: 3.4s duration + 0.6s delay = 4.0s
+ */
+function initGalleryHeroReveal() {
+  const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (prefersReduced) {
+    window.revealNavDot?.();
+    window.revealDeferredElements?.();
+    return;
+  }
+
+  // Nav dot fades in at ~2s (during the calibrate animation)
+  const timer1 = window.setTimeout(() => {
+    window.revealNavDot?.();
+  }, 2000);
+
+  // Deferred elements fade in after both hero animations complete (~4.1s)
+  const timer2 = window.setTimeout(() => {
+    window.revealDeferredElements?.();
+  }, 4100);
+
+  gallery.heroRevealTimers = [timer1, timer2];
 }
 
 function bindStaticEvents() {
@@ -80,12 +139,13 @@ function bindStaticEvents() {
     setInfoPanelOpen(!gallery.infoPanelOpen);
   });
 
-  document.querySelectorAll('[data-lightbox-dismiss]').forEach((element) => {
+  gallery.elements.lightbox?.querySelectorAll('[data-lightbox-dismiss]').forEach((element) => {
     element.addEventListener('click', () => closeLightbox());
   });
 
   document.addEventListener('keydown', handleGlobalKeydown);
   window.addEventListener('hashchange', handleHashChange);
+  window.addEventListener('pagehide', cleanupGalleryEvents, { once: true });
 
   if (gallery.elements.lightboxMedia) {
     let touchStartX = 0;
@@ -132,13 +192,6 @@ async function initGallery() {
   setLoadingState(false);
   handleHashChange();
 
-  window.__galleryState = {
-    getEntries: () => gallery.entries,
-    getVisibleEntries: () => gallery.visibleEntries,
-    getHeroEntries: () => gallery.heroEntries,
-    openPhotoById: (id) => openLightboxById(id),
-    closeLightbox
-  };
 }
 
 async function loadGalleryEntries() {
@@ -167,7 +220,7 @@ async function loadGalleryEntries() {
 
 async function fetchJson(path, throwOnFailure) {
   try {
-    const response = await fetch(path, { cache: 'no-store' });
+    const response = await fetch(path);
     if (!response.ok) {
       if (throwOnFailure) {
         throw new Error(`Failed to load ${path}`);
@@ -351,6 +404,9 @@ function initScrollReveal() {
   const cards = document.querySelectorAll('.photo-card');
   if (!cards.length) return;
 
+  gallery.scrollRevealObserver?.disconnect();
+  gallery.scrollRevealObserver = null;
+
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     cards.forEach((card) => card.classList.add('is-revealed'));
     return;
@@ -369,6 +425,7 @@ function initScrollReveal() {
   });
 
   cards.forEach((card) => observer.observe(card));
+  gallery.scrollRevealObserver = observer;
 }
 
 function renderPhotoGrid(container, entries, context) {
@@ -383,7 +440,7 @@ function renderPhotoGrid(container, entries, context) {
     }));
   });
 
-  container.replaceChildren(fragment);
+  replaceChildrenCompat(container, fragment);
 }
 
 function buildProminentSet(entries) {
@@ -488,6 +545,7 @@ function createPhotoCard(entry, { context, index, isProminent }) {
     article.classList.add('is-loaded');
   }, { once: true });
   image.addEventListener('error', () => {
+    console.warn('Gallery image failed to load:', image.currentSrc || image.src);
     article.classList.remove('is-loading');
     article.classList.add('photo-card--broken');
   }, { once: true });
@@ -580,12 +638,12 @@ function buildLightboxThumbStrip() {
     fragment.appendChild(button);
   });
 
-  gallery.elements.lightboxThumbStrip.replaceChildren(fragment);
+  replaceChildrenCompat(gallery.elements.lightboxThumbStrip, fragment);
 }
 
 function openLightboxById(entryId, triggerElement) {
   const index = gallery.entries.findIndex((entry) => entry.id === entryId);
-  if (index === -1) return;
+  if (index === -1 || !gallery.elements.lightbox) return;
 
   gallery.currentIndex = index;
   gallery.lightboxOpen = true;
@@ -593,15 +651,31 @@ function openLightboxById(entryId, triggerElement) {
   gallery.elements.lightbox.hidden = false;
   gallery.elements.lightbox.classList.add('is-active');
   document.body.classList.add('gallery-lightbox-open');
+  setPageInert(true);
   setInfoPanelOpen(!window.matchMedia('(max-width: 900px)').matches);
   renderLightboxEntry(gallery.entries[index]);
+  refreshLightboxFocusables();
   syncHash(entryId);
-  gallery.elements.lightboxClose.focus();
+  gallery.elements.lightboxClose?.focus();
 }
 
 function renderLightboxEntry(entry) {
+  const elements = gallery.elements;
+  if (
+    !elements.lightboxImage ||
+    !elements.lightboxCounter ||
+    !elements.lightboxEyebrow ||
+    !elements.lightboxTitle ||
+    !elements.lightboxSubline ||
+    !elements.lightboxNotes ||
+    !elements.lightboxMeta ||
+    !elements.lightboxThumbStrip
+  ) {
+    return;
+  }
+
   setPictureSource(
-    gallery.elements.lightboxSourceAvif,
+    elements.lightboxSourceAvif,
     buildSrcset([
       makeResponsiveCandidate(entry.assets.mediumAvif, entry.assets.mediumWidth),
       makeResponsiveCandidate(entry.assets.largeAvif, entry.assets.largeWidth)
@@ -609,7 +683,7 @@ function renderLightboxEntry(entry) {
     '(max-width: 900px) 100vw, calc(100vw - 400px)'
   );
   setPictureSource(
-    gallery.elements.lightboxSourceWebp,
+    elements.lightboxSourceWebp,
     buildSrcset([
       makeResponsiveCandidate(entry.assets.mediumWebp, entry.assets.mediumWidth),
       makeResponsiveCandidate(entry.assets.largeWebp, entry.assets.largeWidth)
@@ -617,43 +691,31 @@ function renderLightboxEntry(entry) {
     '(max-width: 900px) 100vw, calc(100vw - 400px)'
   );
 
-  gallery.elements.lightboxImage.src = entry.assets.largeJpg || entry.assets.mediumJpg || entry.assets.original;
-  gallery.elements.lightboxImage.alt = entry.displayTitle;
-  gallery.elements.lightboxImage.srcset = buildSrcset([
+  elements.lightboxImage.src = entry.assets.largeJpg || entry.assets.mediumJpg || entry.assets.original;
+  elements.lightboxImage.alt = entry.displayTitle;
+  elements.lightboxImage.srcset = buildSrcset([
     makeResponsiveCandidate(entry.assets.mediumJpg, entry.assets.mediumWidth),
     makeResponsiveCandidate(entry.assets.largeJpg, entry.assets.largeWidth)
   ]);
-  gallery.elements.lightboxImage.sizes = '(max-width: 900px) 100vw, calc(100vw - 400px)';
+  elements.lightboxImage.sizes = '(max-width: 900px) 100vw, calc(100vw - 400px)';
 
-  gallery.elements.lightboxCounter.textContent = `${String(gallery.currentIndex + 1).padStart(2, '0')} / ${String(gallery.entries.length).padStart(2, '0')}`;
-  gallery.elements.lightboxEyebrow.textContent = entry.featured ? 'Featured frame' : 'Archive frame';
-  gallery.elements.lightboxTitle.textContent = entry.displayTitle;
-  gallery.elements.lightboxSubline.textContent = '';
-  gallery.elements.lightboxNotes.textContent = buildNarrativeCopy(entry);
-  gallery.elements.lightboxMeta.replaceChildren(buildLightboxMeta(entry));
+  elements.lightboxCounter.textContent = `${String(gallery.currentIndex + 1).padStart(2, '0')} / ${String(gallery.entries.length).padStart(2, '0')}`;
+  elements.lightboxEyebrow.textContent = entry.featured ? 'Featured frame' : 'Archive frame';
+  elements.lightboxTitle.textContent = entry.displayTitle;
+  elements.lightboxSubline.textContent = '';
+  elements.lightboxNotes.textContent = '';
+  replaceChildrenCompat(elements.lightboxMeta, buildLightboxMeta(entry));
 
-  gallery.elements.lightboxThumbStrip.querySelectorAll('.lightbox-thumb').forEach((button) => {
+  elements.lightboxThumbStrip.querySelectorAll('.lightbox-thumb').forEach((button) => {
     const active = button.dataset.entryId === entry.id;
     button.classList.toggle('is-active', active);
     if (active) {
-      button.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+      scrollThumbIntoView(button);
     }
   });
+  refreshLightboxFocusables();
 
   preloadAdjacentEntries(gallery.currentIndex);
-}
-
-function buildNarrativeCopy(entry) {
-  const parts = [entry.description];
-  const note = [entry.hero?.teaser, entry.notes]
-    .map((value) => String(value || '').trim())
-    .find((value) => value && value !== entry.description);
-
-  if (note) {
-    parts.push(note);
-  }
-
-  return parts.filter(Boolean).join(' ');
 }
 
 function buildLightboxMeta(entry) {
@@ -701,6 +763,7 @@ function buildLightboxMeta(entry) {
 
     const summary = document.createElement('summary');
     summary.className = 'lightbox-meta-summary';
+    summary.setAttribute('aria-label', 'Toggle additional photo metadata');
     summary.textContent = 'Additional Info';
 
     const detailsContent = document.createElement('div');
@@ -718,11 +781,16 @@ function buildLightboxMeta(entry) {
 }
 
 function navigateLightbox(direction) {
-  if (!gallery.entries.length) return;
+  if (!gallery.entries.length || gallery.currentIndex < 0 || !gallery.elements.lightboxImage) return;
+
+  if (gallery.lightboxNavigationTimer) {
+    window.clearTimeout(gallery.lightboxNavigationTimer);
+  }
 
   gallery.elements.lightboxImage.style.opacity = '0';
 
-  setTimeout(() => {
+  gallery.lightboxNavigationTimer = window.setTimeout(() => {
+    gallery.lightboxNavigationTimer = 0;
     const length = gallery.entries.length;
     gallery.currentIndex = (gallery.currentIndex + direction + length) % length;
     const nextEntry = gallery.entries[gallery.currentIndex];
@@ -731,16 +799,24 @@ function navigateLightbox(direction) {
 
     requestAnimationFrame(() => {
       gallery.elements.lightboxImage.style.opacity = '1';
+      gallery.elements.lightboxImage.addEventListener('transitionend', cleanupLightboxImageOpacity, { once: true });
     });
   }, 150);
+}
+
+function cleanupLightboxImageOpacity(event) {
+  if (event.propertyName !== 'opacity') return;
+  gallery.elements.lightboxImage?.style.removeProperty('opacity');
 }
 
 function closeLightbox({ updateHashState = true } = {}) {
   if (!gallery.lightboxOpen) return;
 
   gallery.lightboxOpen = false;
-  gallery.elements.lightbox.classList.remove('is-active');
+  gallery.elements.lightbox?.classList.remove('is-active');
   document.body.classList.remove('gallery-lightbox-open');
+  setPageInert(false);
+  cleanupLightboxImageOpacity();
   if (updateHashState) {
     clearHash();
   }
@@ -749,9 +825,52 @@ function closeLightbox({ updateHashState = true } = {}) {
 
   setTimeout(() => {
     if (!gallery.lightboxOpen) {
-      gallery.elements.lightbox.hidden = true;
+      if (gallery.elements.lightbox) {
+        gallery.elements.lightbox.hidden = true;
+      }
     }
   }, 300);
+}
+
+function setPageInert(active) {
+  const supportsNativeInert = typeof HTMLElement !== 'undefined' && 'inert' in HTMLElement.prototype;
+  gallery.inertElements.forEach((element) => {
+    if (active) {
+      element.setAttribute('inert', '');
+      if (!supportsNativeInert && !gallery.inertFallbackState.has(element)) {
+        const focusables = Array.from(element.querySelectorAll(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        ));
+        gallery.inertFallbackState.set(element, {
+          ariaHidden: element.getAttribute('aria-hidden'),
+          focusables: focusables.map((focusable) => ({
+            element: focusable,
+            tabIndex: focusable.getAttribute('tabindex')
+          }))
+        });
+        element.setAttribute('aria-hidden', 'true');
+        focusables.forEach((focusable) => focusable.setAttribute('tabindex', '-1'));
+      }
+    } else {
+      element.removeAttribute('inert');
+      const previous = gallery.inertFallbackState.get(element);
+      if (previous) {
+        if (previous.ariaHidden === null) {
+          element.removeAttribute('aria-hidden');
+        } else {
+          element.setAttribute('aria-hidden', previous.ariaHidden);
+        }
+        previous.focusables.forEach(({ element: focusable, tabIndex }) => {
+          if (tabIndex === null) {
+            focusable.removeAttribute('tabindex');
+          } else {
+            focusable.setAttribute('tabindex', tabIndex);
+          }
+        });
+        gallery.inertFallbackState.delete(element);
+      }
+    }
+  });
 }
 
 function handleGlobalKeydown(event) {
@@ -781,9 +900,8 @@ function handleGlobalKeydown(event) {
 }
 
 function trapFocus(event) {
-  const focusables = gallery.elements.lightbox.querySelectorAll(
-    'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
-  );
+  if (!gallery.elements.lightbox) return;
+  const focusables = gallery.lightboxFocusables.length ? gallery.lightboxFocusables : refreshLightboxFocusables();
   if (!focusables.length) return;
 
   const first = focusables[0];
@@ -798,10 +916,53 @@ function trapFocus(event) {
   }
 }
 
+function refreshLightboxFocusables() {
+  if (!gallery.elements.lightbox) {
+    gallery.lightboxFocusables = [];
+    return gallery.lightboxFocusables;
+  }
+
+  gallery.lightboxFocusables = Array.from(gallery.elements.lightbox.querySelectorAll(
+    'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+  )).filter((element) => {
+    const style = window.getComputedStyle(element);
+    return !element.hasAttribute('hidden') && style.display !== 'none' && style.visibility !== 'hidden';
+  });
+  return gallery.lightboxFocusables;
+}
+
+function supportsScrollIntoViewInline() {
+  if (gallery.supportsScrollIntoViewInline !== null) {
+    return gallery.supportsScrollIntoViewInline;
+  }
+
+  gallery.supportsScrollIntoViewInline = false;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+    // Feature-detect via string inspection of the native method's source,
+    // avoiding the need to create detached DOM nodes.
+    if (typeof descriptor?.value === 'function') {
+      const source = descriptor.value.toString();
+      gallery.supportsScrollIntoViewInline = source.includes('inline');
+    }
+  } catch (_error) {
+    gallery.supportsScrollIntoViewInline = false;
+  }
+  return gallery.supportsScrollIntoViewInline;
+}
+
+function scrollThumbIntoView(button) {
+  if (supportsScrollIntoViewInline()) {
+    button.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+    return;
+  }
+  button.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
 function setInfoPanelOpen(active) {
   gallery.infoPanelOpen = Boolean(active);
-  gallery.elements.lightboxPanel.classList.toggle('is-open', gallery.infoPanelOpen);
-  gallery.elements.lightboxInfoToggle.setAttribute('aria-expanded', String(gallery.infoPanelOpen));
+  gallery.elements.lightboxPanel?.classList.toggle('is-open', gallery.infoPanelOpen);
+  gallery.elements.lightboxInfoToggle?.setAttribute('aria-expanded', String(gallery.infoPanelOpen));
 }
 
 function syncHash(entryId) {
@@ -816,6 +977,17 @@ function clearHash() {
 }
 
 function handleHashChange() {
+  if (gallery.hashChangeTimer) {
+    window.clearTimeout(gallery.hashChangeTimer);
+  }
+
+  gallery.hashChangeTimer = window.setTimeout(() => {
+    gallery.hashChangeTimer = 0;
+    syncLightboxFromHash();
+  }, 80);
+}
+
+function syncLightboxFromHash() {
   const hashId = readHashEntryId();
   if (!hashId) {
     if (gallery.lightboxOpen) {
@@ -831,18 +1003,34 @@ function handleHashChange() {
   }
 }
 
+function cleanupGalleryEvents() {
+  document.removeEventListener('keydown', handleGlobalKeydown);
+  window.removeEventListener('hashchange', handleHashChange);
+  gallery.scrollRevealObserver?.disconnect();
+  if (gallery.lightboxNavigationTimer) {
+    window.clearTimeout(gallery.lightboxNavigationTimer);
+  }
+  if (gallery.hashChangeTimer) {
+    window.clearTimeout(gallery.hashChangeTimer);
+  }
+  gallery.heroRevealTimers.forEach((t) => window.clearTimeout(t));
+  gallery.heroRevealTimers = [];
+}
+
 function readHashEntryId() {
   if (!window.location.hash.startsWith(GALLERY_HASH_PREFIX)) return '';
   return decodeURIComponent(window.location.hash.slice(GALLERY_HASH_PREFIX.length));
 }
 
 function preloadAdjacentEntries(index) {
+  gallery.preloadImages = [];
   [index - 1, index + 1].forEach((targetIndex) => {
     const entry = gallery.entries[(targetIndex + gallery.entries.length) % gallery.entries.length];
     const source = entry?.assets?.largeJpg || entry?.assets?.mediumJpg;
     if (!source) return;
     const image = new Image();
     image.src = source;
+    gallery.preloadImages.push(image);
   });
 }
 
@@ -899,13 +1087,7 @@ function getCardImageSizes(context, index, isProminent) {
 }
 
 function normalizeGalleryKey(value) {
-  let stem = basenameFromPath(value).toLowerCase();
-  let next = stem.replace(/\.(avif|webp|jpe?g|png)$/i, '');
-
-  while (next !== stem) {
-    stem = next;
-    next = stem.replace(/\.(avif|webp|jpe?g|png)$/i, '');
-  }
+  const stem = basenameFromPath(value).toLowerCase().replace(/\.(avif|webp|jpe?g|png)$/i, '');
 
   return stem
     .replace(/[^a-z0-9]+/g, '-')
@@ -914,7 +1096,6 @@ function normalizeGalleryKey(value) {
 
 function formatTitle(filename) {
   const parts = basenameFromPath(filename)
-    .replace(/\.(avif|webp|jpe?g|png)$/i, '')
     .replace(/\.(avif|webp|jpe?g|png)$/i, '')
     .split(/[-_]+/)
     .filter(Boolean);
@@ -961,26 +1142,4 @@ function formatShortDate(dateValue) {
   }).format(parsed);
 }
 
-function formatDateRange(startDate, endDate) {
-  if (!startDate && !endDate) return 'Open archive';
-  if (startDate === endDate) return formatDate(startDate);
-
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    return [startDate, endDate].filter(Boolean).join(' - ');
-  }
-
-  const sameYear = start.getFullYear() === end.getFullYear();
-  const startFmt = new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    ...(sameYear ? {} : { year: 'numeric' })
-  }).format(start);
-  const endFmt = new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  }).format(end);
-  return `${startFmt} - ${endFmt}`;
-}
+})();

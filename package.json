@@ -1,9 +1,10 @@
 {
-  "name": "oliver-unified",
+  "name": "oliverdougherty.com",
   "version": "1.0.0",
   "private": true,
-  "description": "Oliver Unified static portfolio site",
+  "description": "oliverdougherty.com static site",
   "scripts": {
+    "setup": "bash scripts/setup.sh",
     "optimize-images": "node scripts/optimize-images.js",
     "build:deploy": "node scripts/build-deploy.js",
     "utilities:build": "vite build --config config/vite.utilities.mts",
@@ -36,6 +37,7 @@
   "devDependencies": {
     "@types/node": "^25.3.0",
     "exifr": "^7.1.3",
+    "jsdom": "^29.1.1",
     "playwright": "^1.58.2",
     "sharp": "^0.33.0",
     "typescript": "^5.9.3",

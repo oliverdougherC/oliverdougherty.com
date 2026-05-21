@@ -1,93 +1,87 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="gallery">
+<!--
+  data-disable-color-mode: Prevents the global color-mode toggle (light/dark switch)
+  from overriding this page's theme. Gallery and resume pages use a fixed light
+  aesthetic and should not inherit the site-wide dark mode.
+-->
+<html lang="en" data-theme="gallery" data-disable-color-mode>
 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Oliver - Photo Gallery</title>
+  <title>Gallery</title>
   <meta name="description" content="A curated photo gallery of selected works from recent shoots.">
-  <link rel="icon" type="image/svg+xml" href="/favicon-happy.svg?v=face-5" id="favicon">
-  <link rel="alternate icon" href="/favicon-happy.ico?v=face-5" id="favicon-fallback">
-  <script>document.addEventListener('visibilitychange',function(){var hidden=document.hidden;var f=document.getElementById('favicon');var i=document.getElementById('favicon-fallback');if(f)f.href=hidden?'/favicon-sad.svg?v=face-5':'/favicon-happy.svg?v=face-5';if(i)i.href=hidden?'/favicon-sad.ico?v=face-5':'/favicon-happy.ico?v=face-5'})</script>
+  <link rel="icon" type="image/svg+xml" href="/favicon-happy.svg?v=face-6" id="favicon">
+  <link rel="alternate icon" href="/favicon-happy.ico?v=face-6" id="favicon-fallback">
+  <script src="../../js/favicon-swap.js" defer></script>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link
-    href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
-    rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=JetBrains+Mono:wght@200;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=JetBrains+Mono:wght@200;800&display=swap" rel="stylesheet"></noscript>
 
   <link rel="stylesheet" href="../../css/design-system.css?v=20260315">
+  <link rel="stylesheet" href="../../css/schematic.css">
   <link rel="stylesheet" href="../../css/gallery.css?v=20260318">
   <link rel="stylesheet" href="../../css/cursor.css?v=20260315">
 </head>
 
-<body>
-  <div class="noise-overlay"></div>
+<body class="page-gallery schematic-mode">
 
-  <nav class="nav" id="nav">
-    <div class="nav-inner container">
-      <a href="../../index.html" class="nav-logo" data-cursor="hover">
-        <span class="logo-text">O<span class="logo-d">D</span></span>
-      </a>
+  <button class="nav-dot" id="navToggle" aria-label="Open menu" aria-expanded="false" type="button" style="opacity: 0; pointer-events: none;">
+    <span class="sr-only" data-nav-toggle-label>Open menu</span>
+  </button>
 
-      <div class="nav-controls">
-        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch to light mode"
-          aria-pressed="false" data-cursor="hover">
-          <span class="theme-toggle-icon" aria-hidden="true"></span>
-        </button>
-        <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation" aria-expanded="false"
-          data-cursor="hover">
-          <span></span>
-          <span></span>
-        </button>
-      </div>
-    </div>
-  </nav>
-
-  <div class="nav-overlay" id="navOverlay">
+  <div class="nav-overlay" id="navOverlay" aria-hidden="true">
     <div class="nav-overlay-bg"></div>
     <div class="nav-links container" id="navLinks">
       <div class="nav-menu-header">Menu</div>
-      <a href="../../index.html" class="nav-link nav-link--home" data-cursor="hover">Home</a>
-      <a href="../resume/index.html" class="nav-link nav-link--resume" data-cursor="hover">Resume</a>
-      <a href="../gallery/index.html" class="nav-link nav-link--gallery active" aria-current="page"
-        data-cursor="hover">Gallery</a>
-      <a href="../dashboard/index.html" class="nav-link nav-link--utilities" data-cursor="hover">Utilities</a>
+      <a href="../../index.html" class="nav-link nav-link--home">Home</a>
+      <a href="../resume/index.html" class="nav-link nav-link--resume">Resume</a>
+      <a href="../gallery/index.html" class="nav-link nav-link--gallery active" aria-current="page">Gallery</a>
+      <a href="../utilities/index.html" class="nav-link nav-link--utilities">Utilities</a>
 
       <div class="nav-menu-footer">
-        <a href="mailto:oliverfdougherty@gmail.com" class="footer-link" data-cursor="hover">Contact</a>
-        <a href="https://github.com/oliverdougherC" class="footer-link" target="_blank" rel="noopener noreferrer"
-          data-cursor="hover">Github</a>
+        <a href="mailto:oliverfdougherty@gmail.com" class="footer-link">Contact</a>
+        <a href="https://github.com/oliverdougherC" class="footer-link" target="_blank" rel="noopener noreferrer">Github</a>
       </div>
     </div>
   </div>
 
-  <main class="gallery-main">
-    <header class="gallery-hero">
-      <div class="hero-aurora hero-aurora--one"></div>
-      <div class="hero-aurora hero-aurora--two"></div>
-      <div class="container gallery-hero-layout">
-        <div class="hero-copy">
-          <h1 class="hero-title text-display">
-            Photo<br>
-            <em>Gallery</em>
-          </h1>
-        </div>
+  <div class="noise-overlay"></div>
 
-        <aside class="hero-feature-card" id="galleryHeroFeature">
-          <button class="hero-feature-media" id="galleryHeroOpen" type="button" data-cursor="hover"
-            aria-label="Open featured photo">
-            <picture id="galleryHeroPicture">
-              <source id="galleryHeroSourceAvif" type="image/avif">
-              <source id="galleryHeroSourceWebp" type="image/webp">
-              <img id="galleryHeroImage" src="" alt="" class="hero-feature-image">
-            </picture>
-          </button>
-        </aside>
+  <main class="gallery-main">
+    <header class="schematic-wrapper gallery-hero">
+      <div class="schematic-grid">
+        <div class="grid-cell">
+          <div class="meta-tiny top-left-pos hero-deferred"><span class="gallery-accent-text">#004BA8</span> // GALLERY</div>
+        </div>
+        <div class="grid-cell"></div>
+        <div class="grid-cell"></div>
+        <div class="grid-cell"></div>
+      </div>
+
+      <div class="hero-overlay gallery-hero-overlay">
+        <div class="container gallery-hero-layout">
+          <div class="hero-copy">
+            <h1 class="hero-title text-display calibrate-text">GALLERY.</h1>
+          </div>
+
+          <aside class="hero-feature-card scanner-card" id="galleryHeroFeature">
+            <button class="hero-feature-media schematic-border" id="galleryHeroOpen" type="button" data-cursor="hover"
+              aria-label="Open featured photo">
+              <picture id="galleryHeroPicture">
+                <source id="galleryHeroSourceAvif" type="image/avif">
+                <source id="galleryHeroSourceWebp" type="image/webp">
+                <img id="galleryHeroImage" src="" alt="" class="hero-feature-image scanned-image">
+              </picture>
+            </button>
+          </aside>
+        </div>
       </div>
     </header>
 
-    <section class="gallery-status-section">
+    <section class="gallery-status-section hero-deferred">
       <div class="container-wide">
         <div class="gallery-loading" id="galleryLoading">
           <div class="loading-spinner"></div>
@@ -131,7 +125,7 @@
       </div>
     </section>
 
-    <section class="gallery-section gallery-section--archive" id="galleryArchiveSection" hidden>
+    <section class="gallery-section gallery-section--archive hero-deferred" id="galleryArchiveSection" hidden>
       <div class="container-wide">
         <div class="archive-grid" id="galleryArchiveGrid"></div>
       </div>
@@ -196,7 +190,7 @@
 
         <div class="lightbox-strip">
           <div class="lightbox-strip-header">
-            <h3 class="lightbox-strip-title">Jump to frame</h3>
+            <h3 class="lightbox-strip-title">All Photos</h3>
           </div>
           <div class="lightbox-thumbs" id="lightboxThumbStrip"></div>
         </div>
@@ -204,20 +198,10 @@
     </div>
   </div>
 
-  <footer class="footer gallery-footer">
-    <div class="container">
-      <div class="footer-inner">
-        <p class="footer-text">&copy; <span data-current-year>2026</span> Oliver Dougherty</p>
-      </div>
-    </div>
-  </footer>
-
   <script src="../../js/year.js?v=20260315" defer></script>
   <script src="../../js/main.js?v=20260315" defer></script>
   <script src="../../js/gallery.js?v=20260318" defer></script>
 
-  <div class="cursor-dot" id="cursorDot"></div>
-  <div class="cursor-circle" id="cursorCircle"></div>
 </body>
 
 </html>

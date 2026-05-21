@@ -1,12 +1,12 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import sharp from 'sharp';
 import ts from 'typescript';
 
-const ROOT = '/Users/ofhd/Developer/websites/Oliver-Unified';
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE_ROOT = path.join(ROOT, 'utilities-src', 'src');
 const OUTPUT_DIR = path.join(SOURCE_ROOT, 'data', 'precomputed-transforms');
 const TEMP_DIR = await fs.mkdtemp(path.join(os.tmpdir(), 'utilities-transform-cache-'));
@@ -20,12 +20,14 @@ const ENTRY_MODULES = [
   path.join(SOURCE_ROOT, 'uiState.ts')
 ];
 const PRESET_FILTER = new Set(
+  // Optional comma-separated preset ids for focused cache builds.
   (process.env.TRANSFORM_CACHE_PRESETS ?? 'balanced')
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean)
 );
 const DEMO_FILTER = new Set(
+  // Optional comma-separated demo keys; empty means all demos.
   (process.env.TRANSFORM_CACHE_DEMOS ?? '')
     .split(',')
     .map((value) => value.trim())
@@ -38,8 +40,30 @@ function toArrayBuffer(view) {
 
 function rewriteRelativeImports(outputText) {
   return outputText
-    .replace(/(from\s+['"])(\.{1,2}\/[^'".]+)(['"])/g, '$1$2.js$3')
-    .replace(/(import\s*['"])(\.{1,2}\/[^'".]+)(['"])/g, '$1$2.js$3');
+    .replace(/(from\s+['"])(\.{1,2}\/[^'"]+?)(['"])/g, (_match, prefix, specifier, suffix) =>
+      `${prefix}${specifier.endsWith('.json') || specifier.endsWith('.js') ? specifier : `${specifier}.js`}${suffix}`
+    )
+    .replace(/(import\s*['"])(\.{1,2}\/[^'"]+?)(['"])/g, (_match, prefix, specifier, suffix) =>
+      `${prefix}${specifier.endsWith('.json') || specifier.endsWith('.js') ? specifier : `${specifier}.js`}${suffix}`
+    );
+}
+
+async function resolveRelativeModule(absolutePath, specifier) {
+  const basePath = path.resolve(path.dirname(absolutePath), specifier);
+  const candidates = path.extname(basePath) ? [basePath] : [`${basePath}.ts`, `${basePath}.json`];
+
+  for (const candidate of candidates) {
+    try {
+      const stats = await fs.stat(candidate);
+      if (stats.isFile()) {
+        return candidate;
+      }
+    } catch {
+      // Try the next extension candidate.
+    }
+  }
+
+  throw new Error(`Unable to resolve ${specifier} imported by ${absolutePath}`);
 }
 
 async function compileModule(absolutePath, seen = new Set()) {
@@ -55,7 +79,10 @@ async function compileModule(absolutePath, seen = new Set()) {
 
   for (const match of importMatches) {
     const specifier = match[1];
-    const dependencyPath = path.resolve(path.dirname(absolutePath), `${specifier}.ts`);
+    const dependencyPath = await resolveRelativeModule(absolutePath, specifier);
+    if (!dependencyPath.endsWith('.ts')) {
+      continue;
+    }
     await compileModule(dependencyPath, seen);
   }
 
@@ -84,7 +111,7 @@ async function loadImageData(imagePath, width, height) {
 
   const { data, info } = await image
     .resize(width, height, {
-      fit: 'fill',
+      fit: 'cover',
       kernel: sharp.kernel.lanczos3
     })
     .ensureAlpha()
@@ -127,8 +154,15 @@ for (const [demoKey, demo] of Object.entries(DEMOS)) {
     continue;
   }
 
-  const sourceImagePath = path.resolve(ROOT, 'pages/dashboard', demo.source.url);
-  const targetImagePath = path.resolve(ROOT, 'pages/dashboard', demo.target.url);
+  const sourceImagePath = path.resolve(ROOT, 'pages/utilities', demo.source.url);
+  const targetImagePath = path.resolve(ROOT, 'pages/utilities', demo.target.url);
+  const utilitiesRoot = path.resolve(ROOT, 'pages/utilities');
+  for (const imagePath of [sourceImagePath, targetImagePath]) {
+    const relativePath = path.relative(utilitiesRoot, imagePath);
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      throw new Error(`Demo asset path escapes utilities root: ${imagePath}`);
+    }
+  }
 
   const sourceMetadata = await sharp(sourceImagePath).metadata();
   const targetMetadata = await sharp(targetImagePath).metadata();
@@ -169,7 +203,8 @@ for (const [demoKey, demo] of Object.entries(DEMOS)) {
         pixels: target.pixels
       },
       result.assignment,
-      preset.quantizationBits
+      preset.quantizationBits,
+      result.analysis
     );
 
     const serialized = serializePrecomputedBuiltInTransform(

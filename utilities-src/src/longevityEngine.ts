@@ -1,5 +1,7 @@
 import type {
   CorrelationGroup,
+  FamilyGeneration,
+  FamilyMemberLongevityAnswer,
   HazardAdjustmentRule,
   LongevityDataset,
   LongevityImpactRow,
@@ -10,7 +12,7 @@ import type {
   RangeHazardBand
 } from './longevityTypes';
 
-const DAYS_PER_YEAR = 365.2425;
+export const DAYS_PER_YEAR = 365.2425;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const SURVIVAL_PERCENTILES = {
   p10: 0.9,
@@ -56,12 +58,30 @@ function interpolateAnnualHazard(entries: MortalityBaselineEntry[], ageYears: nu
 
   const lowerAge = Math.floor(ageYears);
   const upperAge = Math.min(lowerAge + 1, lastEntry.age);
-  const lowerEntry = entries.find((entry) => entry.age === lowerAge) ?? lastEntry;
-  const upperEntry = entries.find((entry) => entry.age === upperAge) ?? lastEntry;
+  const lowerEntry = findEntryByAge(entries, lowerAge) ?? lastEntry;
+  const upperEntry = findEntryByAge(entries, upperAge) ?? lastEntry;
   const factor = ageYears - lowerAge;
   const lowerHazard = Math.log(annualHazardFromQx(lowerEntry.qx));
   const upperHazard = Math.log(annualHazardFromQx(upperEntry.qx));
   return Math.exp(lerp(lowerHazard, upperHazard, factor));
+}
+
+function findEntryByAge(entries: MortalityBaselineEntry[], age: number) {
+  let low = 0;
+  let high = entries.length - 1;
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const entryAge = entries[mid].age;
+    if (entryAge === age) {
+      return entries[mid];
+    }
+    if (entryAge < age) {
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return null;
 }
 
 export function computeMortalityProjectionFactor(
@@ -83,8 +103,8 @@ export function computeMortalityProjectionFactor(
 function interpolateRemainingLifeExpectancy(entries: MortalityBaselineEntry[], ageYears: number) {
   const lowerAge = Math.floor(ageYears);
   const upperAge = Math.min(lowerAge + 1, entries[entries.length - 1].age);
-  const lowerEntry = entries.find((entry) => entry.age === lowerAge) ?? entries[entries.length - 1];
-  const upperEntry = entries.find((entry) => entry.age === upperAge) ?? entries[entries.length - 1];
+  const lowerEntry = findEntryByAge(entries, lowerAge) ?? entries[entries.length - 1];
+  const upperEntry = findEntryByAge(entries, upperAge) ?? entries[entries.length - 1];
   const factor = clamp(ageYears - lowerAge, 0, 1);
   return lerp(lowerEntry.ex, upperEntry.ex, factor);
 }
@@ -121,6 +141,61 @@ function createDriver(
     adjustedLogHazard: rawLogHazard,
     sourceIds
   };
+}
+
+function hasKnownFamilyAge(member: FamilyMemberLongevityAnswer) {
+  return member.status !== 'unknown' && member.age !== null && Number.isFinite(member.age);
+}
+
+function scoreFamilyMember(member: FamilyMemberLongevityAnswer, generation: FamilyGeneration) {
+  if (!hasKnownFamilyAge(member)) {
+    return 0;
+  }
+
+  const age = member.age ?? 0;
+  const isParent = generation === 'parent';
+
+  if (age < 65) {
+    return isParent ? 0.1 : 0.04;
+  }
+  if (age < 75) {
+    return isParent ? 0.06 : 0.025;
+  }
+  if (age >= 95) {
+    return isParent ? -0.09 : -0.045;
+  }
+  if (age >= 85) {
+    return isParent ? -0.055 : -0.025;
+  }
+  if (age >= 80) {
+    return isParent ? -0.02 : -0.01;
+  }
+
+  return 0;
+}
+
+function computeDetailedFamilyHistoryLogHazard(answers: LongevitySurveyAnswers) {
+  const family = answers.familyHistory;
+  if (!family) {
+    return null;
+  }
+
+  const members: Array<[FamilyMemberLongevityAnswer, FamilyGeneration]> = [
+    [family.mother, 'parent'],
+    [family.father, 'parent'],
+    [family.maternalGrandmother, 'grandparent'],
+    [family.maternalGrandfather, 'grandparent'],
+    [family.paternalGrandmother, 'grandparent'],
+    [family.paternalGrandfather, 'grandparent']
+  ];
+
+  const knownMembers = members.filter(([member]) => hasKnownFamilyAge(member));
+  if (knownMembers.length === 0) {
+    return null;
+  }
+
+  const rawScore = knownMembers.reduce((sum, [member, generation]) => sum + scoreFamilyMember(member, generation), 0);
+  return clamp(rawScore, -0.18, 0.18);
 }
 
 function applyCorrelationShrinkage(
@@ -394,13 +469,36 @@ function buildDrivers(answers: LongevitySurveyAnswers, dataset: LongevityDataset
     );
   }
 
-  const longevityBand = coefficients.familyHistory.parentLongevityBands.find(
-    (band) => band.id === answers.parentLongevityBand
-  );
-  if (longevityBand && longevityBand.logHazard !== 0) {
+  const detailedFamilyLogHazard = computeDetailedFamilyHistoryLogHazard(answers);
+  if (detailedFamilyLogHazard !== null && detailedFamilyLogHazard !== 0) {
+    const sourceIds =
+      coefficients.familyHistory.parentLongevityBands.find((band) => band.id === 'mixed')?.sourceIds ?? [];
     drivers.push(
-      createDriver('family.parentLongevity', longevityBand.label, 'family-history', 'family-history', longevityBand.logHazard, longevityBand.sourceIds)
+      createDriver(
+        'family.detailedLongevity',
+        'Parent and grandparent longevity history',
+        'family-history',
+        'family-history',
+        detailedFamilyLogHazard,
+        sourceIds
+      )
     );
+  } else if (detailedFamilyLogHazard === null) {
+    const longevityBand = coefficients.familyHistory.parentLongevityBands.find(
+      (band) => band.id === answers.parentLongevityBand
+    );
+    if (longevityBand && longevityBand.logHazard !== 0) {
+      drivers.push(
+        createDriver(
+          'family.parentLongevity',
+          longevityBand.label,
+          'family-history',
+          'family-history',
+          longevityBand.logHazard,
+          longevityBand.sourceIds
+        )
+      );
+    }
   }
 
   return {
@@ -637,17 +735,13 @@ export function formatCountdown(targetTimestamp: number, nowTimestamp: number = 
     };
   }
 
-  let anchor = new Date(nowTimestamp);
   const target = new Date(targetTimestamp);
-  let years = 0;
-
-  while (true) {
-    const nextYear = addUtcYears(anchor, 1);
-    if (nextYear.getTime() > target.getTime()) {
-      break;
-    }
-    anchor = nextYear;
-    years += 1;
+  const now = new Date(nowTimestamp);
+  let years = target.getUTCFullYear() - now.getUTCFullYear();
+  let anchor = addUtcYears(now, years);
+  if (anchor.getTime() > target.getTime()) {
+    years -= 1;
+    anchor = addUtcYears(now, years);
   }
 
   let remainingMs = target.getTime() - anchor.getTime();

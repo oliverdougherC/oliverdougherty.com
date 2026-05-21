@@ -1,3 +1,5 @@
+import type { TransformImageAnalysis } from './transformIntelligence';
+
 export type TransformPresetId = 'fast' | 'balanced' | 'detailed';
 export type TransformMatcherStrategy = 'single-optimized' | 'parallel-experimental';
 
@@ -61,6 +63,7 @@ export interface TransformComputationResult {
   source: PreparedImageData;
   target: PreparedImageData;
   assignment: Uint32Array;
+  analysis: TransformImageAnalysis;
   pixelCount: number;
   timingsMs: TransformStageTimingsMs;
   matcherStrategy: TransformMatcherStrategy;
@@ -71,6 +74,8 @@ export interface TransformComputationResult {
 export interface PreparedImageTransfer {
   width: number;
   height: number;
+  // Workers transfer prepared pixel buffers, so this intentionally excludes
+  // SharedArrayBuffer and other ArrayBufferLike values.
   pixels: ArrayBuffer;
   originalWidth: number;
   originalHeight: number;

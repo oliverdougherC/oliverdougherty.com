@@ -13,7 +13,7 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `pages/gallery/index.html`: editorial photo gallery powered by JSON metadata in `assets/photos/`.
 - `pages/archive/index.html`: archive index for technical writeups.
 - `pages/archive/*/*.html`: article-style archive pages using the abstract/article layout.
-- `pages/dashboard/index.html`: utilities page shell.
+- `pages/utilities/index.html`: utilities page shell.
 - `pages/game/index.html`: generated entrypoint for the shipped game build.
 
 ## Shared browser layer
@@ -23,18 +23,25 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `js/year.js`: footer year updates and color-mode toggle handling.
 - `js/archive.js`: archive index filtering/search.
 - `js/gallery.js`: metadata-driven gallery rendering and lightbox behavior.
+- `js/starfield.js`: landing page background starfield animation.
+- `js/utilities-shell.js`: tabbed utilities dashboard shell (routing between utility panels).
+- `js/local-llm-chat.js`: Local LLM chat UI controller.
+- `js/local-llm-config.js`: Local LLM configuration (models, endpoints, worker settings).
+- `js/local-llm-worker.js`: Web Worker for Local LLM inference.
 - `utilities-src/src/main.ts`: editable utilities page controller and DOM orchestration.
 - `utilities-src/src/transformCore.ts`: utilities matching pipeline and donor assignment logic.
 - `utilities-src/src/workerRuntime.ts`: shared worker/main-thread execution runtime for utilities transforms.
-- `pages/dashboard/assets/*`: generated utilities app bundle, including nested worker chunks under `pages/dashboard/assets/assets/`.
+- `pages/utilities/assets/*`: generated utilities app bundle, including nested worker chunks under `pages/utilities/assets/assets/`.
 
 ## Shared styling
 
 - `css/design-system.css`: cross-site tokens and shared component styles.
+- `css/schematic.css`: landing page schematic mode styles (scoped to `body.schematic-mode`).
 - `css/mobile.css`: dedicated mobile-site styles for `/mobile/` only.
 - `css/landing.css`, `css/gallery.css`, `css/archive.css`, `css/resume.css`, `css/utilities.css`: page-family styles.
 - `css/abstract.css`: article/report layout used by archive detail pages.
 - `css/cursor.css`: shared cursor presentation.
+- `css/local-llm-chat.css`: Local LLM chat UI styles.
 
 ## Verification scripts
 
@@ -52,6 +59,6 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - Keep the hand-authored HTML model. Do not introduce a templating system unless the repo direction changes.
 - Shared page chrome lives in repeated markup plus shared JS/CSS. Prefer small, explicit cleanup over broad structural rewrites.
 - Treat `/mobile/` as a separate product surface, not as responsive overrides for the desktop site. It has exactly two pages, Home and Resume; unsupported full-site mobile routes should include `js/mobile-gate.js` and redirect to `/mobile/` unless `?full=1` is present.
-- `pages/dashboard/assets/` is part of the shipped site, but it is generated from `utilities-src/` and should be treated as build output.
+- `pages/utilities/assets/` is part of the shipped site, but it is generated from `utilities-src/` and should be treated as build output.
 - Utilities deployment readiness means more than type/tests: after utilities-source changes, rebuild the shipped bundle and rerun `utilities:browser-check` plus `utilities:perf`.
 - `pages/game/` is part of the shipped site, but it is generated from `game-src/` and should be treated as build output.

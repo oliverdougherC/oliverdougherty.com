@@ -21,18 +21,15 @@ function assert(condition, message) {
 async function waitForGalleryReady(page, timeoutMs = 12000) {
   await page.waitForFunction(
     () => {
-      const state = window.__galleryState;
       const archiveCards = document.querySelectorAll('#galleryArchiveGrid .photo-card').length;
+      const thumbs = document.querySelectorAll('#lightboxThumbStrip .lightbox-thumb').length;
       const loadingHidden = document.getElementById('galleryLoading')?.hidden === true;
       const heroImage = document.getElementById('galleryHeroImage');
       return Boolean(
-        state
-        && typeof state.getEntries === 'function'
-        && state.getEntries().length > 0
-        && archiveCards > 0
+        archiveCards > 0
+        && thumbs > archiveCards
         && loadingHidden
         && heroImage?.getAttribute('src')
-        && document.querySelector('[data-theme-toggle], .theme-toggle')
       );
     },
     null,
@@ -47,9 +44,7 @@ async function assertSharedChrome(page, label) {
     hasSharedNav: Boolean(document.getElementById('nav')),
     hasNavToggle: Boolean(document.getElementById('navToggle')),
     hasNavOverlay: Boolean(document.getElementById('navOverlay')),
-    hasThemeToggle: Boolean(document.querySelector('[data-theme-toggle], .theme-toggle')),
     hasNoise: Boolean(document.querySelector('.noise-overlay')),
-    hasFooter: Boolean(document.querySelector('.gallery-footer.footer')),
     hasHeroFeature: Boolean(document.getElementById('galleryHeroFeature')),
     hasHeroStrip: Boolean(document.getElementById('galleryHeroStrip')),
     hasToolbar: Boolean(document.querySelector('.gallery-toolbar-section')),
@@ -58,11 +53,8 @@ async function assertSharedChrome(page, label) {
   }));
 
   assert(state.theme === 'gallery', `[${label}] gallery theme attr missing`);
-  assert(state.colorMode === 'dark', `[${label}] expected default dark mode, got ${state.colorMode}`);
-  assert(state.hasSharedNav, `[${label}] shared nav missing`);
   assert(state.hasNavToggle, `[${label}] nav toggle missing`);
   assert(state.hasNavOverlay, `[${label}] nav overlay missing`);
-  assert(state.hasThemeToggle, `[${label}] theme toggle missing`);
   assert(state.hasNoise, `[${label}] noise overlay missing`);
   assert(state.hasFooter, `[${label}] gallery footer missing`);
   assert(state.hasHeroFeature, `[${label}] hero feature missing`);
@@ -71,23 +63,13 @@ async function assertSharedChrome(page, label) {
   assert(!state.hasSearch, `[${label}] gallery search should not be present`);
   assert(!state.hasHeroTheme, `[${label}] hero category label should not be present`);
 
-  await page.click('[data-theme-toggle]');
-  await page.waitForFunction(
-    () => document.documentElement.getAttribute('data-color-mode') === 'light',
-    null,
-    { timeout: 3000 }
-  );
-  await page.click('[data-theme-toggle]');
-  await page.waitForFunction(
-    () => document.documentElement.getAttribute('data-color-mode') === 'dark',
-    null,
-    { timeout: 3000 }
-  );
+  assert(!state.hasSharedNav, `[${label}] legacy shared nav should not be present`);
+  assert(state.colorMode === null, `[${label}] gallery disables shared color-mode state`);
 }
 
 async function assertDesktopFlow(page) {
   const initial = await page.evaluate(() => ({
-    entryCount: window.__galleryState.getEntries().length,
+    entryCount: document.querySelectorAll('#lightboxThumbStrip .lightbox-thumb').length,
     archiveCount: document.querySelectorAll('#galleryArchiveGrid .photo-card').length,
     heroImageSrc: document.getElementById('galleryHeroImage')?.getAttribute('src') || '',
     heroButtonEntryId: document.getElementById('galleryHeroOpen')?.dataset.entryId || '',
@@ -119,8 +101,12 @@ async function assertDesktopFlow(page) {
   assert(initial.emptyCopy.toLowerCase().includes('archive'), '[desktop] empty-state copy should refer to the archive');
   assert(!initial.emptyCopy.toLowerCase().includes('category'), '[desktop] empty-state copy should not refer to category filtering');
 
-  await page.click('#galleryHeroOpen');
-  await page.waitForTimeout(180);
+  await page.locator('#galleryHeroOpen').click({ position: { x: 10, y: 10 } });
+  await page.waitForFunction(
+    () => !document.getElementById('lightbox').hidden,
+    null,
+    { timeout: 3000 }
+  );
   const lightboxState = await page.evaluate(() => ({
     active: !document.getElementById('lightbox').hidden,
     hash: window.location.hash,

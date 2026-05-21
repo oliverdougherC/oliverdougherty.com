@@ -1,3 +1,5 @@
+import { clamp } from './math';
+
 export interface AudioChannels {
   sampleRate: number;
   channels: Float32Array[];
@@ -16,10 +18,6 @@ export interface AudioSignalPrepareOptions {
   proxySampleRate: number;
   maxProxySampleCount?: number;
   maxDurationSeconds: number;
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
 }
 
 function mean(samples: Float32Array) {
@@ -47,12 +45,23 @@ export function downmixToMono(channels: Float32Array[]) {
   }
 
   const mono = new Float32Array(sampleCount);
+  const weights =
+    channels.length === 1 ? [1] :
+      channels.length === 2 ? [1, 1] :
+        // Conservative ITU-style fallback: front channels dominate, center and
+        // surrounds contribute less, and LFE is intentionally de-emphasized.
+        [1, 1, 0.707, 0.25, 0.5, 0.5];
+  let weightTotal = 0;
+  for (let channelIndex = 0; channelIndex < channels.length; channelIndex += 1) {
+    weightTotal += weights[channelIndex] ?? 0.5;
+  }
+
   for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
     let value = 0;
-    for (const channel of channels) {
-      value += channel[sampleIndex];
+    for (let channelIndex = 0; channelIndex < channels.length; channelIndex += 1) {
+      value += channels[channelIndex][sampleIndex] * (weights[channelIndex] ?? 0.5);
     }
-    mono[sampleIndex] = value / channels.length;
+    mono[sampleIndex] = value / weightTotal;
   }
 
   return mono;
@@ -100,6 +109,33 @@ export function resampleLinear(samples: Float32Array, outputSampleCount: number)
   }
 
   const output = new Float32Array(outputSampleCount);
+  if (outputSampleCount < samples.length) {
+    const scale = samples.length / outputSampleCount;
+    const radius = Math.max(8, Math.ceil(scale * 4));
+    for (let index = 0; index < outputSampleCount; index += 1) {
+      const center = (index + 0.5) * scale - 0.5;
+      const left = Math.max(0, Math.floor(center - radius));
+      const right = Math.min(samples.length - 1, Math.ceil(center + radius));
+      let weightedSum = 0;
+      let weightTotal = 0;
+
+      for (let sourceIndex = left; sourceIndex <= right; sourceIndex += 1) {
+        const x = (sourceIndex - center) / scale;
+        const sinc = x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x);
+        const windowPhase = (sourceIndex - center) / radius;
+        const window = 0.5 + 0.5 * Math.cos(Math.PI * clamp(windowPhase, -1, 1));
+        const weight = sinc * window;
+        weightedSum += samples[sourceIndex] * weight;
+        weightTotal += weight;
+      }
+
+      output[index] = weightTotal === 0 ? samples[Math.round(center)] ?? 0 : weightedSum / weightTotal;
+    }
+    output[0] = samples[0];
+    output[output.length - 1] = samples[samples.length - 1];
+    return output;
+  }
+
   const scale = (samples.length - 1) / Math.max(1, outputSampleCount - 1);
 
   for (let index = 0; index < outputSampleCount; index += 1) {

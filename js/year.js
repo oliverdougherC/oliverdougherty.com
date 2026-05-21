@@ -29,7 +29,7 @@ function setCurrentYear() {
 
 function getInitialColorMode() {
   if (COLOR_MODE_DISABLED) {
-    return COLOR_MODE_LIGHT;
+    return COLOR_MODE_DARK;
   }
 
   const storedColorMode = readStoredColorMode();
@@ -60,8 +60,9 @@ function persistColorMode(mode) {
 
 function applyColorMode(mode) {
   if (COLOR_MODE_DISABLED) {
-    document.documentElement.setAttribute('data-color-mode', COLOR_MODE_LIGHT);
-    document.documentElement.style.colorScheme = COLOR_MODE_LIGHT;
+    // Pages with data-disable-color-mode handle their own color scheme via CSS.
+    // Don't force dark defaults with inline styles, so the page's explicit
+    // theme-color and color-scheme values are respected by the browser.
     return;
   }
 

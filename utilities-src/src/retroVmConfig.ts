@@ -1,5 +1,5 @@
 import type { V86Options } from 'v86';
-import type { RetroVmConfig, RetroVmDatasetConfig } from './retroVmTypes';
+import type { RetroVmConfig, RetroVmCopyConfig, RetroVmDatasetConfig } from './retroVmTypes';
 
 const MB = 1024 * 1024;
 
@@ -16,9 +16,11 @@ export const RETRO_VM_CONFIG: RetroVmConfig = {
   cdromSizeBytes: 20_082_688,
   memorySize: 256 * MB,
   vgaMemorySize: 8 * MB,
-  bootOrder: 0x132,
+  // SeaBIOS boot-order bit layout: CD-ROM first, then disk fallback.
+  bootOrder: 0x210,
   bootHintDelayMs: 4000,
   bootMenuPrompt: /Press ENTER to boot/i,
+  maxClipboardPasteChars: 2048,
   copy: {
     assetLabel: 'Tiny Core Linux 11 · 20 MB remastered retro ISO',
     sessionLabel: 'Ephemeral per tab · clean boot every launch',
@@ -33,6 +35,7 @@ export const RETRO_VM_CONFIG: RetroVmConfig = {
     progressMeta: RETRO_VM_DISTRO
   },
   network: {
+    // Relay-backed networking is intentionally dormant until a relay URL is configured.
     enabled: false,
     relayUrl: null,
     nicType: 'ne2k',
@@ -41,6 +44,32 @@ export const RETRO_VM_CONFIG: RetroVmConfig = {
   }
 };
 
+const RETRO_VM_COPY_DATASET_FIELDS = {
+  vmAssetLabel: 'assetLabel',
+  vmSessionLabel: 'sessionLabel',
+  vmBridgeLabelOnline: 'bridgeLabelOnline',
+  vmBridgeLabelOffline: 'bridgeLabelOffline',
+  vmSupportNoteOnline: 'supportNoteOnline',
+  vmSupportNoteOffline: 'supportNoteOffline',
+  vmScreenBadgeOnline: 'screenBadgeOnline',
+  vmScreenBadgeOffline: 'screenBadgeOffline',
+  vmProgressMeta: 'progressMeta'
+} as const satisfies Record<keyof Omit<RetroVmDatasetConfig, 'vmNetworkEnabled' | 'vmRelayUrl'>, keyof RetroVmCopyConfig>;
+
+/**
+ * Parse a URL query or dataset string into a boolean.
+ *
+ * Accepted truthy values: `'true'`, `'1'`, `'yes'`, `'on'`
+ * Accepted falsy values: `'false'`, `'0'`, `'no'`, `'off'`
+ *
+ * Matching is case-insensitive and trims whitespace.
+ * Unrecognized strings (including `'enabled'`, `'disabled'`, `'y'`, `'n'`)
+ * fall back to the provided fallback value.
+ *
+ * @param value - Raw string from a dataset attribute or query param.
+ * @param fallback - Value returned when `value` is `undefined` or unrecognized.
+ * @returns Parsed boolean or `fallback`.
+ */
 function parseBooleanFlag(value: string | undefined, fallback: boolean) {
   if (value === undefined) {
     return fallback;
@@ -65,21 +94,41 @@ function parseRelayUrl(value: string | undefined, fallback: string | null) {
   return trimmed ? trimmed : null;
 }
 
+function applyRetroVmCopyOverrides(dataset: RetroVmDatasetConfig, fallback: RetroVmCopyConfig) {
+  const copy: RetroVmCopyConfig = { ...fallback };
+
+  for (const datasetKey of Object.keys(RETRO_VM_COPY_DATASET_FIELDS) as Array<keyof typeof RETRO_VM_COPY_DATASET_FIELDS>) {
+    const nextValue = dataset[datasetKey]?.trim();
+    if (nextValue) {
+      copy[RETRO_VM_COPY_DATASET_FIELDS[datasetKey]] = nextValue;
+    }
+  }
+
+  return copy;
+}
+
+export function readRetroVmDatasetConfig(
+  dataset: Partial<Record<keyof RetroVmDatasetConfig, string | undefined>> = {}
+): RetroVmDatasetConfig {
+  return {
+    vmAssetLabel: dataset.vmAssetLabel,
+    vmSessionLabel: dataset.vmSessionLabel,
+    vmBridgeLabelOnline: dataset.vmBridgeLabelOnline,
+    vmBridgeLabelOffline: dataset.vmBridgeLabelOffline,
+    vmSupportNoteOnline: dataset.vmSupportNoteOnline,
+    vmSupportNoteOffline: dataset.vmSupportNoteOffline,
+    vmScreenBadgeOnline: dataset.vmScreenBadgeOnline,
+    vmScreenBadgeOffline: dataset.vmScreenBadgeOffline,
+    vmProgressMeta: dataset.vmProgressMeta,
+    vmNetworkEnabled: dataset.vmNetworkEnabled,
+    vmRelayUrl: dataset.vmRelayUrl
+  };
+}
+
 export function resolveRetroVmConfigFromDataset(dataset: RetroVmDatasetConfig = {}): RetroVmConfig {
   return {
     ...RETRO_VM_CONFIG,
-    copy: {
-      ...RETRO_VM_CONFIG.copy,
-      assetLabel: dataset.vmAssetLabel?.trim() || RETRO_VM_CONFIG.copy.assetLabel,
-      sessionLabel: dataset.vmSessionLabel?.trim() || RETRO_VM_CONFIG.copy.sessionLabel,
-      bridgeLabelOnline: dataset.vmBridgeLabelOnline?.trim() || RETRO_VM_CONFIG.copy.bridgeLabelOnline,
-      bridgeLabelOffline: dataset.vmBridgeLabelOffline?.trim() || RETRO_VM_CONFIG.copy.bridgeLabelOffline,
-      supportNoteOnline: dataset.vmSupportNoteOnline?.trim() || RETRO_VM_CONFIG.copy.supportNoteOnline,
-      supportNoteOffline: dataset.vmSupportNoteOffline?.trim() || RETRO_VM_CONFIG.copy.supportNoteOffline,
-      screenBadgeOnline: dataset.vmScreenBadgeOnline?.trim() || RETRO_VM_CONFIG.copy.screenBadgeOnline,
-      screenBadgeOffline: dataset.vmScreenBadgeOffline?.trim() || RETRO_VM_CONFIG.copy.screenBadgeOffline,
-      progressMeta: dataset.vmProgressMeta?.trim() || RETRO_VM_CONFIG.copy.progressMeta
-    },
+    copy: applyRetroVmCopyOverrides(dataset, RETRO_VM_CONFIG.copy),
     network: {
       ...RETRO_VM_CONFIG.network,
       enabled: parseBooleanFlag(dataset.vmNetworkEnabled, RETRO_VM_CONFIG.network.enabled),
@@ -102,7 +151,7 @@ export function buildRetroVmV86Options(
     wasm_path: wasmPath,
     bios: { url: config.biosUrl },
     vga_bios: { url: config.vgaBiosUrl },
-    cdrom: config.cdromSizeBytes
+    cdrom: config.cdromSizeBytes != null
       ? { url: config.cdromUrl, size: config.cdromSizeBytes }
       : { url: config.cdromUrl },
     autostart: true,
@@ -112,20 +161,22 @@ export function buildRetroVmV86Options(
     disable_mouse: true
   };
 
-  if (isRetroVmNetworkReady(config)) {
-    options.net_device = {
+  const relayUrl = config.network.relayUrl;
+  if (isRetroVmNetworkReady(config) && relayUrl) {
+    const netDevice: NonNullable<V86Options['net_device']> = {
       type: config.network.nicType,
-      relay_url: config.network.relayUrl ?? undefined,
-      id: config.network.id,
-      router_mac: config.network.routerMac,
-      router_ip: config.network.routerIp,
-      vm_ip: config.network.vmIp,
-      masquerade: config.network.masquerade,
-      dns_method: config.network.dnsMethod,
-      doh_server: config.network.dohServer,
-      cors_proxy: config.network.corsProxy,
-      mtu: config.network.mtu
+      relay_url: relayUrl,
+      id: config.network.id
     };
+    if (config.network.routerMac !== undefined) netDevice.router_mac = config.network.routerMac;
+    if (config.network.routerIp !== undefined) netDevice.router_ip = config.network.routerIp;
+    if (config.network.vmIp !== undefined) netDevice.vm_ip = config.network.vmIp;
+    if (config.network.masquerade !== undefined) netDevice.masquerade = config.network.masquerade;
+    if (config.network.dnsMethod !== undefined) netDevice.dns_method = config.network.dnsMethod;
+    if (config.network.dohServer !== undefined) netDevice.doh_server = config.network.dohServer;
+    if (config.network.corsProxy !== undefined) netDevice.cors_proxy = config.network.corsProxy;
+    if (config.network.mtu !== undefined) netDevice.mtu = config.network.mtu;
+    options.net_device = netDevice;
   }
 
   return options;

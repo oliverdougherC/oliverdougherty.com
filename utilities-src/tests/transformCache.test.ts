@@ -83,7 +83,7 @@ describe('transform cache', () => {
     const target = createDemoSelection('Face', '../../assets/utilities/image-transform/face.png');
 
     expect(buildBuiltInTransformCacheKey(source, target, 'fast')).toBe(
-      'fast::../../assets/utilities/image-transform/pattern.png::../../assets/utilities/image-transform/face.png'
+      'fast\u001f../../assets/utilities/image-transform/pattern.png\u001f../../assets/utilities/image-transform/face.png'
     );
     expect(
       buildBuiltInTransformCacheKey(

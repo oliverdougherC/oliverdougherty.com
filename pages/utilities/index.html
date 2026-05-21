@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<!-- Utilities shell id: utilities-2026-04-09b (View Source: if missing, this is not the file your server is serving) -->
+<html lang="en" data-theme="utilities" data-utilities-shell="utilities-2026-04-09b">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Utilities</title>
+  <meta name="description" content="Interactive utilities and experiments built into the site.">
+  <link rel="icon" type="image/svg+xml" href="/favicon-happy.svg?v=face-6" id="favicon">
+  <link rel="alternate icon" href="/favicon-happy.ico?v=face-6" id="favicon-fallback">
+  <script src="../../js/favicon-swap.js" defer></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@200;400;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@200;400;800&display=swap" rel="stylesheet"></noscript>
+
+  <link rel="stylesheet" href="../../css/design-system.css?v=utilities-2026-04-09b">
+  <link rel="stylesheet" href="../../css/utilities.css?v=utilities-2026-05-19-home-cleanup">
+  <link rel="stylesheet" href="../../css/cursor.css?v=utilities-2026-04-09b">
+  <link rel="stylesheet" href="../../css/local-llm-chat.css?v=utilities-2026-05-16-local-assistant-copy">
+</head>
+<body>
+  <canvas id="starfield"></canvas>
+  <div class="noise-overlay"></div>
+
+  <nav class="nav" id="nav">
+    <div class="nav-inner container">
+      <div class="nav-btn-wrapper">
+        <a href="../../index.html" class="nav-home-btn" data-cursor="hover">Home</a>
+        <button class="nav-back-btn" data-cursor="hover">Back</button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="utilities-main">
+  <div id="utilitiesShell">
+    <!-- View: Title Card -->
+    <section id="utilitiesTitleView" class="utilities-view utilities-view--active">
+      <div class="utilities-title-wrapper">
+        <h1 class="utilities-title">Utilities</h1>
+      </div>
+      <div class="utilities-buttons">
+        <button data-utility="image-transform" data-color="lavender">Image Transform</button>
+        <button data-utility="audio-fourier" data-color="pink">Fourier Reconstruction</button>
+        <button data-utility="local-assistant" data-color="mint">Local Assistant</button>
+        <button data-utility="virtual-machine" data-color="sky">Virtual Machine</button>
+        <button data-utility="stress-test" data-color="ember">Stress Test</button>
+      </div>
+    </section>
+
+    <!-- View: Utility Container -->
+    <section id="utilitiesUtilityView" class="utilities-view">
+      <div class="utility-stage-wrapper container">
+        <div class="utility-stage" data-utility-id="image-transform">
+          <section class="utility-shell" id="utilitiesApp" data-utility-root="image-transform" data-animate="fade-up" aria-label="Image Transform">
+                    <div class="utility-layout utility-layout--image-transform">
+                      <div class="utility-rail utility-rail--minimal">
+                        <div class="utility-toolbar">
+                          <div class="utility-input-grid--minimal" aria-label="Image inputs">
+                            <label class="utility-dropzone--minimal" id="sourceDropzone">
+                              <input type="file" id="transformSourceInput" accept="image/*">
+                              <div class="dropzone-preview" id="sourceDropzonePreview">
+                                <span class="dropzone-icon utility-dropzone-icon" aria-hidden="true">
+                                  <svg viewBox="0 0 24 24" focusable="false">
+                                    <path d="M12 16V4"></path>
+                                    <path d="m7 9 5-5 5 5"></path>
+                                    <path d="M5 20h14"></path>
+                                  </svg>
+                                </span>
+                                <span class="dropzone-label">Upload source</span>
+                              </div>
+                              <span class="utility-dropzone-meta" id="transformSourceSelection"></span>
+                            </label>
+
+                            <button type="button" class="btn-swap-minimal" id="transformSwapBtn" aria-label="Swap images">
+                              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                                <path d="M7 7h10"></path>
+                                <path d="m14 4 3 3-3 3"></path>
+                                <path d="M17 17H7"></path>
+                                <path d="m10 14-3 3 3 3"></path>
+                              </svg>
+                            </button>
+
+                            <label class="utility-dropzone--minimal" id="targetDropzone">
+                              <input type="file" id="transformTargetInput" accept="image/*">
+                              <div class="dropzone-preview" id="targetDropzonePreview">
+                                <span class="dropzone-icon utility-dropzone-icon" aria-hidden="true">
+                                  <svg viewBox="0 0 24 24" focusable="false">
+                                    <path d="M12 16V4"></path>
+                                    <path d="m7 9 5-5 5 5"></path>
+                                    <path d="M5 20h14"></path>
+                                  </svg>
+                                </span>
+                                <span class="dropzone-label">Upload target</span>
+                              </div>
+                              <span class="utility-dropzone-meta" id="transformTargetSelection"></span>
+                            </label>
+                          </div>
+
+                          <div class="utility-controls-minimal">
+                            <div class="control-group-minimal">
+                              <select id="transformPreset" class="control-select-minimal" aria-label="Quality preset">
+                                <option value="fast">Fast (256px)</option>
+                                <option value="balanced" selected>Balanced (384px)</option>
+                                <option value="detailed">Detailed (512px)</option>
+                              </select>
+                            </div>
+
+                            <button type="button" class="btn-primary-minimal" id="transformGenerateBtn">Generate</button>
+
+                            <div class="demo-strip-minimal" aria-label="Demo image pairs">
+                              <span class="demo-label-minimal">Demos</span>
+                              <button type="button" class="demo-chip demo-chip-minimal active" data-demo-key="pattern-face" title="Pattern → Face"><span class="demo-prefix">Pattern → </span>Face</button>
+                              <button type="button" class="demo-chip demo-chip-minimal" data-demo-key="source-target" title="Pattern → Lucki"><span class="demo-prefix">Pattern → </span>Lucki</button>
+                              <button type="button" class="demo-chip demo-chip-minimal" data-demo-key="face-pattern" title="Pattern → Keef"><span class="demo-prefix">Pattern → </span>Keef</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="utility-view utility-view--minimal">
+                        <div class="utility-progress-minimal" aria-live="polite">
+                          <div class="utility-progress-copy-minimal">
+                            <p class="utility-progress-text-minimal" id="transformProgressText">Ready for input.</p>
+                            <span class="utility-progress-meta-minimal" id="transformProgressMeta">Balanced preset · up to 384px working size</span>
+                          </div>
+                          <div class="utility-progress-bar-minimal" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="transformProgressBar">
+                            <span class="utility-progress-fill-minimal" id="transformProgressFill"></span>
+                          </div>
+                        </div>
+
+                        <article class="canvas-panel-minimal canvas-panel--result">
+                          <div class="canvas-stage-minimal canvas-stage--result">
+                            <canvas id="transformResultCanvas" width="384" height="384"></canvas>
+                            <canvas id="transformOverlayCanvas" width="384" height="384" aria-hidden="true"></canvas>
+                            <div class="canvas-placeholder-minimal" id="transformResultPlaceholder">Reconstruction will appear here</div>
+                            <p class="canvas-result-meta-minimal" id="transformResultMeta"></p>
+
+                            <div class="canvas-overlay-controls">
+                              <button type="button" class="btn-overlay-icon" id="transformPlayBtn" disabled aria-label="Play animation">▶</button>
+                              <button type="button" class="btn-overlay-icon" id="transformResetBtn" aria-label="Reset">✕</button>
+                            </div>
+
+                            <div class="canvas-overlay-stats">
+                              <span id="transformOutputSize">—</span> •
+                              <span id="transformPixelCount">—</span> •
+                              <span id="transformDuration">—</span>
+                            </div>
+                          </div>
+                        </article>
+
+                        <div class="support-panels" hidden>
+                          <!-- Hidden but kept for JS compatibility -->
+                          <canvas id="transformSourceCanvas" width="384" height="384"></canvas>
+                          <canvas id="transformTargetCanvas" width="384" height="384"></canvas>
+                          <p id="transformSourceMeta"></p>
+                          <p id="transformTargetMeta"></p>
+                          <div id="transformSourcePlaceholder"></div>
+                          <div id="transformTargetPlaceholder"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+        </div>
+        <div class="utility-stage" data-utility-id="audio-fourier">
+          <section class="utility-shell utility-shell--audio" id="audioFourierApp" data-utility-root="audio-fourier" data-animate="fade-up" data-audio-state="idle" aria-label="Audio Fourier Reconstruction">
+                    <span class="utility-status-chip utility-status-chip--idle" id="audioFourierStatusChip" hidden>Idle</span>
+                    <p class="utility-status-copy" id="audioFourierStatusText" aria-live="polite" hidden>Choose a built-in song or upload an audio file.</p>
+
+                    <div class="utility-layout utility-layout--audio">
+                      <div class="utility-rail utility-rail--minimal">
+                        <div class="utility-toolbar">
+                          <div class="utility-input-grid--minimal">
+                            <label class="utility-dropzone--minimal audio-dropzone" id="audioFourierDropzone">
+                              <input type="file" id="audioFourierInput" accept="audio/*">
+                              <div class="dropzone-preview" id="audioDropzonePreview">
+                                <span class="dropzone-icon utility-dropzone-icon" aria-hidden="true">
+                                  <svg viewBox="0 0 24 24" focusable="false">
+                                    <path d="M12 16V4"></path>
+                                    <path d="m7 9 5-5 5 5"></path>
+                                    <path d="M5 20h14"></path>
+                                  </svg>
+                                </span>
+                                <span class="dropzone-label">Upload audio</span>
+                              </div>
+                              <span class="utility-dropzone-meta" id="audioFourierSelection"></span>
+                            </label>
+                          </div>
+
+                          <div class="utility-controls-minimal">
+                            <div class="control-group-minimal">
+                              <select id="audioFourierQuality" class="control-select-minimal" aria-label="Analysis quality">
+                                <option value="fast">Fast</option>
+                                <option value="balanced" selected>Balanced</option>
+                                <option value="detailed">Detailed</option>
+                              </select>
+                            </div>
+
+                            <button type="button" class="btn-primary-minimal" id="audioFourierGenerateBtn">Generate</button>
+                            <button type="button" class="btn-secondary-minimal" id="audioFourierResetBtn">Reset</button>
+
+                            <div class="demo-strip-minimal audio-preset-strip" aria-label="Built-in song presets">
+                              <span class="demo-label-minimal">Demos</span>
+                               <button type="button" class="demo-chip demo-chip-minimal" data-audio-preset="i-cant-wait-to-get-there" title="I Can't Wait To Get There">I Can't Wait To Get There</button>
+                               <button type="button" class="demo-chip demo-chip-minimal" data-audio-preset="tell-your-friends" title="Tell Your Friends">Tell Your Friends</button>
+                               <button type="button" class="demo-chip demo-chip-minimal active" data-audio-preset="best-friends" title="Best Friends">Best Friends</button>
+                            </div>
+
+                            <div class="audio-metric-cards" aria-label="Fourier signal metrics">
+                              <span class="audio-component-readout" id="audioFourierComponentReadout" hidden>Generate first</span>
+                              <div class="audio-metric-card audio-metric-card--strength">
+                                <span class="audio-metric-title">Signal strength</span>
+                                <span class="audio-metric-value" id="audioFourierSignalStrengthMetric">--</span>
+                              </div>
+                              <div class="audio-metric-card audio-metric-card--signals">
+                                <span class="audio-metric-title">Signals</span>
+                                <span class="audio-metric-value" id="audioFourierSignalCountMetric">--</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="utility-view utility-view--minimal">
+                        <div class="utility-progress-minimal" aria-live="polite">
+                          <div class="utility-progress-copy-minimal">
+                            <p class="utility-progress-text-minimal" id="audioFourierProgressText">Ready for audio.</p>
+                            <span class="utility-progress-meta-minimal" id="audioFourierProgressMeta">Balanced · full-song proxy at 22050 Hz</span>
+                          </div>
+                          <div class="utility-progress-bar-minimal" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="audioFourierProgressBar">
+                            <span class="utility-progress-fill-minimal audio-progress-fill" id="audioFourierProgressFill"></span>
+                          </div>
+                        </div>
+
+                        <article class="canvas-panel-minimal">
+                          <div class="canvas-stage-minimal audio-wave-stage">
+                            <canvas id="audioFourierWaveCanvas" width="1040" height="360" role="img" aria-label="Fourier waveform viewport showing original and reconstructed audio signals"></canvas>
+                            <p class="canvas-result-meta-minimal audio-result-meta-minimal" id="audioFourierResultMeta" hidden></p>
+
+                            <div class="canvas-overlay-controls">
+                              <button type="button" class="btn-overlay-icon" id="audioFourierPlayBtn" disabled aria-label="Play">▶</button>
+                              <button type="button" class="btn-overlay-icon" id="audioFourierPauseBtn" disabled hidden aria-label="Pause">⏸</button>
+                            </div>
+
+                            <div class="canvas-overlay-stats">
+                              <span id="audioFourierSampleRate">—</span> •
+                              <span id="audioFourierComponentCount">—</span> •
+                              <span id="audioFourierSourceDuration">—</span> •
+                              <span id="audioFourierDuration">—</span>
+                            </div>
+                          </div>
+
+                          <div class="audio-compact-controls">
+                            <div class="audio-component-control--inline">
+                              <div class="audio-slider-wrapper">
+                                <input id="audioFourierComponentSlider" class="audio-component-slider" type="range" min="0" max="100" step="1" value="50" disabled aria-label="Fourier signals added">
+                                <div class="audio-component-scale" aria-hidden="true">
+                                  <span id="audioFourierComponentMin">Sparse</span>
+                                  <span id="audioFourierComponentMax">Full proxy</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </article>
+
+                        <div class="support-panels audio-support-panels" hidden>
+                          <!-- Hidden to maintain minimal aesthetic, kept for JS compatibility -->
+                            <canvas id="audioFourierSpectrumCanvas" width="640" height="260" role="img" aria-label="Energy band spectrum showing component distribution"></canvas>
+                            <canvas id="audioFourierComponentCanvas" width="640" height="260" role="img" aria-label="Active component visualization showing frequency and amplitude"></canvas>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+        </div>
+        <div class="utility-stage" data-utility-id="local-assistant">
+          <section class="utility-shell utility-shell--local-llm" id="localLlmUtilityApp" data-utility-root="local-llm" data-animate="fade-up" data-local-llm-status="idle" aria-label="Local AI Chat"></section>
+        </div>
+        <div class="utility-stage" data-utility-id="virtual-machine">
+          <section class="utility-shell utility-shell--vm" id="retroVmApp" data-utility-root="retro-vm" data-animate="fade-up" aria-label="Virtual Machine" data-vm-state="idle" data-vm-supported="unknown" data-vm-running="false" data-vm-booted="false" data-vm-capture-state="uncaptured">
+                    <script type="application/json" id="retroVmConfig">
+                      {
+                        "vmNetworkEnabled": "false",
+                        "vmRelayUrl": "",
+                        "vmAssetLabel": "Tiny Core Linux 11 · 20 MB remastered retro ISO",
+                        "vmSessionLabel": "Ephemeral per tab · clean boot every launch",
+                        "vmBridgeLabelOnline": "Clipboard paste + experimental relay hook",
+                        "vmBridgeLabelOffline": "Clipboard paste only · offline-first rollback",
+                        "vmSupportNoteOnline": "Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. Relay-backed networking remains experimental.",
+                        "vmSupportNoteOffline": "Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first.",
+                        "vmScreenBadgeOnline": "Experimental relay",
+                        "vmScreenBadgeOffline": "Local only",
+                        "vmProgressMeta": "Tiny Core Linux 11"
+                      }
+                    </script>
+                    <div class="utility-layout utility-layout--vm">
+                      <div class="utility-view utility-view--minimal">
+                        <article class="canvas-panel-minimal">
+                          <div class="vm-screen-shell" id="retroVmScreenShell">
+                            <div class="vm-toolbar">
+                              <span class="vm-status-dot" aria-hidden="true"></span>
+                              <span class="vm-toolbar-title" id="retroVmProgressText">Idle</span>
+                              <span class="vm-toolbar-meta" id="retroVmProgressMeta">Tiny Core Linux 11</span>
+                              <span class="utility-status-chip utility-status-chip--idle" id="retroVmStatusChip">Idle</span>
+                              <span class="sr-only" id="retroVmStatusText" aria-live="polite">Launch a fresh local session when you are ready.</span>
+                              <span class="vm-capture-badge" id="retroVmCaptureBadge">Click desktop to capture mouse</span>
+                              <span class="vm-screen-badge" id="retroVmScreenBadge">Local only</span>
+
+                              <div class="vm-toolbar-actions">
+                                <button type="button" class="btn-secondary-utility btn-secondary-utility--compact" id="retroVmLaunchBtn">Launch</button>
+                                <button type="button" class="btn-secondary-utility btn-secondary-utility--compact" id="retroVmPasteBtn" disabled>Paste</button>
+                                <button type="button" class="btn-secondary-utility btn-secondary-utility--compact" id="retroVmFullscreenBtn" disabled>Fullscreen</button>
+                                <button type="button" class="btn-secondary-utility btn-secondary-utility--compact" id="retroVmResetBtn" disabled>Wipe</button>
+                              </div>
+                            </div>
+                            <div class="vm-viewport">
+                              <div class="vm-screen" id="retroVmScreen" tabindex="0"></div>
+                              <div class="canvas-placeholder vm-placeholder" id="retroVmPlaceholder">
+                                <div class="vm-placeholder-stack">
+                                  <strong>Tiny Core Linux 11</strong>
+                                  <span>Click Launch to boot the ephemeral session.</span>
+                                </div>
+                              </div>
+                            </div>
+                            <p class="vm-support-note" id="retroVmSupportNote">Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first.</p>
+                          </div>
+                        </article>
+                      </div>
+                    </div>
+                  </section>
+        </div>
+        <div class="utility-stage" data-utility-id="stress-test">
+          <section class="utility-shell utility-shell--stress" id="stressTestApp" data-utility-root="stress-test" data-animate="fade-up" aria-label="Stress Test" data-stress-state="idle" data-stress-mode="both" data-stress-worker-count="0" data-stress-gpu-backend="none">
+                    <div class="stress-layout">
+                      <div class="stress-control-panel">
+                        <span class="utility-kicker">Browser Stress Test</span>
+                        <p class="stress-warning" id="stressStatusText" aria-live="polite">Ready. Starting this will make your browser hot, loud, slow, and power hungry.</p>
+
+                        <div class="stress-mode-group" role="group" aria-label="Stress mode">
+                          <button type="button" class="stress-mode-button" data-stress-mode-option="cpu" aria-pressed="false">CPU</button>
+                          <button type="button" class="stress-mode-button" data-stress-mode-option="gpu" aria-pressed="false">GPU</button>
+                          <button type="button" class="stress-mode-button is-active" data-stress-mode-option="both" aria-pressed="true">Both</button>
+                        </div>
+
+                        <div class="stress-actions">
+                          <button type="button" class="btn-primary-utility stress-start-button" id="stressStartBtn">Start</button>
+                          <button type="button" class="btn-secondary-utility stress-stop-button" id="stressStopBtn" disabled>Stop</button>
+                        </div>
+
+                        <dl class="stress-metrics" id="stressMetrics">
+                          <div data-stress-metric="elapsed">
+                            <dt>Elapsed</dt>
+                            <dd id="stressElapsed">0:00</dd>
+                          </div>
+                          <div data-stress-metric="workers">
+                            <dt>Workers</dt>
+                            <dd id="stressWorkerCount">0</dd>
+                          </div>
+                          <div data-stress-metric="gpu">
+                            <dt>GPU</dt>
+                            <dd id="stressGpuBackend">none</dd>
+                          </div>
+                          <div data-stress-metric="fps">
+                            <dt>FPS</dt>
+                            <dd id="stressFrameRate">0.0</dd>
+                          </div>
+                          <div data-stress-metric="dropped">
+                            <dt>Dropped</dt>
+                            <dd id="stressDroppedFrames">0</dd>
+                          </div>
+                          <div data-stress-metric="iterations">
+                            <dt>CPU iterations</dt>
+                            <dd id="stressIterations">0</dd>
+                          </div>
+                        </dl>
+                      </div>
+
+                      <div class="stress-visual-panel">
+                        <canvas id="stressCanvas" aria-label="Stress test GPU output"></canvas>
+                      </div>
+                    </div>
+                  </section>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+  <footer class="footer utilities-footer">
+    <div class="container">
+      <div class="footer-inner">
+        <p class="footer-text">&copy; <span data-current-year>2026</span> Oliver Dougherty</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="../../js/utilities-title-reveal.js" defer></script>
+  <script src="../../js/year.js" defer></script>
+  <script src="../../js/main.js" defer></script>
+  <script src="../../js/utilities-shell.js?v=utilities-2026-05-19-home-cleanup" defer></script>
+  <script src="../../js/starfield.js?v=utilities-2026-04-25b" defer></script>
+  <script type="module" src="./assets/utilities-app.js?v=utilities-2026-05-16-death-fixes"></script>
+</body>
+</html>

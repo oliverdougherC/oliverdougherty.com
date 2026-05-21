@@ -4,6 +4,32 @@
  */
 
 /* ========================================
+   Home: nav hidden until DOUGHERTY sequence completes
+   ======================================== */
+
+body.page-home:not(.dougherty-nav-revealed) .nav {
+  transform: translateY(-100%);
+  pointer-events: none;
+}
+
+body.page-home.dougherty-nav-revealed .nav {
+  transform: translateY(0);
+  pointer-events: auto;
+  transition: transform 0.6s var(--ease-out-expo);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.page-home:not(.dougherty-nav-revealed) .nav {
+    transform: none;
+    pointer-events: auto;
+  }
+
+  body.page-home.dougherty-nav-revealed .nav {
+    transition: none;
+  }
+}
+
+/* ========================================
    Ambient Background
    ======================================== */
 

@@ -10,10 +10,16 @@ function drawBitmapToPixels(bitmap: ImageBitmap, width: number, height: number) 
     throw new Error('Unable to create an offscreen 2D context.');
   }
 
+  const scale = Math.max(width / bitmap.width, height / bitmap.height);
+  const drawnWidth = bitmap.width * scale;
+  const drawnHeight = bitmap.height * scale;
+  const drawnX = (width - drawnWidth) / 2;
+  const drawnY = (height - drawnHeight) / 2;
+
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = 'high';
   context.clearRect(0, 0, width, height);
-  context.drawImage(bitmap, 0, 0, width, height);
+  context.drawImage(bitmap, drawnX, drawnY, drawnWidth, drawnHeight);
   const imageData = context.getImageData(0, 0, width, height);
 
   return {

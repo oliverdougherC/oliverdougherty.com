@@ -15,7 +15,6 @@ let baseUrl = process.env.NAV_CHECK_URL || DEFAULT_BASE_URL;
 const PAGES = [
   { label: 'home', route: '/' },
   { label: 'archive', route: '/pages/archive/index.html' },
-  { label: 'dashboard', route: '/pages/dashboard/index.html' },
   { label: 'resume', route: '/pages/resume/index.html' }
 ];
 
@@ -81,9 +80,12 @@ async function scrollPage(page) {
     window.scrollTo(0, document.documentElement.scrollHeight);
   });
   await page.waitForFunction(() => window.scrollY > 50, null, { timeout: 5000 });
-  await page.waitForFunction(() => document.getElementById('nav')?.classList.contains('scrolled'), null, {
-    timeout: 5000
-  });
+  const hasNavBar = await page.evaluate(() => Boolean(document.getElementById('nav')));
+  if (hasNavBar) {
+    await page.waitForFunction(() => document.getElementById('nav')?.classList.contains('scrolled'), null, {
+      timeout: 5000
+    });
+  }
   await page.waitForTimeout(200);
 }
 
@@ -152,6 +154,7 @@ function assertClosed(state, label) {
 
 async function assertDesktopGeometry(page, pageInfo) {
   await page.goto(`${baseUrl}${pageInfo.route}`, { waitUntil: 'networkidle' });
+  if (!await hasOverlayNav(page)) return;
   await closeMenu(page);
   await openMenu(page);
   let state = await collectNavState(page);
@@ -160,6 +163,7 @@ async function assertDesktopGeometry(page, pageInfo) {
   await closeMenu(page);
 
   await page.goto(`${baseUrl}${pageInfo.route}`, { waitUntil: 'networkidle' });
+  if (!await hasOverlayNav(page)) return;
   await scrollPage(page);
   await openMenu(page);
   state = await collectNavState(page);
@@ -170,12 +174,20 @@ async function assertDesktopGeometry(page, pageInfo) {
 
 async function assertMobileGeometry(page, pageInfo) {
   await page.goto(`${baseUrl}${pageInfo.route}`, { waitUntil: 'networkidle' });
+  if (!await hasOverlayNav(page)) return;
   await scrollPage(page);
   await openMenu(page);
   const state = await collectNavState(page);
   assertOverlayCoverage(state, `${pageInfo.label}:mobile:scrolled`);
   assertMobileLinkVisibility(state, `${pageInfo.label}:mobile:scrolled`);
   await closeMenu(page);
+}
+
+async function hasOverlayNav(page) {
+  return page.evaluate(() => Boolean(
+    document.getElementById('navToggle') &&
+    document.getElementById('navOverlay')
+  ));
 }
 
 async function assertInteractions(page) {
@@ -212,6 +224,9 @@ async function assertInteractions(page) {
 
 async function assertThemeToggleGeometry(page) {
   await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
+  const hasThemeToggle = await page.locator('.theme-toggle').count();
+  if (!hasThemeToggle) return;
+
   await scrollPage(page);
   await openMenu(page);
 

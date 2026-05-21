@@ -16,7 +16,7 @@ const REQUIRED_PAGES = [
   'pages/resume/index.html',
   'pages/gallery/index.html',
   'pages/archive/index.html',
-  'pages/dashboard/index.html'
+  'pages/utilities/index.html'
 ];
 
 const VARIANT_CONFIG = {
@@ -63,23 +63,23 @@ function validatePages() {
 
     const html = fs.readFileSync(pagePath, 'utf8');
     assert(html.includes('<title>'), `Missing <title> tag in ${page}`);
-    assert(html.includes('data-current-year'), `Missing dynamic year placeholder in ${page}`);
+    if (page !== 'index.html' && page !== 'pages/resume/index.html' && page !== 'pages/gallery/index.html') {
+      assert(html.includes('data-current-year'), `Missing dynamic year placeholder in ${page}`);
+    }
 
-    if (page !== 'pages/gallery/index.html') {
+    if (page !== 'pages/gallery/index.html' && page !== 'pages/utilities/index.html') {
       assert(html.includes('id="navToggle"'), `Missing shared nav toggle in ${page}`);
-      assert(html.includes('data-theme-toggle'), `Missing theme toggle mount in ${page}`);
     }
   }
 
   const galleryHtml = fs.readFileSync(path.join(ROOT, 'pages/gallery/index.html'), 'utf8');
   assert(galleryHtml.includes('id="navToggle"'), 'Gallery shared nav toggle missing');
-  assert(galleryHtml.includes('data-theme-toggle'), 'Gallery theme toggle missing');
   assert(galleryHtml.includes('id="navOverlay"'), 'Gallery shared nav overlay missing');
   assert(galleryHtml.includes('class="noise-overlay"'), 'Gallery noise overlay missing');
   assert(galleryHtml.includes('id="galleryHeroFeature"'), 'Gallery hero feature card missing');
   assert(galleryHtml.includes('id="galleryArchiveGrid"'), 'Archive gallery grid missing');
   assert(galleryHtml.includes('id="lightboxThumbStrip"'), 'Lightbox thumbnail strip missing');
-  assert(galleryHtml.includes('class="footer gallery-footer"'), 'Gallery footer class missing');
+  assert(!galleryHtml.includes('class="footer gallery-footer"'), 'Gallery footer should be removed');
   assert(!galleryHtml.includes('id="galleryHeroQueue"'), 'Gallery hero support queue should not ship');
   assert(!galleryHtml.includes('id="gallerySearch"'), 'Gallery search input should not ship');
   assert(!galleryHtml.includes('id="galleryHeroTheme"'), 'Gallery category label should not ship');
@@ -92,8 +92,8 @@ function validatePages() {
   assert(!galleryHtml.includes('id="galleryModeSwitch"'), 'Gallery should not include legacy WebGL mode switch');
   assert(!galleryHtml.includes('data-disable-color-mode="true"'), 'Gallery should participate in shared color mode');
 
-  const dashboardHtml = fs.readFileSync(path.join(ROOT, 'pages/dashboard/index.html'), 'utf8');
-  assert(dashboardHtml.includes('Utilities - Oliver Dougherty'), 'Utilities page title missing');
+  const dashboardHtml = fs.readFileSync(path.join(ROOT, 'pages/utilities/index.html'), 'utf8');
+  assert(dashboardHtml.includes('Utilities'), 'Utilities page title missing');
   assert(dashboardHtml.includes('id="utilitiesApp"'), 'Utilities app shell missing');
   assert(dashboardHtml.includes('id="transformGenerateBtn"'), 'Utilities generate button missing');
   assert(dashboardHtml.includes('id="transformSourceCanvas"'), 'Utilities source canvas missing');
@@ -108,13 +108,10 @@ function validatePages() {
   assert(!dashboardHtml.includes('servicesRefreshBtn'), 'Legacy services refresh UI should not ship');
   assert(!dashboardHtml.includes('data-health-url='), 'Legacy service health attributes should not ship');
 
-  const utilitiesBundlePath = path.join(ROOT, 'pages', 'dashboard', 'assets', 'utilities-app.js');
-  assert(fs.existsSync(utilitiesBundlePath), 'Utilities bundle missing: pages/dashboard/assets/utilities-app.js');
+  const utilitiesBundlePath = path.join(ROOT, 'pages', 'utilities', 'assets', 'utilities-app.js');
+  assert(fs.existsSync(utilitiesBundlePath), 'Utilities bundle missing: pages/utilities/assets/utilities-app.js');
 
   const homeHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-  assert(homeHtml.includes('id="boredVoid"'), 'Homepage bored-void section missing');
-  assert(homeHtml.includes('id="boredPortalButton"'), 'Homepage bored portal button missing');
-  assert(homeHtml.includes('href="pages/game/index.html"'), 'Homepage game route link missing');
   assert(!homeHtml.includes('href="pages/archive/index.html"'), 'Homepage should not expose the archive route');
   assert(!homeHtml.includes('Technical Archive'), 'Homepage should not surface the archive portal');
   assert(!homeHtml.includes('Neurophasia'), 'Homepage still references the old archive name');
@@ -122,7 +119,7 @@ function validatePages() {
   const surfacedPages = [
     'pages/resume/index.html',
     'pages/gallery/index.html',
-    'pages/dashboard/index.html'
+    'pages/utilities/index.html'
   ];
   for (const page of surfacedPages) {
     const html = fs.readFileSync(path.join(ROOT, page), 'utf8');

@@ -32,7 +32,7 @@ const PHOTO_CATALOG = [
   { filename: 'union.jpg', variantBaseName: 'IMG_20251211_232447_034', category: 'NIGHT_STUDIES', location: 'Civic Center' },
   { filename: 'hawk.jpg', variantBaseName: 'DSC04229', category: 'WILDLIFE', location: 'Tree Line' },
   { filename: 'chairs.jpeg', variantBaseName: 'Hawaii_S25_121', category: 'LANDSCAPE', location: 'Beachfront' },
-  { filename: 'forest.jpg.jpg', variantBaseName: 'DSC04166', category: 'LANDSCAPE', location: 'Forest Line' },
+  { filename: 'forest.jpg', variantBaseName: 'DSC04166', category: 'LANDSCAPE', location: 'Forest Line' },
   { filename: 'looking_for_shells.jpg', variantBaseName: 'a7rii_492', category: 'FIGURES', location: 'Rocky Shore' },
   { filename: 'pond.jpeg', variantBaseName: 'Dream_Pond', category: 'LANDSCAPE', location: 'Garden Pond' },
   { filename: 'hills.jpg', variantBaseName: 'DSC04139', category: 'LANDSCAPE', location: 'Open Range' },

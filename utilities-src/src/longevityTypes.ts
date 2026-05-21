@@ -4,6 +4,8 @@ export type DiabetesStatus = 'none' | 'prediabetes' | 'diabetes';
 export type UltraProcessedFoodShare = 'minimal' | 'low' | 'moderate' | 'high' | 'very-high';
 export type BingeFrequency = 'never' | 'monthly' | 'weekly' | 'multiple-weekly';
 export type ParentLongevityBand = 'both-under-75' | 'mixed' | 'one-85-plus' | 'both-85-plus';
+export type FamilyMemberStatus = 'alive' | 'deceased' | 'unknown';
+export type FamilyGeneration = 'parent' | 'grandparent';
 export type EvidenceGrade =
   | 'official-statistical-baseline'
   | 'official-context'
@@ -48,6 +50,19 @@ export interface LongevitySurveyAnswers {
   hasSleepApnea: boolean;
   hasEarlyFamilyCardioHistory: boolean;
   parentLongevityBand: ParentLongevityBand;
+  familyHistory: {
+    mother: FamilyMemberLongevityAnswer;
+    father: FamilyMemberLongevityAnswer;
+    maternalGrandmother: FamilyMemberLongevityAnswer;
+    maternalGrandfather: FamilyMemberLongevityAnswer;
+    paternalGrandmother: FamilyMemberLongevityAnswer;
+    paternalGrandfather: FamilyMemberLongevityAnswer;
+  };
+}
+
+export interface FamilyMemberLongevityAnswer {
+  status: FamilyMemberStatus;
+  age: number | null;
 }
 
 export interface EvidenceSource {

@@ -1,2 +1,16 @@
 #!/bin/sh
-exec aterm -title "OD Retro VM Guide" -geometry 96x28+36+72 -e /bin/sh -lc 'clear; cat /usr/local/share/retro-vm/guide.txt; printf "\n"; exec sh'
+TITLE="OD Retro VM Guide"
+GEOMETRY="96x28+36+72"
+COMMAND='clear; cat /usr/local/share/retro-vm/guide.txt; printf "\n"; exec sh'
+
+if command -v aterm >/dev/null 2>&1; then
+  exec aterm -title "$TITLE" -geometry "$GEOMETRY" -e /bin/sh -lc "$COMMAND"
+fi
+
+if command -v xterm >/dev/null 2>&1; then
+  exec xterm -title "$TITLE" -geometry "$GEOMETRY" -e /bin/sh -lc "$COMMAND"
+fi
+
+clear
+cat /usr/local/share/retro-vm/guide.txt
+printf "\nInstall aterm or xterm to open this guide in its own window.\n"

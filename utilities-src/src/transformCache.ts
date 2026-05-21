@@ -2,10 +2,7 @@ import type { TransformPresetId } from './types';
 import type { TransformRenderPlan } from './transformRenderPlan';
 import type { ImageSelection } from './uiState';
 import type { WorkerSuccessMessage } from './workerTypes';
-
-function cloneArrayBuffer(buffer: ArrayBufferLike) {
-  return buffer.slice(0) as ArrayBuffer;
-}
+import { arrayBufferLikeToArrayBuffer, copyArrayBuffer } from './bufferUtils';
 
 export interface CachedBuiltInTransform {
   message: WorkerSuccessMessage;
@@ -31,21 +28,25 @@ export interface HydratedPrecomputedBuiltInTransform {
 }
 
 function arrayBufferToBase64(buffer: ArrayBufferLike) {
-  const bytes = new Uint8Array(buffer as ArrayBuffer);
+  const bytes = new Uint8Array(arrayBufferLikeToArrayBuffer(buffer));
+  // Buffer is available during Node cache generation; browser builds use btoa.
+  // The 32KB fallback chunks stay below V8's ~65K apply/spread argument limit.
   if (typeof Buffer !== 'undefined') {
     return Buffer.from(bytes).toString('base64');
   }
 
-  let binary = '';
-  for (let index = 0; index < bytes.length; index += 1) {
-    binary += String.fromCharCode(bytes[index]);
+  const chunkSize = 0x8000;
+  const chunks: string[] = [];
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    chunks.push(String.fromCharCode(...bytes.subarray(offset, offset + chunkSize)));
   }
-  return btoa(binary);
+  return btoa(chunks.join(''));
 }
 
 function base64ToArrayBuffer(value: string) {
   if (typeof Buffer !== 'undefined') {
-    return Uint8Array.from(Buffer.from(value, 'base64')).buffer;
+    const bytes = Uint8Array.from(Buffer.from(value, 'base64'));
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
   }
 
   const binary = atob(value);
@@ -53,7 +54,7 @@ function base64ToArrayBuffer(value: string) {
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index);
   }
-  return bytes.buffer;
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
 }
 
 export function buildBuiltInTransformCacheKey(
@@ -72,7 +73,7 @@ export function buildBuiltInTransformCacheKey(
     return null;
   }
 
-  return `${presetId}::${sourceSelection.url}::${targetSelection.url}`;
+  return `${presetId}\u001f${sourceSelection.url}\u001f${targetSelection.url}`;
 }
 
 export function cloneWorkerSuccessMessage(
@@ -84,13 +85,13 @@ export function cloneWorkerSuccessMessage(
     requestId,
     source: {
       ...message.source,
-      pixels: cloneArrayBuffer(message.source.pixels)
+      pixels: copyArrayBuffer(message.source.pixels)
     },
     target: {
       ...message.target,
-      pixels: cloneArrayBuffer(message.target.pixels)
+      pixels: copyArrayBuffer(message.target.pixels)
     },
-    assignment: cloneArrayBuffer(message.assignment)
+    assignment: copyArrayBuffer(message.assignment)
   };
 }
 
@@ -100,9 +101,9 @@ export function createCachedBuiltInTransform(
 ): CachedBuiltInTransform {
   return {
     message: cloneWorkerSuccessMessage(message),
-    finalPixels: cloneArrayBuffer(renderPlan.finalPixels.buffer),
-    tintStrengthByTarget: cloneArrayBuffer(renderPlan.tintStrengthByTarget.buffer),
-    cheatedTargetPixels: cloneArrayBuffer(renderPlan.cheatedTargetPixels.buffer)
+    finalPixels: copyArrayBuffer(renderPlan.finalPixels.buffer),
+    tintStrengthByTarget: copyArrayBuffer(renderPlan.tintStrengthByTarget.buffer),
+    cheatedTargetPixels: copyArrayBuffer(renderPlan.cheatedTargetPixels.buffer)
   };
 }
 
@@ -112,9 +113,9 @@ export function cloneCachedBuiltInTransform(
 ): CachedBuiltInTransform {
   return {
     message: cloneWorkerSuccessMessage(cached.message, requestId),
-    finalPixels: cloneArrayBuffer(cached.finalPixels),
-    tintStrengthByTarget: cloneArrayBuffer(cached.tintStrengthByTarget),
-    cheatedTargetPixels: cloneArrayBuffer(cached.cheatedTargetPixels)
+    finalPixels: copyArrayBuffer(cached.finalPixels),
+    tintStrengthByTarget: copyArrayBuffer(cached.tintStrengthByTarget),
+    cheatedTargetPixels: copyArrayBuffer(cached.cheatedTargetPixels)
   };
 }
 

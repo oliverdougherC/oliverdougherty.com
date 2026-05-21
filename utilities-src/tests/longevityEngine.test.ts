@@ -40,6 +40,14 @@ function createBaselineAnswers(overrides: Partial<LongevitySurveyAnswers> = {}):
     hasSleepApnea: false,
     hasEarlyFamilyCardioHistory: false,
     parentLongevityBand: 'mixed',
+    familyHistory: {
+      mother: { status: 'unknown', age: null },
+      father: { status: 'unknown', age: null },
+      maternalGrandmother: { status: 'unknown', age: null },
+      maternalGrandfather: { status: 'unknown', age: null },
+      paternalGrandmother: { status: 'unknown', age: null },
+      paternalGrandfather: { status: 'unknown', age: null }
+    },
     ...overrides
   };
 }
@@ -230,6 +238,41 @@ describe('longevity engine', () => {
 
     expect(heavy.medianTimestamp).toBeLessThan(never.medianTimestamp);
     expect(heavy.survivalProbabilities.years20).toBeLessThan(never.survivalProbabilities.years20);
+  });
+
+  it('uses detailed parent and grandparent ages when provided', () => {
+    const longLivedFamily = predictLongevity(
+      createBaselineAnswers({
+        familyHistory: {
+          mother: { status: 'alive', age: 91 },
+          father: { status: 'deceased', age: 88 },
+          maternalGrandmother: { status: 'deceased', age: 97 },
+          maternalGrandfather: { status: 'deceased', age: 84 },
+          paternalGrandmother: { status: 'deceased', age: 94 },
+          paternalGrandfather: { status: 'unknown', age: null }
+        }
+      }),
+      longevityDataset,
+      now
+    );
+    const shorterLivedFamily = predictLongevity(
+      createBaselineAnswers({
+        familyHistory: {
+          mother: { status: 'deceased', age: 63 },
+          father: { status: 'deceased', age: 70 },
+          maternalGrandmother: { status: 'deceased', age: 68 },
+          maternalGrandfather: { status: 'deceased', age: 73 },
+          paternalGrandmother: { status: 'unknown', age: null },
+          paternalGrandfather: { status: 'deceased', age: 71 }
+        }
+      }),
+      longevityDataset,
+      now
+    );
+
+    expect(longLivedFamily.medianTimestamp).toBeGreaterThan(shorterLivedFamily.medianTimestamp);
+    expect(longLivedFamily.driverBreakdown.some((driver) => driver.id === 'family.detailedLongevity')).toBe(true);
+    expect(shorterLivedFamily.driverBreakdown.some((driver) => driver.id === 'family.detailedLongevity')).toBe(true);
   });
 
   it('keeps major disease burden larger than modest diet improvements', () => {
