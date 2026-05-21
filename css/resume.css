@@ -39,26 +39,12 @@ body, html {
 /* ========================================
    Nav Dot
    Base styles inherited from design-system.css.
-   This block adds resume-page size + SVG icon overrides.
+   This block adds resume-page size override.
    ======================================== */
 
 .nav-dot {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.nav-dot svg {
-  width: 16px;
-  height: 16px;
-}
-
-.nav-dot svg line {
-  stroke: #FFFFFF;
-  stroke-width: 2;
-  stroke-linecap: round;
+  width: 20px;
+  height: 20px;
 }
 
 .nav-dot:focus-visible,
@@ -101,10 +87,18 @@ body .nav-overlay-bg {
 /* Utility classes for resume typing animation */
 .resume-hidden {
   opacity: 0;
+  transition: opacity 0.8s ease;
 }
 
 .resume-cursor-hidden {
   display: none;
+}
+
+/* Hide typing target spans until JS clears them and starts the animation.
+   Prevents a flash of "Oliver Dougherty" before the typing sequence begins. */
+#typeTargetName1,
+#typeTargetName2 {
+  opacity: 0;
 }
 
 .meta-tiny {

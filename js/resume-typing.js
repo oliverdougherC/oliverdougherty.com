@@ -23,17 +23,47 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   const revealPage = () => {
-    const revealEls = [subtitle, heroContact, metaTiny, navToggle];
-    revealEls.forEach((el) => {
+    // Stagger reveal of hero elements so they appear in sequence
+    const revealSequence = [
+      { el: subtitle, delay: 0 },
+      { el: heroContact, delay: 200 },
+      { el: metaTiny, delay: 400 },
+      { el: navToggle, delay: 600 }
+    ];
+
+    revealSequence.forEach(({ el, delay }) => {
       if (!el) return;
-      el.classList.remove('resume-hidden');
-      el.style.transition = 'opacity 0.8s ease';
-      el.style.opacity = '1';
+      setTimeout(() => {
+        el.classList.remove('resume-hidden');
+        el.style.transition = 'opacity 0.8s ease';
+        el.style.opacity = '1';
+        if (el === navToggle) {
+          el.style.pointerEvents = 'auto';
+        }
+      }, delay);
     });
 
-    document.querySelectorAll('.resume-main [data-animate]').forEach((el) => {
-      el.classList.add('visible');
-    });
+    // Use IntersectionObserver for scroll-based content reveals
+    // instead of forcing all sections visible at once
+    if ('IntersectionObserver' in window) {
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+            observer.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+
+      document.querySelectorAll('.resume-main [data-animate]').forEach((el) => {
+        observer.observe(el);
+      });
+    } else {
+      // Fallback: reveal all if IntersectionObserver not available
+      document.querySelectorAll('.resume-main [data-animate]').forEach((el) => {
+        el.classList.add('visible');
+      });
+    }
   };
 
   const typeText = async (element, text) => {
@@ -55,6 +85,14 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const runSequence = async () => {
+    // Clear both names immediately so neither is visible before typing starts
+    name1.textContent = '';
+    name2.textContent = '';
+
+    // Make spans visible so typed characters appear
+    name1.style.opacity = '1';
+    name2.style.opacity = '1';
+
     name1.appendChild(cursor);
     cursor.style.display = 'inline-block';
     cursor.style.visibility = '';
@@ -68,28 +106,38 @@ document.addEventListener('DOMContentLoaded', () => {
     await wait(200 + Math.random() * 100);
     if (typingCancelled) return;
 
+    // Move cursor to name2 without resetting the CSS animation.
+    // Preserving animation elapsed time prevents a visible flash caused
+    // by DOM removal restarting the @keyframes blink from 0%.
     if (name1.contains(cursor)) {
+      const anims = cursor.getAnimations();
+      let elapsed = 0;
+      if (anims.length > 0) {
+        elapsed = anims[0].currentTime || 0;
+      }
       name1.removeChild(cursor);
+      name2.appendChild(cursor);
+      if (anims.length > 0 && elapsed > 0) {
+        const newAnims = cursor.getAnimations();
+        if (newAnims.length > 0) {
+          newAnims[0].currentTime = elapsed;
+        }
+      }
     }
-    name2.appendChild(cursor);
 
     await wait(200 + Math.random() * 100);
     if (typingCancelled) return;
 
-    // Reveal subtitle and contact info in parallel while surname types
-    revealPage();
-
     await typeText(name2, targetText2);
     if (typingCancelled) return;
 
-    await wait(200);
-    if (typingCancelled) return;
+    // Reveal remaining UI elements AFTER typing is complete
+    revealPage();
 
-    cursor.style.animation = 'none';
-    void cursor.offsetHeight;
-    cursor.style.animation = 'blink 1s step-end infinite';
-
-    await wait(800);
+    // Wait then hide cursor — removed the animation restart code that
+    // caused a visible flash (setting animation='none' forces opacity:1,
+    // then restarting with step-end jumps to opacity:0).
+    await wait(1000);
     if (typingCancelled) return;
     cursor.style.animation = 'none';
     cursor.style.visibility = 'hidden';
