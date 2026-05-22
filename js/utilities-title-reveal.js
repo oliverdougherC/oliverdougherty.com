@@ -28,6 +28,14 @@
     return;
   }
 
+  if (window.pageAnimations?.shouldSkip?.()) {
+    revealAllButtons();
+    enableHomeButton();
+    return;
+  }
+
+  window.pageAnimations?.markSeen?.();
+
   var shuffled = buttons.slice();
   for (var index = shuffled.length - 1; index > 0; index -= 1) {
     var swapIndex = Math.floor(Math.random() * (index + 1));

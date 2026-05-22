@@ -280,6 +280,16 @@ a.contact-item:hover {
   transform: scaleX(0);
 }
 
+html.skip-page-animation[data-page-id="resume"] .redact-target::after {
+  transform: scaleX(0);
+  transition: none !important;
+}
+
+html.skip-page-animation[data-page-id="resume"] .resume-hidden {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
 /* ========================================
    Resume Content Grid
    ======================================== */

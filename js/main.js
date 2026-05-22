@@ -52,6 +52,10 @@
     return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }
 
+  function shouldSkipPageAnimation() {
+    return window.pageAnimations?.shouldSkip?.() === true;
+  }
+
   function initBlueprintWordmark() {
     const title = document.querySelector('.blueprint-title');
     const finalWord = title?.querySelector('.blueprint-final-word');
@@ -63,6 +67,13 @@
       title.classList.add('is-blueprint-ready', 'is-blueprint-complete');
       return;
     }
+
+    if (shouldSkipPageAnimation()) {
+      title.classList.add('is-blueprint-complete');
+      return;
+    }
+
+    window.pageAnimations?.markSeen?.();
 
     const SVG_NS = 'http://www.w3.org/2000/svg';
     const word = finalWord.textContent?.trim() || 'DOUGHERTY.';
@@ -508,7 +519,7 @@
     const blueprint = document.querySelector('.blueprint-title');
     if (!blueprint) return;
 
-    if (prefersReducedMotion()) {
+    if (prefersReducedMotion() || shouldSkipPageAnimation()) {
       document.body.classList.add('dougherty-nav-revealed');
       revealNavDot();
       revealDeferredElements();

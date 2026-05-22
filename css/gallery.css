@@ -257,6 +257,37 @@ body.gallery-lightbox-open .nav-dot {
   }
 }
 
+.gallery-hero.is-hero-complete .calibrate-text {
+  animation: none !important;
+  opacity: 1;
+  filter: blur(0);
+  letter-spacing: -0.02em;
+  transform: scale(1) translateX(0);
+}
+
+.gallery-hero.is-hero-complete .scanned-image {
+  animation: none !important;
+  filter: grayscale(0%) contrast(1) brightness(1);
+}
+
+html.skip-page-animation[data-page-id="gallery"] .calibrate-text {
+  animation: none !important;
+  opacity: 1;
+  filter: blur(0);
+  letter-spacing: -0.02em;
+  transform: scale(1) translateX(0);
+}
+
+html.skip-page-animation[data-page-id="gallery"] .scanned-image {
+  animation: none !important;
+  filter: grayscale(0%) contrast(1) brightness(1);
+}
+
+html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .gallery-status-section {
   min-height: 0;
 }

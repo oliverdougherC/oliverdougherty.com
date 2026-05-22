@@ -32,6 +32,8 @@ const gallery = {
   supportsScrollIntoViewInline: null,
   preloadImages: [],
   heroRevealTimers: [],
+  heroRevealComplete: false,
+  heroRevealScrollHandler: null,
   elements: {}
 };
 
@@ -99,31 +101,118 @@ function replaceChildrenCompat(container, ...children) {
   container.append(...children);
 }
 
+const GALLERY_NAV_DOT_REVEAL_MS = 2000;
+const GALLERY_HERO_REVEAL_MS = 4100;
+
 /**
  * Gallery hero: reveal nav dot mid-animation, then deferred elements once
  * the calibrate + color-reveal animations complete.
  * Calibrate: 3.8s duration + 0.3s delay = 4.1s
  * Color reveal: 3.4s duration + 0.6s delay = 4.0s
+ *
+ * If the user scrolls past the hero before that sequence finishes, skip the
+ * wait and reveal the archive (and any rendered photo cards) immediately.
  */
 function initGalleryHeroReveal() {
   const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (prefersReduced) {
-    window.revealNavDot?.();
-    window.revealDeferredElements?.();
+    completeGalleryHeroReveal();
     return;
   }
 
-  // Nav dot fades in at ~2s (during the calibrate animation)
-  const timer1 = window.setTimeout(() => {
-    window.revealNavDot?.();
-  }, 2000);
+  if (window.pageAnimations?.shouldSkip?.()) {
+    completeGalleryHeroReveal({ finishAnimations: true });
+    return;
+  }
 
-  // Deferred elements fade in after both hero animations complete (~4.1s)
-  const timer2 = window.setTimeout(() => {
-    window.revealDeferredElements?.();
-  }, 4100);
+  window.pageAnimations?.markSeen?.();
 
-  gallery.heroRevealTimers = [timer1, timer2];
+  const hero = document.querySelector('.gallery-hero');
+  if (!hero) {
+    scheduleGalleryHeroRevealTimers();
+    return;
+  }
+
+  let scrollFrame = 0;
+  const onScrollMaybePastHero = () => {
+    if (gallery.heroRevealComplete || scrollFrame) return;
+    scrollFrame = window.requestAnimationFrame(() => {
+      scrollFrame = 0;
+      if (hero.getBoundingClientRect().bottom < 0) {
+        completeGalleryHeroReveal({ finishAnimations: true });
+      }
+    });
+  };
+
+  gallery.heroRevealScrollHandler = onScrollMaybePastHero;
+  window.addEventListener('scroll', onScrollMaybePastHero, { passive: true });
+  scheduleGalleryHeroRevealTimers();
+}
+
+function scheduleGalleryHeroRevealTimers() {
+  gallery.heroRevealTimers.forEach((timer) => window.clearTimeout(timer));
+
+  const navDotTimer = window.setTimeout(() => {
+    if (!gallery.heroRevealComplete) {
+      window.revealNavDot?.();
+    }
+  }, GALLERY_NAV_DOT_REVEAL_MS);
+
+  const revealTimer = window.setTimeout(() => {
+    completeGalleryHeroReveal();
+  }, GALLERY_HERO_REVEAL_MS);
+
+  gallery.heroRevealTimers = [navDotTimer, revealTimer];
+}
+
+function finishGalleryHeroAnimations() {
+  const hero = document.querySelector('.gallery-hero');
+  if (!hero) return;
+
+  if (typeof Element === 'undefined' || !Element.prototype.getAnimations) {
+    hero.classList.add('is-hero-complete');
+    return;
+  }
+
+  const animations = hero.getAnimations({ subtree: true });
+  for (const animation of animations) {
+    if (animation.playState === 'finished') continue;
+    try {
+      animation.finish();
+    } catch (error) {
+      console.debug('Unable to finish gallery hero animation:', error);
+    }
+  }
+  hero.classList.add('is-hero-complete');
+}
+
+function revealAllPhotoCards() {
+  const cards = document.querySelectorAll('.photo-card:not(.is-revealed)');
+  if (!cards.length) return;
+  cards.forEach((card) => card.classList.add('is-revealed'));
+  gallery.scrollRevealObserver?.disconnect();
+  gallery.scrollRevealObserver = null;
+}
+
+function completeGalleryHeroReveal({ finishAnimations = false } = {}) {
+  if (gallery.heroRevealComplete) return;
+  gallery.heroRevealComplete = true;
+
+  gallery.heroRevealTimers.forEach((timer) => window.clearTimeout(timer));
+  gallery.heroRevealTimers = [];
+
+  if (gallery.heroRevealScrollHandler) {
+    window.removeEventListener('scroll', gallery.heroRevealScrollHandler, { passive: true });
+    gallery.heroRevealScrollHandler = null;
+  }
+
+  if (finishAnimations) {
+    finishGalleryHeroAnimations();
+  }
+
+  window.revealNavDot?.();
+  window.revealDeferredElements?.();
+  revealAllPhotoCards();
 }
 
 function bindStaticEvents() {
@@ -428,7 +517,7 @@ function initScrollReveal() {
   gallery.scrollRevealObserver?.disconnect();
   gallery.scrollRevealObserver = null;
 
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  if (gallery.heroRevealComplete || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     cards.forEach((card) => card.classList.add('is-revealed'));
     return;
   }
@@ -1073,6 +1162,10 @@ function cleanupGalleryEvents() {
   }
   gallery.heroRevealTimers.forEach((t) => window.clearTimeout(t));
   gallery.heroRevealTimers = [];
+  if (gallery.heroRevealScrollHandler) {
+    window.removeEventListener('scroll', gallery.heroRevealScrollHandler, { passive: true });
+    gallery.heroRevealScrollHandler = null;
+  }
 }
 
 function preloadAdjacentEntries(index) {

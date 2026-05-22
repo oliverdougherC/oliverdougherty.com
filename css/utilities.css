@@ -3325,6 +3325,12 @@ html.utilities-returned .utilities-title {
   animation-delay: -100s;
 }
 
+html.skip-page-animation[data-page-id="utilities"] .utilities-buttons button {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1) translateY(0);
+}
+
 @keyframes float-lavender {
   0%, 100% { transform: translateY(0) rotate(0deg); box-shadow: 0 0 20px -5px rgba(200,181,224,0.1), inset 0 0 10px rgba(200,181,224,0.05); }
   50% { transform: translateY(-8px) rotate(1deg); box-shadow: 0 15px 30px -5px rgba(200,181,224,0.3), inset 0 0 20px rgba(200,181,224,0.15); }

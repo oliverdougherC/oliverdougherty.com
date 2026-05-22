@@ -19,7 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.setTimeout(resolve, duration);
   });
 
-  const revealPage = () => {
+  const revealPage = (immediate = false) => {
     // Stagger reveal of remaining hero elements
     const revealSequence = [
       { el: heroContact, delay: 0 },
@@ -29,14 +29,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     revealSequence.forEach(({ el, delay }) => {
       if (!el) return;
+      const revealDelay = immediate ? 0 : delay;
       setTimeout(() => {
         el.classList.remove('resume-hidden');
-        el.style.transition = 'opacity 0.8s ease';
+        if (immediate) {
+          el.style.transition = 'none';
+        } else {
+          el.style.transition = 'opacity 0.8s ease';
+        }
         el.style.opacity = '1';
         if (el === navToggle) {
           el.style.pointerEvents = 'auto';
         }
-      }, delay);
+      }, revealDelay);
     });
 
     // Use IntersectionObserver for scroll-based content reveals
@@ -103,7 +108,15 @@ document.addEventListener('DOMContentLoaded', () => {
       subtitle.classList.add('is-revealing');
     }
     revealPage();
+  } else if (window.pageAnimations?.shouldSkip?.()) {
+    name1.classList.add('is-revealing');
+    name2.classList.add('is-revealing');
+    if (subtitle) {
+      subtitle.classList.add('is-revealing');
+    }
+    revealPage(true);
   } else {
+    window.pageAnimations?.markSeen?.();
     runSequence().catch((error) => {
       console.error('Resume animation failed.', error);
       name1.classList.add('is-revealing');
