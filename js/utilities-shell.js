@@ -342,12 +342,14 @@
 
   if (backBtn) {
     listen(backBtn, 'click', function () {
+      if (isTransitioning) return;
       setHash(null);
     });
   }
 
   titleButtons.forEach(function (btn) {
     listen(btn, 'click', function () {
+      if (isTransitioning) return;
       var uid = btn.dataset.utility;
       if (uid) setHash(uid);
     });

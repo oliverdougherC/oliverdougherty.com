@@ -709,3 +709,7 @@ body.schematic-mode .tag:hover {
   display: block;
   text-decoration: none;
 }
+
+.contact-link:hover {
+  border-color: var(--schematic-flare) !important;
+}

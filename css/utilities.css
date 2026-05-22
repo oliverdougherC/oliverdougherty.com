@@ -88,6 +88,12 @@ html[data-active-utility] .nav-home-btn {
   pointer-events: none !important;
 }
 
+html.utilities-returned .nav-home-btn {
+  animation: none !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
 html[data-active-utility] .nav-back-btn {
   opacity: 1;
   visibility: visible;
