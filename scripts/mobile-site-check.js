@@ -124,7 +124,6 @@ async function assertMobileGate(browser) {
   const gatedRoutes = [
     '/pages/gallery/index.html',
     '/pages/utilities/index.html',
-    '/pages/game/index.html',
     '/pages/archive/index.html',
     '/pages/archive/pi/pi.html'
   ];

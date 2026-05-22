@@ -15,12 +15,6 @@
     "utilities:check": "npm run utilities:typecheck && npm run utilities:test",
     "utilities:browser-check": "node scripts/utilities-check.js",
     "utilities:perf": "node scripts/utilities-perf.js",
-    "game:dev": "vite --config config/vite.game.mts",
-    "game:build": "vite build --config config/vite.game.mts",
-    "game:typecheck": "tsc -p config/tsconfig.game.json --noEmit",
-    "game:test": "vitest run --config config/vitest.game.mts",
-    "game:check": "npm run game:typecheck && npm run game:test",
-    "game:perf": "node scripts/game-perf-gate.js",
     "lint": "node scripts/lint.js",
     "format": "node scripts/format.js --write",
     "format:check": "node scripts/format.js --check",
@@ -32,7 +26,7 @@
     "nav:check": "node scripts/nav-overlay-check.js",
     "smoke": "node scripts/smoke.js",
     "quality": "npm run lint && npm run format:check && npm run check-links && npm run smoke",
-    "quality:full": "npm run quality && npm run game:check && npm run utilities:check"
+    "quality:full": "npm run quality && npm run utilities:check"
   },
   "devDependencies": {
     "@types/node": "^25.3.0",
@@ -45,7 +39,6 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "pixi.js": "^8.16.0",
     "v86": "^0.5.319"
   }
 }

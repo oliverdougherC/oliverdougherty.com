@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main, beta]
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -34,7 +39,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run game:typecheck
       - run: npm run utilities:typecheck
 
   test:
@@ -47,7 +51,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run game:test
       - run: npm run utilities:test
 
   build:
@@ -62,5 +65,28 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run utilities:build
-      - run: npm run game:build
       - run: npm run smoke
+
+  deploy-pages:
+    name: Deploy GitHub Pages
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, test, build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run utilities:build
+      - run: npm run build:deploy
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4

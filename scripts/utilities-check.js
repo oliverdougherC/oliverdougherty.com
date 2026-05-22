@@ -21,6 +21,30 @@ function assert(condition, message) {
   }
 }
 
+async function runUtilitySection(failures, name, callback) {
+  try {
+    await callback();
+    console.log(`Utilities section passed: ${name}`);
+  } catch (error) {
+    failures.push({
+      name,
+      message: error?.message || String(error),
+      stack: error?.stack || ''
+    });
+    console.error(`Utilities section failed: ${name}: ${error?.message || error}`);
+  }
+}
+
+function throwIfUtilitySectionFailures(failures) {
+  if (failures.length === 0) return;
+
+  const summary = failures
+    .map((failure) => `- ${failure.name}: ${failure.message}`)
+    .join('\n');
+  const firstStack = failures[0].stack ? `\n\nFirst failure stack:\n${failures[0].stack}` : '';
+  throw new Error(`Utilities Playwright sections failed:\n${summary}${firstStack}`);
+}
+
 function countMatchingPixels(left, right) {
   let matches = 0;
   for (let offset = 0; offset < left.length; offset += 4) {
@@ -1128,12 +1152,25 @@ async function main() {
     headless: true,
     args: BROWSER_NAME === 'chromium' ? CHROMIUM_WEBGL_ARGS : undefined
   });
+  const utilitySectionFailures = [];
 
   try {
     await waitForServer(`${baseUrl}/pages/utilities/index.html`);
 
     const page = await browser.newPage({
       viewport: { width: 1440, height: 1100 }
+    });
+    const starfieldInitializationErrors = [];
+    page.on('console', (message) => {
+      const text = message.text();
+      if (/STARFIELD_CONFIG|starfield worker renderer unavailable/i.test(text)) {
+        starfieldInitializationErrors.push(text);
+      }
+    });
+    page.on('pageerror', (error) => {
+      if (/STARFIELD_CONFIG|starfield/i.test(error.message)) {
+        starfieldInitializationErrors.push(error.message);
+      }
     });
     await page.addInitScript(() => {
       window.__OD_RETRO_VM_TEST_MODE__ = true;
@@ -1158,8 +1195,18 @@ async function main() {
 
     const pageUrl = `${baseUrl}/pages/utilities/index.html#image-transform`;
     await loadUtilitiesPage(page, pageUrl, 'Built-in pair selected|Ready for input', 15000, 'initial transform state');
+    assert(
+      starfieldInitializationErrors.length === 0,
+      `Starfield should initialize without worker setup errors. Saw: ${starfieldInitializationErrors.join(' | ')}`
+    );
     await assertUtilityIsolationLayout(page, 'initial:desktop');
-    const initialStarfield = await readStarfieldState(page);
+    const sourcePath = path.join(ROOT, 'utilities-src', 'tests', 'fixtures', 'source.png');
+    const targetPath = path.join(ROOT, 'utilities-src', 'tests', 'fixtures', 'target.png');
+    const whiteHeavySourcePath = path.join(ROOT, 'utilities-src', 'tests', 'fixtures', 'white-heavy-source.png');
+    const whiteHeavyTargetPath = path.join(ROOT, 'utilities-src', 'tests', 'fixtures', 'white-heavy-target.png');
+
+    await runUtilitySection(utilitySectionFailures, 'Image Transform', async () => {
+      const initialStarfield = await readStarfieldState(page);
 
     const initialTransformState = await page.evaluate(() => ({
       status: (() => {
@@ -1303,30 +1350,6 @@ async function main() {
       await runLightModeVisualCheck(browser, pageUrl);
     }
 
-    await runLocalAssistantCheck(browser, pageUrl);
-
-    const retroVmRequestsBeforeActivation = retroVmRequests.length;
-    let retroVmLaunchable = false;
-    await navigateUtility(page, 'virtual-machine');
-    await page.waitForTimeout(500);
-    const initialVmState = await readRetroVmState(page);
-    assert(retroVmRequestsBeforeActivation === 0, 'Retro VM should not fetch guest assets before activation.');
-    if (initialVmState.supported === 'true') {
-      retroVmLaunchable = true;
-      assert(initialVmState.state === 'idle', 'Retro VM should be idle on first paint.');
-      assert(initialVmState.running === 'false', 'Retro VM should not report a running session before launch.');
-      assert(initialVmState.launchDisabled === false, 'Retro VM launch should be available on desktop.');
-      assert(initialVmState.networkReady === 'false', 'Retro VM should default to offline until a relay URL is configured.');
-      assert(/local only/i.test(initialVmState.screenBadge), 'Retro VM should surface Tiny Core local-only status when no relay URL is configured.');
-      assert(/tiny core linux 11/i.test(initialVmState.assetLabel), 'Retro VM should advertise the Tiny Core rollback image.');
-      assert(/offline-first rollback/i.test(initialVmState.bridgeLabel), 'Retro VM should surface offline-first bridge copy by default.');
-      assert(retroVmRequests.length === 0, 'Retro VM should not fetch guest assets before launch.');
-    } else {
-      assert(/missing required element|unsupported|desktop-first/i.test(initialVmState.status), 'Retro VM should either initialize or report a readable inactive-state blocker.');
-    }
-
-    await navigateUtility(page, 'image-transform');
-
     const finalResultPixels = await readCanvasPixels(page, 'transformResultCanvas');
     const sourceStagePixels = await readCanvasPixels(page, 'transformSourceCanvas');
     await page.click('#transformPlayBtn');
@@ -1386,11 +1409,6 @@ async function main() {
     await page.click('#transformSwapBtn');
     await waitForStatusMatch(page, 'Preparing|Analyzing|Assigning|Animating', 7000);
     await waitForStatusMatch(page, 'Transform ready|Animation complete|Reduced motion', 30000);
-
-    const sourcePath = path.join(ROOT, 'utilities-src', 'tests', 'fixtures', 'source.png');
-    const targetPath = path.join(ROOT, 'utilities-src', 'tests', 'fixtures', 'target.png');
-    const whiteHeavySourcePath = path.join(ROOT, 'utilities-src', 'tests', 'fixtures', 'white-heavy-source.png');
-    const whiteHeavyTargetPath = path.join(ROOT, 'utilities-src', 'tests', 'fixtures', 'white-heavy-target.png');
 
     await page.setInputFiles('#transformSourceInput', sourcePath);
     await page.setInputFiles('#transformTargetInput', targetPath);
@@ -1495,9 +1513,15 @@ async function main() {
 
     assert(errorState.chip === 'Error', 'Invalid upload should set the error state.');
     assert(errorState.text && /unable|failed|could not/i.test(errorState.text), 'Invalid upload should surface a readable error.');
+    });
 
-    await navigateUtility(page, 'audio-fourier');
-    await page.waitForFunction(() => document.getElementById('audioFourierSelection')?.textContent?.trim().length);
+    await runUtilitySection(utilitySectionFailures, 'Local Assistant', async () => {
+      await runLocalAssistantCheck(browser, pageUrl);
+    });
+
+    await runUtilitySection(utilitySectionFailures, 'Audio Fourier', async () => {
+      await navigateUtility(page, 'audio-fourier');
+      await page.waitForFunction(() => document.getElementById('audioFourierSelection')?.textContent?.trim().length);
 
     const initialAudioState = await page.evaluate(() => ({
       status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
@@ -1572,7 +1596,7 @@ async function main() {
     assert(generatedReadyState.signalStrength === '80%', 'Audio Fourier signal strength card should show the midpoint energy.');
     assert(/\d[\d,]* \/ \d[\d,]*/.test(generatedReadyState.signalCount), 'Audio Fourier signal count card should show active and total signals.');
     assert(generatedReadyState.playText === '⏸', 'Audio Fourier play control should remain icon-only and show pause while playing.');
-    assert(generatedReadyState.playLabel === 'Play', 'Audio Fourier play control should expose an accessible Play label while playing.');
+    assert(generatedReadyState.playLabel === 'Pause', 'Audio Fourier play control should expose an accessible Pause label while playing.');
     assert(generatedReadyState.telemetry.requestId, 'Audio Fourier telemetry should include the completed request id.');
     assert(generatedReadyState.telemetry.totalMs > 0, 'Audio Fourier telemetry should include total processing time.');
     assert(generatedReadyState.telemetry.proxyMs > 0, 'Audio Fourier telemetry should include proxy processing time.');
@@ -1732,12 +1756,14 @@ async function main() {
       text: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? ''
     }));
 
-    assert(audioErrorState.chip === 'Error', 'Invalid audio upload should set the Audio Fourier error chip.');
-    assert(/audio|decode|unable|supported/i.test(audioErrorState.text), 'Invalid audio upload should surface a readable error.');
+      assert(audioErrorState.chip === 'Error', 'Invalid audio upload should set the Audio Fourier error chip.');
+      assert(/audio|decode|unable|supported/i.test(audioErrorState.text), 'Invalid audio upload should surface a readable error.');
+    });
 
-    await page.setViewportSize({ width: 2048, height: 998 });
-    await navigateUtility(page, 'stress-test');
-    await assertStressLayout(page, 'stress:desktop:idle', { requirePanelFit: true });
+    await runUtilitySection(utilitySectionFailures, 'Stress Test', async () => {
+      await page.setViewportSize({ width: 2048, height: 998 });
+      await navigateUtility(page, 'stress-test');
+      await assertStressLayout(page, 'stress:desktop:idle', { requirePanelFit: true });
 
     const stressInitialState = await page.evaluate(() => ({
       state: document.getElementById('stressTestApp')?.dataset.stressState ?? '',
@@ -1773,10 +1799,10 @@ async function main() {
     assert(stressCpuMode === 'cpu', 'Stress Test mode selector should update data-stress-mode.');
 
     await page.click('#stressStartBtn');
-    await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'running', {
+    await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'running', null, {
       timeout: 10000
     });
-    await page.waitForFunction(() => Number(document.getElementById('stressTestApp')?.dataset.stressWorkerCount ?? '0') > 0, {
+    await page.waitForFunction(() => Number(document.getElementById('stressTestApp')?.dataset.stressWorkerCount ?? '0') > 0, null, {
       timeout: 10000
     });
 
@@ -1791,7 +1817,10 @@ async function main() {
     assert(stressRunningState.workers === '2', 'Stress Test browser check should honor the worker-count test cap.');
     assert(stressRunningState.backend === 'none', 'CPU-only Stress Test should not start GPU work.');
     assert(stressRunningState.stopDisabled === false, 'Stress Test stop should enable while running.');
-    await page.waitForFunction(() => Number(document.getElementById('stressTestApp')?.dataset.stressGpuFrameCount ?? '0') >= 2, {
+    await page.waitForFunction(() => {
+      const app = document.getElementById('stressTestApp');
+      return Number(app?.dataset.stressTotalRenderedFrames ?? '0') >= 2 && app?.dataset.stressCanvasActive === 'true';
+    }, null, {
       timeout: 10000
     });
     const stressCpuVisualText = await page.evaluate(() => document.getElementById('stressTestApp')?.dataset.stressCpuVisualText ?? '');
@@ -1803,7 +1832,7 @@ async function main() {
     await assertStressLayout(page, 'stress:desktop:cpu-running', { requirePanelFit: true });
 
     await page.click('#stressStopBtn');
-    await page.waitForFunction(() => /^(idle|stopped)$/.test(document.getElementById('stressTestApp')?.dataset.stressState ?? ''), {
+    await page.waitForFunction(() => /^(idle|stopped)$/.test(document.getElementById('stressTestApp')?.dataset.stressState ?? ''), null, {
       timeout: 10000
     });
     const stressStoppedState = await page.evaluate(() => ({
@@ -1819,7 +1848,7 @@ async function main() {
 
     await page.click('[data-stress-mode-option="gpu"]');
     await page.click('#stressStartBtn');
-    await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'running', {
+    await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'running', null, {
       timeout: 10000
     });
     await page.waitForFunction(() => {
@@ -1828,15 +1857,15 @@ async function main() {
         app &&
         app.dataset.stressGpuBackend &&
         app.dataset.stressGpuBackend !== 'none' &&
-        Number(app.dataset.stressGpuFrameCount ?? '0') >= 2 &&
+        Number(app.dataset.stressTotalRenderedFrames ?? '0') >= 2 &&
         Number(app.dataset.stressGpuWorkloadLevel ?? '0') >= 1 &&
         app.dataset.stressGpuCanvasActive === 'true'
       );
-    }, { timeout: 12000 });
+    }, null, { timeout: 12000 });
     const stressGpuState = await page.evaluate(() => ({
       state: document.getElementById('stressTestApp')?.dataset.stressState ?? '',
       backend: document.getElementById('stressTestApp')?.dataset.stressGpuBackend ?? '',
-      frames: Number(document.getElementById('stressTestApp')?.dataset.stressGpuFrameCount ?? '0'),
+      frames: Number(document.getElementById('stressTestApp')?.dataset.stressTotalRenderedFrames ?? '0'),
       workload: Number(document.getElementById('stressTestApp')?.dataset.stressGpuWorkloadLevel ?? '0'),
       activeCanvas: document.getElementById('stressTestApp')?.dataset.stressGpuCanvasActive ?? ''
     }));
@@ -1853,7 +1882,7 @@ async function main() {
     await assertStressLayout(page, 'stress:desktop:gpu-running', { requirePanelFit: true });
 
     await page.click('#stressStopBtn');
-    await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'idle', {
+    await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'idle', null, {
       timeout: 10000
     });
     await page.setViewportSize({ width: 1440, height: 1100 });
@@ -1888,12 +1917,12 @@ async function main() {
       return (
         app?.dataset.stressState === 'running' &&
         app.dataset.stressGpuBackend === 'webgl1-fragment' &&
-        Number(app.dataset.stressGpuFrameCount ?? '0') >= 2 &&
+        Number(app.dataset.stressTotalRenderedFrames ?? '0') >= 2 &&
         app.dataset.stressGpuCanvasActive === 'true'
       );
-    }, { timeout: 12000 });
+    }, null, { timeout: 12000 });
     await webGl1Page.click('#stressStopBtn');
-    await webGl1Page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'idle', {
+    await webGl1Page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'idle', null, {
       timeout: 10000
     });
     await webGl1Page.close();
@@ -1951,25 +1980,44 @@ async function main() {
       { timeout: 10000 }
     );
     await stressMobilePage.waitForSelector('#stressTestApp[data-stress-state="idle"]', { timeout: 10000 });
-    await assertStressLayout(stressMobilePage, 'stress:mobile:idle', { expectMetricsHidden: true });
-    await stressMobilePage.close();
+      await assertStressLayout(stressMobilePage, 'stress:mobile:idle', { expectMetricsHidden: true });
+      await stressMobilePage.close();
+    });
 
-    if (retroVmLaunchable) {
+    await runUtilitySection(utilitySectionFailures, 'Retro VM', async () => {
+      const retroVmRequestsBeforeActivation = retroVmRequests.length;
       await navigateUtility(page, 'virtual-machine');
-      await page.click('#retroVmLaunchBtn');
-      await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmState === 'running');
+      await page.waitForTimeout(500);
+      const initialVmState = await readRetroVmState(page);
+      assert(retroVmRequestsBeforeActivation === 0, 'Retro VM should not fetch guest assets before activation.');
+      if (initialVmState.supported !== 'true') {
+        assert(/missing required element|unsupported|desktop-first/i.test(initialVmState.status), 'Retro VM should either initialize or report a readable inactive-state blocker.');
+        return;
+      }
 
-    const launchedVmState = await readRetroVmState(page);
-    assert(launchedVmState.chip === 'Running', 'Retro VM should enter the running state after launch.');
-    assert(/booting locally|running locally/i.test(launchedVmState.status), 'Retro VM should surface a boot/running status after launch.');
-    assert(launchedVmState.progressWidth !== '0%', 'Retro VM progress should advance after launch.');
-    assert(launchedVmState.placeholderHidden === true, 'Retro VM placeholder should hide after launch.');
-    assert(launchedVmState.launchDisabled === true, 'Retro VM launch should disable while a session is active.');
-    assert(launchedVmState.resetDisabled === false, 'Retro VM reset should enable while a session is active.');
-    assert(launchedVmState.fullscreenDisabled === false, 'Retro VM fullscreen should enable after launch.');
-    assert(launchedVmState.captureState === 'uncaptured', 'Retro VM should start in the uncaptured mouse state.');
-    assert(/click desktop to capture/i.test(launchedVmState.captureBadge), 'Retro VM should advertise click-to-capture before pointer lock.');
-    assert(launchedVmState.placeholderPointerEvents === 'none', 'Retro VM placeholder should not intercept desktop clicks.');
+      assert(initialVmState.state === 'idle', 'Retro VM should be idle on first paint.');
+      assert(initialVmState.running === 'false', 'Retro VM should not report a running session before launch.');
+      assert(initialVmState.launchDisabled === false, 'Retro VM launch should be available on desktop.');
+      assert(initialVmState.networkReady === 'false', 'Retro VM should default to offline until a relay URL is configured.');
+      assert(/local only/i.test(initialVmState.screenBadge), 'Retro VM should surface Tiny Core local-only status when no relay URL is configured.');
+      assert(/tiny core linux 11/i.test(initialVmState.assetLabel), 'Retro VM should advertise the Tiny Core rollback image.');
+      assert(/offline-first rollback/i.test(initialVmState.bridgeLabel), 'Retro VM should surface offline-first bridge copy by default.');
+      assert(retroVmRequests.length === 0, 'Retro VM should not fetch guest assets before launch.');
+
+        await page.click('#retroVmLaunchBtn');
+        await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmState === 'running');
+
+        const launchedVmState = await readRetroVmState(page);
+        assert(launchedVmState.chip === 'Running', 'Retro VM should enter the running state after launch.');
+        assert(/booting locally|running locally/i.test(launchedVmState.status), 'Retro VM should surface a boot/running status after launch.');
+        assert(launchedVmState.progressWidth !== '0%', 'Retro VM progress should advance after launch.');
+        assert(launchedVmState.placeholderHidden === true, 'Retro VM placeholder should hide after launch.');
+        assert(launchedVmState.launchDisabled === true, 'Retro VM launch should disable while a session is active.');
+        assert(launchedVmState.resetDisabled === false, 'Retro VM reset should enable while a session is active.');
+        assert(launchedVmState.fullscreenDisabled === false, 'Retro VM fullscreen should enable after launch.');
+        assert(launchedVmState.captureState === 'uncaptured', 'Retro VM should start in the uncaptured mouse state.');
+        assert(/click desktop to capture/i.test(launchedVmState.captureBadge), 'Retro VM should advertise click-to-capture before pointer lock.');
+        assert(launchedVmState.placeholderPointerEvents === 'none', 'Retro VM placeholder should not intercept desktop clicks.');
 
     await page.click('#retroVmScreen');
     await page.waitForFunction(() => document.getElementById('retroVmApp')?.dataset.vmCaptureState === 'captured');
@@ -2022,104 +2070,114 @@ async function main() {
     assert(resetVmState.running === 'false', 'Retro VM should clear its running flag after reset.');
     assert(resetVmState.booted === 'false', 'Retro VM should clear its booted flag after reset.');
     assert(resetVmState.placeholderHidden === false, 'Retro VM placeholder should return after reset.');
-      assert(/nothing persists|fresh local session/i.test(resetVmState.status), 'Retro VM should explain wipe semantics after reset.');
-    }
-
-    const noWorkerPage = await browser.newPage({
-      viewport: { width: 1440, height: 1100 }
-    });
-    await noWorkerPage.addInitScript(() => {
-      Object.defineProperty(window, 'Worker', {
-        configurable: true,
-        writable: true,
-        value: undefined
+        assert(/nothing persists|fresh local session/i.test(resetVmState.status), 'Retro VM should explain wipe semantics after reset.');
       });
+
+    await runUtilitySection(utilitySectionFailures, 'Image Transform Worker Fallback', async () => {
+      const noWorkerPage = await browser.newPage({
+        viewport: { width: 1440, height: 1100 }
+      });
+      try {
+        await noWorkerPage.addInitScript(() => {
+          Object.defineProperty(window, 'Worker', {
+            configurable: true,
+            writable: true,
+            value: undefined
+          });
+        });
+        await loadUtilitiesPage(
+          noWorkerPage,
+          pageUrl,
+          'Built-in pair selected|Ready for input',
+          15000,
+          'main-thread fallback initial state'
+        );
+        await noWorkerPage.setInputFiles('#transformSourceInput', sourcePath);
+        await noWorkerPage.setInputFiles('#transformTargetInput', targetPath);
+        await noWorkerPage.click('#transformGenerateBtn');
+        await waitForStatusMatch(noWorkerPage, 'Preparing|Analyzing|Assigning|Animating', 7000, 'main-thread fallback start');
+        await waitForStatusMatch(
+          noWorkerPage,
+          'Transform ready|Animation complete|Reduced motion',
+          30000,
+          'main-thread fallback complete'
+        );
+
+        const noWorkerState = await noWorkerPage.evaluate(() => ({
+          status: (() => {
+            const app = document.getElementById('utilitiesApp');
+            const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
+            const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
+            return fromData || fromLegacy;
+          })(),
+          outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
+          matcherStrategy: document.getElementById('utilitiesApp')?.dataset.matcherStrategy ?? ''
+        }));
+
+        assert(
+          noWorkerState.status && /Transform ready|Animation complete|Reduced motion/i.test(noWorkerState.status),
+          'Utilities page should still complete when workers are unavailable.'
+        );
+        assert(noWorkerState.outputSize && noWorkerState.outputSize !== '—', 'Main-thread fallback should still render output metrics.');
+        assert(noWorkerState.matcherStrategy === 'single-optimized', 'Main-thread fallback should preserve the optimized matcher.');
+      } finally {
+        await noWorkerPage.close();
+      }
     });
-    await loadUtilitiesPage(
-      noWorkerPage,
-      pageUrl,
-      'Built-in pair selected|Ready for input',
-      15000,
-      'main-thread fallback initial state'
-    );
-    await noWorkerPage.setInputFiles('#transformSourceInput', sourcePath);
-    await noWorkerPage.setInputFiles('#transformTargetInput', targetPath);
-    await noWorkerPage.click('#transformGenerateBtn');
-    await waitForStatusMatch(noWorkerPage, 'Preparing|Analyzing|Assigning|Animating', 7000, 'main-thread fallback start');
-    await waitForStatusMatch(
-      noWorkerPage,
-      'Transform ready|Animation complete|Reduced motion',
-      30000,
-      'main-thread fallback complete'
-    );
 
-    const noWorkerState = await noWorkerPage.evaluate(() => ({
-      status: (() => {
-        const app = document.getElementById('utilitiesApp');
-        const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
-        const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
-        return fromData || fromLegacy;
-      })(),
-      outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
-      matcherStrategy: document.getElementById('utilitiesApp')?.dataset.matcherStrategy ?? ''
-    }));
+    await runUtilitySection(utilitySectionFailures, 'Mobile Utilities Layout', async () => {
+      const mobilePage = await browser.newPage({
+        viewport: { width: 390, height: 844 }
+      });
+      try {
+        await mobilePage.addInitScript(() => {
+          window.__OD_RETRO_VM_TEST_MODE__ = true;
+        });
+        await mobilePage.emulateMedia({ reducedMotion: 'reduce' });
+        await loadUtilitiesPage(mobilePage, pageUrl, 'Built-in pair selected|Ready for input', 15000, 'reduced-motion startup');
+        await mobilePage.click('#transformGenerateBtn');
+        await waitForStatusMatch(mobilePage, 'Reduced motion', 30000, 'reduced-motion result');
+        await mobilePage.evaluate(() => window.scrollTo(0, 0));
+        await navigateUtility(mobilePage, 'virtual-machine');
+        await mobilePage.waitForTimeout(500);
 
-    assert(
-      noWorkerState.status && /Transform ready|Animation complete|Reduced motion/i.test(noWorkerState.status),
-      'Utilities page should still complete when workers are unavailable.'
-    );
-    assert(noWorkerState.outputSize && noWorkerState.outputSize !== '—', 'Main-thread fallback should still render output metrics.');
-    assert(noWorkerState.matcherStrategy === 'single-optimized', 'Main-thread fallback should preserve the optimized matcher.');
+        const mobileState = await mobilePage.evaluate(() => ({
+          width: window.innerWidth,
+          shellWidth: document.querySelector('.utility-shell')?.getBoundingClientRect().width ?? 0,
+          resultStatus: (() => {
+            const app = document.getElementById('utilitiesApp');
+            const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
+            const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
+            return fromData || fromLegacy;
+          })(),
+          vmState: document.getElementById('retroVmApp')?.dataset.vmState ?? '',
+          vmStatus: (() => {
+            const app = document.getElementById('retroVmApp');
+            return app?.dataset?.vmStatusMessage?.trim() ?? document.getElementById('retroVmStatusText')?.textContent?.trim() ?? '';
+          })(),
+          navBottom: document.getElementById('nav')?.getBoundingClientRect().bottom ?? 0,
+          heroTitleTop: document.querySelector('.utilities-hero .hero-title')?.getBoundingClientRect().top ?? 0
+        }));
 
-    const mobilePage = await browser.newPage({
-      viewport: { width: 390, height: 844 }
+        assert(mobileState.shellWidth <= mobileState.width, 'Utilities shell overflows the mobile viewport.');
+        assert(mobileState.resultStatus && /Reduced motion/i.test(mobileState.resultStatus), 'Reduced-motion path did not complete.');
+        assert(
+          mobileState.vmState === 'unsupported' || /missing required/i.test(mobileState.vmStatus),
+          'Retro VM should fall back on mobile-sized viewports or report a readable inactive-state blocker.'
+        );
+        if (mobileState.vmState === 'unsupported') {
+          assert(/desktop-first|desktop browser/i.test(mobileState.vmStatus), 'Retro VM mobile fallback copy is missing.');
+        }
+        if (mobileState.heroTitleTop > 0) {
+          assert(mobileState.heroTitleTop >= mobileState.navBottom + 8, 'Mobile utilities hero title sits too close to the navigation.');
+        }
+      } finally {
+        await mobilePage.close();
+      }
     });
-    await mobilePage.addInitScript(() => {
-      window.__OD_RETRO_VM_TEST_MODE__ = true;
-    });
-    await mobilePage.emulateMedia({ reducedMotion: 'reduce' });
-    await loadUtilitiesPage(mobilePage, pageUrl, 'Built-in pair selected|Ready for input', 15000, 'reduced-motion startup');
-    await mobilePage.click('#transformGenerateBtn');
-    await waitForStatusMatch(mobilePage, 'Reduced motion', 30000, 'reduced-motion result');
-    await mobilePage.evaluate(() => window.scrollTo(0, 0));
-    await navigateUtility(mobilePage, 'virtual-machine');
-    await mobilePage.waitForTimeout(500);
-
-    const mobileState = await mobilePage.evaluate(() => ({
-      width: window.innerWidth,
-      shellWidth: document.querySelector('.utility-shell')?.getBoundingClientRect().width ?? 0,
-      resultStatus: (() => {
-        const app = document.getElementById('utilitiesApp');
-        const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
-        const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
-        return fromData || fromLegacy;
-      })(),
-      vmState: document.getElementById('retroVmApp')?.dataset.vmState ?? '',
-      vmStatus: (() => {
-        const app = document.getElementById('retroVmApp');
-        return app?.dataset?.vmStatusMessage?.trim() ?? document.getElementById('retroVmStatusText')?.textContent?.trim() ?? '';
-      })(),
-      navBottom: document.getElementById('nav')?.getBoundingClientRect().bottom ?? 0,
-      heroTitleTop: document.querySelector('.utilities-hero .hero-title')?.getBoundingClientRect().top ?? 0
-    }));
-
-    assert(mobileState.shellWidth <= mobileState.width, 'Utilities shell overflows the mobile viewport.');
-    assert(mobileState.resultStatus && /Reduced motion/i.test(mobileState.resultStatus), 'Reduced-motion path did not complete.');
-    assert(
-      mobileState.vmState === 'unsupported' || /missing required/i.test(mobileState.vmStatus),
-      'Retro VM should fall back on mobile-sized viewports or report a readable inactive-state blocker.'
-    );
-    if (mobileState.vmState === 'unsupported') {
-      assert(/desktop-first|desktop browser/i.test(mobileState.vmStatus), 'Retro VM mobile fallback copy is missing.');
-    }
-    if (mobileState.heroTitleTop > 0) {
-      assert(mobileState.heroTitleTop >= mobileState.navBottom + 8, 'Mobile utilities hero title sits too close to the navigation.');
-    }
-
-    await noWorkerPage.close();
-    await mobilePage.close();
     await page.close();
 
+    throwIfUtilitySectionFailures(utilitySectionFailures);
     console.log('Utilities Playwright check passed.');
   } finally {
     await browser.close();

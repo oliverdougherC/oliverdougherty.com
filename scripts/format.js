@@ -42,7 +42,6 @@ const SKIP_PREFIXES = [
   'assets/photos/medium',
   'assets/photos/large',
   'pages/utilities/assets',
-  'pages/game/assets',
   'image-transform',
   'image-transform/target'
 ];

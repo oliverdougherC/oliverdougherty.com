@@ -25,15 +25,12 @@ old-todos/
 
 /image-transform/
 
-# Generated Vite sub-assets (workers, chunks) — rebuilt by npm run utilities:build / game:build
+# Generated Vite sub-assets (workers, chunks) — rebuilt by npm run utilities:build
 # NOTE: pages/utilities/assets/assets/ IS tracked — workers must be deployed to GitHub Pages.
 # The JSON files below are duplicated from utilities-src/src/data/ and are overwritten by Vite.
 pages/utilities/assets/source-target-balanced.json
 pages/utilities/assets/face-pattern-balanced.json
 pages/utilities/assets/pattern-face-balanced.json
-pages/game/assets/*.js
-pages/game/assets/*.css
-pages/game/assets/*.map
 
 # Backups and drafts
 *_old.html
