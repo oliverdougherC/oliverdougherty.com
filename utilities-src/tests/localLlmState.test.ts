@@ -22,12 +22,10 @@ describe('local LLM state helpers', () => {
         { role: 'assistant', content: 'old assistant' },
         { role: 'user', content: 'newest user prompt' }
       ],
-      { maxHistoryMessages: 1, maxMessageChars: 200 },
-      'system'
+      { maxHistoryMessages: 1, maxMessageChars: 200 }
     );
 
     expect(result).toEqual([
-      { role: 'system', content: 'system' },
       { role: 'user', content: 'newest user prompt' }
     ]);
   });
@@ -38,13 +36,24 @@ describe('local LLM state helpers', () => {
         { role: 'assistant', content: 'orphan' },
         { role: 'user', content: 'usable' }
       ],
-      { maxHistoryMessages: 2, maxMessageChars: 200 },
+      { maxHistoryMessages: 2, maxMessageChars: 200 }
+    );
+
+    expect(result).toEqual([
+      { role: 'user', content: 'usable' }
+    ]);
+  });
+
+  it('prepends a system prompt only when one is provided', () => {
+    const result = compactLocalLlmMessages(
+      [{ role: 'user', content: 'hello' }],
+      { maxHistoryMessages: 4, maxMessageChars: 200 },
       'system'
     );
 
     expect(result).toEqual([
       { role: 'system', content: 'system' },
-      { role: 'user', content: 'usable' }
+      { role: 'user', content: 'hello' }
     ]);
   });
 

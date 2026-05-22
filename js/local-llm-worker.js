@@ -10,7 +10,7 @@ let loadPromise = null;
 let state = WORKER_STATE.IDLE;
 let activeGeneration = 0;
 let pendingGenerateCount = 0;
-const MAX_PENDING_GENERATE_MESSAGES = 2;
+const MAX_PENDING_GENERATE_MESSAGES = 1;
 const TOKEN_BATCH_SIZE = 4;
 const TOKEN_BATCH_MS = 100;
 
@@ -24,6 +24,16 @@ self.addEventListener('message', (event) => {
     }
 
     if (message.type === 'generate') {
+      if (state !== WORKER_STATE.READY) {
+        postMessage({
+          type: 'error',
+          status: WORKER_STATE.ERROR,
+          category: 'generation-busy',
+          message: 'The local model is not ready to generate yet.',
+          detail: `Generate was requested while the worker was in the "${state}" state.`
+        });
+        return;
+      }
       if (pendingGenerateCount >= MAX_PENDING_GENERATE_MESSAGES) {
         postMessage({
           type: 'error',
@@ -34,7 +44,6 @@ self.addEventListener('message', (event) => {
         });
         return;
       }
-      pendingGenerateCount += 1;
       void generateReply(message.messages || []);
       return;
     }
@@ -138,6 +147,7 @@ function postReady() {
 }
 
 async function generateReply(messages) {
+  pendingGenerateCount += 1;
   const generationId = ++activeGeneration;
   let flushTimer = 0;
 
@@ -308,10 +318,7 @@ function compactMessages(messages) {
   const chat = sanitized.slice(-LOCAL_LLM_CONFIG.limits.maxHistoryMessages);
   while (chat[0]?.role === 'assistant') chat.shift();
 
-  return [
-    { role: 'system', content: LOCAL_LLM_CONFIG.systemPrompt },
-    ...chat
-  ];
+  return chat;
 }
 
 function setState(nextState, message, extra = {}) {

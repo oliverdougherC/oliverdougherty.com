@@ -269,6 +269,11 @@
   animation: fade-in-stars 2s ease-in forwards;
 }
 
+html.skip-page-animation[data-page-id="utilities"] #starfield {
+  animation: none;
+  opacity: 1;
+}
+
 @keyframes fade-in-stars {
   from { opacity: 0; }
   to { opacity: 1; }

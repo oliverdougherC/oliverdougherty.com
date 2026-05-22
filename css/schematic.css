@@ -687,6 +687,29 @@ body.schematic-mode .tag:hover {
   transform: translateY(0);
 }
 
+html.skip-page-animation[data-page-id="home"] .blueprint-final-word {
+  opacity: 1 !important;
+  animation: none !important;
+  filter: none !important;
+}
+
+html.skip-page-animation[data-page-id="home"] .blueprint-svg,
+html.skip-page-animation[data-page-id="home"] .blueprint-drafting-layer,
+html.skip-page-animation[data-page-id="home"] .blueprint-outline-text {
+  opacity: 0 !important;
+  animation: none !important;
+}
+
+html.skip-page-animation[data-page-id="home"] .hero-deferred {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+html.skip-page-animation[data-page-id="home"] #navToggle {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
 /* ========================================
    Spacing Utilities
    ======================================== */
@@ -708,4 +731,8 @@ body.schematic-mode .tag:hover {
   padding: 1rem;
   display: block;
   text-decoration: none;
+}
+
+.contact-link:hover {
+  border-color: var(--schematic-flare) !important;
 }

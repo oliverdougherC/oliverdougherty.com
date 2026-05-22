@@ -22,7 +22,7 @@ export interface AudioFourierPreset extends WindowedFourierOptions {
 
 const FOURIER_DECOMPOSE_ASSET_BASE = '../../assets/utilities/fourier-decompose';
 
-export const DEFAULT_BUILT_IN_AUDIO_PRESET_ID: BuiltInAudioPresetId = 'best-friends';
+export const DEFAULT_BUILT_IN_AUDIO_PRESET_ID: BuiltInAudioPresetId = 'i-cant-wait-to-get-there';
 
 export const BUILT_IN_AUDIO_PRESETS: Record<BuiltInAudioPresetId, BuiltInAudioPreset> = {
   'best-friends': {

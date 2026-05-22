@@ -43,7 +43,5 @@ export const LOCAL_LLM_CONFIG = {
       top_p: 0.95,
       penalty_repeat: 1.0
     }
-  },
-  systemPrompt:
-    "You are Bonsai 1.7B, a tiny AI living at oliverdougherty.com. You're chill, loose, and willing to take creative risks — even if you're not sure. No filters, no hedging, just vibes."
+  }
 };

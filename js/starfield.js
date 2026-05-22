@@ -9,12 +9,12 @@
   const canvas = document.getElementById('starfield');
   if (!canvas) return;
 
-  const STARFIELD_CONFIG = {
+  var STARFIELD_CONFIG = Object.freeze({
     baseStarCount: 500,
     baseSpeed: 9,
     maxDpr: 1.5,
     colors: ['#ffffff', '#e0f7fa', '#fff3e0', '#fce4ec', '#f3e5f5']
-  };
+  });
 
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (startWorkerRenderer(canvas, reducedMotion)) {

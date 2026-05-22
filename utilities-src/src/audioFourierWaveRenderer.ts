@@ -612,7 +612,14 @@ function shouldSkipWebGlRenderer() {
     return true;
   }
 
-  const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+  let debugInfo = gl.getExtension('EXT_debug_renderer_info');
+  if (!debugInfo) {
+    try {
+      debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+    } catch {
+      // suppress deprecation warning
+    }
+  }
   const renderer = debugInfo
     ? String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) ?? '')
     : '';
