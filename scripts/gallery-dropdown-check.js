@@ -49,7 +49,8 @@ async function assertSharedChrome(page, label) {
     hasHeroStrip: Boolean(document.getElementById('galleryHeroStrip')),
     hasToolbar: Boolean(document.querySelector('.gallery-toolbar-section')),
     hasSearch: Boolean(document.getElementById('gallerySearch')),
-    hasHeroTheme: Boolean(document.getElementById('galleryHeroTheme'))
+    hasHeroTheme: Boolean(document.getElementById('galleryHeroTheme')),
+    hasFooter: Boolean(document.querySelector('.nav-menu-footer'))
   }));
 
   assert(state.theme === 'gallery', `[${label}] gallery theme attr missing`);
@@ -65,6 +66,14 @@ async function assertSharedChrome(page, label) {
 
   assert(!state.hasSharedNav, `[${label}] legacy shared nav should not be present`);
   assert(state.colorMode === null, `[${label}] gallery disables shared color-mode state`);
+}
+
+async function assertLightboxClosedWithEmptyHash(page, label) {
+  await page.waitForFunction(
+    () => document.getElementById('lightbox').hidden && window.location.hash === '',
+    null,
+    { timeout: 3000 }
+  );
 }
 
 async function assertDesktopFlow(page) {
@@ -130,11 +139,44 @@ async function assertDesktopFlow(page) {
   assert(nextHash && nextHash !== hashBeforeNext, '[desktop] next navigation did not advance the lightbox hash');
 
   await page.click('#lightboxClose');
+  await assertLightboxClosedWithEmptyHash(page, 'desktop hero close');
+
+  await page.locator('#galleryArchiveGrid .photo-card .photo-card-button').first().click();
   await page.waitForFunction(
-    () => document.getElementById('lightbox').hidden && window.location.hash === '',
+    () => !document.getElementById('lightbox').hidden,
     null,
     { timeout: 3000 }
   );
+  const archiveOpenHash = await page.evaluate(() => window.location.hash);
+  assert(archiveOpenHash.startsWith('#photo='), '[desktop] archive card open missing hash deep link');
+
+  await page.click('#lightboxClose');
+  await assertLightboxClosedWithEmptyHash(page, 'desktop archive close');
+
+  await page.locator('#galleryArchiveGrid .photo-card .photo-card-button').first().click();
+  await page.waitForFunction(
+    () => !document.getElementById('lightbox').hidden,
+    null,
+    { timeout: 3000 }
+  );
+  await page.click('#lightboxNext');
+  await page.waitForTimeout(160);
+  await page.click('#lightboxPrev');
+  await page.waitForTimeout(160);
+  await page.click('#lightboxClose');
+  await assertLightboxClosedWithEmptyHash(page, 'desktop navigate then close');
+
+  await page.locator('#galleryArchiveGrid .photo-card .photo-card-button').first().click();
+  await page.waitForFunction(
+    () => !document.getElementById('lightbox').hidden,
+    null,
+    { timeout: 3000 }
+  );
+  await page.evaluate(() => {
+    document.getElementById('lightboxClose').click();
+    document.getElementById('lightboxClose').click();
+  });
+  await assertLightboxClosedWithEmptyHash(page, 'desktop rapid double close');
 }
 
 async function assertMobileFlow(page) {
@@ -179,11 +221,7 @@ async function assertMobileFlow(page) {
   assert(expandedState.expanded === 'true', '[mobile] details toggle aria-expanded not updated');
 
   await page.click('#lightboxClose');
-  await page.waitForFunction(
-    () => document.getElementById('lightbox').hidden,
-    null,
-    { timeout: 3000 }
-  );
+  await assertLightboxClosedWithEmptyHash(page, 'mobile close');
 }
 
 async function runScenario({ viewport, isMobile = false, hasTouch = false, label }) {

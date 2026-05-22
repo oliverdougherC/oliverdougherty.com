@@ -502,11 +502,13 @@ body.gallery-lightbox-open .nav-dot {
 
 .lightbox {
   opacity: 0;
+  pointer-events: none;
   transition: opacity var(--duration-base) var(--ease-smooth);
 }
 
 .lightbox.is-active {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .lightbox-image {
