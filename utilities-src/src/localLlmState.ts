@@ -42,7 +42,7 @@ export function normalizeLocalLlmProgressState(status: unknown): 'downloading' |
 export function compactLocalLlmMessages(
   messages: LocalLlmMessage[],
   limits: LocalLlmLimits,
-  systemPrompt: string
+  systemPrompt?: string
 ): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
   const chat = messages
     .filter((message) => message.role !== 'notice' && typeof message.content === 'string')
@@ -55,8 +55,6 @@ export function compactLocalLlmMessages(
 
   while (chat[0]?.role === 'assistant') chat.shift();
 
-  return [
-    { role: 'system', content: systemPrompt },
-    ...chat
-  ];
+  const prompt = systemPrompt?.trim();
+  return prompt ? [{ role: 'system', content: prompt }, ...chat] : chat;
 }

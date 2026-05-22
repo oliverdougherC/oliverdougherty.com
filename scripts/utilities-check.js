@@ -710,7 +710,17 @@ async function readLocalAssistantMetrics(page) {
     const thread = rect('#localLlmMessages');
     const form = rect('#localLlmForm');
     const input = rect('#localLlmInput');
-    const status = document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus ?? '';
+    const progressWrap = rect('#localLlmProgressWrap');
+    const shellElement = document.getElementById('localLlmUtilityApp');
+    const shellStyles = shellElement ? getComputedStyle(shellElement) : null;
+    const parseAlpha = (color) => {
+      const match = String(color || '').match(/rgba?\(([^)]+)\)/);
+      if (!match) return 1;
+      const parts = match[1].split(',').map((part) => part.trim());
+      if (parts.length === 4) return Number.parseFloat(parts[3]) || 0;
+      return 1;
+    };
+    const status = shellElement?.dataset.localLlmStatus ?? '';
     const diagnostics = document.getElementById('localLlmDiagnostics');
     const centerDeltaFromTranscriptMiddle = center && transcript
       ? Math.abs(((center.top + center.bottom) / 2) - ((transcript.top + transcript.bottom) / 2))
@@ -722,11 +732,17 @@ async function readLocalAssistantMetrics(page) {
       clientWidth: document.documentElement.clientWidth,
       status,
       shell,
+      shellBackgroundColor: shellStyles?.backgroundColor ?? '',
+      shellBackgroundAlpha: shellStyles ? parseAlpha(shellStyles.backgroundColor) : 0,
+      shellOpacity: shellStyles ? Number.parseFloat(shellStyles.opacity || '1') : 1,
       transcript,
       center,
       thread,
       form,
       input,
+      progressWrap,
+      typingInBubble: Boolean(document.querySelector('#localLlmMessages .local-llm-typing')),
+      typingInComposer: Boolean(document.querySelector('.local-llm-input-shell .local-llm-typing')),
       centerOverlapsForm: overlaps(center, form),
       centerDeltaFromTranscriptMiddle,
       threadOverlapsForm: overlaps(thread, form),
@@ -780,12 +796,11 @@ function assertLocalAssistantLayout(metrics, label) {
 async function observeLocalAssistantLoadingSequence(page) {
   const expected = [
     'Loading Bonsai 1.7B',
-    'This is a teensy LLM (~290 MB)',
-    'Runs entirely on your device',
-    "Don't worry, I won't cache it in your browser ;)"
+    "Don't worry, I won't cache in your browser ;)"
   ];
   const spinnerFrames = new Set(['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']);
   const observations = [];
+  const progressTops = [];
   const busyControlTexts = [];
   let readyAt = null;
   let lastText = '';
@@ -794,11 +809,23 @@ async function observeLocalAssistantLoadingSequence(page) {
   while (Date.now() - startedAt < 8000) {
     const sample = await page.evaluate(() => {
       const root = document.getElementById('localLlmUtilityApp');
+      const progressWrap = document.getElementById('localLlmProgressWrap');
+      const progressRect = progressWrap?.getBoundingClientRect();
+      const shellStyles = root ? getComputedStyle(root) : null;
+      const parseAlpha = (color) => {
+        const match = String(color || '').match(/rgba?\(([^)]+)\)/);
+        if (!match) return 1;
+        const parts = match[1].split(',').map((part) => part.trim());
+        if (parts.length === 4) return Number.parseFloat(parts[3]) || 0;
+        return 1;
+      };
       return {
         status: root?.dataset.localLlmStatus ?? '',
         floorMs: Number(root?.dataset.localLlmLoadingFloorMs || '0'),
         text: document.getElementById('localLlmLoadCopy')?.textContent?.trim() ?? '',
-        startText: document.querySelector('.local-llm-load-control-text')?.textContent?.trim() ?? ''
+        startText: document.querySelector('.local-llm-load-control-text')?.textContent?.trim() ?? '',
+        progressTop: progressRect && progressRect.height > 0 ? progressRect.top : null,
+        shellBackgroundAlpha: shellStyles ? parseAlpha(shellStyles.backgroundColor) : 0
       };
     });
 
@@ -809,6 +836,10 @@ async function observeLocalAssistantLoadingSequence(page) {
     if (sample.text && sample.text !== lastText) {
       observations.push({ text: sample.text, at: Date.now(), floorMs: sample.floorMs });
       lastText = sample.text;
+    }
+
+    if (sample.progressTop !== null && expected.includes(sample.text)) {
+      progressTops.push(sample.progressTop);
     }
 
     if (sample.status === 'ready') {
@@ -843,6 +874,17 @@ async function observeLocalAssistantLoadingSequence(page) {
       `Local Assistant loading copy "${expected[index]}" changed too quickly.`
     );
   }
+
+  if (progressTops.length >= 2) {
+    const minTop = Math.min(...progressTops);
+    const maxTop = Math.max(...progressTops);
+    assert(
+      maxTop - minTop <= 2,
+      `Local Assistant progress bar should stay stable while loading copy changes. Saw ${minTop}px to ${maxTop}px.`
+    );
+  }
+
+  return { observations, progressTops };
 }
 
 async function runLocalAssistantCheck(browser, pageUrl) {
@@ -873,6 +915,7 @@ async function runLocalAssistantCheck(browser, pageUrl) {
       const idleMetrics = await readLocalAssistantMetrics(page);
       assertLocalAssistantLayout(idleMetrics, `local-assistant:${viewport.label}:idle`);
       assert(idleMetrics.loadCopyText === 'Press "Load" to begin', `[local-assistant:${viewport.label}] idle copy should be simplified.`);
+      assert(idleMetrics.shellBackgroundAlpha >= 0.5, `[local-assistant:${viewport.label}] idle shell should use a frosted background.`);
 
       await page.click('#localLlmStartBtn');
       await observeLocalAssistantLoadingSequence(page);
@@ -884,6 +927,7 @@ async function runLocalAssistantCheck(browser, pageUrl) {
       );
       const readyMetrics = await readLocalAssistantMetrics(page);
       assertLocalAssistantLayout(readyMetrics, `local-assistant:${viewport.label}:ready`);
+      assert(readyMetrics.shellBackgroundAlpha >= 0.5, `[local-assistant:${viewport.label}] ready shell should keep the frosted background.`);
       assert(readyMetrics.center?.visible, `[local-assistant:${viewport.label}] ready empty-state panel should remain visible before the first message.`);
       assert(readyMetrics.sendDisabled === false, `[local-assistant:${viewport.label}] send should enable after mocked load.`);
       assert(readyMetrics.startText === 'Loaded', `[local-assistant:${viewport.label}] load control should report Loaded.`);
@@ -897,12 +941,22 @@ async function runLocalAssistantCheck(browser, pageUrl) {
         await page.fill('#localLlmInput', 'Explain this local assistant in one sentence.');
         await page.click('.local-llm-send');
         await page.waitForFunction(
+          () => {
+            const bubbleTyping = document.querySelector('#localLlmMessages .local-llm-typing');
+            const composerTyping = document.querySelector('.local-llm-input-shell .local-llm-typing');
+            return Boolean(bubbleTyping) && !composerTyping;
+          },
+          null,
+          { timeout: 3000 }
+        );
+        await page.waitForFunction(
           () => /mocked Bonsai response/i.test(document.getElementById('localLlmMessages')?.textContent ?? ''),
           null,
           { timeout: 10000 }
         );
         const generatedMetrics = await readLocalAssistantMetrics(page);
         assertLocalAssistantLayout(generatedMetrics, 'local-assistant:desktop:generated');
+        assert(!generatedMetrics.typingInComposer, 'Local Assistant thinking dots should not render in the composer.');
         assert(Math.abs(generatedMetrics.form.height - readyMetrics.form.height) <= 2, 'Local Assistant composer height should remain stable after generation.');
         assert(Math.abs(generatedMetrics.form.bottom - readyMetrics.form.bottom) <= 2, 'Local Assistant composer position should remain stable after generation.');
         assert(!generatedMetrics.center?.visible, 'Local Assistant center panel should stay hidden after generation.');

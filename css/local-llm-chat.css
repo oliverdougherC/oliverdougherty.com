@@ -2,7 +2,7 @@
   padding: 0;
   overflow: hidden;
 
-  --local-llm-bg: transparent;
+  --local-llm-bg: rgba(0, 0, 0, 0.6);
   --local-llm-panel: rgba(255, 255, 255, 0.02);
   --local-llm-panel-strong: rgba(255, 255, 255, 0.04);
   --local-llm-line: rgba(255, 255, 255, 0.08);
@@ -13,6 +13,19 @@
   --local-llm-good: #8fd4a8;
   --local-llm-danger: #f0a090;
   --local-llm-control-size: 3.1rem;
+}
+
+#localLlmUtilityApp:not([data-local-llm-mounted="true"]) {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .utility-shell--local-llm,
+  #localLlmUtilityApp:not([data-local-llm-mounted="true"]) {
+    --local-llm-bg: rgba(0, 0, 0, 0.82);
+  }
 }
 
 /* Fallback pattern used throughout this file:
@@ -29,6 +42,11 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  background: var(--local-llm-bg);
+}
+
+.canvas-panel--local-llm {
+  background: var(--local-llm-bg);
 }
 
 .local-llm-header {
@@ -40,7 +58,7 @@
   padding: 1rem 1.2rem;
   padding: clamp(0.85rem, 1.8vw, 1.15rem) clamp(0.95rem, 2.2vw, 1.45rem);
   border-bottom: 1px solid var(--local-llm-line);
-  background: transparent;
+  background: var(--local-llm-bg);
 }
 
 .local-llm-title-block {
@@ -156,7 +174,7 @@
   grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
-  background: transparent;
+  background: var(--local-llm-bg);
 }
 
 .local-llm-live-region {
@@ -222,14 +240,23 @@
   display: none;
 }
 
+.local-llm-load-copy-wrap {
+  display: grid;
+  place-items: center;
+  height: calc(2 * 1.22 * clamp(1.2rem, 2.4vw, 1.75rem));
+  min-height: calc(2 * 1.22 * clamp(1.2rem, 2.4vw, 1.75rem));
+  overflow: hidden;
+}
+
 .local-llm-load-copy {
+  margin: 0;
   color: var(--local-llm-text);
   font: 560 1.45rem / 1.22 var(--font-display);
   font: 560 clamp(1.2rem, 2.4vw, 1.75rem) / 1.22 var(--font-display);
   letter-spacing: 0;
   text-wrap: balance;
   text-align: center;
-  transition: opacity 0.3s ease;
+  transition: opacity 0.25s ease;
 }
 
 .local-llm-model-note {
@@ -393,6 +420,12 @@
   overflow-wrap: anywhere;
 }
 
+.local-llm-message-content--thinking {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.55em;
+}
+
 .local-llm-message--user .local-llm-message-content {
   color: #000000;
   border-color: #ffffff;
@@ -492,7 +525,7 @@
   padding: 0.9rem 1rem;
   padding: clamp(0.8rem, 1.8vw, 1.05rem) clamp(0.85rem, 2.2vw, 1.25rem);
   border-top: 1px solid var(--local-llm-line);
-  background: transparent;
+  background: var(--local-llm-bg);
 }
 
 .local-llm-load-control,
@@ -609,8 +642,7 @@
 }
 
 .local-llm-ready-prompt[hidden],
-.local-llm-char-count[hidden],
-.local-llm-typing[hidden] {
+.local-llm-char-count[hidden] {
   display: none;
 }
 
@@ -624,10 +656,7 @@
 }
 
 .local-llm-typing {
-  position: absolute;
-  bottom: 0.35rem;
-  left: 0.7rem;
-  display: flex;
+  display: inline-flex;
   gap: 0.3rem;
   align-items: center;
   pointer-events: none;
@@ -736,6 +765,11 @@
     font-size: 1.08rem;
   }
 
+  .local-llm-load-copy-wrap {
+    height: calc(3 * 1.22 * 1.08rem);
+    min-height: calc(3 * 1.22 * 1.08rem);
+  }
+
   .local-llm-model-note,
   .local-llm-diagnostics {
     font-size: 0.8rem;
@@ -745,6 +779,7 @@
 @media (prefers-reduced-motion: reduce) {
   .local-llm-message,
   .local-llm-progress-fill,
+  .local-llm-load-copy,
   .local-llm-input,
   .local-llm-load-control,
   .local-llm-send,
