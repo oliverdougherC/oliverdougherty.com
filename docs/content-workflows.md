@@ -44,28 +44,6 @@ The Playwright gallery scripts are for regression and investigation, not for shi
 
 These write to `output/`, which is intentionally ignored.
 
-## Game build workflow
-
-The game has a strict source/build split:
-
-- Editable source: `game-src/`
-- Shipped build output: `pages/game/`
-
-When `game-src/` changes, rebuild the shipped page with:
-
-```bash
-npm run game:build
-```
-
-Then rerun:
-
-```bash
-npm run game:check
-npm run smoke
-```
-
-Do not hand-edit bundled files in `pages/game/assets/`.
-
 ## Utilities build workflow
 
 The utilities page also has a strict source/build split:
@@ -92,7 +70,7 @@ Do not hand-edit the generated utilities bundle or the hashed worker chunks in `
 
 ## Deploy build workflow
 
-`npm run build:deploy` copies the shipped static site into `dist/`. The deploy build mirrors the repo’s checked-in source plus generated game output and gallery assets. `dist/` is disposable output, not source.
+`npm run build:deploy` copies the shipped static site into `dist/`. The deploy build mirrors the repo's checked-in source plus generated utilities output and gallery assets. `dist/` is disposable output, not source.
 
 ## Local artifact policy
 

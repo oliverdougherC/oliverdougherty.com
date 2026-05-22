@@ -80,8 +80,8 @@ export class LocalLlmUtility {
     this._inputFrameId = 0;
     this._statePanelFrameId = 0;
     this._lastAssistantWasInterrupted = false;
-    this._messageElements = new WeakMap();
-    this._renderedMessageContent = new WeakMap();
+    this._messageElements = new Map();
+    this._renderedMessageContent = new Map();
     this.loadingSequenceTimer = null;
     this.loadingSequenceIndex = 0;
     this.loadingSequenceStartedAt = 0;
@@ -796,6 +796,7 @@ export class LocalLlmUtility {
         this.messages = this.messages.filter((message) => message !== this.assistantDraft);
         this._lastAssistantElement?.remove();
       } else {
+        this._renderedMessageContent.delete(this.assistantDraft);
         this.updateAssistantElement(shouldStick);
       }
       const trimmed = this.trimHistory(this.messages, { notify: true });
@@ -1052,8 +1053,8 @@ export class LocalLlmUtility {
     if (clearMessages) {
       this.messages = [];
       this.assistantDraft = null;
-      this._messageElements = new WeakMap();
-      this._renderedMessageContent = new WeakMap();
+      this._messageElements = new Map();
+      this._renderedMessageContent = new Map();
       this.renderMessages();
     }
     this.tps = null;
@@ -1151,8 +1152,8 @@ export class LocalLlmUtility {
     this.stopLoadingSequence({ clearPending: true });
     if (clearMessages) {
       this.messages = [];
-      this._messageElements = new WeakMap();
-      this._renderedMessageContent = new WeakMap();
+      this._messageElements = new Map();
+      this._renderedMessageContent = new Map();
       this.input.value = '';
       this.renderMessages({ animate: false });
     }

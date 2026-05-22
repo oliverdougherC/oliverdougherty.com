@@ -14,7 +14,7 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `pages/archive/index.html`: archive index for technical writeups.
 - `pages/archive/*/*.html`: article-style archive pages using the abstract/article layout.
 - `pages/utilities/index.html`: utilities page shell.
-- `pages/game/index.html`: generated entrypoint for the shipped game build.
+- `pages/utilities/index.html`: utilities dashboard entrypoint.
 
 ## Shared browser layer
 
@@ -49,7 +49,7 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `scripts/format.js`: normalization check/write pass for repo text files.
 - `scripts/check-links.js`: local asset/page link validation across HTML.
 - `scripts/mobile-site-check.js`: Playwright regression check for the dedicated mobile routes and mobile redirect gate.
-- `scripts/smoke.js`: structural smoke checks for critical routes, gallery data, and shipped game assets.
+- `scripts/smoke.js`: structural smoke checks for critical routes, gallery data, and utilities bundle.
 - `scripts/nav-overlay-check.js`: Playwright regression check for shared navigation behavior.
 - `scripts/utilities-check.js`: Playwright regression check for the utilities page workflow.
 - `scripts/utilities-perf.js`: utilities performance probe for representative and stress-case transforms.
@@ -61,4 +61,4 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - Treat `/mobile/` as a separate product surface, not as responsive overrides for the desktop site. It has exactly two pages, Home and Resume; unsupported full-site mobile routes should include `js/mobile-gate.js` and redirect to `/mobile/` unless `?full=1` is present.
 - `pages/utilities/assets/` is part of the shipped site, but it is generated from `utilities-src/` and should be treated as build output.
 - Utilities deployment readiness means more than type/tests: after utilities-source changes, rebuild the shipped bundle and rerun `utilities:browser-check` plus `utilities:perf`.
-- `pages/game/` is part of the shipped site, but it is generated from `game-src/` and should be treated as build output.
+- `pages/utilities/` is part of the shipped site, but it is generated from `utilities-src/` and should be treated as build output.

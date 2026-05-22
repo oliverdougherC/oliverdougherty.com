@@ -110,6 +110,21 @@ function validatePages() {
 
   const utilitiesBundlePath = path.join(ROOT, 'pages', 'utilities', 'assets', 'utilities-app.js');
   assert(fs.existsSync(utilitiesBundlePath), 'Utilities bundle missing: pages/utilities/assets/utilities-app.js');
+  const utilitiesWorkerDir = path.join(ROOT, 'pages', 'utilities', 'assets', 'assets');
+  assert(fs.existsSync(utilitiesWorkerDir), 'Utilities worker asset directory missing: pages/utilities/assets/assets');
+  const utilitiesWorkerEntries = fs.readdirSync(utilitiesWorkerDir);
+  assert(
+    utilitiesWorkerEntries.some((name) => /^audioFourier\.worker-.*\.js$/.test(name)),
+    'Audio Fourier worker chunk missing from pages/utilities/assets/assets'
+  );
+  assert(
+    utilitiesWorkerEntries.some((name) => /^transform\.worker-.*\.js$/.test(name)),
+    'Image Transform worker chunk missing from pages/utilities/assets/assets'
+  );
+  assert(
+    fs.existsSync(path.join(ROOT, 'assets', 'utilities', 'fourier-decompose', 'Best Friends.flac')),
+    'Fourier built-in audio asset missing: assets/utilities/fourier-decompose/Best Friends.flac'
+  );
 
   const homeHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   assert(!homeHtml.includes('href="pages/archive/index.html"'), 'Homepage should not expose the archive route');
@@ -131,17 +146,6 @@ function validatePages() {
     const archiveFileHtml = fs.readFileSync(archiveFilePath, 'utf8');
     assert(!archiveFileHtml.includes('Neurophasia'), `Stale archive name present in ${rel(archiveFilePath)}`);
   }
-
-  const gamePagePath = path.join(ROOT, 'pages/game/index.html');
-  assert(fs.existsSync(gamePagePath), 'Game page missing: pages/game/index.html');
-  const gameHtml = fs.readFileSync(gamePagePath, 'utf8');
-  assert(gameHtml.includes('id="gameRoot"'), 'Game root container missing');
-  assert(gameHtml.includes('assets/') && gameHtml.includes('.js'), 'Game page missing built JS asset reference');
-
-  const gameAssetsDir = path.join(ROOT, 'pages/game/assets');
-  assert(fs.existsSync(gameAssetsDir), 'Game assets directory missing');
-  const gameAssetEntries = fs.readdirSync(gameAssetsDir);
-  assert(gameAssetEntries.some((name) => name.endsWith('.js')), 'No game JS bundle found in pages/game/assets');
 }
 
 function validatePhotoVariantFile(variantKey, photo, format) {
@@ -190,16 +194,44 @@ function validatePhotos() {
   return photos.length;
 }
 
+function validateDeployOutput() {
+  const distDir = path.join(ROOT, 'dist');
+  if (!fs.existsSync(distDir)) return false;
+
+  const cnamePath = path.join(distDir, 'CNAME');
+  if (!fs.existsSync(cnamePath)) return false;
+
+  assert(fs.readFileSync(cnamePath, 'utf8').trim() === 'oliverdougherty.com', 'Deploy output CNAME has unexpected contents');
+  assert(fs.existsSync(path.join(distDir, '.nojekyll')), 'Deploy output missing .nojekyll');
+  assert(
+    fs.existsSync(path.join(distDir, 'assets', 'utilities', 'fourier-decompose', 'Best Friends.flac')),
+    'Deploy output missing Fourier built-in audio asset'
+  );
+
+  const distUtilitiesWorkerDir = path.join(distDir, 'pages', 'utilities', 'assets', 'assets');
+  assert(fs.existsSync(distUtilitiesWorkerDir), 'Deploy output missing utilities worker asset directory');
+  const workerEntries = fs.readdirSync(distUtilitiesWorkerDir);
+  assert(
+    workerEntries.some((name) => /^audioFourier\.worker-.*\.js$/.test(name)),
+    'Deploy output missing Audio Fourier worker chunk'
+  );
+  return true;
+}
+
 function main() {
   console.log('Smoke Script');
   console.log('='.repeat(60));
 
   validatePages();
   const photoCount = validatePhotos();
-  const verifiedPages = REQUIRED_PAGES.length + 1; // + game page
+  const deployOutputChecked = validateDeployOutput();
+  const verifiedPages = REQUIRED_PAGES.length;
 
   console.log(`Verified ${verifiedPages} critical pages.`);
   console.log(`Verified optimized assets for ${photoCount} gallery photos.`);
+  if (deployOutputChecked) {
+    console.log('Verified deploy output utilities assets.');
+  }
   console.log('Smoke checks passed.');
 }
 

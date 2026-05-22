@@ -49,12 +49,6 @@ echo "Building utilities bundle..."
 npm run utilities:build
 echo -e "${GREEN}Utilities built.${NC}"
 
-# Build game
-echo ""
-echo "Building game bundle..."
-npm run game:build
-echo -e "${GREEN}Game built.${NC}"
-
 # Run quality checks (non-fatal)
 echo ""
 echo "Running quality checks..."

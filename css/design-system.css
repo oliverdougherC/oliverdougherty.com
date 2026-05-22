@@ -1228,7 +1228,7 @@ body.nav-open .nav.scrolled {
   width: 40px;
 }
 
-/* Light/Dark mode toggle (shared across non-game pages) */
+/* Light/Dark mode toggle */
 .theme-toggle {
   display: inline-flex;
   align-items: center;

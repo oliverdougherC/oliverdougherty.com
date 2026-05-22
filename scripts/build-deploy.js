@@ -13,13 +13,19 @@ const ASSET_PHOTOS_DIR = path.join(ROOT, 'assets', 'photos');
 
 const ROOT_ENTRIES = [
   'index.html',
+  'CNAME',
+  '.nojekyll',
   'mobile',
   'css',
   'js',
   'pages',
   'assets',
   'favicon.svg',
-  'favicon.ico'
+  'favicon.ico',
+  'favicon-happy.svg',
+  'favicon-happy.ico',
+  'favicon-sad.svg',
+  'favicon-sad.ico'
 ];
 
 function relPath(filePath) {
@@ -78,6 +84,14 @@ function main() {
   assertExists(path.join(ASSET_PHOTOS_DIR, 'thumbs'));
   assertExists(path.join(ASSET_PHOTOS_DIR, 'medium'));
   assertExists(path.join(ASSET_PHOTOS_DIR, 'large'));
+  [
+    'CNAME',
+    '.nojekyll',
+    'favicon-happy.svg',
+    'favicon-happy.ico',
+    'favicon-sad.svg',
+    'favicon-sad.ico'
+  ].forEach((entry) => assertExists(path.join(ROOT, entry)));
 
   fs.rmSync(DIST_DIR, { recursive: true, force: true });
   fs.mkdirSync(DIST_DIR, { recursive: true });
