@@ -542,9 +542,24 @@ class RetroVmMouseBridge {
       this.lockRequested = true;
       // Pointer lock keeps relative mouse input flowing even when the host cursor
       // would have left the VM viewport.
-      await this.root
-        .requestPointerLock({ unadjustedMovement: true })
-        .catch(() => this.root.requestPointerLock());
+      // Firefox returns undefined (not a rejected promise) when pointer lock is denied,
+      // so chaining .catch() on undefined throws TypeError. Guard each call.
+      const first = this.root.requestPointerLock({ unadjustedMovement: true });
+      if (first instanceof Promise) {
+        try {
+          await first;
+        } catch {
+          const fallback = this.root.requestPointerLock();
+          if (fallback instanceof Promise) {
+            await fallback;
+          }
+        }
+      } else {
+        const fallback = this.root.requestPointerLock();
+        if (fallback instanceof Promise) {
+          await fallback;
+        }
+      }
     } catch (error) {
       this.lockRequested = false;
       // Ignore browsers that deny pointer lock; the unlocked fallback still works.

@@ -346,7 +346,7 @@ export class StressTestController {
     this.setState('idle', 'Ready. Starting this will make your browser hot, loud, slow, and power hungry.');
     this.syncMetrics(true);
     this.queueControlPanelFitSync();
-    this.drawIdleCanvas();
+    window.requestAnimationFrame(() => this.drawIdleCanvas());
   }
 
   dispose() {
