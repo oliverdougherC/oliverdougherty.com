@@ -205,7 +205,6 @@ body.schematic-mode .nav-dot {
 
 .blueprint-drafting-layer {
   opacity: 0;
-  filter: url(#sketch-filter);
   animation:
     blueprintGuidesIn 160ms linear var(--grid-start) forwards,
     blueprintGuidesOut 520ms ease calc(var(--dougherty-start) + var(--guide-fade-start)) forwards;
@@ -220,6 +219,7 @@ body.schematic-mode .nav-dot {
 
 .blueprint-grid-line {
   fill: none;
+  shape-rendering: crispEdges;
   stroke-dasharray: var(--line-length, 120);
   stroke-dashoffset: var(--line-length, 120);
   opacity: 0.8;
@@ -228,13 +228,13 @@ body.schematic-mode .nav-dot {
 
 .blueprint-grid-line--minor {
   stroke: rgba(255, 103, 0, 0.18);
-  stroke-width: 0.55;
+  stroke-width: 0.65;
   --line-duration: 820ms;
 }
 
 .blueprint-grid-line--major {
   stroke: rgba(255, 103, 0, 0.32);
-  stroke-width: 0.7;
+  stroke-width: 0.8;
   --line-duration: 920ms;
 }
 
@@ -253,19 +253,21 @@ body.schematic-mode .nav-dot {
 .blueprint-outline-text {
   --letter-step: 0ms;
   --letter-duration: 2400ms;
-  --letter-dash: 4.4em;
-  --letter-nearly-complete: 0.55em;
+  --letter-dash: 120px;
+  --letter-nearly-complete: 16px;
+  --letter-final-gap: 8px;
   fill: transparent;
-  stroke: #572300;
   stroke: color-mix(in srgb, var(--schematic-text) 66%, var(--schematic-flare));
   stroke-width: 0.75px;
   stroke-width: max(0.75px, 0.007em);
+  paint-order: stroke fill;
   opacity: 0;
   font-family: var(--font-display);
   font-size: var(--blueprint-font-size);
   font-weight: 800;
   letter-spacing: var(--blueprint-letter-spacing);
-  dominant-baseline: text-before-edge;
+  text-anchor: start;
+  dominant-baseline: alphabetic;
   text-rendering: geometricPrecision;
   stroke-dasharray: var(--letter-dash);
   stroke-dashoffset: var(--letter-dash);
@@ -296,23 +298,24 @@ body.schematic-mode .nav-dot {
   0% {
     opacity: 0;
     stroke-dashoffset: var(--letter-dash);
-    filter: drop-shadow(0 0 0 rgba(255, 103, 0, 0));
+    stroke-opacity: 0.4;
   }
   12% {
     opacity: 0.9;
+    stroke-opacity: 0.85;
   }
   72% {
     stroke-dashoffset: var(--letter-nearly-complete);
-    filter: drop-shadow(0 0 7px rgba(255, 103, 0, 0.16));
+    stroke-opacity: 0.95;
   }
   92% {
-    stroke-dashoffset: 0.14em;
-    filter: drop-shadow(0 0 7px rgba(255, 103, 0, 0.16));
+    stroke-dashoffset: var(--letter-final-gap);
+    stroke-opacity: 0.95;
   }
   100% {
     opacity: 0.68;
     stroke-dashoffset: 0;
-    filter: drop-shadow(0 0 4px rgba(255, 103, 0, 0.12));
+    stroke-opacity: 0.75;
   }
 }
 

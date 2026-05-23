@@ -80,6 +80,9 @@
     let completionTimer = null;
     let lastSignature = '';
 
+    const getDpr = () => window.devicePixelRatio || 1;
+    const snap = (value, dpr = getDpr()) => Math.round(value * dpr) / dpr;
+
     const createSvgElement = (tagName, attributes = {}) => {
       const element = document.createElementNS(SVG_NS, tagName);
       for (const [name, value] of Object.entries(attributes)) {
@@ -90,31 +93,30 @@
 
     const setLineMetrics = (line, x1, y1, x2, y2, delayMs) => {
       const length = Math.hypot(x2 - x1, y2 - y1);
-      const lengthJitter = Math.random() * 8 - 2; // slightly overshoot or undershoot lines
-      line.style.setProperty('--line-length', `${length + lengthJitter}px`);
+      line.style.setProperty('--line-length', `${length}px`);
       line.style.setProperty('--line-delay', `${Math.max(0, delayMs)}ms`);
     };
 
-    const addLine = (group, className, x1, y1, x2, y2, delayMs) => {
+    const addLine = (group, className, x1, y1, x2, y2, delayMs, dpr) => {
       const line = createSvgElement('line', {
         class: `blueprint-grid-line ${className}`,
-        x1,
-        y1,
-        x2,
-        y2
+        x1: snap(x1, dpr),
+        y1: snap(y1, dpr),
+        x2: snap(x2, dpr),
+        y2: snap(y2, dpr)
       });
       setLineMetrics(line, x1, y1, x2, y2, delayMs);
       group.appendChild(line);
     };
 
-    const measureCharacters = (wordText, box) => {
+    const measureCharacters = (wordText, box, dpr) => {
       const textNode = Array.from(finalWord.childNodes).find((node) => node.nodeType === Node.TEXT_NODE);
       if (!textNode || textNode.textContent.length < wordText.length) {
         const fallbackWidth = box.width / wordText.length;
         return Array.from(wordText, (char, index) => ({
           char,
-          x: fallbackWidth * index,
-          width: fallbackWidth
+          x: snap(fallbackWidth * index, dpr),
+          width: snap(fallbackWidth, dpr)
         }));
       }
 
@@ -127,15 +129,28 @@
 
         return {
           char,
-          x: Math.round((rect.left - box.left) * 100) / 100,
-          width: Math.round(rect.width * 100) / 100
+          x: snap(rect.left - box.left, dpr),
+          width: snap(rect.width, dpr)
         };
       });
     };
 
+    const measureLetterDash = (textNode, fontSizePx, dashFactor) => {
+      const fontDash = Math.round(fontSizePx * dashFactor);
+      try {
+        const bbox = textNode.getBBox();
+        const bboxDash = Math.round((bbox.width + bbox.height) * 3.5);
+        return Math.max(fontDash, bboxDash);
+      } catch (_error) {
+        return fontDash;
+      }
+    };
+
     const renderOverlay = () => {
       if (title.classList.contains('is-blueprint-complete')) return;
+      if (title.classList.contains('is-blueprint-ready')) return;
 
+      const dpr = getDpr();
       const box = finalWord.getBoundingClientRect();
       let textBox = box;
       try {
@@ -147,15 +162,14 @@
         textBox = box;
       }
 
-      const textOffsetY = Math.round((textBox.top - box.top) * 100) / 100;
-      const width = Math.round(box.width * 100) / 100;
-      const height = Math.round(box.height * 100) / 100;
+      const width = snap(box.width, dpr);
+      const height = snap(box.height, dpr);
       if (width <= 0 || height <= 0) return;
 
       const wordStyle = window.getComputedStyle(finalWord);
-      const characters = measureCharacters(word, box);
+      const fontSizePx = Number.parseFloat(wordStyle.fontSize) || 16;
+      const characters = measureCharacters(word, box, dpr);
       const signature = [
-        textOffsetY,
         width,
         height,
         wordStyle.fontSize,
@@ -163,20 +177,19 @@
         characters.map(({ x, width: characterWidth }) => `${x}:${characterWidth}`).join(',')
       ].join('|');
 
-      if (signature === lastSignature && title.classList.contains('is-blueprint-ready')) {
+      if (signature === lastSignature) {
         return;
       }
 
       lastSignature = signature;
       title.classList.remove('is-blueprint-complete');
-      title.classList.add('is-blueprint-ready');
       title.style.setProperty('--blueprint-font-size', wordStyle.fontSize);
       title.style.setProperty('--blueprint-letter-spacing', wordStyle.letterSpacing);
 
       svg.replaceChildren();
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-      svg.setAttribute('width', width);
-      svg.setAttribute('height', height);
+      svg.setAttribute('width', String(Math.round(width)));
+      svg.setAttribute('height', String(Math.round(height)));
       svg.style.left = '0';
       svg.style.top = '0';
       svg.style.width = `${width}px`;
@@ -187,26 +200,38 @@
       const outline = createSvgElement('g', { class: 'blueprint-outline' });
 
       const railInset = 0.75;
-      const top = railInset;
-      const cap = height * 0.26;
-      const center = height * 0.55;
-      const lowerGuide = height * 0.82;
-      const bottom = height - railInset;
-      const cellWidth = width / word.length;
+      const top = snap(railInset, dpr);
+      const cap = snap(height * 0.26, dpr);
+      const center = snap(height * 0.55, dpr);
+      const lowerGuide = snap(height * 0.82, dpr);
+      const bottom = snap(height - railInset, dpr);
 
-      for (let index = 0; index <= word.length; index += 1) {
-        const x = cellWidth * index;
-        addLine(grid, 'blueprint-grid-line--major', x, top, x, bottom, index * 26 + (Math.random() * 40 - 20));
-        if (index < word.length) {
-          addLine(grid, 'blueprint-grid-line--minor', x + cellWidth / 2, cap, x + cellWidth / 2, lowerGuide, 130 + index * 20 + (Math.random() * 40 - 20));
-        }
+      characters.forEach(({ x }, index) => {
+        addLine(grid, 'blueprint-grid-line--major', x, top, x, bottom, index * 26, dpr);
+      });
+      addLine(grid, 'blueprint-grid-line--major', width, top, width, bottom, characters.length * 26, dpr);
+
+      for (let index = 0; index < characters.length - 1; index += 1) {
+        const current = characters[index];
+        const next = characters[index + 1];
+        const midpoint = (current.x + current.width / 2 + next.x + next.width / 2) / 2;
+        addLine(
+          grid,
+          'blueprint-grid-line--minor',
+          midpoint,
+          cap,
+          midpoint,
+          lowerGuide,
+          130 + index * 20,
+          dpr
+        );
       }
 
-      addLine(grid, 'blueprint-grid-line--rail', 0, top, width, top, 40 + (Math.random() * 30 - 15));
-      addLine(grid, 'blueprint-grid-line--rail', 0, bottom, width, bottom, 120 + (Math.random() * 30 - 15));
-      addLine(grid, 'blueprint-grid-line--center', 0, center, width, center, 240 + (Math.random() * 30 - 15));
-      addLine(grid, 'blueprint-grid-line--minor', 0, cap, width, cap, 300 + (Math.random() * 30 - 15));
-      addLine(grid, 'blueprint-grid-line--minor', 0, lowerGuide, width, lowerGuide, 360 + (Math.random() * 30 - 15));
+      addLine(grid, 'blueprint-grid-line--rail', 0, top, width, top, 40, dpr);
+      addLine(grid, 'blueprint-grid-line--rail', 0, bottom, width, bottom, 120, dpr);
+      addLine(grid, 'blueprint-grid-line--center', 0, center, width, center, 240, dpr);
+      addLine(grid, 'blueprint-grid-line--minor', 0, cap, width, cap, 300, dpr);
+      addLine(grid, 'blueprint-grid-line--minor', 0, lowerGuide, width, lowerGuide, 360, dpr);
 
       const baseLetterTiming = [
         { delay: 0, duration: 2500, dash: 4.8 },
@@ -241,27 +266,52 @@
         };
       };
 
-      characters.forEach(({ char, x, width: characterWidth }, index) => {
+      const baselineY = snap(textBox.top - box.top + fontSizePx * 0.82, dpr);
+      const letterNodes = characters.map(({ char, x }, index) => {
         const timing = getLetterTiming(index, characters.length);
-        const randomizedDelay = Math.max(0, timing.delay + (Math.random() * 80 - 40));
-        const randomizedDuration = timing.duration + (Math.random() * 400 - 200);
-
         const outlineText = createSvgElement('text', {
           class: 'blueprint-outline-text',
-          x,
-          y: textOffsetY
+          x: snap(x, dpr),
+          y: baselineY,
+          'text-anchor': 'start'
         });
-        outlineText.style.setProperty('--letter-step', `${randomizedDelay}ms`);
-        outlineText.style.setProperty('--letter-duration', `${randomizedDuration}ms`);
-        outlineText.style.setProperty('--letter-dash', `${timing.dash}em`);
-        outlineText.style.setProperty('--letter-nearly-complete', `${timing.dash * 0.13}em`);
+        outlineText.style.setProperty('--letter-step', `${Math.max(0, timing.delay)}ms`);
+        outlineText.style.setProperty('--letter-duration', `${timing.duration}ms`);
         outlineText.textContent = char;
         outline.appendChild(outlineText);
+        return { outlineText, timing };
       });
-
       layer.appendChild(grid);
       layer.appendChild(outline);
       svg.appendChild(layer);
+
+      try {
+        const referenceText = letterNodes[0]?.outlineText;
+        if (referenceText) {
+          const svgTextBox = referenceText.getBBox();
+          const domTop = snap(textBox.top - box.top, dpr);
+          const yAdjust = snap(domTop - svgTextBox.y, dpr);
+          if (Math.abs(yAdjust) > 0.01) {
+            letterNodes.forEach(({ outlineText }) => {
+              const currentY = Number.parseFloat(outlineText.getAttribute('y') || '0');
+              outlineText.setAttribute('y', String(snap(currentY + yAdjust, dpr)));
+            });
+          }
+        }
+      } catch (error) {
+        // getBBox can fail before layout; initial y estimate is sufficient.
+      }
+
+      const finalGap = Math.max(4, Math.round(fontSizePx * 0.14));
+      letterNodes.forEach(({ outlineText, timing }) => {
+        const letterDash = measureLetterDash(outlineText, fontSizePx, timing.dash);
+        const nearlyComplete = Math.max(Math.round(letterDash * 0.13), 4);
+        outlineText.style.setProperty('--letter-dash', `${letterDash}px`);
+        outlineText.style.setProperty('--letter-nearly-complete', `${nearlyComplete}px`);
+        outlineText.style.setProperty('--letter-final-gap', `${finalGap}px`);
+      });
+
+      title.classList.add('is-blueprint-ready');
 
       if (completionTimer !== null) {
         window.clearTimeout(completionTimer);
@@ -273,22 +323,31 @@
     };
 
     let overlayFrame = 0;
+    let canRender = false;
+
     const scheduleRenderOverlay = () => {
-      if (overlayFrame) return;
+      if (!canRender || overlayFrame) return;
       overlayFrame = window.requestAnimationFrame(() => {
         overlayFrame = 0;
         renderOverlay();
       });
     };
 
-    renderOverlay();
+    const startRender = () => {
+      canRender = true;
+      scheduleRenderOverlay();
+    };
+
     if (document.fonts?.ready) {
-      document.fonts.ready.then(scheduleRenderOverlay).catch((error) => {
+      Promise.race([
+        document.fonts.ready,
+        new Promise((resolve) => window.setTimeout(resolve, 3000))
+      ]).then(startRender).catch((error) => {
         console.warn('Blueprint wordmark font readiness failed; rendering with fallback metrics:', error);
-        // Re-render immediately with whatever metrics are available so the wordmark
-        // still displays even if the font promise rejects.
-        scheduleRenderOverlay();
+        startRender();
       });
+    } else {
+      startRender();
     }
 
     if ('ResizeObserver' in window) {
@@ -296,7 +355,7 @@
       observer.observe(finalWord);
       window.addEventListener('pagehide', () => observer.disconnect(), { once: true });
     } else {
-      window.addEventListener('resize', debounce(renderOverlay, 120));
+      window.addEventListener('resize', debounce(scheduleRenderOverlay, 120));
     }
   }
 
