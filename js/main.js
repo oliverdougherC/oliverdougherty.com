@@ -526,6 +526,16 @@
       return;
     }
 
+    // If the user reloaded while scrolled past the hero, skip the animation entirely.
+    // Browser restores scrollY before DOMContentLoaded, so this catches the reload case.
+    const heroBottom = blueprint.getBoundingClientRect().bottom;
+    if (heroBottom < 0) {
+      document.body.classList.add('dougherty-nav-revealed');
+      revealNavDot();
+      revealDeferredElements();
+      return;
+    }
+
     let revealTimer = null;
     let navDotTimer = null;
     let revealed = false;

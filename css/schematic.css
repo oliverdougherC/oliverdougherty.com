@@ -387,34 +387,32 @@ body.schematic-mode .container {
 .schematic-border-left { border-left: 1px solid #000000 !important; }
 
 /* -------------------------------------
-   Marquee Carousel
+   Diamond Divider
    ------------------------------------- */
 
-.marquee-band {
+.diamond-divider {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 2rem 0;
   background-color: #FFFFFF;
-  color: #000000;
-  padding: 1.5rem 0;
-  overflow: hidden;
-  display: flex;
-  white-space: nowrap;
 }
 
-.marquee-track {
-  display: flex;
-  animation: marquee 30s linear infinite;
+.diamond {
+  display: inline-block;
+  background-color: #000000;
+  transform: rotate(45deg);
 }
 
-.marquee-inner {
-  flex-shrink: 0;
-  padding-right: 1rem;
-  font-size: 0.85rem;
-  letter-spacing: 0.05em;
-  font-family: var(--font-interface);
+.diamond--small {
+  width: 8px;
+  height: 8px;
 }
 
-@keyframes marquee {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+.diamond--large {
+  width: 14px;
+  height: 14px;
 }
 
 /* -------------------------------------
