@@ -571,6 +571,10 @@
       if (!isViewportBoundaryEvent(event)) return;
       handlePointerInput(event);
     }
+    function handleWindowBlur() {
+      suspendActiveMode();
+    }
+
 
     const startModeTracking = () => {
       window.addEventListener('pointermove', handlePointerMove, { passive: true });
@@ -578,7 +582,7 @@
       window.addEventListener('click', handlePointerInput, { passive: true });
       window.addEventListener('mouseout', handleViewportExit, { passive: true });
       window.addEventListener('mouseover', handleViewportReentry, { passive: true });
-      window.addEventListener('blur', suspendActiveMode);
+      window.addEventListener('blur', handleWindowBlur);
     };
 
     const stopModeTracking = () => {
@@ -587,7 +591,7 @@
       window.removeEventListener('click', handlePointerInput);
       window.removeEventListener('mouseout', handleViewportExit);
       window.removeEventListener('mouseover', handleViewportReentry);
-      window.removeEventListener('blur', suspendActiveMode);
+      window.removeEventListener('blur', handleWindowBlur);
     };
 
     const clearMode = (shouldPersistBattery = true) => {
