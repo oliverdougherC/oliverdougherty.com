@@ -150,6 +150,10 @@
   --z-overlay: 300;
   --z-modal: 400;
   --z-toast: 500;
+  --flashlight-radius: 220px;
+  --flashlight-feather: 180px;
+  --flashlight-scrim-opacity: 0.96;
+  --flashlight-layer-z: 12000;
 
   /* === Layout === */
   --nav-height: 80px;
@@ -1309,6 +1313,70 @@ html[data-color-mode="light"] .theme-toggle {
   background: color-mix(in srgb, white 88%, var(--color-bg-primary) 12%);
   color: var(--color-accent-muted);
 }
+/* Flashlight mode toggle + viewport mask */
+.nav-overlay .flashlight-toggle {
+  width: auto;
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  gap: var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+
+.flashlight-toggle-text {
+  white-space: nowrap;
+}
+
+.flashlight-toggle-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.flashlight-toggle-icon::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity var(--duration-base) var(--ease-smooth), transform var(--duration-base) var(--ease-smooth);
+}
+
+.flashlight-toggle[data-mode="on"] .flashlight-toggle-icon::before {
+  opacity: 1;
+  transform: scale(1);
+}
+
+body.flashlight-mode-active::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: var(--flashlight-layer-z);
+  background: radial-gradient(
+    circle at var(--flashlight-x, 50vw) var(--flashlight-y, 50vh),
+    rgba(0, 0, 0, 0) 0,
+    rgba(0, 0, 0, 0.08) calc(var(--flashlight-radius) * 0.45),
+    rgba(0, 0, 0, var(--flashlight-scrim-opacity)) calc(var(--flashlight-radius) + var(--flashlight-feather))
+  );
+  transition: opacity var(--duration-fast) var(--ease-smooth);
+}
+
+html[data-flashlight-mode="on"] :focus-visible {
+  outline-color: #FFFFFF;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.45);
+}
+
+html.reduced-motion[data-flashlight-mode="on"] body::before {
+  transition: none;
+}
 
 /* ========================================
    Shared Footer
@@ -1373,6 +1441,11 @@ html[data-color-mode="light"] .theme-toggle {
   .theme-toggle {
     width: 38px;
     height: 38px;
+  }
+  .nav-overlay .flashlight-toggle {
+    width: auto;
+    min-height: 38px;
+    padding: 0 var(--space-3);
   }
 }
 

@@ -12,6 +12,9 @@
 
   const DOUGHERTY_BLUEPRINT_SEQUENCE_MS = 7400;
   let confettiFired = false;
+  const FLASHLIGHT_MODE_STORAGE_KEY = 'od-flashlight-mode';
+  const FLASHLIGHT_MODE_ON = 'on';
+  const FLASHLIGHT_MODE_OFF = 'off';
 
   /**
    * Reveal the nav dot with a fade-in (opacity only, no transform).
@@ -54,6 +57,134 @@
 
   function shouldSkipPageAnimation() {
     return window.pageAnimations?.shouldSkip?.() === true;
+  }
+
+  function isFlashlightTargetPage() {
+    if (
+      document.body.classList.contains('page-home')
+      || document.body.classList.contains('page-resume')
+      || document.body.classList.contains('page-gallery')
+    ) {
+      return true;
+    }
+
+    const normalizedPath = window.location.pathname.replace(/\/index\.html$/, '/');
+    return normalizedPath === '/'
+      || normalizedPath.endsWith('/pages/resume/')
+      || normalizedPath.endsWith('/pages/gallery/');
+  }
+
+  function isFlashlightModeAvailable() {
+    if (!window.matchMedia) return false;
+    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return false;
+    if (window.matchMedia('(forced-colors: active)').matches) return false;
+    if (prefersReducedMotion()) return false;
+    return true;
+  }
+
+  function readStoredFlashlightMode() {
+    try {
+      return window.localStorage.getItem(FLASHLIGHT_MODE_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  function persistFlashlightMode(enabled) {
+    try {
+      window.localStorage.setItem(
+        FLASHLIGHT_MODE_STORAGE_KEY,
+        enabled ? FLASHLIGHT_MODE_ON : FLASHLIGHT_MODE_OFF
+      );
+    } catch {
+      // Intentionally ignored: localStorage may be unavailable in some contexts.
+    }
+  }
+
+  function initFlashlightMode() {
+    if (!isFlashlightTargetPage()) return;
+
+    const navOverlay = document.getElementById('navOverlay');
+    const navMenuFooter = navOverlay?.querySelector('.nav-menu-footer');
+    if (!navOverlay || !navMenuFooter) return;
+
+    const existingToggle = navOverlay.querySelector('[data-flashlight-toggle]');
+    const clearMode = () => {
+      document.documentElement.removeAttribute('data-flashlight-mode');
+      document.body.classList.remove('flashlight-mode-active');
+      document.documentElement.style.setProperty('--flashlight-x', '50vw');
+      document.documentElement.style.setProperty('--flashlight-y', '50vh');
+    };
+
+    if (!isFlashlightModeAvailable()) {
+      clearMode();
+      existingToggle?.remove();
+      return;
+    }
+
+    const modeToggleButton = existingToggle || document.createElement('button');
+    modeToggleButton.type = 'button';
+    modeToggleButton.className = 'theme-toggle flashlight-toggle';
+    modeToggleButton.setAttribute('data-flashlight-toggle', '');
+    modeToggleButton.setAttribute('data-cursor', 'hover');
+    modeToggleButton.innerHTML = [
+      '<span class="flashlight-toggle-icon" aria-hidden="true"></span>',
+      '<span class="flashlight-toggle-text" data-flashlight-toggle-text></span>'
+    ].join('');
+
+    if (!existingToggle) {
+      navMenuFooter.appendChild(modeToggleButton);
+    }
+
+    let modeEnabled = false;
+
+    const syncToggleLabel = () => {
+      const nextAction = modeEnabled ? 'Turn lights on' : 'Turn lights off';
+      const textNode = modeToggleButton.querySelector('[data-flashlight-toggle-text]');
+      if (textNode) {
+        textNode.textContent = nextAction;
+      }
+      modeToggleButton.setAttribute('aria-label', nextAction);
+      modeToggleButton.setAttribute('aria-pressed', String(modeEnabled));
+      modeToggleButton.dataset.mode = modeEnabled ? FLASHLIGHT_MODE_ON : FLASHLIGHT_MODE_OFF;
+    };
+
+    const setPointerPosition = (clientX, clientY) => {
+      document.documentElement.style.setProperty('--flashlight-x', `${clientX}px`);
+      document.documentElement.style.setProperty('--flashlight-y', `${clientY}px`);
+    };
+
+    const handlePointerMove = (event) => {
+      setPointerPosition(event.clientX, event.clientY);
+    };
+
+    const applyMode = (enabled) => {
+      modeEnabled = Boolean(enabled);
+      if (modeEnabled) {
+        document.documentElement.setAttribute('data-flashlight-mode', FLASHLIGHT_MODE_ON);
+        document.body.classList.add('flashlight-mode-active');
+        window.addEventListener('pointermove', handlePointerMove, { passive: true });
+      } else {
+        clearMode();
+        window.removeEventListener('pointermove', handlePointerMove);
+      }
+      syncToggleLabel();
+    };
+
+    const storedMode = readStoredFlashlightMode();
+    const shouldStartEnabled = storedMode === FLASHLIGHT_MODE_ON;
+    applyMode(shouldStartEnabled);
+
+    modeToggleButton.addEventListener('click', () => {
+      applyMode(!modeEnabled);
+      persistFlashlightMode(modeEnabled);
+    });
+
+    window.addEventListener('pageshow', () => {
+      if (!modeEnabled) return;
+      document.documentElement.setAttribute('data-flashlight-mode', FLASHLIGHT_MODE_ON);
+      document.body.classList.add('flashlight-mode-active');
+    });
   }
 
   function initBlueprintWordmark() {
@@ -502,7 +633,7 @@
       // Close when users click any non-interactive part of the open overlay.
       navOverlay.addEventListener('click', (event) => {
         if (!isMenuOpen()) return;
-        if (event.target.closest('.nav-link, .footer-link, #navToggle, .theme-toggle, [data-theme-toggle]')) {
+        if (event.target.closest('.nav-link, .footer-link, #navToggle, .theme-toggle, [data-theme-toggle], [data-flashlight-toggle]')) {
           return;
         }
         closeMobileNav();
@@ -919,6 +1050,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     initMotionPreference();
     initNavigation();
+    initFlashlightMode();
     initBlueprintWordmark();
     initHeroNavReveal();
     initDeferredImages();
