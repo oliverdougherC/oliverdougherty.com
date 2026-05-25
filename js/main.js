@@ -13,6 +13,7 @@
   const DOUGHERTY_BLUEPRINT_SEQUENCE_MS = 7400;
   let confettiFired = false;
   const FLASHLIGHT_MODE_STORAGE_KEY = 'od-flashlight-mode';
+  const FLASHLIGHT_BATTERY_SESSION_KEY = 'od-flashlight-battery';
   const FLASHLIGHT_MODE_ON = 'on';
   const FLASHLIGHT_MODE_OFF = 'off';
 
@@ -120,18 +121,22 @@
     const FLASHLIGHT_DRAIN_MS = 60000;
     const FLASHLIGHT_FINAL_FLICKER_MS = 900;
     const FLASHLIGHT_FINAL_FADE_MS = 850;
-    const FLASHLIGHT_MIN_FLICKER_GAP_MS = 1400;
-    const FLASHLIGHT_FLICKER_GAP_RANGE_MS = 3200;
-    const FLASHLIGHT_MIN_FLICKER_BURST_MS = 80;
-    const FLASHLIGHT_FLICKER_BURST_RANGE_MS = 140;
+    const FLASHLIGHT_MIN_FLICKER_GAP_MS = 450;
+    const FLASHLIGHT_FLICKER_GAP_RANGE_MS = 2200;
+    const FLASHLIGHT_MIN_FLICKER_BURST_MS = 260;
+    const FLASHLIGHT_FLICKER_BURST_RANGE_MS = 480;
+    const FLASHLIGHT_MIN_FLICKER_PULSE_MS = 24;
+    const FLASHLIGHT_FLICKER_PULSE_RANGE_MS = 68;
     const root = document.documentElement;
 
     let modeEnabled = false;
     let lastPointerPosition = null;
     let animationFrameId = 0;
-    let batteryStartTime = null;
+    let lastBatteryFrameTime = null;
+    let batteryRemainingMs = FLASHLIGHT_DRAIN_MS;
     let nextFlickerAt = 0;
     let flickerUntil = 0;
+    let nextFlickerPulseAt = 0;
     let finalFlickerStartedAt = null;
     let finalFadeStartedAt = null;
     let lastBatteryPercent = -1;
@@ -168,7 +173,51 @@
       setCoverOpacity(0);
       setFlicker(1);
       setBeamOpacity(1);
-      root.style.setProperty('--flashlight-power', '100%');
+    };
+
+    const clampBatteryRemaining = (value) => {
+      if (!Number.isFinite(value)) return FLASHLIGHT_DRAIN_MS;
+      return Math.max(0, Math.min(FLASHLIGHT_DRAIN_MS, value));
+    };
+
+    const isReloadNavigation = () => {
+      const navigationEntry = window.performance
+        ?.getEntriesByType
+        ?.('navigation')
+        ?.[0];
+
+      if (navigationEntry?.type === 'reload') return true;
+      return window.performance?.navigation?.type === 1;
+    };
+
+    const readStoredBatteryRemaining = () => {
+      if (isReloadNavigation()) {
+        try {
+          window.sessionStorage.removeItem(FLASHLIGHT_BATTERY_SESSION_KEY);
+        } catch {
+          // Intentionally ignored: sessionStorage may be unavailable in some contexts.
+        }
+        return FLASHLIGHT_DRAIN_MS;
+      }
+
+      try {
+        const storedBatteryRemaining = window.sessionStorage.getItem(FLASHLIGHT_BATTERY_SESSION_KEY);
+        if (storedBatteryRemaining === null) return FLASHLIGHT_DRAIN_MS;
+        return clampBatteryRemaining(Number(storedBatteryRemaining));
+      } catch {
+        return FLASHLIGHT_DRAIN_MS;
+      }
+    };
+
+    const persistBatteryRemaining = () => {
+      try {
+        window.sessionStorage.setItem(
+          FLASHLIGHT_BATTERY_SESSION_KEY,
+          String(Math.round(clampBatteryRemaining(batteryRemainingMs)))
+        );
+      } catch {
+        // Intentionally ignored: sessionStorage may be unavailable in some contexts.
+      }
     };
 
     const setPointerPosition = (clientX, clientY) => {
@@ -298,6 +347,19 @@
         + (Math.random() * FLASHLIGHT_FLICKER_GAP_RANGE_MS);
     };
 
+    const scheduleNextFlickerPulse = (timestamp) => {
+      nextFlickerPulseAt = timestamp
+        + FLASHLIGHT_MIN_FLICKER_PULSE_MS
+        + (Math.random() * FLASHLIGHT_FLICKER_PULSE_RANGE_MS);
+    };
+
+    const nextFlickerIntensity = () => {
+      if (Math.random() < 0.22) {
+        return 0.74 + (Math.random() * 0.22);
+      }
+      return 0.28 + (Math.random() * 0.42);
+    };
+
     const updateActiveFlicker = (timestamp) => {
       if (nextFlickerAt === 0) {
         scheduleNextFlicker(timestamp);
@@ -307,13 +369,17 @@
         flickerUntil = timestamp
           + FLASHLIGHT_MIN_FLICKER_BURST_MS
           + (Math.random() * FLASHLIGHT_FLICKER_BURST_RANGE_MS);
-        scheduleNextFlicker(timestamp);
+        nextFlickerPulseAt = 0;
+        scheduleNextFlicker(timestamp + (Math.random() * FLASHLIGHT_FLICKER_GAP_RANGE_MS));
       }
 
       if (timestamp < flickerUntil) {
-        const coverOpacity = 0.08 + (Math.random() * 0.16);
-        setCoverOpacity(coverOpacity);
-        setFlicker(1 - coverOpacity);
+        if (nextFlickerPulseAt === 0 || timestamp >= nextFlickerPulseAt) {
+          const coverOpacity = nextFlickerIntensity();
+          setCoverOpacity(coverOpacity);
+          setFlicker(1 - coverOpacity);
+          scheduleNextFlickerPulse(timestamp);
+        }
         return;
       }
 
@@ -354,21 +420,24 @@
       animationFrameId = 0;
       if (!modeEnabled) return;
 
-      if (batteryStartTime === null) {
-        batteryStartTime = timestamp;
+      if (lastBatteryFrameTime === null) {
+        lastBatteryFrameTime = timestamp;
         scheduleNextFlicker(timestamp);
+      } else {
+        batteryRemainingMs = clampBatteryRemaining(batteryRemainingMs - Math.max(0, timestamp - lastBatteryFrameTime));
+        lastBatteryFrameTime = timestamp;
       }
 
-      const elapsed = Math.max(0, timestamp - batteryStartTime);
-      if (elapsed >= FLASHLIGHT_DRAIN_MS) {
+      persistBatteryRemaining();
+
+      if (batteryRemainingMs <= 0) {
         if (updateDepletedState(timestamp)) {
           queueBatteryFrame();
         }
         return;
       }
 
-      const remainingRatio = 1 - (elapsed / FLASHLIGHT_DRAIN_MS);
-      updateHud(remainingRatio * 100);
+      updateHud((batteryRemainingMs / FLASHLIGHT_DRAIN_MS) * 100);
       setBeamOpacity(1);
       updateActiveFlicker(timestamp);
       queueBatteryFrame();
@@ -376,15 +445,24 @@
 
     const startBatteryLoop = () => {
       stopBatteryLoop();
-      batteryStartTime = null;
+      lastBatteryFrameTime = null;
       nextFlickerAt = 0;
       flickerUntil = 0;
-      finalFlickerStartedAt = null;
-      finalFadeStartedAt = null;
+      nextFlickerPulseAt = 0;
+      finalFlickerStartedAt = batteryRemainingMs <= 0 ? 0 : null;
+      finalFadeStartedAt = batteryRemainingMs <= 0 ? 0 : null;
       lastBatteryPercent = -1;
       lastBatterySegmentCount = -1;
       resetEffectVars();
-      updateHud(100);
+      updateHud((batteryRemainingMs / FLASHLIGHT_DRAIN_MS) * 100);
+
+      if (batteryRemainingMs <= 0) {
+        setCoverOpacity(1);
+        setFlicker(0);
+        setBeamOpacity(0);
+        return;
+      }
+
       queueBatteryFrame();
     };
 
@@ -394,8 +472,11 @@
       setPointerPosition(pointerPosition.x, pointerPosition.y);
     }
 
-    const clearMode = () => {
+    const clearMode = (shouldPersistBattery = true) => {
       stopBatteryLoop();
+      if (shouldPersistBattery) {
+        persistBatteryRemaining();
+      }
       window.removeEventListener('pointermove', handlePointerMove);
       root.removeAttribute('data-flashlight-mode');
       document.body.classList.remove('flashlight-mode-active');
@@ -405,7 +486,7 @@
     };
 
     if (!isFlashlightModeAvailable()) {
-      clearMode();
+      clearMode(false);
       modeToggleButton.remove();
       return;
     }
@@ -431,6 +512,7 @@
     modeToggleButton.addEventListener('pointermove', rememberPointerPosition, { passive: true });
     modeToggleButton.addEventListener('pointerdown', rememberPointerPosition, { passive: true });
 
+    batteryRemainingMs = readStoredBatteryRemaining();
     const storedMode = readStoredFlashlightMode();
     applyMode(storedMode === FLASHLIGHT_MODE_ON);
 
