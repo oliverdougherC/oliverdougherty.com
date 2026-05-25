@@ -763,6 +763,10 @@ async function readLocalAssistantMetrics(page) {
       readyPromptHidden: document.getElementById('localLlmReadyPrompt')?.hasAttribute('hidden') ?? true,
       headerText: document.querySelector('.local-llm-header')?.textContent?.trim() ?? '',
       tpsText: document.getElementById('localLlmTps')?.textContent?.trim() ?? '',
+      promptTokens: Number(shellElement?.dataset.localLlmPromptTokens ?? '0'),
+      contextLimitTokens: Number(shellElement?.dataset.localLlmContextLimitTokens ?? '0'),
+      droppedMessages: Number(shellElement?.dataset.localLlmDroppedMessages ?? '0'),
+      truncatedInput: shellElement?.dataset.localLlmTruncatedInput ?? '',
       diagnosticsHidden: diagnostics?.hasAttribute('hidden') ?? true,
       diagnosticsText: diagnostics?.textContent?.trim() ?? ''
     };
@@ -796,7 +800,7 @@ function assertLocalAssistantLayout(metrics, label) {
 async function observeLocalAssistantLoadingSequence(page) {
   const expected = [
     'Loading Bonsai 1.7B',
-    "Don't worry, I won't cache in your browser ;)"
+    'Caching model files locally for faster reloads.'
   ];
   const spinnerFrames = new Set(['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']);
   const observations = [];
@@ -962,6 +966,8 @@ async function runLocalAssistantCheck(browser, pageUrl) {
         assert(!generatedMetrics.center?.visible, 'Local Assistant center panel should stay hidden after generation.');
         assert(/Local Assistant/i.test(generatedMetrics.messageText), 'Local Assistant should render an assistant response.');
         assert(/\d|--/.test(generatedMetrics.tpsText), 'Local Assistant should expose token/sec telemetry.');
+        assert(generatedMetrics.promptTokens > 0, 'Local Assistant should expose prompt token telemetry.');
+        assert(generatedMetrics.contextLimitTokens > 0, 'Local Assistant should expose context limit telemetry.');
 
         await page.click('#localLlmResetBtn');
         await page.waitForFunction(() => document.getElementById('localLlmMessages')?.textContent?.trim() === '', null, {
@@ -971,6 +977,27 @@ async function runLocalAssistantCheck(browser, pageUrl) {
         assert(resetMetrics.messageText === '', 'Local Assistant reset should clear the transcript.');
         assert(resetMetrics.inputText === '', 'Local Assistant reset should clear the composer.');
         assert(resetMetrics.status === 'ready', 'Local Assistant reset should keep the loaded model ready.');
+
+        await page.fill('#localLlmInput', 'Interrupt this response quickly.');
+        await page.click('.local-llm-send');
+        await page.waitForFunction(
+          () => ['thinking', 'streaming'].includes(document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus ?? ''),
+          null,
+          { timeout: 3000 }
+        );
+        await page.click('.local-llm-send');
+        await page.waitForFunction(
+          () => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'ready',
+          null,
+          { timeout: 5000 }
+        );
+        const transcriptAfterStop = await page.evaluate(() => document.getElementById('localLlmMessages')?.textContent?.trim() ?? '');
+        await page.waitForTimeout(900);
+        const transcriptAfterDelay = await page.evaluate(() => document.getElementById('localLlmMessages')?.textContent?.trim() ?? '');
+        assert(
+          transcriptAfterStop === transcriptAfterDelay,
+          'Local Assistant should ignore stale token events after interruption.'
+        );
       }
     } finally {
       await page.close();

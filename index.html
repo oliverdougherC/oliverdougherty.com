@@ -213,19 +213,6 @@
 
   </main>
 
-  <svg style="width:0;height:0;position:absolute;" aria-hidden="true" focusable="false">
-    <defs>
-      <filter id="sketch-filter" x="-20%" y="-20%" width="140%" height="140%">
-        <!-- Base noise for the rough edges -->
-        <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="3" result="noise" />
-        <!-- Displacement to distort the source graphic -->
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.5" xChannelSelector="R" yChannelSelector="G" result="displaced" />
-        <!-- Optional: slightly thin or thicken parts to simulate pressure -->
-        <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.9 0" in="displaced" />
-      </filter>
-    </defs>
-  </svg>
-
   <script src="js/year.js" defer></script>
   <script src="js/main.js" defer></script>
 </body>
