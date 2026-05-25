@@ -117,20 +117,106 @@
     const modeToggleButton = document.querySelector('[data-flashlight-toggle]');
     if (!(modeToggleButton instanceof HTMLButtonElement)) return;
 
-    const clearMode = () => {
-      document.documentElement.removeAttribute('data-flashlight-mode');
-      document.body.classList.remove('flashlight-mode-active');
-      document.documentElement.style.setProperty('--flashlight-x', '50vw');
-      document.documentElement.style.setProperty('--flashlight-y', '50vh');
-    };
-
-    if (!isFlashlightModeAvailable()) {
-      clearMode();
-      modeToggleButton.remove();
-      return;
-    }
+    const FLASHLIGHT_DRAIN_MS = 60000;
+    const FLASHLIGHT_FINAL_FLICKER_MS = 900;
+    const FLASHLIGHT_FINAL_FADE_MS = 850;
+    const FLASHLIGHT_MIN_FLICKER_GAP_MS = 1400;
+    const FLASHLIGHT_FLICKER_GAP_RANGE_MS = 3200;
+    const FLASHLIGHT_MIN_FLICKER_BURST_MS = 80;
+    const FLASHLIGHT_FLICKER_BURST_RANGE_MS = 140;
+    const root = document.documentElement;
 
     let modeEnabled = false;
+    let lastPointerPosition = null;
+    let animationFrameId = 0;
+    let batteryStartTime = null;
+    let nextFlickerAt = 0;
+    let flickerUntil = 0;
+    let finalFlickerStartedAt = null;
+    let finalFadeStartedAt = null;
+    let lastBatteryPercent = -1;
+    let lastBatterySegmentCount = -1;
+    let currentCoverOpacity = '';
+    let currentFlicker = '';
+    let currentBeamOpacity = '';
+    let hudElement = null;
+    let hudPercentage = null;
+    let hudSegments = [];
+
+    const setCoverOpacity = (value) => {
+      const nextValue = Math.max(0, Math.min(1, value)).toFixed(3);
+      if (nextValue === currentCoverOpacity) return;
+      currentCoverOpacity = nextValue;
+      root.style.setProperty('--flashlight-cover-opacity', nextValue);
+    };
+
+    const setFlicker = (value) => {
+      const nextValue = Math.max(0, Math.min(1, value)).toFixed(3);
+      if (nextValue === currentFlicker) return;
+      currentFlicker = nextValue;
+      root.style.setProperty('--flashlight-flicker', nextValue);
+    };
+
+    const setBeamOpacity = (value) => {
+      const nextValue = Math.max(0, Math.min(1, value)).toFixed(3);
+      if (nextValue === currentBeamOpacity) return;
+      currentBeamOpacity = nextValue;
+      root.style.setProperty('--flashlight-beam-opacity', nextValue);
+    };
+
+    const resetEffectVars = () => {
+      setCoverOpacity(0);
+      setFlicker(1);
+      setBeamOpacity(1);
+      root.style.setProperty('--flashlight-power', '100%');
+    };
+
+    const setPointerPosition = (clientX, clientY) => {
+      root.style.setProperty('--flashlight-x', `${clientX}px`);
+      root.style.setProperty('--flashlight-y', `${clientY}px`);
+    };
+
+    const readPointerPosition = (event) => {
+      if (
+        !event
+        || typeof event.clientX !== 'number'
+        || typeof event.clientY !== 'number'
+        || !Number.isFinite(event.clientX)
+        || !Number.isFinite(event.clientY)
+      ) {
+        return null;
+      }
+
+      if (
+        event.type === 'click'
+        && event.detail === 0
+        && event.clientX === 0
+        && event.clientY === 0
+      ) {
+        return null;
+      }
+
+      return { x: event.clientX, y: event.clientY };
+    };
+
+    const rememberPointerPosition = (event) => {
+      const pointerPosition = readPointerPosition(event);
+      if (!pointerPosition) return null;
+      lastPointerPosition = pointerPosition;
+      return pointerPosition;
+    };
+
+    const getToggleCenterPosition = () => {
+      const bounds = modeToggleButton.getBoundingClientRect();
+      return {
+        x: bounds.left + (bounds.width / 2),
+        y: bounds.top + (bounds.height / 2)
+      };
+    };
+
+    const resolveActivationPosition = (event) => {
+      return rememberPointerPosition(event) || lastPointerPosition || getToggleCenterPosition();
+    };
 
     const syncToggleLabel = () => {
       const nextAction = modeEnabled ? 'Disable blackout mode' : 'Enable blackout mode';
@@ -140,40 +226,226 @@
       modeToggleButton.title = nextAction;
     };
 
-    const setPointerPosition = (clientX, clientY) => {
-      document.documentElement.style.setProperty('--flashlight-x', `${clientX}px`);
-      document.documentElement.style.setProperty('--flashlight-y', `${clientY}px`);
+    const createHud = () => {
+      if (hudElement) return;
+
+      hudElement = document.createElement('div');
+      hudElement.className = 'flashlight-hud';
+      hudElement.setAttribute('aria-hidden', 'true');
+      hudElement.innerHTML = `
+        <div class="flashlight-hud__readout">
+          <span class="flashlight-hud__label">Power left</span>
+          <span class="flashlight-hud__percent" data-flashlight-power-value>100%</span>
+        </div>
+        <div class="flashlight-hud__battery" aria-hidden="true">
+          <span class="flashlight-hud__segment"></span>
+          <span class="flashlight-hud__segment"></span>
+          <span class="flashlight-hud__segment"></span>
+          <span class="flashlight-hud__segment"></span>
+          <span class="flashlight-hud__segment"></span>
+        </div>
+      `;
+      hudPercentage = hudElement.querySelector('[data-flashlight-power-value]');
+      hudSegments = Array.from(hudElement.querySelectorAll('.flashlight-hud__segment'));
+      document.body.appendChild(hudElement);
     };
 
-    const handlePointerMove = (event) => {
-      setPointerPosition(event.clientX, event.clientY);
+    const updateHud = (percent) => {
+      const nextPercent = Math.max(0, Math.min(100, Math.round(percent)));
+      if (nextPercent === lastBatteryPercent) return;
+
+      lastBatteryPercent = nextPercent;
+      root.style.setProperty('--flashlight-power', `${nextPercent}%`);
+
+      if (hudPercentage) {
+        hudPercentage.textContent = `${nextPercent}%`;
+      }
+
+      if (hudElement) {
+        let powerState = 'ok';
+        if (nextPercent === 0) {
+          powerState = 'empty';
+        } else if (nextPercent <= 15) {
+          powerState = 'critical';
+        } else if (nextPercent <= 35) {
+          powerState = 'low';
+        }
+        hudElement.dataset.powerState = powerState;
+      }
+
+      const activeSegmentCount = Math.ceil(nextPercent / 20);
+      if (activeSegmentCount === lastBatterySegmentCount) return;
+
+      lastBatterySegmentCount = activeSegmentCount;
+      hudSegments.forEach((segment, index) => {
+        segment.classList.toggle('is-active', index < activeSegmentCount);
+      });
     };
 
-    const applyMode = (enabled) => {
+    const stopBatteryLoop = () => {
+      if (!animationFrameId) return;
+      window.cancelAnimationFrame(animationFrameId);
+      animationFrameId = 0;
+    };
+
+    const queueBatteryFrame = () => {
+      animationFrameId = window.requestAnimationFrame(handleBatteryFrame);
+    };
+
+    const scheduleNextFlicker = (timestamp) => {
+      nextFlickerAt = timestamp
+        + FLASHLIGHT_MIN_FLICKER_GAP_MS
+        + (Math.random() * FLASHLIGHT_FLICKER_GAP_RANGE_MS);
+    };
+
+    const updateActiveFlicker = (timestamp) => {
+      if (nextFlickerAt === 0) {
+        scheduleNextFlicker(timestamp);
+      }
+
+      if (timestamp >= nextFlickerAt) {
+        flickerUntil = timestamp
+          + FLASHLIGHT_MIN_FLICKER_BURST_MS
+          + (Math.random() * FLASHLIGHT_FLICKER_BURST_RANGE_MS);
+        scheduleNextFlicker(timestamp);
+      }
+
+      if (timestamp < flickerUntil) {
+        const coverOpacity = 0.08 + (Math.random() * 0.16);
+        setCoverOpacity(coverOpacity);
+        setFlicker(1 - coverOpacity);
+        return;
+      }
+
+      setCoverOpacity(0);
+      setFlicker(1);
+    };
+
+    const updateDepletedState = (timestamp) => {
+      updateHud(0);
+
+      if (finalFlickerStartedAt === null) {
+        finalFlickerStartedAt = timestamp;
+      }
+
+      const flickerElapsed = timestamp - finalFlickerStartedAt;
+      if (flickerElapsed < FLASHLIGHT_FINAL_FLICKER_MS) {
+        const progress = flickerElapsed / FLASHLIGHT_FINAL_FLICKER_MS;
+        const coverOpacity = Math.min(0.74, 0.18 + (progress * 0.32) + (Math.random() * 0.28));
+        setCoverOpacity(coverOpacity);
+        setFlicker(1 - coverOpacity);
+        setBeamOpacity(1);
+        return true;
+      }
+
+      if (finalFadeStartedAt === null) {
+        finalFadeStartedAt = timestamp;
+      }
+
+      const fadeProgress = Math.min(1, (timestamp - finalFadeStartedAt) / FLASHLIGHT_FINAL_FADE_MS);
+      const beamOpacity = 1 - fadeProgress;
+      setBeamOpacity(beamOpacity);
+      setFlicker(beamOpacity);
+      setCoverOpacity(fadeProgress);
+      return fadeProgress < 1;
+    };
+
+    function handleBatteryFrame(timestamp) {
+      animationFrameId = 0;
+      if (!modeEnabled) return;
+
+      if (batteryStartTime === null) {
+        batteryStartTime = timestamp;
+        scheduleNextFlicker(timestamp);
+      }
+
+      const elapsed = Math.max(0, timestamp - batteryStartTime);
+      if (elapsed >= FLASHLIGHT_DRAIN_MS) {
+        if (updateDepletedState(timestamp)) {
+          queueBatteryFrame();
+        }
+        return;
+      }
+
+      const remainingRatio = 1 - (elapsed / FLASHLIGHT_DRAIN_MS);
+      updateHud(remainingRatio * 100);
+      setBeamOpacity(1);
+      updateActiveFlicker(timestamp);
+      queueBatteryFrame();
+    }
+
+    const startBatteryLoop = () => {
+      stopBatteryLoop();
+      batteryStartTime = null;
+      nextFlickerAt = 0;
+      flickerUntil = 0;
+      finalFlickerStartedAt = null;
+      finalFadeStartedAt = null;
+      lastBatteryPercent = -1;
+      lastBatterySegmentCount = -1;
+      resetEffectVars();
+      updateHud(100);
+      queueBatteryFrame();
+    };
+
+    function handlePointerMove(event) {
+      const pointerPosition = rememberPointerPosition(event);
+      if (!pointerPosition) return;
+      setPointerPosition(pointerPosition.x, pointerPosition.y);
+    }
+
+    const clearMode = () => {
+      stopBatteryLoop();
+      window.removeEventListener('pointermove', handlePointerMove);
+      root.removeAttribute('data-flashlight-mode');
+      document.body.classList.remove('flashlight-mode-active');
+      root.style.setProperty('--flashlight-x', '50vw');
+      root.style.setProperty('--flashlight-y', '50vh');
+      resetEffectVars();
+    };
+
+    if (!isFlashlightModeAvailable()) {
+      clearMode();
+      modeToggleButton.remove();
+      return;
+    }
+
+    const applyMode = (enabled, event) => {
       modeEnabled = Boolean(enabled);
+
       if (modeEnabled) {
-        document.documentElement.setAttribute('data-flashlight-mode', FLASHLIGHT_MODE_ON);
+        const activationPosition = resolveActivationPosition(event);
+        setPointerPosition(activationPosition.x, activationPosition.y);
+        createHud();
+        root.setAttribute('data-flashlight-mode', FLASHLIGHT_MODE_ON);
         document.body.classList.add('flashlight-mode-active');
         window.addEventListener('pointermove', handlePointerMove, { passive: true });
+        startBatteryLoop();
       } else {
         clearMode();
-        window.removeEventListener('pointermove', handlePointerMove);
       }
+
       syncToggleLabel();
     };
+
+    modeToggleButton.addEventListener('pointermove', rememberPointerPosition, { passive: true });
+    modeToggleButton.addEventListener('pointerdown', rememberPointerPosition, { passive: true });
 
     const storedMode = readStoredFlashlightMode();
     applyMode(storedMode === FLASHLIGHT_MODE_ON);
 
-    modeToggleButton.addEventListener('click', () => {
-      applyMode(!modeEnabled);
+    modeToggleButton.addEventListener('click', (event) => {
+      applyMode(!modeEnabled, event);
       persistFlashlightMode(modeEnabled);
     });
 
     window.addEventListener('pageshow', () => {
       if (!modeEnabled) return;
-      document.documentElement.setAttribute('data-flashlight-mode', FLASHLIGHT_MODE_ON);
+      root.setAttribute('data-flashlight-mode', FLASHLIGHT_MODE_ON);
       document.body.classList.add('flashlight-mode-active');
+      if (!animationFrameId && finalFadeStartedAt === null) {
+        queueBatteryFrame();
+      }
     });
   }
 
