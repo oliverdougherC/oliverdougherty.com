@@ -1,6 +1,7 @@
 import {
   cleanupLocalLlmText,
   compactLocalLlmMessages,
+  compactLocalLlmMessagesByTokenBudget,
   LocalLlmLatexParser,
   normalizeLocalLlmProgressState,
   renderLocalLlmMath,
@@ -55,6 +56,49 @@ describe('local LLM state helpers', () => {
       { role: 'system', content: 'system' },
       { role: 'user', content: 'hello' }
     ]);
+  });
+
+  it('keeps the latest user message when token budget is tight', () => {
+    const result = compactLocalLlmMessagesByTokenBudget(
+      [
+        { role: 'user', content: 'older details that may be dropped' },
+        { role: 'assistant', content: 'assistant history' },
+        { role: 'user', content: 'latest request must survive' }
+      ],
+      { maxHistoryMessages: 10, maxMessageChars: 400 },
+      {
+        maxInputTokens: 8,
+        perMessageOverheadTokens: 1,
+        countTokens: (text) => text.split(/\s+/).filter(Boolean).length
+      }
+    );
+
+    expect(result.messages[result.messages.length - 1]).toEqual({
+      role: 'user',
+      content: 'latest request must survive'
+    });
+    expect(result.droppedMessageCount).toBeGreaterThan(0);
+  });
+
+  it('truncates an oversized latest user message to stay inside budget', () => {
+    const result = compactLocalLlmMessagesByTokenBudget(
+      [
+        { role: 'assistant', content: 'context reply' },
+        { role: 'user', content: 'one two three four five six seven eight nine ten eleven twelve' }
+      ],
+      { maxHistoryMessages: 10, maxMessageChars: 400 },
+      {
+        maxInputTokens: 6,
+        perMessageOverheadTokens: 1,
+        maxInputTokensPerMessage: 6,
+        countTokens: (text) => text.split(/\s+/).filter(Boolean).length
+      }
+    );
+
+    expect(result.truncatedUserInput).toBe(true);
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0].role).toBe('user');
+    expect(result.messages[0].content).not.toContain('one two three four five');
   });
 
   it('normalizes progress statuses without relying on transient exact names', () => {

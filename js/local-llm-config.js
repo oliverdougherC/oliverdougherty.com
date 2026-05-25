@@ -31,7 +31,14 @@ export const LOCAL_LLM_CONFIG = {
   limits: {
     maxInputChars: 1800,
     maxMessageChars: 2500,
-    maxHistoryMessages: 10
+    maxHistoryMessages: 48
+  },
+  context: {
+    fallbackContextTokens: 8192,
+    reservedGenerationTokens: 512,
+    reserveSafetyTokens: 256,
+    perMessageOverheadTokens: 14,
+    maxInputTokensPerMessage: 1200
   },
   generation: {
     // Creative and loose — this is a tech demo, not a serious assistant.

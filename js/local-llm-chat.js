@@ -48,7 +48,7 @@ const LOAD_SEQUENCE_FINAL_HOLD_MS = 1800;
 const GENERATION_IDLE_TIMEOUT_MS = 30_000;
 const LOAD_SEQUENCE_COPY = [
   'Loading Bonsai 1.7B',
-  "Don't worry, I won't cache in your browser ;)"
+  'Caching model files locally for faster reloads.'
 ];
 const LOAD_PSEUDO_PROGRESS_CAP = 96;
 const LOAD_COPY_FADE_MS = 250;
@@ -77,11 +77,15 @@ export class LocalLlmUtility {
     this._workerErrorHandler = null;
     this._pagehideHandler = null;
     this._deactivateHandler = null;
+    this._activateHandler = null;
     this._generationTimeoutId = 0;
     this._inputFrameId = 0;
     this._statePanelFrameId = 0;
     this._lastAssistantWasInterrupted = false;
     this._sessionEnded = false;
+    this._activeGenerationId = 0;
+    this._lastCompletedGenerationId = 0;
+    this._lastContextStats = null;
     this._messageElements = new Map();
     this._renderedMessageContent = new Map();
     this.loadingSequenceTimer = null;
@@ -99,6 +103,7 @@ export class LocalLlmUtility {
     this.renderMessages();
     this.updateStatus(WORKER_STATE.IDLE, STATE_COPY.idle);
     this.renderStatePanel({ immediate: true });
+    this.prewarmWorker();
   }
 
   mount() {
@@ -217,15 +222,29 @@ export class LocalLlmUtility {
         this.clearModelCache();
       }
     });
-    this._pagehideHandler = () => this.endModelSession({ clearMessages: false, updateUi: false, unload: true });
+    this._pagehideHandler = () => this.endModelSession({ clearMessages: true, updateUi: false, unload: true });
+    this._activateHandler = () => {
+      if (!this.worker && this.status === WORKER_STATE.IDLE) {
+        this.prewarmWorker();
+      }
+    };
     this._deactivateHandler = () => {
       if (this.status === WORKER_STATE.THINKING || this.status === WORKER_STATE.STREAMING) {
         this.interruptGeneration();
       }
-      this.endModelSession({ clearMessages: false, updateUi: true });
+      this.endModelSession({ clearMessages: true, updateUi: true });
     };
     window.addEventListener('pagehide', this._pagehideHandler);
+    this.root.addEventListener('utility-activate', this._activateHandler);
     this.root.addEventListener('utility-deactivate', this._deactivateHandler);
+  }
+
+  prewarmWorker() {
+    try {
+      this.ensureWorker();
+    } catch (error) {
+      console.debug('Local assistant worker prewarm failed.', error);
+    }
   }
 
   ensureWorker() {
@@ -308,6 +327,9 @@ export class LocalLlmUtility {
     }
 
     if (message.type === 'status') {
+      this.captureGenerationState(message);
+      this.captureContextStats(message.contextStats);
+      if (!this.isCurrentGenerationMessage(message, { adopt: true })) return;
       if (message.state === WORKER_STATE.THINKING || message.state === WORKER_STATE.STREAMING) {
         this.armGenerationTimeout();
       }
@@ -316,13 +338,28 @@ export class LocalLlmUtility {
     }
 
     if (message.type === 'start') {
+      this.captureGenerationState(message);
+      this.captureContextStats(message.contextStats);
+      if (!this.isCurrentGenerationMessage(message, { adopt: true })) return;
       this.armGenerationTimeout();
       this.ensureAssistantDraft();
       this.showTypingAfterDelay();
       return;
     }
 
+    if (message.type === 'notice') {
+      this.captureGenerationState(message);
+      this.captureContextStats(message.contextStats);
+      if (!this.isCurrentGenerationMessage(message, { adopt: true })) return;
+      if (typeof message.notice === 'string' && message.notice.trim()) {
+        this.addSystemNotice(message.notice.trim());
+      }
+      return;
+    }
+
     if (message.type === 'token') {
+      this.captureContextStats(message.contextStats);
+      if (!this.isCurrentGenerationMessage(message)) return;
       if (this.status !== WORKER_STATE.THINKING && this.status !== WORKER_STATE.STREAMING) return;
       this.armGenerationTimeout();
       this.hideTypingIndicator();
@@ -334,19 +371,23 @@ export class LocalLlmUtility {
     }
 
     if (message.type === 'complete') {
-      if (this.status !== WORKER_STATE.THINKING && this.status !== WORKER_STATE.STREAMING) return;
+      this.captureContextStats(message.contextStats);
+      if (!this.isCurrentGenerationMessage(message)) return;
+      if (this.status !== WORKER_STATE.THINKING && this.status !== WORKER_STATE.STREAMING && this.status !== WORKER_STATE.READY) return;
       this.clearGenerationTimeout();
       this.tps = Number.isFinite(message.tps) ? message.tps : this.tps;
       this.numTokens = Number.isFinite(message.numTokens) ? message.numTokens : this.numTokens;
       this.updateTelemetry();
-      this.finishAssistantMessage(message.text || '');
+      this.finishAssistantMessage(message.text || '', message.generationId);
       return;
     }
 
     if (message.type === 'interrupted') {
-      if (this.status !== WORKER_STATE.THINKING && this.status !== WORKER_STATE.STREAMING) return;
+      this.captureContextStats(message.contextStats);
+      if (!this.isCurrentGenerationMessage(message)) return;
+      if (this.status !== WORKER_STATE.THINKING && this.status !== WORKER_STATE.STREAMING && this.status !== WORKER_STATE.READY) return;
       this.clearGenerationTimeout();
-      this.finishInterruptedGeneration();
+      this.finishInterruptedGeneration(message.generationId);
       return;
     }
 
@@ -354,12 +395,16 @@ export class LocalLlmUtility {
       this.clearGenerationTimeout();
       this.hideTypingIndicator();
       this.assistantDraft = null;
+      this.markGenerationComplete();
+      this.captureContextStats(null);
       this.updateStatus(this.modelReady ? WORKER_STATE.READY : WORKER_STATE.IDLE, this.modelReady ? 'Chat reset.' : STATE_COPY.idle);
       this.renderStatePanel();
       return;
     }
 
     if (message.type === 'error') {
+      this.captureContextStats(message.contextStats);
+      if (!this.isCurrentGenerationMessage(message, { allowWhenIdle: true })) return;
       this.clearGenerationTimeout();
       this.stopLoadingSequence({ clearPending: true });
       if (this.assistantDraft || this.status === WORKER_STATE.THINKING || this.status === WORKER_STATE.STREAMING) {
@@ -379,9 +424,48 @@ export class LocalLlmUtility {
       }
       this.worker = null;
       this.modelReady = false;
+      this.markGenerationComplete();
+      this.captureContextStats(null);
       this.updateStatus(WORKER_STATE.IDLE, 'Model cache reset. Start again to reload locally.');
       this.renderStatePanel();
     }
+  }
+
+  captureGenerationState(message) {
+    const generationId = Number(message?.generationId);
+    if (!Number.isFinite(generationId) || generationId <= 0) return;
+    if (!this._activeGenerationId && generationId > this._lastCompletedGenerationId) {
+      this._activeGenerationId = generationId;
+    }
+  }
+
+  isCurrentGenerationMessage(message, { adopt = false, allowWhenIdle = false } = {}) {
+    const generationId = Number(message?.generationId);
+    if (!Number.isFinite(generationId) || generationId <= 0) return true;
+    if (!this._activeGenerationId) {
+      if (adopt && generationId > this._lastCompletedGenerationId) {
+        this._activeGenerationId = generationId;
+        return true;
+      }
+      return allowWhenIdle;
+    }
+    return generationId === this._activeGenerationId;
+  }
+
+  captureContextStats(stats) {
+    this._lastContextStats = stats || null;
+    const dataset = this.root.dataset;
+    if (!stats || typeof stats !== 'object') {
+      delete dataset.localLlmPromptTokens;
+      delete dataset.localLlmContextLimitTokens;
+      delete dataset.localLlmDroppedMessages;
+      delete dataset.localLlmTruncatedInput;
+      return;
+    }
+    dataset.localLlmPromptTokens = String(Number.isFinite(stats.promptTokens) ? stats.promptTokens : 0);
+    dataset.localLlmContextLimitTokens = String(Number.isFinite(stats.contextLimitTokens) ? stats.contextLimitTokens : 0);
+    dataset.localLlmDroppedMessages = String(Number.isFinite(stats.droppedMessageCount) ? stats.droppedMessageCount : 0);
+    dataset.localLlmTruncatedInput = stats.truncatedUserInput ? 'true' : 'false';
   }
 
   updateProgress(message) {
@@ -840,7 +924,7 @@ export class LocalLlmUtility {
     this.updateAssistantElement(shouldStick);
   }
 
-  finishAssistantMessage(finalText) {
+  finishAssistantMessage(finalText, generationId = null) {
     if (this.assistantDraft) {
       const shouldStick = this.isMessageListNearBottom();
       if (finalText && cleanupModelText(finalText).length >= cleanupModelText(this.assistantDraft.content).length) {
@@ -876,9 +960,10 @@ export class LocalLlmUtility {
       this.startPromptCycle();
       this.renderStatePanel();
     }
+    this.markGenerationComplete(generationId);
   }
 
-  finishInterruptedGeneration() {
+  finishInterruptedGeneration(generationId = null) {
     this.hideTypingIndicator();
     if (this.assistantDraft) {
       this.assistantDraft.content = cleanupModelText(this.assistantDraft.content) || 'Generation stopped.';
@@ -890,6 +975,17 @@ export class LocalLlmUtility {
     this.updateStatus(WORKER_STATE.READY, 'Generation stopped.');
     this.startPromptCycle();
     this.renderStatePanel();
+    this.markGenerationComplete(generationId);
+  }
+
+  markGenerationComplete(generationId = null) {
+    const parsed = Number(generationId);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      this._lastCompletedGenerationId = Math.max(this._lastCompletedGenerationId, parsed);
+    } else if (this._activeGenerationId > 0) {
+      this._lastCompletedGenerationId = Math.max(this._lastCompletedGenerationId, this._activeGenerationId);
+    }
+    this._activeGenerationId = 0;
   }
 
   interruptGeneration() {
@@ -1049,13 +1145,13 @@ export class LocalLlmUtility {
 
   showGenerationFailure(message) {
     const fallback = buildFailureCopy(message, this.diagnostics);
-    fallback.title = message.category === 'generation-busy' ? 'Local model is busy' : 'Local reply failed';
+    fallback.title = /generation-busy|generation-not-ready/.test(message.category || '') ? 'Local model is busy' : 'Local reply failed';
     fallback.detail = message.detail || fallback.detail;
     fallback.likelyFix = message.likelyFix || 'Retry the message. If it happens again, reset the model and reload it.';
     this.hideTypingIndicator();
     this.updateStatus(WORKER_STATE.ERROR, message.message || 'Local generation failed.');
     this.showDiagnostics(fallback);
-    this.finishAssistantMessage(message.message || 'The local model could not finish this reply.');
+    this.finishAssistantMessage(message.message || 'The local model could not finish this reply.', message.generationId);
   }
 
   showDiagnostics(copy) {
@@ -1120,6 +1216,8 @@ export class LocalLlmUtility {
     }
     this.tps = null;
     this.numTokens = 0;
+    this.markGenerationComplete();
+    this.captureContextStats(null);
     this.hideDiagnostics();
     this.stopPromptCycle();
     this.stopLoadingSequence({ clearPending: true });
@@ -1139,6 +1237,8 @@ export class LocalLlmUtility {
     this.progress = 0;
     this.tps = null;
     this.numTokens = 0;
+    this.markGenerationComplete();
+    this.captureContextStats(null);
     this.hideDiagnostics();
     this.stopPromptCycle();
     this.stopLoadingSequence({ clearPending: true });
@@ -1165,6 +1265,10 @@ export class LocalLlmUtility {
     if (this._deactivateHandler) {
       this.root.removeEventListener('utility-deactivate', this._deactivateHandler);
       this._deactivateHandler = null;
+    }
+    if (this._activateHandler) {
+      this.root.removeEventListener('utility-activate', this._activateHandler);
+      this._activateHandler = null;
     }
     if (this.worker) {
       this.clearBrowserModelCaches().catch((error) => {
@@ -1206,6 +1310,8 @@ export class LocalLlmUtility {
     this.progress = 0;
     this.tps = null;
     this.numTokens = 0;
+    this.markGenerationComplete();
+    this.captureContextStats(null);
     this.assistantDraft = null;
     this.pendingReadyMessage = null;
     this.stopPromptCycle();
@@ -1291,13 +1397,17 @@ class LocalLlmMockWorker extends EventTarget {
     this.mode = mode;
     this.disposed = false;
     this.timerIds = [];
+    this.activeGenerationId = 0;
   }
 
   postMessage(message) {
     if (this.disposed) return;
     if (message.type === 'load') this.mockLoad();
-    if (message.type === 'generate') this.mockGenerate();
-    if (message.type === 'interrupt' || message.type === 'cancel') this.emit({ type: 'interrupted' });
+    if (message.type === 'generate') this.mockGenerate(message.messages || []);
+    if (message.type === 'interrupt' || message.type === 'cancel') {
+      this.emit({ type: 'interrupted', generationId: this.activeGenerationId });
+      this.activeGenerationId = 0;
+    }
     if (message.type === 'reset') this.emit({ type: 'reset', state: WORKER_STATE.READY });
     if (message.type === 'dispose') this.emit({ type: 'disposed', state: WORKER_STATE.DISPOSED });
   }
@@ -1353,14 +1463,47 @@ class LocalLlmMockWorker extends EventTarget {
     }), 1250);
   }
 
-  mockGenerate() {
+  mockGenerate(messages) {
+    this.activeGenerationId += 1;
+    const generationId = this.activeGenerationId;
+    const contextStats = this.buildContextStats(messages);
     const text = 'This is a mocked Bonsai response from the browser-only assistant.\n\nSolve $x^2 = 16$.\n\n$$\nx = \\pm \\sqrt{16}\n$$';
-    this.emit({ type: 'status', state: WORKER_STATE.THINKING, message: 'Thinking locally.' });
-    this.queue(() => this.emit({ type: 'start' }), 20);
-    this.queue(() => this.emit({ type: 'status', state: WORKER_STATE.STREAMING, message: 'Streaming locally.' }), 30);
-    this.queue(() => this.emit({ type: 'token', token: text.slice(0, 24), tps: 12.3, numTokens: 4 }), 420);
-    this.queue(() => this.emit({ type: 'token', token: text.slice(24), tps: 18.7, numTokens: 10 }), 470);
-    this.queue(() => this.emit({ type: 'complete', text, backend: 'mock-webgpu', tps: 18.7, numTokens: 10 }), 520);
+    this.emit({ type: 'status', generationId, contextStats, state: WORKER_STATE.THINKING, message: 'Thinking locally.' });
+    if (contextStats.droppedMessageCount > 0) {
+      this.queue(() => this.emit({
+        type: 'notice',
+        generationId,
+        contextStats,
+        notice: 'Older chat turns were trimmed to fit the local context window.'
+      }), 18);
+    }
+    this.queue(() => this.emit({ type: 'start', generationId, contextStats }), 20);
+    this.queue(() => this.emit({ type: 'status', generationId, contextStats, state: WORKER_STATE.STREAMING, message: 'Streaming locally.' }), 30);
+    this.queue(() => this.emit({ type: 'token', generationId, contextStats, token: text.slice(0, 24), tps: 12.3, numTokens: 4 }), 420);
+    this.queue(() => this.emit({ type: 'token', generationId, contextStats, token: text.slice(24), tps: 18.7, numTokens: 10 }), 470);
+    this.queue(() => {
+      this.emit({ type: 'complete', generationId, contextStats, text, backend: 'mock-webgpu', tps: 18.7, numTokens: 10 });
+      this.activeGenerationId = 0;
+    }, 520);
+  }
+
+  buildContextStats(messages) {
+    const chat = messages.filter((message) => message && message.role !== 'notice' && typeof message.content === 'string');
+    const maxMessages = LOCAL_LLM_CONFIG.limits.maxHistoryMessages;
+    const droppedMessageCount = Math.max(0, chat.length - maxMessages);
+    const includedMessageCount = Math.min(maxMessages, chat.length);
+    return {
+      contextLimitTokens: LOCAL_LLM_CONFIG.context.fallbackContextTokens,
+      availableInputTokens: LOCAL_LLM_CONFIG.context.fallbackContextTokens
+        - LOCAL_LLM_CONFIG.context.reservedGenerationTokens
+        - LOCAL_LLM_CONFIG.context.reserveSafetyTokens,
+      reservedGenerationTokens: LOCAL_LLM_CONFIG.context.reservedGenerationTokens,
+      reserveSafetyTokens: LOCAL_LLM_CONFIG.context.reserveSafetyTokens,
+      promptTokens: Math.max(1, Math.ceil(chat.reduce((sum, item) => sum + item.content.length, 0) / 4)),
+      includedMessageCount,
+      droppedMessageCount,
+      truncatedUserInput: false
+    };
   }
 
   queue(callback, delay) {
