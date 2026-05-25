@@ -14,6 +14,7 @@
   let confettiFired = false;
   const FLASHLIGHT_MODE_STORAGE_KEY = 'od-flashlight-mode';
   const FLASHLIGHT_BATTERY_SESSION_KEY = 'od-flashlight-battery';
+  const FLASHLIGHT_POINTER_SESSION_KEY = 'od-flashlight-pointer';
   const FLASHLIGHT_MODE_ON = 'on';
   const FLASHLIGHT_MODE_OFF = 'off';
 
@@ -130,6 +131,7 @@
     const root = document.documentElement;
 
     let modeEnabled = false;
+    let modeActive = false;
     let lastPointerPosition = null;
     let animationFrameId = 0;
     let lastBatteryFrameTime = null;
@@ -219,6 +221,52 @@
         // Intentionally ignored: sessionStorage may be unavailable in some contexts.
       }
     };
+    const persistPointerPosition = (pointerPosition) => {
+      try {
+        window.sessionStorage.setItem(
+          FLASHLIGHT_POINTER_SESSION_KEY,
+          `${Math.round(pointerPosition.x)},${Math.round(pointerPosition.y)}`
+        );
+      } catch {
+        // Intentionally ignored: sessionStorage may be unavailable in some contexts.
+      }
+    };
+
+    const readStoredPointerPosition = () => {
+      try {
+        const storedPointerPosition = window.sessionStorage.getItem(FLASHLIGHT_POINTER_SESSION_KEY);
+        if (storedPointerPosition === null) return null;
+
+        const separatorIndex = storedPointerPosition.indexOf(',');
+        if (separatorIndex <= 0 || separatorIndex === storedPointerPosition.length - 1) {
+          return null;
+        }
+
+        const x = Number(storedPointerPosition.slice(0, separatorIndex));
+        const y = Number(storedPointerPosition.slice(separatorIndex + 1));
+        if (
+          !Number.isFinite(x)
+          || !Number.isFinite(y)
+          || x < 0
+          || y < 0
+          || x > window.innerWidth
+          || y > window.innerHeight
+        ) {
+          return null;
+        }
+
+        return { x, y };
+      } catch {
+        return null;
+      }
+    };
+
+
+    const resolveInitialStoredMode = () => {
+      if (!isReloadNavigation()) return readStoredFlashlightMode();
+      persistFlashlightMode(false);
+      return FLASHLIGHT_MODE_OFF;
+    };
 
     const setPointerPosition = (clientX, clientY) => {
       root.style.setProperty('--flashlight-x', `${clientX}px`);
@@ -252,19 +300,12 @@
       const pointerPosition = readPointerPosition(event);
       if (!pointerPosition) return null;
       lastPointerPosition = pointerPosition;
+      persistPointerPosition(pointerPosition);
       return pointerPosition;
     };
 
-    const getToggleCenterPosition = () => {
-      const bounds = modeToggleButton.getBoundingClientRect();
-      return {
-        x: bounds.left + (bounds.width / 2),
-        y: bounds.top + (bounds.height / 2)
-      };
-    };
-
     const resolveActivationPosition = (event) => {
-      return rememberPointerPosition(event) || lastPointerPosition || getToggleCenterPosition();
+      return rememberPointerPosition(event) || lastPointerPosition || readStoredPointerPosition();
     };
 
     const syncToggleLabel = () => {
@@ -466,44 +507,122 @@
       queueBatteryFrame();
     };
 
-    function handlePointerMove(event) {
-      const pointerPosition = rememberPointerPosition(event);
-      if (!pointerPosition) return;
+    const activateModeAtPosition = (pointerPosition) => {
       setPointerPosition(pointerPosition.x, pointerPosition.y);
-    }
+      createHud();
+      root.setAttribute('data-flashlight-mode', FLASHLIGHT_MODE_ON);
+      document.body.classList.add('flashlight-mode-active');
 
-    const clearMode = (shouldPersistBattery = true) => {
+      if (modeActive) return;
+      modeActive = true;
+      startBatteryLoop();
+    };
+
+    const suspendActiveMode = (shouldPersistBattery = true) => {
+      if (!modeActive) return;
+      modeActive = false;
       stopBatteryLoop();
       if (shouldPersistBattery) {
         persistBatteryRemaining();
       }
+      root.removeAttribute('data-flashlight-mode');
+      document.body.classList.remove('flashlight-mode-active');
+      resetEffectVars();
+    };
+
+    function handlePointerMove(event) {
+      const pointerPosition = rememberPointerPosition(event);
+      if (!pointerPosition) return;
+
+      if (modeEnabled && !modeActive) {
+        activateModeAtPosition(pointerPosition);
+        return;
+      }
+
+      if (modeActive) {
+        setPointerPosition(pointerPosition.x, pointerPosition.y);
+      }
+    }
+
+    function handlePointerInput(event) {
+      const pointerPosition = rememberPointerPosition(event);
+      if (!pointerPosition) return;
+
+      if (modeEnabled && !modeActive) {
+        activateModeAtPosition(pointerPosition);
+        return;
+      }
+
+      if (modeActive) {
+        setPointerPosition(pointerPosition.x, pointerPosition.y);
+      }
+    }
+
+    const isViewportBoundaryEvent = (event) => {
+      return event.relatedTarget === null && event.toElement == null;
+    };
+
+    function handleViewportExit(event) {
+      if (!isViewportBoundaryEvent(event)) return;
+      suspendActiveMode();
+    }
+
+    function handleViewportReentry(event) {
+      if (!isViewportBoundaryEvent(event)) return;
+      handlePointerInput(event);
+    }
+
+    const startModeTracking = () => {
+      window.addEventListener('pointermove', handlePointerMove, { passive: true });
+      window.addEventListener('pointerdown', handlePointerInput, { passive: true });
+      window.addEventListener('click', handlePointerInput, { passive: true });
+      window.addEventListener('mouseout', handleViewportExit, { passive: true });
+      window.addEventListener('mouseover', handleViewportReentry, { passive: true });
+      window.addEventListener('blur', suspendActiveMode);
+    };
+
+    const stopModeTracking = () => {
       window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerdown', handlePointerInput);
+      window.removeEventListener('click', handlePointerInput);
+      window.removeEventListener('mouseout', handleViewportExit);
+      window.removeEventListener('mouseover', handleViewportReentry);
+      window.removeEventListener('blur', suspendActiveMode);
+    };
+
+    const clearMode = (shouldPersistBattery = true) => {
+      stopModeTracking();
+      stopBatteryLoop();
+      modeActive = false;
+      if (shouldPersistBattery) {
+        persistBatteryRemaining();
+      }
       root.removeAttribute('data-flashlight-mode');
       document.body.classList.remove('flashlight-mode-active');
       root.style.setProperty('--flashlight-x', '50vw');
       root.style.setProperty('--flashlight-y', '50vh');
       resetEffectVars();
     };
-
     if (!isFlashlightModeAvailable()) {
       clearMode(false);
       modeToggleButton.remove();
       return;
     }
 
-    const applyMode = (enabled, event) => {
+
+    const applyMode = (enabled, event, options = {}) => {
       modeEnabled = Boolean(enabled);
 
       if (modeEnabled) {
+        startModeTracking();
         const activationPosition = resolveActivationPosition(event);
-        setPointerPosition(activationPosition.x, activationPosition.y);
-        createHud();
-        root.setAttribute('data-flashlight-mode', FLASHLIGHT_MODE_ON);
-        document.body.classList.add('flashlight-mode-active');
-        window.addEventListener('pointermove', handlePointerMove, { passive: true });
-        startBatteryLoop();
+        if (activationPosition) {
+          activateModeAtPosition(activationPosition);
+        } else {
+          suspendActiveMode(false);
+        }
       } else {
-        clearMode();
+        clearMode(options.persistBattery !== false);
       }
 
       syncToggleLabel();
@@ -513,8 +632,8 @@
     modeToggleButton.addEventListener('pointerdown', rememberPointerPosition, { passive: true });
 
     batteryRemainingMs = readStoredBatteryRemaining();
-    const storedMode = readStoredFlashlightMode();
-    applyMode(storedMode === FLASHLIGHT_MODE_ON);
+    const storedMode = resolveInitialStoredMode();
+    applyMode(storedMode === FLASHLIGHT_MODE_ON, undefined, { persistBattery: !isReloadNavigation() });
 
     modeToggleButton.addEventListener('click', (event) => {
       applyMode(!modeEnabled, event);
@@ -522,11 +641,10 @@
     });
 
     window.addEventListener('pageshow', () => {
-      if (!modeEnabled) return;
-      root.setAttribute('data-flashlight-mode', FLASHLIGHT_MODE_ON);
-      document.body.classList.add('flashlight-mode-active');
-      if (!animationFrameId && finalFadeStartedAt === null) {
-        queueBatteryFrame();
+      if (!modeEnabled || modeActive) return;
+      const activationPosition = lastPointerPosition || readStoredPointerPosition();
+      if (activationPosition) {
+        activateModeAtPosition(activationPosition);
       }
     });
   }
