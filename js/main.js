@@ -525,9 +525,11 @@
       if (shouldPersistBattery) {
         persistBatteryRemaining();
       }
-      root.removeAttribute('data-flashlight-mode');
-      document.body.classList.remove('flashlight-mode-active');
-      resetEffectVars();
+      root.setAttribute('data-flashlight-mode', FLASHLIGHT_MODE_ON);
+      document.body.classList.add('flashlight-mode-active');
+      setCoverOpacity(1);
+      setFlicker(0);
+      setBeamOpacity(0);
     };
 
     function handlePointerMove(event) {
