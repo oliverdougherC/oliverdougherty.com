@@ -52,7 +52,7 @@ body.gallery-lightbox-open {
   overflow: hidden;
 }
 
-body.gallery-lightbox-open .nav-dot {
+body.gallery-lightbox-open .nav-actions {
   display: none;
 }
 

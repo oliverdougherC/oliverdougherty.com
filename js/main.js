@@ -12,12 +12,26 @@
 
   const DOUGHERTY_BLUEPRINT_SEQUENCE_MS = 7400;
   let confettiFired = false;
+  const FLASHLIGHT_MODE_STORAGE_KEY = 'od-flashlight-mode';
+  const FLASHLIGHT_BATTERY_SESSION_KEY = 'od-flashlight-battery';
+  const FLASHLIGHT_MODE_ON = 'on';
+  const FLASHLIGHT_MODE_OFF = 'off';
 
   /**
    * Reveal the nav dot with a fade-in (opacity only, no transform).
    * Exposed globally for use by page-specific scripts (e.g. gallery.js).
    */
   function revealNavDot() {
+    const navActions = document.querySelector('[data-nav-actions]');
+    if (navActions) {
+      navActions.style.transition = 'opacity 2s cubic-bezier(0.19, 1, 0.22, 1)';
+      navActions.classList.add('is-visible');
+      window.setTimeout(() => {
+        navActions.style.removeProperty('transition');
+      }, 2000);
+      return;
+    }
+
     const navDot = document.getElementById('navToggle');
     if (!navDot) return;
     navDot.style.pointerEvents = 'auto';
@@ -54,6 +68,467 @@
 
   function shouldSkipPageAnimation() {
     return window.pageAnimations?.shouldSkip?.() === true;
+  }
+
+  function isFlashlightTargetPage() {
+    if (
+      document.body.classList.contains('page-home')
+      || document.body.classList.contains('page-resume')
+      || document.body.classList.contains('page-gallery')
+    ) {
+      return true;
+    }
+
+    const normalizedPath = window.location.pathname.replace(/\/index\.html$/, '/');
+    return normalizedPath === '/'
+      || normalizedPath.endsWith('/pages/resume/')
+      || normalizedPath.endsWith('/pages/gallery/');
+  }
+
+  function isFlashlightModeAvailable() {
+    if (!window.matchMedia) return false;
+    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return false;
+    if (window.matchMedia('(forced-colors: active)').matches) return false;
+    if (prefersReducedMotion()) return false;
+    return true;
+  }
+
+  function readStoredFlashlightMode() {
+    try {
+      return window.localStorage.getItem(FLASHLIGHT_MODE_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  function persistFlashlightMode(enabled) {
+    try {
+      window.localStorage.setItem(
+        FLASHLIGHT_MODE_STORAGE_KEY,
+        enabled ? FLASHLIGHT_MODE_ON : FLASHLIGHT_MODE_OFF
+      );
+    } catch {
+      // Intentionally ignored: localStorage may be unavailable in some contexts.
+    }
+  }
+
+  function initFlashlightMode() {
+    if (!isFlashlightTargetPage()) return;
+
+    const modeToggleButton = document.querySelector('[data-flashlight-toggle]');
+    if (!(modeToggleButton instanceof HTMLButtonElement)) return;
+
+    const FLASHLIGHT_DRAIN_MS = 60000;
+    const FLASHLIGHT_FINAL_FLICKER_MS = 900;
+    const FLASHLIGHT_FINAL_FADE_MS = 850;
+    const FLASHLIGHT_MIN_FLICKER_GAP_MS = 450;
+    const FLASHLIGHT_FLICKER_GAP_RANGE_MS = 2200;
+    const FLASHLIGHT_MIN_FLICKER_BURST_MS = 260;
+    const FLASHLIGHT_FLICKER_BURST_RANGE_MS = 480;
+    const FLASHLIGHT_MIN_FLICKER_PULSE_MS = 24;
+    const FLASHLIGHT_FLICKER_PULSE_RANGE_MS = 68;
+    const root = document.documentElement;
+
+    let modeEnabled = false;
+    let lastPointerPosition = null;
+    let animationFrameId = 0;
+    let lastBatteryFrameTime = null;
+    let batteryRemainingMs = FLASHLIGHT_DRAIN_MS;
+    let nextFlickerAt = 0;
+    let flickerUntil = 0;
+    let nextFlickerPulseAt = 0;
+    let finalFlickerStartedAt = null;
+    let finalFadeStartedAt = null;
+    let lastBatteryPercent = -1;
+    let lastBatterySegmentCount = -1;
+    let currentCoverOpacity = '';
+    let currentFlicker = '';
+    let currentBeamOpacity = '';
+    let hudElement = null;
+    let hudPercentage = null;
+    let hudSegments = [];
+
+    const setCoverOpacity = (value) => {
+      const nextValue = Math.max(0, Math.min(1, value)).toFixed(3);
+      if (nextValue === currentCoverOpacity) return;
+      currentCoverOpacity = nextValue;
+      root.style.setProperty('--flashlight-cover-opacity', nextValue);
+    };
+
+    const setFlicker = (value) => {
+      const nextValue = Math.max(0, Math.min(1, value)).toFixed(3);
+      if (nextValue === currentFlicker) return;
+      currentFlicker = nextValue;
+      root.style.setProperty('--flashlight-flicker', nextValue);
+    };
+
+    const setBeamOpacity = (value) => {
+      const nextValue = Math.max(0, Math.min(1, value)).toFixed(3);
+      if (nextValue === currentBeamOpacity) return;
+      currentBeamOpacity = nextValue;
+      root.style.setProperty('--flashlight-beam-opacity', nextValue);
+    };
+
+    const resetEffectVars = () => {
+      setCoverOpacity(0);
+      setFlicker(1);
+      setBeamOpacity(1);
+    };
+
+    const clampBatteryRemaining = (value) => {
+      if (!Number.isFinite(value)) return FLASHLIGHT_DRAIN_MS;
+      return Math.max(0, Math.min(FLASHLIGHT_DRAIN_MS, value));
+    };
+
+    const isReloadNavigation = () => {
+      const navigationEntry = window.performance
+        ?.getEntriesByType
+        ?.('navigation')
+        ?.[0];
+
+      if (navigationEntry?.type === 'reload') return true;
+      return window.performance?.navigation?.type === 1;
+    };
+
+    const readStoredBatteryRemaining = () => {
+      if (isReloadNavigation()) {
+        try {
+          window.sessionStorage.removeItem(FLASHLIGHT_BATTERY_SESSION_KEY);
+        } catch {
+          // Intentionally ignored: sessionStorage may be unavailable in some contexts.
+        }
+        return FLASHLIGHT_DRAIN_MS;
+      }
+
+      try {
+        const storedBatteryRemaining = window.sessionStorage.getItem(FLASHLIGHT_BATTERY_SESSION_KEY);
+        if (storedBatteryRemaining === null) return FLASHLIGHT_DRAIN_MS;
+        return clampBatteryRemaining(Number(storedBatteryRemaining));
+      } catch {
+        return FLASHLIGHT_DRAIN_MS;
+      }
+    };
+
+    const persistBatteryRemaining = () => {
+      try {
+        window.sessionStorage.setItem(
+          FLASHLIGHT_BATTERY_SESSION_KEY,
+          String(Math.round(clampBatteryRemaining(batteryRemainingMs)))
+        );
+      } catch {
+        // Intentionally ignored: sessionStorage may be unavailable in some contexts.
+      }
+    };
+
+    const setPointerPosition = (clientX, clientY) => {
+      root.style.setProperty('--flashlight-x', `${clientX}px`);
+      root.style.setProperty('--flashlight-y', `${clientY}px`);
+    };
+
+    const readPointerPosition = (event) => {
+      if (
+        !event
+        || typeof event.clientX !== 'number'
+        || typeof event.clientY !== 'number'
+        || !Number.isFinite(event.clientX)
+        || !Number.isFinite(event.clientY)
+      ) {
+        return null;
+      }
+
+      if (
+        event.type === 'click'
+        && event.detail === 0
+        && event.clientX === 0
+        && event.clientY === 0
+      ) {
+        return null;
+      }
+
+      return { x: event.clientX, y: event.clientY };
+    };
+
+    const rememberPointerPosition = (event) => {
+      const pointerPosition = readPointerPosition(event);
+      if (!pointerPosition) return null;
+      lastPointerPosition = pointerPosition;
+      return pointerPosition;
+    };
+
+    const getToggleCenterPosition = () => {
+      const bounds = modeToggleButton.getBoundingClientRect();
+      return {
+        x: bounds.left + (bounds.width / 2),
+        y: bounds.top + (bounds.height / 2)
+      };
+    };
+
+    const resolveActivationPosition = (event) => {
+      return rememberPointerPosition(event) || lastPointerPosition || getToggleCenterPosition();
+    };
+
+    const syncToggleLabel = () => {
+      const nextAction = modeEnabled ? 'Disable blackout mode' : 'Enable blackout mode';
+      modeToggleButton.setAttribute('aria-label', nextAction);
+      modeToggleButton.setAttribute('aria-pressed', String(modeEnabled));
+      modeToggleButton.dataset.mode = modeEnabled ? FLASHLIGHT_MODE_ON : FLASHLIGHT_MODE_OFF;
+      modeToggleButton.title = nextAction;
+    };
+
+    const createHud = () => {
+      if (hudElement) return;
+
+      hudElement = document.createElement('div');
+      hudElement.className = 'flashlight-hud';
+      hudElement.setAttribute('aria-hidden', 'true');
+      hudElement.innerHTML = `
+        <div class="flashlight-hud__readout">
+          <span class="flashlight-hud__label">Power left</span>
+          <span class="flashlight-hud__percent" data-flashlight-power-value>100%</span>
+        </div>
+        <div class="flashlight-hud__battery" aria-hidden="true">
+          <span class="flashlight-hud__segment"></span>
+          <span class="flashlight-hud__segment"></span>
+          <span class="flashlight-hud__segment"></span>
+          <span class="flashlight-hud__segment"></span>
+          <span class="flashlight-hud__segment"></span>
+        </div>
+      `;
+      hudPercentage = hudElement.querySelector('[data-flashlight-power-value]');
+      hudSegments = Array.from(hudElement.querySelectorAll('.flashlight-hud__segment'));
+      document.body.appendChild(hudElement);
+    };
+
+    const updateHud = (percent) => {
+      const nextPercent = Math.max(0, Math.min(100, Math.round(percent)));
+      if (nextPercent === lastBatteryPercent) return;
+
+      lastBatteryPercent = nextPercent;
+      root.style.setProperty('--flashlight-power', `${nextPercent}%`);
+
+      if (hudPercentage) {
+        hudPercentage.textContent = `${nextPercent}%`;
+      }
+
+      if (hudElement) {
+        let powerState = 'ok';
+        if (nextPercent === 0) {
+          powerState = 'empty';
+        } else if (nextPercent <= 15) {
+          powerState = 'critical';
+        } else if (nextPercent <= 35) {
+          powerState = 'low';
+        }
+        hudElement.dataset.powerState = powerState;
+      }
+
+      const activeSegmentCount = Math.ceil(nextPercent / 20);
+      if (activeSegmentCount === lastBatterySegmentCount) return;
+
+      lastBatterySegmentCount = activeSegmentCount;
+      hudSegments.forEach((segment, index) => {
+        segment.classList.toggle('is-active', index < activeSegmentCount);
+      });
+    };
+
+    const stopBatteryLoop = () => {
+      if (!animationFrameId) return;
+      window.cancelAnimationFrame(animationFrameId);
+      animationFrameId = 0;
+    };
+
+    const queueBatteryFrame = () => {
+      animationFrameId = window.requestAnimationFrame(handleBatteryFrame);
+    };
+
+    const scheduleNextFlicker = (timestamp) => {
+      nextFlickerAt = timestamp
+        + FLASHLIGHT_MIN_FLICKER_GAP_MS
+        + (Math.random() * FLASHLIGHT_FLICKER_GAP_RANGE_MS);
+    };
+
+    const scheduleNextFlickerPulse = (timestamp) => {
+      nextFlickerPulseAt = timestamp
+        + FLASHLIGHT_MIN_FLICKER_PULSE_MS
+        + (Math.random() * FLASHLIGHT_FLICKER_PULSE_RANGE_MS);
+    };
+
+    const nextFlickerIntensity = () => {
+      if (Math.random() < 0.22) {
+        return 0.74 + (Math.random() * 0.22);
+      }
+      return 0.28 + (Math.random() * 0.42);
+    };
+
+    const updateActiveFlicker = (timestamp) => {
+      if (nextFlickerAt === 0) {
+        scheduleNextFlicker(timestamp);
+      }
+
+      if (timestamp >= nextFlickerAt) {
+        flickerUntil = timestamp
+          + FLASHLIGHT_MIN_FLICKER_BURST_MS
+          + (Math.random() * FLASHLIGHT_FLICKER_BURST_RANGE_MS);
+        nextFlickerPulseAt = 0;
+        scheduleNextFlicker(timestamp + (Math.random() * FLASHLIGHT_FLICKER_GAP_RANGE_MS));
+      }
+
+      if (timestamp < flickerUntil) {
+        if (nextFlickerPulseAt === 0 || timestamp >= nextFlickerPulseAt) {
+          const coverOpacity = nextFlickerIntensity();
+          setCoverOpacity(coverOpacity);
+          setFlicker(1 - coverOpacity);
+          scheduleNextFlickerPulse(timestamp);
+        }
+        return;
+      }
+
+      setCoverOpacity(0);
+      setFlicker(1);
+    };
+
+    const updateDepletedState = (timestamp) => {
+      updateHud(0);
+
+      if (finalFlickerStartedAt === null) {
+        finalFlickerStartedAt = timestamp;
+      }
+
+      const flickerElapsed = timestamp - finalFlickerStartedAt;
+      if (flickerElapsed < FLASHLIGHT_FINAL_FLICKER_MS) {
+        const progress = flickerElapsed / FLASHLIGHT_FINAL_FLICKER_MS;
+        const coverOpacity = Math.min(0.74, 0.18 + (progress * 0.32) + (Math.random() * 0.28));
+        setCoverOpacity(coverOpacity);
+        setFlicker(1 - coverOpacity);
+        setBeamOpacity(1);
+        return true;
+      }
+
+      if (finalFadeStartedAt === null) {
+        finalFadeStartedAt = timestamp;
+      }
+
+      const fadeProgress = Math.min(1, (timestamp - finalFadeStartedAt) / FLASHLIGHT_FINAL_FADE_MS);
+      const beamOpacity = 1 - fadeProgress;
+      setBeamOpacity(beamOpacity);
+      setFlicker(beamOpacity);
+      setCoverOpacity(fadeProgress);
+      return fadeProgress < 1;
+    };
+
+    function handleBatteryFrame(timestamp) {
+      animationFrameId = 0;
+      if (!modeEnabled) return;
+
+      if (lastBatteryFrameTime === null) {
+        lastBatteryFrameTime = timestamp;
+        scheduleNextFlicker(timestamp);
+      } else {
+        batteryRemainingMs = clampBatteryRemaining(batteryRemainingMs - Math.max(0, timestamp - lastBatteryFrameTime));
+        lastBatteryFrameTime = timestamp;
+      }
+
+      persistBatteryRemaining();
+
+      if (batteryRemainingMs <= 0) {
+        if (updateDepletedState(timestamp)) {
+          queueBatteryFrame();
+        }
+        return;
+      }
+
+      updateHud((batteryRemainingMs / FLASHLIGHT_DRAIN_MS) * 100);
+      setBeamOpacity(1);
+      updateActiveFlicker(timestamp);
+      queueBatteryFrame();
+    }
+
+    const startBatteryLoop = () => {
+      stopBatteryLoop();
+      lastBatteryFrameTime = null;
+      nextFlickerAt = 0;
+      flickerUntil = 0;
+      nextFlickerPulseAt = 0;
+      finalFlickerStartedAt = batteryRemainingMs <= 0 ? 0 : null;
+      finalFadeStartedAt = batteryRemainingMs <= 0 ? 0 : null;
+      lastBatteryPercent = -1;
+      lastBatterySegmentCount = -1;
+      resetEffectVars();
+      updateHud((batteryRemainingMs / FLASHLIGHT_DRAIN_MS) * 100);
+
+      if (batteryRemainingMs <= 0) {
+        setCoverOpacity(1);
+        setFlicker(0);
+        setBeamOpacity(0);
+        return;
+      }
+
+      queueBatteryFrame();
+    };
+
+    function handlePointerMove(event) {
+      const pointerPosition = rememberPointerPosition(event);
+      if (!pointerPosition) return;
+      setPointerPosition(pointerPosition.x, pointerPosition.y);
+    }
+
+    const clearMode = (shouldPersistBattery = true) => {
+      stopBatteryLoop();
+      if (shouldPersistBattery) {
+        persistBatteryRemaining();
+      }
+      window.removeEventListener('pointermove', handlePointerMove);
+      root.removeAttribute('data-flashlight-mode');
+      document.body.classList.remove('flashlight-mode-active');
+      root.style.setProperty('--flashlight-x', '50vw');
+      root.style.setProperty('--flashlight-y', '50vh');
+      resetEffectVars();
+    };
+
+    if (!isFlashlightModeAvailable()) {
+      clearMode(false);
+      modeToggleButton.remove();
+      return;
+    }
+
+    const applyMode = (enabled, event) => {
+      modeEnabled = Boolean(enabled);
+
+      if (modeEnabled) {
+        const activationPosition = resolveActivationPosition(event);
+        setPointerPosition(activationPosition.x, activationPosition.y);
+        createHud();
+        root.setAttribute('data-flashlight-mode', FLASHLIGHT_MODE_ON);
+        document.body.classList.add('flashlight-mode-active');
+        window.addEventListener('pointermove', handlePointerMove, { passive: true });
+        startBatteryLoop();
+      } else {
+        clearMode();
+      }
+
+      syncToggleLabel();
+    };
+
+    modeToggleButton.addEventListener('pointermove', rememberPointerPosition, { passive: true });
+    modeToggleButton.addEventListener('pointerdown', rememberPointerPosition, { passive: true });
+
+    batteryRemainingMs = readStoredBatteryRemaining();
+    const storedMode = readStoredFlashlightMode();
+    applyMode(storedMode === FLASHLIGHT_MODE_ON);
+
+    modeToggleButton.addEventListener('click', (event) => {
+      applyMode(!modeEnabled, event);
+      persistFlashlightMode(modeEnabled);
+    });
+
+    window.addEventListener('pageshow', () => {
+      if (!modeEnabled) return;
+      root.setAttribute('data-flashlight-mode', FLASHLIGHT_MODE_ON);
+      document.body.classList.add('flashlight-mode-active');
+      if (!animationFrameId && finalFadeStartedAt === null) {
+        queueBatteryFrame();
+      }
+    });
   }
 
   function initBlueprintWordmark() {
@@ -502,7 +977,7 @@
       // Close when users click any non-interactive part of the open overlay.
       navOverlay.addEventListener('click', (event) => {
         if (!isMenuOpen()) return;
-        if (event.target.closest('.nav-link, .footer-link, #navToggle, .theme-toggle, [data-theme-toggle]')) {
+        if (event.target.closest('.nav-link, .footer-link, #navToggle, .theme-toggle, [data-theme-toggle], [data-flashlight-toggle]')) {
           return;
         }
         closeMobileNav();
@@ -919,6 +1394,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     initMotionPreference();
     initNavigation();
+    initFlashlightMode();
     initBlueprintWordmark();
     initHeroNavReveal();
     initDeferredImages();
