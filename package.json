@@ -30,6 +30,7 @@
     "quality:full": "npm run quality && npm run utilities:check"
   },
   "devDependencies": {
+    "@types/jsdom": "^28.0.3",
     "@types/node": "^25.3.0",
     "exifr": "^7.1.3",
     "jsdom": "^29.1.1",
