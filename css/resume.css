@@ -47,6 +47,7 @@ body, html {
   height: 20px;
 }
 
+.nav-actions .flashlight-toggle:focus-visible,
 .nav-dot:focus-visible,
 .contact-item:focus-visible,
 .project-link:focus-visible,
@@ -820,7 +821,7 @@ a.skill-tag:hover {
     text-shadow: none !important;
   }
 
-  .nav-dot,
+  .nav-actions,
   .nav-overlay,
   .footer,
   .schematic-grid,

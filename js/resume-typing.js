@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const subtitle = document.getElementById('typeTargetSubtitle');
   const heroContact = document.querySelector('.hero-contact');
   const metaTiny = document.querySelector('.meta-tiny');
-  const navToggle = document.getElementById('navToggle');
+  const navActions = document.querySelector('[data-nav-actions]');
 
   if (!name1 || !name2) {
     return;
@@ -24,23 +24,29 @@ document.addEventListener('DOMContentLoaded', () => {
     const revealSequence = [
       { el: heroContact, delay: 0 },
       { el: metaTiny, delay: 200 },
-      { el: navToggle, delay: 400 }
+      { el: navActions, delay: 400, usesSharedReveal: true }
     ];
 
-    revealSequence.forEach(({ el, delay }) => {
+    revealSequence.forEach(({ el, delay, usesSharedReveal = false }) => {
       if (!el) return;
       const revealDelay = immediate ? 0 : delay;
       setTimeout(() => {
         el.classList.remove('resume-hidden');
+        if (usesSharedReveal) {
+          if (immediate) {
+            el.style.transition = 'none';
+            el.classList.add('is-visible');
+          } else {
+            window.revealNavDot?.();
+          }
+          return;
+        }
         if (immediate) {
           el.style.transition = 'none';
         } else {
           el.style.transition = 'opacity 0.8s ease';
         }
         el.style.opacity = '1';
-        if (el === navToggle) {
-          el.style.pointerEvents = 'auto';
-        }
       }, revealDelay);
     });
 

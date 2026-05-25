@@ -21,6 +21,16 @@
    * Exposed globally for use by page-specific scripts (e.g. gallery.js).
    */
   function revealNavDot() {
+    const navActions = document.querySelector('[data-nav-actions]');
+    if (navActions) {
+      navActions.style.transition = 'opacity 2s cubic-bezier(0.19, 1, 0.22, 1)';
+      navActions.classList.add('is-visible');
+      window.setTimeout(() => {
+        navActions.style.removeProperty('transition');
+      }, 2000);
+      return;
+    }
+
     const navDot = document.getElementById('navToggle');
     if (!navDot) return;
     navDot.style.pointerEvents = 'auto';
@@ -104,11 +114,9 @@
   function initFlashlightMode() {
     if (!isFlashlightTargetPage()) return;
 
-    const navOverlay = document.getElementById('navOverlay');
-    const navMenuFooter = navOverlay?.querySelector('.nav-menu-footer');
-    if (!navOverlay || !navMenuFooter) return;
+    const modeToggleButton = document.querySelector('[data-flashlight-toggle]');
+    if (!(modeToggleButton instanceof HTMLButtonElement)) return;
 
-    const existingToggle = navOverlay.querySelector('[data-flashlight-toggle]');
     const clearMode = () => {
       document.documentElement.removeAttribute('data-flashlight-mode');
       document.body.classList.remove('flashlight-mode-active');
@@ -118,35 +126,18 @@
 
     if (!isFlashlightModeAvailable()) {
       clearMode();
-      existingToggle?.remove();
+      modeToggleButton.remove();
       return;
-    }
-
-    const modeToggleButton = existingToggle || document.createElement('button');
-    modeToggleButton.type = 'button';
-    modeToggleButton.className = 'theme-toggle flashlight-toggle';
-    modeToggleButton.setAttribute('data-flashlight-toggle', '');
-    modeToggleButton.setAttribute('data-cursor', 'hover');
-    modeToggleButton.innerHTML = [
-      '<span class="flashlight-toggle-icon" aria-hidden="true"></span>',
-      '<span class="flashlight-toggle-text" data-flashlight-toggle-text></span>'
-    ].join('');
-
-    if (!existingToggle) {
-      navMenuFooter.appendChild(modeToggleButton);
     }
 
     let modeEnabled = false;
 
     const syncToggleLabel = () => {
-      const nextAction = modeEnabled ? 'Turn lights on' : 'Turn lights off';
-      const textNode = modeToggleButton.querySelector('[data-flashlight-toggle-text]');
-      if (textNode) {
-        textNode.textContent = nextAction;
-      }
+      const nextAction = modeEnabled ? 'Disable blackout mode' : 'Enable blackout mode';
       modeToggleButton.setAttribute('aria-label', nextAction);
       modeToggleButton.setAttribute('aria-pressed', String(modeEnabled));
       modeToggleButton.dataset.mode = modeEnabled ? FLASHLIGHT_MODE_ON : FLASHLIGHT_MODE_OFF;
+      modeToggleButton.title = nextAction;
     };
 
     const setPointerPosition = (clientX, clientY) => {
@@ -172,8 +163,7 @@
     };
 
     const storedMode = readStoredFlashlightMode();
-    const shouldStartEnabled = storedMode === FLASHLIGHT_MODE_ON;
-    applyMode(shouldStartEnabled);
+    applyMode(storedMode === FLASHLIGHT_MODE_ON);
 
     modeToggleButton.addEventListener('click', () => {
       applyMode(!modeEnabled);

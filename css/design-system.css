@@ -150,9 +150,9 @@
   --z-overlay: 300;
   --z-modal: 400;
   --z-toast: 500;
-  --flashlight-radius: 220px;
-  --flashlight-feather: 180px;
-  --flashlight-scrim-opacity: 0.96;
+  --flashlight-radius: 180px;
+  --flashlight-feather: 220px;
+  --flashlight-scrim-opacity: 0.975;
   --flashlight-layer-z: 12000;
 
   /* === Layout === */
@@ -1314,44 +1314,51 @@ html[data-color-mode="light"] .theme-toggle {
   color: var(--color-accent-muted);
 }
 /* Flashlight mode toggle + viewport mask */
-.nav-overlay .flashlight-toggle {
-  width: auto;
-  min-height: 40px;
-  padding: 0 var(--space-4);
-  gap: var(--space-2);
-  border-radius: var(--radius-full);
-  font-size: var(--text-xs);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-}
-
-.flashlight-toggle-text {
-  white-space: nowrap;
-}
-
-.flashlight-toggle-icon {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 1.5px solid currentColor;
+.nav-actions .flashlight-toggle {
   position: relative;
+  z-index: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  box-shadow: none;
+  color: #000000;
+  cursor: pointer;
+  transition: transform 120ms ease, opacity 160ms ease, box-shadow var(--duration-base) var(--ease-smooth);
   flex: 0 0 auto;
 }
 
-.flashlight-toggle-icon::before {
-  content: '';
-  position: absolute;
-  inset: 3px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0;
-  transform: scale(0.7);
-  transition: opacity var(--duration-base) var(--ease-smooth), transform var(--duration-base) var(--ease-smooth);
+.nav-actions .flashlight-toggle:hover {
+  transform: scale(1.08);
+  color: #000000;
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+  opacity: 0.76;
 }
 
-.flashlight-toggle[data-mode="on"] .flashlight-toggle-icon::before {
+.nav-actions .flashlight-toggle:focus-visible {
+  transform: scale(1.08);
+  color: #000000;
+  background: none;
+  border-color: transparent;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.14);
   opacity: 1;
-  transform: scale(1);
+}
+
+.flashlight-toggle[data-mode="on"] .theme-toggle-icon::before {
+  opacity: 0;
+  transform: scale(0.84) rotate(10deg);
+}
+
+.flashlight-toggle[data-mode="on"] .theme-toggle-icon::after {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
 }
 
 body.flashlight-mode-active::before {
@@ -1363,7 +1370,10 @@ body.flashlight-mode-active::before {
   background: radial-gradient(
     circle at var(--flashlight-x, 50vw) var(--flashlight-y, 50vh),
     rgba(0, 0, 0, 0) 0,
-    rgba(0, 0, 0, 0.08) calc(var(--flashlight-radius) * 0.45),
+    rgba(0, 0, 0, 0.015) calc(var(--flashlight-radius) * 0.24),
+    rgba(0, 0, 0, 0.07) calc(var(--flashlight-radius) * 0.5),
+    rgba(0, 0, 0, 0.2) calc(var(--flashlight-radius) * 0.78),
+    rgba(0, 0, 0, 0.54) calc(var(--flashlight-radius) + var(--flashlight-feather) * 0.42),
     rgba(0, 0, 0, var(--flashlight-scrim-opacity)) calc(var(--flashlight-radius) + var(--flashlight-feather))
   );
   transition: opacity var(--duration-fast) var(--ease-smooth);
@@ -1377,7 +1387,6 @@ html[data-flashlight-mode="on"] :focus-visible {
 html.reduced-motion[data-flashlight-mode="on"] body::before {
   transition: none;
 }
-
 /* ========================================
    Shared Footer
    ======================================== */
@@ -1441,11 +1450,6 @@ html.reduced-motion[data-flashlight-mode="on"] body::before {
   .theme-toggle {
     width: 38px;
     height: 38px;
-  }
-  .nav-overlay .flashlight-toggle {
-    width: auto;
-    min-height: 38px;
-    padding: 0 var(--space-3);
   }
 }
 
@@ -1561,6 +1565,36 @@ html.reduced-motion[data-flashlight-mode="on"] body::before {
    Each page's stylesheet may add size/inner-content overrides.
    ======================================== */
 
+.nav-actions {
+  position: fixed;
+  top: 1rem;
+  right: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  opacity: 0;
+  pointer-events: none;
+  z-index: calc(var(--flashlight-layer-z) + 1);
+  transition: opacity 160ms ease;
+}
+
+.nav-actions.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.nav-actions .nav-dot,
+.nav-actions .flashlight-toggle {
+  flex: 0 0 auto;
+}
+
+.nav-actions .nav-dot {
+  position: relative;
+  top: auto;
+  right: auto;
+  z-index: auto;
+  display: block;
+}
 .nav-dot {
   position: fixed;
   top: 1rem;
@@ -1578,6 +1612,6 @@ html.reduced-motion[data-flashlight-mode="on"] body::before {
   transform: scale(1.08);
 }
 
-body.nav-open .nav-dot {
+body.nav-open .nav-actions.is-visible {
   opacity: 0.6;
 }

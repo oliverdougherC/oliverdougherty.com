@@ -31,9 +31,14 @@
 
 <body class="page-gallery schematic-mode">
 
-  <button class="nav-dot" id="navToggle" aria-label="Open menu" aria-expanded="false" type="button" style="opacity: 0; pointer-events: none;">
-    <span class="sr-only" data-nav-toggle-label>Open menu</span>
-  </button>
+  <div class="nav-actions" data-nav-actions>
+    <button class="flashlight-toggle" data-flashlight-toggle data-cursor="hover" aria-label="Enable blackout mode" aria-pressed="false" data-mode="off" type="button">
+      <span class="theme-toggle-icon" aria-hidden="true"></span>
+    </button>
+    <button class="nav-dot" id="navToggle" aria-label="Open menu" aria-expanded="false" type="button">
+      <span class="sr-only" data-nav-toggle-label>Open menu</span>
+    </button>
+  </div>
 
   <div class="nav-overlay" id="navOverlay" aria-hidden="true">
     <div class="nav-overlay-bg"></div>
