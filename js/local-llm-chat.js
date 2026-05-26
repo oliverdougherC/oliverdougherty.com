@@ -1112,14 +1112,7 @@ export class LocalLlmUtility {
 
     if (prevRendered !== currentContent) {
       contentDiv.classList.remove('local-llm-message-content--thinking');
-      if (prevRendered.length < currentContent.length) {
-        // Incremental: render only the appended delta
-        const renderedDelta = renderSafeText(currentContent.slice(prevRendered.length));
-        contentDiv.insertAdjacentHTML('beforeend', renderedDelta);
-      } else {
-        // Content was truncated or edited — full re-render fallback
-        contentDiv.innerHTML = renderSafeText(currentContent);
-      }
+      contentDiv.innerHTML = renderSafeText(currentContent);
       this._renderedMessageContent.set(this.assistantDraft, currentContent);
     }
     this.scrollMessagesIfNeeded(stickToBottom);
