@@ -9,10 +9,10 @@ Generated: Tuesday, May 26, 2026
 - [x] [Priority: LOW] [Accessibility] `index.html:42` — Navigation links in `.meta-tiny` are placed directly adjacent with no whitespace or separator between them. Screen readers may concatenate the link text into a single continuous string.
 
 ## Resume Page
-- [ ] [Priority: MED] [Accessibility] `pages/resume/index.html:57` — Navigation links in `.meta-tiny` are placed directly adjacent with no whitespace or separator between them (same issue as home page). Screen readers concatenate "HOME" "RESUME" "GALLERY" "BLOG" "UTILITIES" into a single string. Add `aria-separator` or invisible space spans between links.
-- [ ] [Priority: LOW] [Code Quality] `css/resume.css:66-69` — Commented-out CSS block (`#typeTargetName1, #typeTargetName2 { opacity: 0; }`) is dead code. Should be removed.
-- [ ] [Priority: LOW] [Code Quality] `pages/resume/index.html:69` — Inline style `style="white-space: nowrap;"` on `#typeTargetName2`. Should be moved to `css/resume.css` for maintainability.
-- [ ] [Priority: LOW] [Code Quality] `css/resume.css:635-642` — Redundant `a.skill-tag` selector. The `.skill-tag` rules (lines 622-633) already set `color: #000000` and `text-decoration: none`, making `a.skill-tag` on line 636-637 unnecessary. The hover rule on lines 639-642 also duplicates `.skill-tag:hover`.
+- [x] [Priority: MED] [Accessibility] `pages/resume/index.html:57` — Navigation links in `.meta-tiny` are placed directly adjacent with no whitespace or separator between them (same issue as home page). Screen readers concatenate "HOME" "RESUME" "GALLERY" "BLOG" "UTILITIES" into a single string. Add `aria-separator` or invisible space spans between links.
+- [x] [Priority: LOW] [Code Quality] `css/resume.css:66-69` — Commented-out CSS block (`#typeTargetName1, #typeTargetName2 { opacity: 0; }`) is dead code. Should be removed.
+- [x] [Priority: LOW] [Code Quality] `pages/resume/index.html:69` — Inline style `style="white-space: nowrap;"` on `#typeTargetName2`. Should be moved to `css/resume.css` for maintainability.
+- [x] [Priority: LOW] [Code Quality] `css/resume.css:635-642` — Redundant `a.skill-tag` selector. The `.skill-tag` rules (lines 622-633) already set `color: #000000` and `text-decoration: none`, making `a.skill-tag` on line 636-637 unnecessary. The hover rule on lines 639-642 also duplicates `.skill-tag:hover`.
 
 ## Photo Gallery Page
 - [ ] [Priority: MED] [Error Handling] `js/gallery.js:1089` — `decodeURIComponent()` in `readPhotoHash()` can throw `URIError` on malformed percent-encoding in the URL hash (e.g., `#photo=%ZZ`). This is called from `syncGalleryFromUrl()` which fires on `hashchange` events. A crafted or corrupted hash would crash the gallery with no user-visible error. Wrap in try/catch and fall back to empty string.
