@@ -110,12 +110,18 @@ interface AdaptiveGpuWorkScalerOptions {
 const WEBGPU_STORAGE_ITEMS = 262144;
 const WEBGPU_MIN_WORKGROUPS = 256;
 const WEBGPU_DEFAULT_MAX_WORKGROUPS_PER_DISPATCH = 65535;
-const WEBGPU_MAX_IN_FLIGHT_SUBMISSIONS = 3;
 const WEBGPU_VISUAL_INTERVAL_MS = 1000 / 30;
-const WEBGPU_COMPLETION_TIMEOUT_MS = 1000;
-const WEBGL_FRAGMENT_LOOP_BOUND = 512;
+const WEBGPU_PUMP_DELAY_MS = 0;
+const WEBGPU_MAX_PUMP_MS = 10;
+const WEBGPU_MAX_SUBMISSIONS_PER_PUMP = 8;
+const WEBGPU_COMPLETION_SAMPLE_INTERVAL_MS = 300;
+const WEBGPU_COMPLETION_STALL_MS = 1200;
+const WEBGL_FRAGMENT_LOOP_BOUND = 1024;
 const WEBGL_PUMP_DELAY_MS = 0;
-const WEBGL_MAX_MAIN_THREAD_BURST_MS = 14;
+const WEBGL_MAX_MAIN_THREAD_BURST_MS = 18;
+const WEBGL_MAX_DRAWS_PER_PUMP = 64;
+const WEBGL_COMPLETION_SAMPLE_INTERVAL_MS = 300;
+const WEBGL_FENCE_STALL_MS = 900;
 const WEBGL_CONTEXT_ATTRIBUTES = {
   antialias: false,
   depth: false,
@@ -143,21 +149,6 @@ function getWebGpuUsageFlag(name: string) {
 function getWebGpuTextureUsageFlag(name: string) {
   const usage = typeof GPUTextureUsage !== 'undefined' ? GPUTextureUsage : undefined;
   return usage?.[name] ?? 0;
-}
-
-function delay(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-async function waitWithTimeout(promise: Promise<void>, timeoutMs: number) {
-  let timedOut = false;
-  await Promise.race([
-    promise,
-    delay(timeoutMs).then(() => {
-      timedOut = true;
-    })
-  ]);
-  return !timedOut;
 }
 
 function compileShader(gl: WebGLRenderingContext | WebGL2RenderingContext, type: number, source: string) {
@@ -209,6 +200,25 @@ function getCanvasPixelSize(canvas: HTMLCanvasElement) {
   return {
     width: Math.max(1, canvas.width),
     height: Math.max(1, canvas.height)
+  };
+}
+
+function resolveWebGlDrawingSize(
+  canvas: HTMLCanvasElement,
+  gl: WebGLRenderingContext | WebGL2RenderingContext,
+  workloadLevel: number
+) {
+  const rect = canvas.getBoundingClientRect();
+  const baseScale = Math.min(window.devicePixelRatio || 1, 3);
+  const baseWidth = Math.max(1, Math.floor(rect.width * baseScale));
+  const baseHeight = Math.max(1, Math.floor(rect.height * baseScale));
+  const maxViewport = gl.getParameter(gl.MAX_VIEWPORT_DIMS) as Int32Array | number[] | null;
+  const maxWidth = Math.max(baseWidth, Number(maxViewport?.[0]) || baseWidth);
+  const maxHeight = Math.max(baseHeight, Number(maxViewport?.[1]) || baseHeight);
+  const stressScale = Math.max(1, Math.pow(Math.max(1, workloadLevel), 0.25));
+  return {
+    width: Math.max(1, Math.min(maxWidth, Math.floor(baseWidth * stressScale))),
+    height: Math.max(1, Math.min(maxHeight, Math.floor(baseHeight * stressScale)))
   };
 }
 
@@ -464,18 +474,22 @@ async function startWebGpuStress(
     )
   );
   const scaler = new AdaptiveGpuWorkScaler({
-    initialLevel: 1024,
-    fastMs: 8,
-    slowMs: 42,
+    initialLevel: 2048,
+    fastMs: 12,
+    slowMs: 120,
     growAfterSamples: 1,
-    steadyGrowthMultiplier: 1.25
+    aggressiveGrowthMultiplier: 1.75,
+    steadyGrowthMultiplier: 1.3,
+    slowBackoffMultiplier: 0.78
   });
   const timeUniform = new Float32Array(4);
   const startedAt = readNow();
   let active = true;
-  let inFlight = 0;
+  let pumpTimer = 0;
   let frameId = 0;
   let visualTimer = 0;
+  let completionProbeActive = false;
+  let lastCompletionSampleAt = 0;
 
   const stop = () => {
     active = false;
@@ -486,6 +500,10 @@ async function startWebGpuStress(
     if (visualTimer) {
       window.clearTimeout(visualTimer);
       visualTimer = 0;
+    }
+    if (pumpTimer) {
+      window.clearTimeout(pumpTimer);
+      pumpTimer = 0;
     }
     storageBuffer.destroy?.();
     timeBuffer.destroy?.();
@@ -506,13 +524,7 @@ async function startWebGpuStress(
     callbacks.onAsyncError(error instanceof Error ? error.message : 'WebGPU device loss handling failed.');
   });
 
-  const submitCompute = async () => {
-    if (!active || inFlight >= WEBGPU_MAX_IN_FLIGHT_SUBMISSIONS) {
-      return;
-    }
-
-    inFlight += 1;
-    const started = readNow();
+  const submitComputeCommand = () => {
     const workgroups = Math.max(WEBGPU_MIN_WORKGROUPS, Math.floor(scaler.getLevel()));
     const encoder = device.createCommandEncoder();
     let remaining = workgroups;
@@ -526,26 +538,71 @@ async function startWebGpuStress(
       remaining -= dispatchSize;
     }
     device.queue.submit([encoder.finish()]);
+  };
 
-    try {
-      if (device.queue.onSubmittedWorkDone) {
-        const completed = await waitWithTimeout(device.queue.onSubmittedWorkDone(), WEBGPU_COMPLETION_TIMEOUT_MS);
-        if (!completed) {
-          callbacks.onWorkloadLevel(scaler.recordBackpressure());
+  const sampleCompletion = () => {
+    if (!active || completionProbeActive) {
+      return;
+    }
+    if (!device.queue.onSubmittedWorkDone) {
+      callbacks.onWorkloadLevel(scaler.recordCompletion(0));
+      return;
+    }
+
+    completionProbeActive = true;
+    const sampleStartedAt = readNow();
+    window.setTimeout(() => {
+      if (active && completionProbeActive) {
+        callbacks.onWorkloadLevel(scaler.recordBackpressure());
+      }
+    }, WEBGPU_COMPLETION_STALL_MS);
+    device.queue.onSubmittedWorkDone()
+      .then(() => {
+        if (!active) {
           return;
         }
-      } else {
-        await delay(16);
+        callbacks.onWorkloadLevel(scaler.recordCompletion(readNow() - sampleStartedAt));
+      })
+      .catch(() => {
+        if (active) {
+          callbacks.onWorkloadLevel(scaler.recordError());
+        }
+      })
+      .finally(() => {
+        completionProbeActive = false;
+      });
+  };
+
+  const scheduleComputePump = () => {
+    if (!active || pumpTimer) {
+      return;
+    }
+    pumpTimer = window.setTimeout(computePump, WEBGPU_PUMP_DELAY_MS);
+  };
+
+  const computePump = () => {
+    pumpTimer = 0;
+    if (!active) {
+      return;
+    }
+
+    const pumpStartedAt = readNow();
+    let submissions = 0;
+    try {
+      while (submissions < WEBGPU_MAX_SUBMISSIONS_PER_PUMP && readNow() - pumpStartedAt < WEBGPU_MAX_PUMP_MS) {
+        submitComputeCommand();
+        submissions += 1;
       }
-      callbacks.onWorkloadLevel(scaler.recordCompletion(readNow() - started));
     } catch {
       callbacks.onWorkloadLevel(scaler.recordError());
-    } finally {
-      inFlight -= 1;
-      while (active && inFlight < WEBGPU_MAX_IN_FLIGHT_SUBMISSIONS) {
-        void submitCompute();
-      }
     }
+
+    const now = readNow();
+    if (now - lastCompletionSampleAt >= WEBGPU_COMPLETION_SAMPLE_INTERVAL_MS) {
+      lastCompletionSampleAt = now;
+      sampleCompletion();
+    }
+    scheduleComputePump();
   };
 
   const drawVisual = () => {
@@ -591,9 +648,7 @@ async function startWebGpuStress(
     }, WEBGPU_VISUAL_INTERVAL_MS);
   };
 
-  while (inFlight < WEBGPU_MAX_IN_FLIGHT_SUBMISSIONS) {
-    void submitCompute();
-  }
+  scheduleComputePump();
   frameId = window.requestAnimationFrame(drawVisual);
   callbacks.onWorkloadLevel(scaler.getLevel());
   callbacks.onCanvasActive(true);
@@ -716,17 +771,20 @@ function startWebGlStress(
   const timeLocation = gl.getUniformLocation(program, 'u_time');
   const resLocation = gl.getUniformLocation(program, 'u_resolution');
   const scaler = new AdaptiveGpuWorkScaler({
-    initialLevel: 1,
-    fastMs: 4,
-    slowMs: 22,
+    initialLevel: 4,
+    fastMs: 6,
+    slowMs: 80,
     growAfterSamples: 1,
-    aggressiveGrowthMultiplier: 2.25,
-    steadyGrowthMultiplier: 1.35
+    aggressiveGrowthMultiplier: 2,
+    steadyGrowthMultiplier: 1.35,
+    slowBackoffMultiplier: 0.8
   });
   const startedAt = readNow();
   let active = true;
   let timer = 0;
   let pendingSync: WebGLSync | null = null;
+  let pendingSyncStartedAt = 0;
+  let lastCompletionSampleAt = 0;
 
   const stop = ({ loseContext = false }: { loseContext?: boolean } = {}) => {
     active = false;
@@ -747,7 +805,11 @@ function startWebGlStress(
   };
 
   const drawOnce = (now: number) => {
-    const { width, height } = getCanvasPixelSize(canvas);
+    const { width, height } = resolveWebGlDrawingSize(canvas, gl, scaler.getLevel());
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
     gl.viewport(0, 0, width, height);
     gl.useProgram(program);
     gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
@@ -777,19 +839,8 @@ function startWebGlStress(
       return;
     }
 
-    if (pendingSync && isWebGl2Context(gl)) {
-      const status = gl.clientWaitSync(pendingSync, 0, 0);
-      if (status === gl.TIMEOUT_EXPIRED) {
-        callbacks.onWorkloadLevel(scaler.recordBackpressure());
-        schedulePump();
-        return;
-      }
-      gl.deleteSync(pendingSync);
-      pendingSync = null;
-    }
-
     const pumpStarted = readNow();
-    const requestedDraws = Math.max(1, Math.floor(scaler.getLevel()));
+    const requestedDraws = Math.max(1, Math.min(WEBGL_MAX_DRAWS_PER_PUMP, Math.floor(scaler.getLevel())));
     let submittedDraws = 0;
     try {
       for (let index = 0; index < requestedDraws; index += 1) {
@@ -804,10 +855,33 @@ function startWebGlStress(
       if (glError !== gl.NO_ERROR) {
         callbacks.onWorkloadLevel(scaler.recordError());
       } else {
-        callbacks.onWorkloadLevel(scaler.recordCompletion(readNow() - pumpStarted));
+        const now = readNow();
+        if (isWebGl2Context(gl)) {
+          if (pendingSync && now - lastCompletionSampleAt >= WEBGL_COMPLETION_SAMPLE_INTERVAL_MS) {
+            const status = gl.clientWaitSync(pendingSync, 0, 0);
+            if (status === gl.TIMEOUT_EXPIRED) {
+              if (now - pendingSyncStartedAt >= WEBGL_FENCE_STALL_MS) {
+                callbacks.onWorkloadLevel(scaler.recordBackpressure());
+                lastCompletionSampleAt = now;
+              } else {
+                callbacks.onWorkloadLevel(scaler.recordCompletion(now - pumpStarted));
+              }
+            } else {
+              gl.deleteSync(pendingSync);
+              pendingSync = null;
+              callbacks.onWorkloadLevel(scaler.recordCompletion(now - pendingSyncStartedAt));
+              lastCompletionSampleAt = now;
+            }
+          } else {
+            callbacks.onWorkloadLevel(scaler.recordCompletion(now - pumpStarted));
+          }
+        } else {
+          callbacks.onWorkloadLevel(scaler.recordCompletion(now - pumpStarted));
+        }
       }
-      if (isWebGl2Context(gl)) {
+      if (isWebGl2Context(gl) && !pendingSync) {
         pendingSync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        pendingSyncStartedAt = readNow();
       }
     } catch (error) {
       callbacks.onWorkloadLevel(scaler.recordError());
