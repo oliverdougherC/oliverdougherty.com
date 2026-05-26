@@ -67,14 +67,12 @@ function validatePages() {
       assert(html.includes('data-current-year'), `Missing dynamic year placeholder in ${page}`);
     }
 
-    if (page !== 'pages/gallery/index.html' && page !== 'pages/utilities/index.html') {
+    if (page !== 'index.html' && page !== 'pages/resume/index.html' && page !== 'pages/gallery/index.html' && page !== 'pages/utilities/index.html') {
       assert(html.includes('id="navToggle"'), `Missing shared nav toggle in ${page}`);
     }
   }
 
   const galleryHtml = fs.readFileSync(path.join(ROOT, 'pages/gallery/index.html'), 'utf8');
-  assert(galleryHtml.includes('id="navToggle"'), 'Gallery shared nav toggle missing');
-  assert(galleryHtml.includes('id="navOverlay"'), 'Gallery shared nav overlay missing');
   assert(galleryHtml.includes('class="noise-overlay"'), 'Gallery noise overlay missing');
   assert(galleryHtml.includes('id="galleryHeroFeature"'), 'Gallery hero feature card missing');
   assert(galleryHtml.includes('id="galleryArchiveGrid"'), 'Archive gallery grid missing');

@@ -17,7 +17,7 @@
   const FLASHLIGHT_POINTER_SESSION_KEY = 'od-flashlight-pointer';
   const FLASHLIGHT_MODE_ON = 'on';
   const FLASHLIGHT_MODE_OFF = 'off';
-  
+
   /**
    * Reveal all .hero-deferred elements by adding .is-visible.
    * Exposed globally for use by page-specific scripts (e.g. gallery.js).
