@@ -372,7 +372,6 @@ function mergeGalleryEntry({ photo, manifestIndex, sequenceItems, sequenceLookup
 
   const entry = {
     id,
-    title: displayTitle,
     displayTitle,
     description,
     location,
@@ -1044,8 +1043,7 @@ function refreshLightboxFocusables() {
   gallery.lightboxFocusables = Array.from(gallery.elements.lightbox.querySelectorAll(
     'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
   )).filter((element) => {
-    const style = window.getComputedStyle(element);
-    return !element.hasAttribute('hidden') && style.display !== 'none' && style.visibility !== 'hidden';
+    return !element.hasAttribute('hidden') && element.offsetParent !== null;
   });
   return gallery.lightboxFocusables;
 }
@@ -1086,7 +1084,11 @@ function setInfoPanelOpen(active) {
 
 function readPhotoHash() {
   if (!window.location.hash.startsWith(GALLERY_HASH_PREFIX)) return '';
-  return decodeURIComponent(window.location.hash.slice(GALLERY_HASH_PREFIX.length));
+  try {
+    return decodeURIComponent(window.location.hash.slice(GALLERY_HASH_PREFIX.length));
+  } catch {
+    return '';
+  }
 }
 
 function writePhotoHash(entryId) {
