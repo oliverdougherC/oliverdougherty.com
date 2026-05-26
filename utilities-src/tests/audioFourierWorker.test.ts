@@ -75,7 +75,7 @@ describe('audio fourier worker message types', () => {
     });
 
     it('rejects malformed messages missing type field', () => {
-      const malformed = { requestId: 1 };
+      const malformed: Partial<{ type: AudioFourierWorkerRequest['type']; requestId: number }> = { requestId: 1 };
       expect(malformed.type).toBeUndefined();
       // Worker would reject this as unrecognized
     });
