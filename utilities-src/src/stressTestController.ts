@@ -2,7 +2,6 @@ import {
   formatStressElapsed,
   isStressMode,
   resolveCpuWorkerCount,
-  resolveGpuBackendFallbacks,
   shouldStressCpu,
   shouldStressGpu,
   transitionStressState,
@@ -10,6 +9,7 @@ import {
   type StressMode,
   type StressState
 } from './stressTestCore';
+import { startAdaptiveGpuStress, type StressGpuStressHandle } from './stressTestGpu';
 import type { StressTestWorkerRequest, StressTestWorkerResponse } from './stressTestWorkerTypes';
 
 interface StressWorkerRecord {
@@ -19,107 +19,6 @@ interface StressWorkerRecord {
   messageListener: (event: MessageEvent<StressTestWorkerResponse>) => void;
   errorListener: (event: ErrorEvent) => void;
 }
-
-interface WebGpuAdapterLike {
-  requestDevice(): Promise<WebGpuDeviceLike>;
-}
-
-interface WebGpuLike {
-  requestAdapter(options?: { powerPreference?: 'high-performance' | 'low-power' }): Promise<WebGpuAdapterLike | null>;
-  getPreferredCanvasFormat?: () => string;
-}
-
-interface WebGpuDeviceLike {
-  queue: {
-    submit(commands: unknown[]): void;
-    writeBuffer(buffer: unknown, offset: number, data: ArrayBufferView): void;
-  };
-  createShaderModule(descriptor: object): WebGpuShaderModuleLike;
-  createBuffer(descriptor: object): WebGpuBufferLike;
-  createBindGroupLayout(descriptor: object): WebGpuBindGroupLayoutLike;
-  createPipelineLayout(descriptor: object): WebGpuPipelineLayoutLike;
-  createComputePipeline(descriptor: object): WebGpuComputePipelineLike;
-  createRenderPipeline(descriptor: object): WebGpuRenderPipelineLike;
-  createBindGroup(descriptor: object): WebGpuBindGroupLike;
-  createCommandEncoder(): WebGpuCommandEncoderLike;
-  destroy?: () => void;
-  lost: Promise<{ reason: 'destroyed' | 'unknown'; message: string }>;
-}
-
-interface WebGpuShaderModuleLike {}
-
-interface WebGpuBindGroupLayoutLike {}
-
-interface WebGpuPipelineLayoutLike {}
-
-interface WebGpuComputePipelineLike {}
-
-interface WebGpuBindGroupLike {}
-
-interface WebGpuBufferLike {
-  destroy?: () => void;
-}
-
-interface WebGpuRenderPipelineLike {
-  getBindGroupLayout(index: number): unknown;
-}
-
-interface WebGpuCommandEncoderLike {
-  beginComputePass(): {
-    setPipeline(pipeline: WebGpuComputePipelineLike): void;
-    setBindGroup(index: number, bindGroup: WebGpuBindGroupLike): void;
-    dispatchWorkgroups(x: number, y?: number, z?: number): void;
-    end(): void;
-  };
-  beginRenderPass(descriptor: object): {
-    setPipeline(pipeline: WebGpuRenderPipelineLike): void;
-    setBindGroup(index: number, bindGroup: WebGpuBindGroupLike): void;
-    draw(vertexCount: number): void;
-    end(): void;
-  };
-  finish(): unknown;
-}
-
-interface WebGpuCanvasContextLike {
-  configure(descriptor: object): void;
-  getCurrentTexture(): {
-    createView(): unknown;
-  };
-}
-
-interface ActiveWebGpuStress {
-  backend: 'webgpu-compute';
-  device: WebGpuDeviceLike;
-  computePipeline: WebGpuComputePipelineLike;
-  renderPipeline: WebGpuRenderPipelineLike;
-  renderBindGroup: WebGpuBindGroupLike;
-  storageBuffer: WebGpuBufferLike;
-  timeBuffer: WebGpuBufferLike;
-  frameId: number;
-  workloadLevel: number;
-  startedAt: number;
-  dispatchPasses: number;
-  lastFrameAt: number;
-  adaptiveBucket: number;
-}
-interface ActiveWebGlStress {
-  backend: 'webgl2-fragment' | 'webgl1-fragment';
-  gl: WebGLRenderingContext | WebGL2RenderingContext;
-  program: WebGLProgram;
-  positionBuffer: WebGLBuffer;
-  positionLocation: number;
-  timeLocation: WebGLUniformLocation | null;
-  resLocation: WebGLUniformLocation | null;
-  workloadLocation: WebGLUniformLocation | null;
-  frameId: number;
-  workloadLevel: number;
-  startedAt: number;
-  rampBucket: number;
-  cachedRampLevel: number;
-  lastFrameAt: number;
-}
-
-type ActiveGpuStress = ActiveWebGpuStress | ActiveWebGlStress;
 
 interface ThermalNode {
   x: number;
@@ -132,27 +31,8 @@ interface ThermalNode {
 
 type StressMetricId = 'elapsed' | 'workers' | 'gpu' | 'fps' | 'dropped' | 'iterations';
 
-declare global {
-  const GPUBufferUsage: Record<string, number> | undefined;
-  const GPUTextureUsage: Record<string, number> | undefined;
-
-  interface HTMLCanvasElement {
-    getContext(contextId: 'webgpu'): WebGpuCanvasContextLike | null;
-  }
-}
-
 const DEFAULT_MODE: StressMode = 'both';
 const METRIC_INTERVAL_MS = 250;
-// 1MB keeps the WebGPU stress buffer broadly compatible with integrated GPUs.
-const WEBGPU_STORAGE_ITEMS = 262144;
-// Adaptive WebGPU dispatch: 1–64 compute passes per frame to saturate any GPU.
-const WEBGPU_MAX_DISPATCH_PASSES = 64;
-const WEBGPU_TARGET_FRAME_BUDGET_RATIO = 0.85;
-// Conservative fragment workload ceiling: 30 * 64 = 1920 loop iterations.
-const WEBGL_MAX_WORKLOAD_LEVEL = 30;
-const WEBGL_WORKLOAD_ITERATIONS_PER_LEVEL = 64;
-const WEBGL_FRAGMENT_LOOP_BOUND = WEBGL_MAX_WORKLOAD_LEVEL * WEBGL_WORKLOAD_ITERATIONS_PER_LEVEL;
-const WEBGL_RAMP_INTERVAL_MS = 500;
 const CPU_THERMAL_NODE_COUNT = 42;
 const STRESS_METRIC_HIDE_ORDER: Record<StressMode, StressMetricId[]> = {
   // Hide least relevant metrics first when the control panel is height-limited.
@@ -196,47 +76,6 @@ function getStressTestMaxWorkersOverride() {
   return Number.isFinite(globalValue) ? globalValue : null;
 }
 
-function getNavigatorGpu(): WebGpuLike | null {
-  const gpu = (navigator as Navigator & { gpu?: WebGpuLike }).gpu;
-  return gpu && typeof gpu.requestAdapter === 'function' ? gpu : null;
-}
-
-function getWebGpuUsageFlag(name: string) {
-  const usage = typeof GPUBufferUsage !== 'undefined' ? GPUBufferUsage : undefined;
-  const value = usage?.[name] ?? 0;
-  if (value === 0) {
-    console.warn(`[StressTest] GPUBufferUsage.${name} is unavailable.`);
-  }
-  return value;
-}
-
-function getWebGpuTextureUsageFlag(name: string) {
-  const usage = typeof GPUTextureUsage !== 'undefined' ? GPUTextureUsage : undefined;
-  const value = usage?.[name] ?? 0;
-  if (value === 0) {
-    console.warn(`[StressTest] GPUTextureUsage.${name} is unavailable.`);
-  }
-  return value;
-}
-
-function resolveDisplayRefreshRate() {
-  const refreshRate = (window.screen as Screen & { refreshRate?: number }).refreshRate;
-  return typeof refreshRate === 'number' && Number.isFinite(refreshRate) && refreshRate > 0 ? refreshRate : 60;
-}
-
-function debugStressTest(message: string, error?: unknown) {
-  if (typeof console === 'undefined' || typeof console.debug !== 'function') {
-    return;
-  }
-
-  if (error === undefined) {
-    console.debug(`[StressTest] ${message}`);
-    return;
-  }
-
-  console.debug(`[StressTest] ${message}`, error);
-}
-
 export class StressTestController {
   private readonly root: HTMLElement;
   private readonly modeButtons: HTMLButtonElement[];
@@ -260,7 +99,7 @@ export class StressTestController {
   private state: StressState = 'idle';
   private requestId = 0;
   private workers: StressWorkerRecord[] = [];
-  private gpu: ActiveGpuStress | null = null;
+  private gpu: StressGpuStressHandle | null = null;
   private startedAt = 0;
   private metricFrameId = 0;
   private lastFrameAt = 0;
@@ -434,9 +273,7 @@ export class StressTestController {
       if (shouldStressGpu(this.mode)) {
         const gpu = await this.startGpuStress();
         if (requestId !== this.requestId) {
-          if (gpu && this.gpu === gpu) {
-            this.stopGpuStress({ loseContext: true });
-          }
+          gpu?.stop({ loseContext: true });
           return;
         }
         this.gpu = gpu;
@@ -613,522 +450,46 @@ export class StressTestController {
   }
 
   private async startGpuStress() {
-    const backends = resolveGpuBackendFallbacks({
-      hasWebGpu: Boolean(getNavigatorGpu()),
-      hasWebGl2: this.canCreateContext('webgl2'),
-      hasWebGl1: this.canCreateContext('webgl')
-    });
-
-    for (const backend of backends) {
-      try {
-        if (backend === 'webgpu-compute') {
-          return await this.startWebGpuStress();
-        }
-        if (backend === 'webgl2-fragment') {
-          return this.startWebGlStress('webgl2-fragment');
-        }
-        if (backend === 'webgl1-fragment') {
-          return this.startWebGlStress('webgl1-fragment');
-        }
-      } catch (error) {
-        this.lastError = error instanceof Error ? error.message : String(error);
-        this.stopGpuStress({ loseContext: true });
-      }
-    }
-
-    return null;
-  }
-
-  private canCreateContext(type: 'webgl2' | 'webgl') {
-    let canvas: HTMLCanvasElement | null = document.createElement('canvas');
-    try {
-      return Boolean(canvas.getContext(type, {
-        antialias: false,
-        depth: false,
-        stencil: false,
-        powerPreference: 'high-performance'
-      }));
-    } catch (error) {
-      debugStressTest(`Context probe for "${type}" failed.`, error);
-      return false;
-    } finally {
-      if (canvas) {
-        canvas.width = 0;
-        canvas.height = 0;
-        canvas = null;
-      }
-    }
-  }
-
-  private getWebGlContext(backend: 'webgl2-fragment' | 'webgl1-fragment') {
-    const options = {
-      antialias: false,
-      depth: false,
-      stencil: false,
-      powerPreference: 'high-performance' as const,
-      preserveDrawingBuffer: false
-    };
-
-    if (backend === 'webgl2-fragment') {
-      const ctx = this.canvas.getContext('webgl2', options);
-      return ctx instanceof WebGL2RenderingContext ? ctx : null;
-    }
-
-    const ctx = this.canvas.getContext('webgl', options);
-    return ctx instanceof WebGLRenderingContext ? ctx : null;
-  }
-
-  private async startWebGpuStress(): Promise<ActiveWebGpuStress> {
-    const gpu = getNavigatorGpu();
-    if (!gpu) {
-      throw new Error('WebGPU is unavailable.');
-    }
-    const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
-    if (!adapter) {
-      throw new Error('WebGPU adapter unavailable.');
-    }
-    const device = await adapter.requestDevice();
     this.prepareGpuCanvas();
-    this.syncCanvasSize();
-    const context = this.canvas.getContext('webgpu');
-    if (!context) {
-      throw new Error('WebGPU canvas context unavailable.');
-    }
-
-    const format = gpu.getPreferredCanvasFormat?.() ?? 'bgra8unorm';
-    context.configure({
-      device,
-      format,
-      usage: getWebGpuTextureUsageFlag('RENDER_ATTACHMENT'),
-      alphaMode: 'opaque'
-    });
-
-    const computeModule = device.createShaderModule({
-      code: `
-        struct StressBuffer { values: array<f32> };
-        @group(0) @binding(0) var<storage, read_write> stress: StressBuffer;
-
-        @compute @workgroup_size(256)
-        fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-          let index = id.x % ${WEBGPU_STORAGE_ITEMS}u;
-          var value = stress.values[index] + f32(id.x) * 0.000001;
-          for (var i = 0u; i < 128u; i = i + 1u) {
-            value = sin(value) * cos(value + 0.001) + sqrt(abs(value) + 1.0);
-          }
-          stress.values[index] = fract(value);
-        }
-      `
-    });
-    const renderModule = device.createShaderModule({
-      code: `
-        @group(0) @binding(0) var<uniform> uTime: vec4<f32>;
-
-        @vertex
-        fn vertexMain(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4<f32> {
-          var positions = array<vec2<f32>, 3>(
-            vec2<f32>(-1.0, -1.0),
-            vec2<f32>(3.0, -1.0),
-            vec2<f32>(-1.0, 3.0)
-          );
-          return vec4<f32>(positions[vertexIndex], 0.0, 1.0);
-        }
-
-        @fragment
-        fn fragmentMain(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-          let time = uTime.x;
-          let res = vec2<f32>(uTime.y, uTime.z);
-          let uv = (position.xy - 0.5 * res) / min(res.x, res.y);
-
-          var value = 0.0;
-          for (var i = 0u; i < 96u; i = i + 1u) {
-            let fi = f32(i);
-            let r = length(uv) * 8.0 + fi * 0.03 - time * 0.5;
-            let a = atan2(uv.y, uv.x) + fi * 0.1 + time * 0.05;
-            value = value + sin(r) * cos(a + fi * 0.2) * 0.05;
-          }
-
-          let dist = length(uv);
-          let intensity = smoothstep(1.2, 0.0, dist);
-
-          let hue = value * 0.5 + time * 0.1 + dist * 0.3;
-          let r = sin(hue * 6.28318 + 0.0) * 0.5 + 0.5;
-          let g = sin(hue * 6.28318 + 2.09439) * 0.5 + 0.5;
-          let b = sin(hue * 6.28318 + 4.18879) * 0.5 + 0.5;
-
-          let col = vec3<f32>(r, g, b) * intensity * 0.85;
-          return vec4<f32>(col, 1.0);
-        }
-      `
-    });
-    const bindGroupLayout = device.createBindGroupLayout({
-      entries: [
-        {
-          binding: 0,
-          visibility: 4,
-          buffer: { type: 'storage' }
-        }
-      ]
-    });
-    const pipelineLayout = device.createPipelineLayout({
-      bindGroupLayouts: [bindGroupLayout]
-    });
-    const computePipeline = device.createComputePipeline({
-      layout: pipelineLayout,
-      compute: {
-        module: computeModule,
-        entryPoint: 'main'
-      }
-    });
-    const renderPipeline = device.createRenderPipeline({
-      layout: 'auto',
-      vertex: {
-        module: renderModule,
-        entryPoint: 'vertexMain'
+    const gpu = await startAdaptiveGpuStress(this.canvas, {
+      onFrame: () => {
+        this.recordRenderFrame();
       },
-      fragment: {
-        module: renderModule,
-        entryPoint: 'fragmentMain',
-        targets: [{ format }]
+      onWorkloadLevel: (level) => {
+        this.gpuWorkloadLevel = Math.max(0, Math.floor(level));
       },
-      primitive: {
-        topology: 'triangle-list'
+      onCanvasActive: (active) => {
+        this.gpuCanvasActive = active;
+      },
+      onAsyncError: (message) => {
+        this.handleGpuStressFailure(message);
       }
     });
-    const storageBuffer = device.createBuffer({
-      size: WEBGPU_STORAGE_ITEMS * 4,
-      usage: getWebGpuUsageFlag('STORAGE') | getWebGpuUsageFlag('COPY_DST')
-    });
-    const computeBindGroup = device.createBindGroup({
-      layout: bindGroupLayout,
-      entries: [
-        {
-          binding: 0,
-          resource: { buffer: storageBuffer }
-        }
-      ]
-    });
 
-    const timeBuffer = device.createBuffer({
-      size: 16,
-      usage: getWebGpuUsageFlag('UNIFORM') | getWebGpuUsageFlag('COPY_DST')
-    });
-    const renderBindGroup = device.createBindGroup({
-      layout: renderPipeline.getBindGroupLayout(0),
-      entries: [
-        {
-          binding: 0,
-          resource: { buffer: timeBuffer }
-        }
-      ]
-    });
-
-    const active: ActiveWebGpuStress = {
-      backend: 'webgpu-compute',
-      device,
-      computePipeline,
-      renderPipeline,
-      renderBindGroup,
-      storageBuffer,
-      timeBuffer,
-      frameId: 0,
-      workloadLevel: 1,
-      startedAt: 0,
-      dispatchPasses: 1,
-      lastFrameAt: 0,
-      adaptiveBucket: -1
-    };
-    const timeUniform = new Float32Array(4);
-
-    device.lost.then((info) => {
-      if (this.gpu !== active) {
-        return;
-      }
-      window.cancelAnimationFrame(active.frameId);
-      active.frameId = 0;
-      this.stopGpuStress({ loseContext: true });
-      const reason = info.message ?? 'Unknown reason';
-      this.lastError = `WebGPU device lost: ${reason}`;
-      this.gpuBackend = 'none';
-      if (this.mode === 'both' && this.workers.length > 0) {
-        this.setState(transitionStressState(this.state, 'running'), 'GPU device was lost; CPU stress is still running.');
-        this.startCpuVisuals();
-      } else {
-        this.stopCpuStress();
-        this.stopMetricLoop();
-        this.stopCpuVisuals();
-        this.setState('error', this.lastError);
-      }
-      this.syncMetrics(true);
-    }).catch((error) => {
-      console.error('[StressTest] WebGPU device loss handling failed.', error);
-    });
-
-    const frame = () => {
-      if (this.gpu !== active) {
-        return;
-      }
-      active.startedAt ||= readNow();
-
-      // Measure instantaneous GPU frame time via rAF delta
-      const now = readNow();
-      const frameDelta = active.lastFrameAt ? now - active.lastFrameAt : 16.67;
-      active.lastFrameAt = now;
-
-      // Adaptive scaling every 500ms
-      const bucket = Math.floor(now / 500);
-      if (bucket !== active.adaptiveBucket && frameDelta > 0) {
-        active.adaptiveBucket = bucket;
-        const targetMs = (1000 / resolveDisplayRefreshRate()) * WEBGPU_TARGET_FRAME_BUDGET_RATIO;
-        if (frameDelta < targetMs * 0.5) {
-          active.dispatchPasses = Math.min(WEBGPU_MAX_DISPATCH_PASSES, active.dispatchPasses * 2);
-        } else if (frameDelta > targetMs * 1.2) {
-          active.dispatchPasses = Math.max(1, Math.floor(active.dispatchPasses / 2));
-        }
-      }
-
-      const encoder = device.createCommandEncoder();
-      for (let p = 0; p < active.dispatchPasses; p++) {
-        const computePass = encoder.beginComputePass();
-        computePass.setPipeline(computePipeline);
-        computePass.setBindGroup(0, computeBindGroup);
-        computePass.dispatchWorkgroups(4096);
-        computePass.end();
-      }
-
-      // Update time uniform
-      const elapsed = now - active.startedAt;
-      timeUniform[0] = elapsed * 0.001;
-      timeUniform[1] = this.canvas.width;
-      timeUniform[2] = this.canvas.height;
-      timeUniform[3] = 0;
-      device.queue.writeBuffer(timeBuffer, 0, timeUniform);
-
-      const renderPass = encoder.beginRenderPass({
-        colorAttachments: [
-          {
-            view: context.getCurrentTexture().createView(),
-            clearValue: { r: 0, g: 0, b: 0, a: 1 },
-            loadOp: 'clear',
-            storeOp: 'store'
-          }
-        ]
-      });
-      renderPass.setPipeline(renderPipeline);
-      renderPass.setBindGroup(0, renderBindGroup);
-      renderPass.draw(3);
-      renderPass.end();
-      device.queue.submit([encoder.finish()]);
-      this.gpuWorkloadLevel = active.dispatchPasses;
-      this.gpuCanvasActive = true;
-      this.recordRenderFrame();
-      active.frameId = window.requestAnimationFrame(frame);
-    };
-
-    this.gpu = active;
-    active.frameId = window.requestAnimationFrame(frame);
-    return active;
+    return gpu;
   }
 
-  private startWebGlStress(backend: 'webgl2-fragment' | 'webgl1-fragment'): ActiveWebGlStress | null {
-    const contextType = backend === 'webgl2-fragment' ? 'webgl2' : 'webgl';
-    if (!this.canCreateContext(contextType)) {
-      return null;
+  private handleGpuStressFailure(message: string) {
+    if (!this.gpu) {
+      return;
     }
 
-    this.prepareGpuCanvas();
-    const gl = this.getWebGlContext(backend);
-    if (!gl) {
-      return null;
-    }
+    this.stopGpuStress({ loseContext: true });
+    this.gpuBackend = 'none';
+    this.gpuWorkloadLevel = 0;
+    this.gpuCanvasActive = false;
+    this.lastError = message;
 
-    this.syncCanvasSize();
-    const isWebGl2 = backend === 'webgl2-fragment';
-    const vertexShader = this.compileShader(
-      gl,
-      gl.VERTEX_SHADER,
-      isWebGl2
-        ? `#version 300 es
-      in vec2 a_position;
-      void main() {
-        gl_Position = vec4(a_position, 0.0, 1.0);
-      }`
-        : `
-      attribute vec2 a_position;
-      void main() {
-        gl_Position = vec4(a_position, 0.0, 1.0);
-      }`
-    );
-    const fragmentShader = this.compileShader(
-      gl,
-      gl.FRAGMENT_SHADER,
-      isWebGl2
-        ? `#version 300 es
-      precision highp float;
-      uniform float u_time;
-      uniform vec2 u_resolution;
-      uniform float u_workload;
-      out vec4 out_color;
-      void main() {
-        vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / min(u_resolution.x, u_resolution.y);
-        float time = u_time;
-
-        float value = 0.0;
-        for (int i = 0; i < ${WEBGL_FRAGMENT_LOOP_BOUND}; i++) {
-          if (float(i) >= u_workload) {
-            break;
-          }
-          float fi = float(i);
-          float r = length(uv) * 8.0 + fi * 0.03 - time * 0.5;
-          float a = atan(uv.y, uv.x) + fi * 0.1 + time * 0.05;
-          value = value + sin(r) * cos(a + fi * 0.2) * 0.05;
-        }
-
-        float dist = length(uv);
-        float intensity = smoothstep(1.2, 0.0, dist);
-
-        float hue = value * 0.5 + time * 0.1 + dist * 0.3;
-        float r = sin(hue * 6.28318 + 0.0) * 0.5 + 0.5;
-        float g = sin(hue * 6.28318 + 2.09439) * 0.5 + 0.5;
-        float b = sin(hue * 6.28318 + 4.18879) * 0.5 + 0.5;
-
-        vec3 col = vec3(r, g, b) * intensity * 0.85;
-        out_color = vec4(col, 1.0);
-      }`
-        : `
-      precision highp float;
-      uniform float u_time;
-      uniform vec2 u_resolution;
-      uniform float u_workload;
-      void main() {
-        vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / min(u_resolution.x, u_resolution.y);
-        float time = u_time;
-
-        float value = 0.0;
-        for (int i = 0; i < ${WEBGL_FRAGMENT_LOOP_BOUND}; i++) {
-          if (float(i) >= u_workload) {
-            break;
-          }
-          float fi = float(i);
-          float r = length(uv) * 8.0 + fi * 0.03 - time * 0.5;
-          float a = atan(uv.y, uv.x) + fi * 0.1 + time * 0.05;
-          value = value + sin(r) * cos(a + fi * 0.2) * 0.05;
-        }
-
-        float dist = length(uv);
-        float intensity = smoothstep(1.2, 0.0, dist);
-
-        float hue = value * 0.5 + time * 0.1 + dist * 0.3;
-        float r = sin(hue * 6.28318 + 0.0) * 0.5 + 0.5;
-        float g = sin(hue * 6.28318 + 2.09439) * 0.5 + 0.5;
-        float b = sin(hue * 6.28318 + 4.18879) * 0.5 + 0.5;
-
-        vec3 col = vec3(r, g, b) * intensity * 0.85;
-        gl_FragColor = vec4(col, 1.0);
-      }`
-    );
-    const program = gl.createProgram();
-    if (!program) {
-      return null;
-    }
-    gl.attachShader(program, vertexShader);
-    gl.attachShader(program, fragmentShader);
-    gl.linkProgram(program);
-    gl.deleteShader(vertexShader);
-    gl.deleteShader(fragmentShader);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      const message = gl.getProgramInfoLog(program) ?? `${backend} stress shader failed to link.`;
-      gl.deleteProgram(program);
-      throw new Error(message);
-    }
-
-    const positionBuffer = gl.createBuffer();
-    if (!positionBuffer) {
-      gl.deleteProgram(program);
-      return null;
-    }
-    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-    gl.bufferData(
-      gl.ARRAY_BUFFER,
-      new Float32Array([-1, -1, 3, -1, -1, 3]),
-      gl.STATIC_DRAW
-    );
-
-    const active: ActiveWebGlStress = {
-      backend,
-      gl,
-      program,
-      positionBuffer,
-      positionLocation: gl.getAttribLocation(program, 'a_position'),
-      timeLocation: gl.getUniformLocation(program, 'u_time'),
-      resLocation: gl.getUniformLocation(program, 'u_resolution'),
-      workloadLocation: gl.getUniformLocation(program, 'u_workload'),
-      frameId: 0,
-      workloadLevel: 1,
-      startedAt: 0,
-      rampBucket: -1,
-      cachedRampLevel: 1,
-      lastFrameAt: 0
-    };
-
-    const frame = () => {
-      if (this.gpu !== active) {
-        return;
-      }
-      const now = readNow();
-      active.startedAt ||= now;
-      active.workloadLevel = this.resolveWebGlWorkloadLevel(active, now);
-      gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-      gl.useProgram(program);
-      gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-      if (active.positionLocation >= 0) {
-        gl.enableVertexAttribArray(active.positionLocation);
-        gl.vertexAttribPointer(active.positionLocation, 2, gl.FLOAT, false, 0, 0);
-      }
-      const elapsed = now - active.startedAt;
-      if (active.timeLocation) {
-        gl.uniform1f(active.timeLocation, elapsed * 0.001);
-      }
-      if (active.resLocation) {
-        gl.uniform2f(active.resLocation, this.canvas.width, this.canvas.height);
-      }
-      if (active.workloadLocation) {
-        gl.uniform1f(active.workloadLocation, 192 * active.workloadLevel);
-      }
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
-      gl.flush();
-      this.gpuWorkloadLevel = active.workloadLevel;
-      this.gpuCanvasActive = true;
-      this.recordRenderFrame();
-      active.frameId = window.requestAnimationFrame(frame);
-    };
-
-    this.gpu = active;
-    active.frameId = window.requestAnimationFrame(frame);
-    return active;
-  }
-
-  private resolveWebGlWorkloadLevel(active: ActiveWebGlStress, now: number) {
-    const elapsed = now - active.startedAt;
-    const bucket = Math.floor(elapsed / WEBGL_RAMP_INTERVAL_MS);
-    if (active.rampBucket !== bucket) {
-      active.rampBucket = bucket;
-      active.cachedRampLevel = 1 + bucket;
-    }
-
-    const frameDelta = active.lastFrameAt ? now - active.lastFrameAt : 16.67;
-    active.lastFrameAt = now;
-    const targetMs = (1000 / resolveDisplayRefreshRate()) * WEBGPU_TARGET_FRAME_BUDGET_RATIO;
-
-    let level = active.workloadLevel;
-    if (frameDelta > 0 && frameDelta < targetMs * 0.5) {
-      level = Math.min(WEBGL_MAX_WORKLOAD_LEVEL, Math.max(level, active.cachedRampLevel + 2));
-    } else if (frameDelta > targetMs * 1.2) {
-      level = Math.max(1, Math.floor(level / 2));
+    if (this.mode === 'both' && this.workers.length > 0) {
+      this.setState(transitionStressState(this.state, 'running'), 'GPU stress stopped; CPU stress is still running.');
+      this.startCpuVisuals();
     } else {
-      level = Math.max(level, active.cachedRampLevel);
+      this.stopCpuStress();
+      this.stopMetricLoop();
+      this.stopCpuVisuals();
+      this.setState('error', message);
     }
-
-    return Math.min(WEBGL_MAX_WORKLOAD_LEVEL, level);
+    this.syncMetrics(true);
   }
 
   private stopGpuStress({ loseContext = false }: { loseContext?: boolean } = {}) {
@@ -1136,39 +497,8 @@ export class StressTestController {
       return;
     }
 
-    window.cancelAnimationFrame(this.gpu.frameId);
-    if (this.gpu.backend === 'webgpu-compute') {
-      this.gpu.storageBuffer.destroy?.();
-      this.gpu.timeBuffer.destroy?.();
-      this.gpu.device.destroy?.();
-    } else {
-      const gl = this.gpu.gl;
-      gl.deleteProgram(this.gpu.program);
-      gl.deleteBuffer(this.gpu.positionBuffer);
-      if (loseContext) {
-        gl.getExtension('WEBGL_lose_context')?.loseContext();
-      }
-    }
+    this.gpu.stop({ loseContext });
     this.gpu = null;
-  }
-
-  private compileShader(gl: WebGLRenderingContext | WebGL2RenderingContext, type: number, source: string) {
-    if (type !== gl.VERTEX_SHADER && type !== gl.FRAGMENT_SHADER) {
-      throw new Error(`Unsupported WebGL shader type: ${type}`);
-    }
-    const shader = gl.createShader(type);
-    const backendLabel = 'texImage3D' in gl ? 'WebGL2' : 'WebGL1';
-    if (!shader) {
-      throw new Error(`Unable to create ${backendLabel} shader.`);
-    }
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      const message = gl.getShaderInfoLog(shader) ?? `${backendLabel} shader failed to compile.`;
-      gl.deleteShader(shader);
-      throw new Error(message);
-    }
-    return shader;
   }
 
   private startCpuVisuals() {
