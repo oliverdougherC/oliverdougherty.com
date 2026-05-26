@@ -20,7 +20,7 @@
     return match ? match[1] : '';
   }
 
-  function highlightBlogCode() {
+  window.highlightBlogCode = function highlightBlogCode() {
     var root = document.querySelector('.blog-body');
     if (!root || typeof Prism === 'undefined') return;
 

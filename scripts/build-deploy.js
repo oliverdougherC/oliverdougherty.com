@@ -25,7 +25,8 @@ const ROOT_ENTRIES = [
   'favicon-happy.svg',
   'favicon-happy.ico',
   'favicon-sad.svg',
-  'favicon-sad.ico'
+  'favicon-sad.ico',
+  'blogs'
 ];
 
 function relPath(filePath) {
@@ -77,6 +78,11 @@ function bytesToMB(bytes) {
 
 function main() {
   console.log('Build Deploy Script');
+  // Generate blog manifest from .md files
+  const buildBlogManifestPath = path.join(__dirname, 'build-blog-manifest.js');
+  if (fs.existsSync(buildBlogManifestPath)) {
+    require(buildBlogManifestPath);
+  }
   console.log('='.repeat(60));
 
   assertExists(path.join(ASSET_PHOTOS_DIR, 'photos.json'));

@@ -11,7 +11,7 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `mobile/resume/index.html`: dedicated mobile Resume page.
 - `pages/resume/index.html`: resume page using the shared site shell.
 - `pages/gallery/index.html`: editorial photo gallery powered by JSON metadata in `assets/photos/`.
-- `pages/blog/index.html`: blank blog page placeholder.
+- `pages/blog/index.html`: markdown-driven blog SPA with hash routing (`#post=<slug>`), powered by `blogs/` directory and `js/blog.js`.
 - `pages/archive/index.html`: archive index for technical writeups.
 - `pages/archive/*/*.html`: article-style archive pages using the abstract/article layout.
 - `pages/utilities/index.html`: utilities page shell.
@@ -24,6 +24,9 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `js/year.js`: footer year updates and color-mode toggle handling.
 - `js/archive.js`: archive index filtering/search.
 - `js/gallery.js`: metadata-driven gallery rendering and lightbox behavior.
+- `js/blog.js`: blog SPA engine — fetches `blogs/manifest.json`, parses markdown via `marked`, hash routes posts, builds sidebar.
+- `js/blog-code-highlight.js`: Prism-based code highlighting for blog posts (exports `window.highlightBlogCode()`).
+- `js/blog-math.js`: KaTeX math rendering for blog posts (exports `window.renderBlogMath()`).
 - `js/starfield.js`: landing page background starfield animation.
 - `js/utilities-shell.js`: tabbed utilities dashboard shell (routing between utility panels).
 - `js/local-llm-chat.js`: Local LLM chat UI controller.

@@ -5,6 +5,7 @@
   "description": "oliverdougherty.com static site",
   "scripts": {
     "setup": "bash scripts/setup.sh",
+    "build:blog": "node scripts/build-blog-manifest.js",
     "optimize-images": "node scripts/optimize-images.js",
     "build:deploy": "node scripts/build-deploy.js",
     "utilities:build": "vite build --config config/vite.utilities.mts",
