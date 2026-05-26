@@ -98,8 +98,10 @@ interface ActiveWebGpuStress {
   frameId: number;
   workloadLevel: number;
   startedAt: number;
+  dispatchPasses: number;
+  lastFrameAt: number;
+  adaptiveBucket: number;
 }
-
 interface ActiveWebGlStress {
   backend: 'webgl2-fragment' | 'webgl1-fragment';
   gl: WebGLRenderingContext | WebGL2RenderingContext;
@@ -114,6 +116,7 @@ interface ActiveWebGlStress {
   startedAt: number;
   rampBucket: number;
   cachedRampLevel: number;
+  lastFrameAt: number;
 }
 
 type ActiveGpuStress = ActiveWebGpuStress | ActiveWebGlStress;
@@ -142,10 +145,14 @@ const DEFAULT_MODE: StressMode = 'both';
 const METRIC_INTERVAL_MS = 250;
 // 1MB keeps the WebGPU stress buffer broadly compatible with integrated GPUs.
 const WEBGPU_STORAGE_ITEMS = 262144;
-// Conservative fragment workload ceiling: 6 * 64 = 384 loop iterations.
-const WEBGL_MAX_WORKLOAD_LEVEL = 6;
+// Adaptive WebGPU dispatch: 1–64 compute passes per frame to saturate any GPU.
+const WEBGPU_MAX_DISPATCH_PASSES = 64;
+const WEBGPU_TARGET_FRAME_BUDGET_RATIO = 0.85;
+// Conservative fragment workload ceiling: 30 * 64 = 1920 loop iterations.
+const WEBGL_MAX_WORKLOAD_LEVEL = 30;
 const WEBGL_WORKLOAD_ITERATIONS_PER_LEVEL = 64;
 const WEBGL_FRAGMENT_LOOP_BOUND = WEBGL_MAX_WORKLOAD_LEVEL * WEBGL_WORKLOAD_ITERATIONS_PER_LEVEL;
+const WEBGL_RAMP_INTERVAL_MS = 500;
 const CPU_THERMAL_NODE_COUNT = 42;
 const STRESS_METRIC_HIDE_ORDER: Record<StressMode, StressMetricId[]> = {
   // Hide least relevant metrics first when the control panel is height-limited.
@@ -825,7 +832,10 @@ export class StressTestController {
       timeBuffer,
       frameId: 0,
       workloadLevel: 1,
-      startedAt: 0
+      startedAt: 0,
+      dispatchPasses: 1,
+      lastFrameAt: 0,
+      adaptiveBucket: -1
     };
     const timeUniform = new Float32Array(4);
 
@@ -858,16 +868,36 @@ export class StressTestController {
         return;
       }
       active.startedAt ||= readNow();
+
+      // Measure instantaneous GPU frame time via rAF delta
+      const now = readNow();
+      const frameDelta = active.lastFrameAt ? now - active.lastFrameAt : 16.67;
+      active.lastFrameAt = now;
+
+      // Adaptive scaling every 500ms
+      const bucket = Math.floor(now / 500);
+      if (bucket !== active.adaptiveBucket && frameDelta > 0) {
+        active.adaptiveBucket = bucket;
+        const targetMs = (1000 / resolveDisplayRefreshRate()) * WEBGPU_TARGET_FRAME_BUDGET_RATIO;
+        if (frameDelta < targetMs * 0.5) {
+          active.dispatchPasses = Math.min(WEBGPU_MAX_DISPATCH_PASSES, active.dispatchPasses * 2);
+        } else if (frameDelta > targetMs * 1.2) {
+          active.dispatchPasses = Math.max(1, Math.floor(active.dispatchPasses / 2));
+        }
+      }
+
       const encoder = device.createCommandEncoder();
-      const computePass = encoder.beginComputePass();
-      computePass.setPipeline(computePipeline);
-      computePass.setBindGroup(0, computeBindGroup);
-      computePass.dispatchWorkgroups(4096);
-      computePass.end();
+      for (let p = 0; p < active.dispatchPasses; p++) {
+        const computePass = encoder.beginComputePass();
+        computePass.setPipeline(computePipeline);
+        computePass.setBindGroup(0, computeBindGroup);
+        computePass.dispatchWorkgroups(4096);
+        computePass.end();
+      }
 
       // Update time uniform
-      const now = readNow() - active.startedAt;
-      timeUniform[0] = now * 0.001;
+      const elapsed = now - active.startedAt;
+      timeUniform[0] = elapsed * 0.001;
       timeUniform[1] = this.canvas.width;
       timeUniform[2] = this.canvas.height;
       timeUniform[3] = 0;
@@ -888,7 +918,7 @@ export class StressTestController {
       renderPass.draw(3);
       renderPass.end();
       device.queue.submit([encoder.finish()]);
-      this.gpuWorkloadLevel = active.workloadLevel;
+      this.gpuWorkloadLevel = active.dispatchPasses;
       this.gpuCanvasActive = true;
       this.recordRenderFrame();
       active.frameId = window.requestAnimationFrame(frame);
@@ -1036,7 +1066,8 @@ export class StressTestController {
       workloadLevel: 1,
       startedAt: 0,
       rampBucket: -1,
-      cachedRampLevel: 1
+      cachedRampLevel: 1,
+      lastFrameAt: 0
     };
 
     const frame = () => {
@@ -1078,16 +1109,26 @@ export class StressTestController {
 
   private resolveWebGlWorkloadLevel(active: ActiveWebGlStress, now: number) {
     const elapsed = now - active.startedAt;
-    const rampBucket = Math.floor(elapsed / 750);
-    if (active.rampBucket !== rampBucket) {
-      active.rampBucket = rampBucket;
-      active.cachedRampLevel = 1 + rampBucket;
+    const bucket = Math.floor(elapsed / WEBGL_RAMP_INTERVAL_MS);
+    if (active.rampBucket !== bucket) {
+      active.rampBucket = bucket;
+      active.cachedRampLevel = 1 + bucket;
     }
-    const targetRefreshRate = resolveDisplayRefreshRate();
-    const framePressureLevel = this.lastFps > 0 && this.lastFps < targetRefreshRate * 0.75
-      ? active.workloadLevel
-      : Math.max(active.workloadLevel, active.cachedRampLevel);
-    return Math.min(WEBGL_MAX_WORKLOAD_LEVEL, framePressureLevel);
+
+    const frameDelta = active.lastFrameAt ? now - active.lastFrameAt : 16.67;
+    active.lastFrameAt = now;
+    const targetMs = (1000 / resolveDisplayRefreshRate()) * WEBGPU_TARGET_FRAME_BUDGET_RATIO;
+
+    let level = active.workloadLevel;
+    if (frameDelta > 0 && frameDelta < targetMs * 0.5) {
+      level = Math.min(WEBGL_MAX_WORKLOAD_LEVEL, Math.max(level, active.cachedRampLevel + 2));
+    } else if (frameDelta > targetMs * 1.2) {
+      level = Math.max(1, Math.floor(level / 2));
+    } else {
+      level = Math.max(level, active.cachedRampLevel);
+    }
+
+    return Math.min(WEBGL_MAX_WORKLOAD_LEVEL, level);
   }
 
   private stopGpuStress({ loseContext = false }: { loseContext?: boolean } = {}) {

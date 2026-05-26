@@ -41,6 +41,7 @@ interface EmulatorLike {
   add_listener(event: string, listener: (value?: unknown) => void): void;
   remove_listener(event: string, listener: (value?: unknown) => void): void;
   destroy(): Promise<void>;
+  keyboard_send_scancodes?(codes: number[], delay?: number): Promise<void>;
   keyboard_send_keys(keys: number[], delay?: number): Promise<void>;
   keyboard_send_text(text: string, delay?: number): Promise<void>;
   screen_set_scale(scaleX: number, scaleY?: number): void;
@@ -56,9 +57,14 @@ class FakeRetroVm implements EmulatorLike {
   };
   private readonly listeners = new Map<string, Set<(value?: unknown) => void>>();
   private readonly cdromSizeBytes: number;
+  private readonly testScreenSizeHandler = (event: Event) => {
+    const detail = event instanceof CustomEvent ? event.detail : undefined;
+    this.emit('screen-set-size', detail);
+  };
 
   constructor(cdromSizeBytes: number) {
     this.cdromSizeBytes = cdromSizeBytes;
+    document.addEventListener('retro-vm-test-screen-set-size', this.testScreenSizeHandler);
     window.setTimeout(() => {
       this.emit('download-progress', {
         file_index: 0,
@@ -84,10 +90,21 @@ class FakeRetroVm implements EmulatorLike {
   }
 
   async destroy() {
+    document.removeEventListener('retro-vm-test-screen-set-size', this.testScreenSizeHandler);
     this.listeners.clear();
   }
 
-  async keyboard_send_keys() {}
+  async keyboard_send_scancodes(codes: number[]) {
+    document.dispatchEvent(new CustomEvent('retro-vm-test-keyboard', {
+      detail: { method: 'keyboard_send_scancodes', codes }
+    }));
+  }
+
+  async keyboard_send_keys(keys: number[]) {
+    document.dispatchEvent(new CustomEvent('retro-vm-test-keyboard', {
+      detail: { method: 'keyboard_send_keys', keys }
+    }));
+  }
 
   async keyboard_send_text() {}
 
@@ -589,6 +606,10 @@ class RetroVmMouseBridge {
     const { x, y, width, height } = this.lastAbsolutePosition;
     bus.send('mouse-absolute', [x, y, width, height]);
   }
+
+  isPointerLocked() {
+    return this.pointerLocked;
+  }
 }
 
 export class RetroVmController {
@@ -966,7 +987,7 @@ export class RetroVmController {
   }
 
   private async autoAdvanceBootMenu() {
-    if (!this.emulator || window.__OD_RETRO_VM_TEST_MODE__ || !this.config.bootMenuPrompt) {
+    if (!this.emulator || !this.config.bootMenuPrompt) {
       return;
     }
 
@@ -1002,7 +1023,13 @@ export class RetroVmController {
 
   private async dispatchEnterKey() {
     this.screenContainer.focus();
-    await this.emulator?.keyboard_send_keys([28]);
+    const enterMakeCode = 0x1c;
+    const enterBreakCode = enterMakeCode | 0x80;
+    if (this.emulator?.keyboard_send_scancodes) {
+      await this.emulator.keyboard_send_scancodes([enterMakeCode, enterBreakCode], 20);
+      return;
+    }
+    await this.emulator?.keyboard_send_keys([13]);
   }
 
   private syncGraphicalMode() {
@@ -1012,7 +1039,7 @@ export class RetroVmController {
       this.guestBpp > 0;
     this.graphicalModeActive = canvasVisible;
     this.root.dataset.vmGraphical = canvasVisible ? 'true' : 'false';
-    if (!canvasVisible) {
+    if (!canvasVisible && !this.mouseBridge.isPointerLocked()) {
       this.setCaptureState('uncaptured');
     }
   }

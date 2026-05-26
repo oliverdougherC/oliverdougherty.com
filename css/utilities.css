@@ -2628,9 +2628,9 @@ html[data-active-utility] .nav-back-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 1 clamp(14rem, 24vw, 18rem);
-  inline-size: clamp(14rem, 24vw, 18rem);
-  max-inline-size: min(18rem, 40vw);
+  flex: 0 1 clamp(18rem, 32vw, 24rem);
+  inline-size: clamp(18rem, 32vw, 24rem);
+  max-inline-size: min(24rem, 46vw);
   min-block-size: 1.55rem;
   line-height: 1;
   overflow: hidden;

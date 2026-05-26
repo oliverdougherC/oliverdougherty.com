@@ -174,6 +174,30 @@ describe('RetroVmController', () => {
       expect(dom.launchBtn.disabled).toBe(true);
     });
 
+    it('sends raw Enter scancodes when the boot prompt is visible', async () => {
+      const dom = buildVmDom();
+      const controller = new RetroVmController(dom.root);
+      const keyboardEvents: Array<{ method: string; codes?: number[]; keys?: number[] }> = [];
+      const onKeyboard = (event: Event) => {
+        keyboardEvents.push((event as CustomEvent).detail);
+      };
+      document.addEventListener('retro-vm-test-keyboard', onKeyboard);
+
+      try {
+        controller.init();
+        dom.launchBtn.click();
+
+        await vi.waitFor(() => {
+          expect(keyboardEvents).toContainEqual({
+            method: 'keyboard_send_scancodes',
+            codes: [0x1c, 0x9c]
+          });
+        }, { timeout: 2000 });
+      } finally {
+        document.removeEventListener('retro-vm-test-keyboard', onKeyboard);
+      }
+    });
+
     it('creates exactly one canvas after boot', async () => {
       const dom = buildVmDom();
       const controller = new RetroVmController(dom.root);
@@ -226,6 +250,32 @@ describe('RetroVmController', () => {
       controller.init();
 
       expect(dom.resetBtn.disabled).toBe(true);
+    });
+  });
+
+  describe('capture state', () => {
+    it('does not clear captured copy during transient text-mode screen resize events', async () => {
+      const dom = buildVmDom();
+      const controller = new RetroVmController(dom.root);
+      controller.init();
+
+      dom.launchBtn.click();
+      await vi.waitFor(() => {
+        expect(dom.root.dataset.vmState).toBe('running');
+      }, { timeout: 2000 });
+
+      dom.screenContainer.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+      await vi.waitFor(() => {
+        expect(dom.root.dataset.vmCaptureState).toBe('captured');
+      }, { timeout: 2000 });
+
+      document.dispatchEvent(new CustomEvent('retro-vm-test-screen-set-size', {
+        detail: [80, 25, 0]
+      }));
+
+      expect(dom.root.dataset.vmGraphical).toBe('false');
+      expect(dom.root.dataset.vmCaptureState).toBe('captured');
+      expect(dom.captureBadge.textContent).toMatch(/Mouse captured/i);
     });
   });
 
