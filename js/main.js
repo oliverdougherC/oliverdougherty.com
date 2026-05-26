@@ -537,7 +537,7 @@
     }
 
     const isViewportBoundaryEvent = (event) => {
-      return event.relatedTarget === null && event.toElement == null;
+      return event.relatedTarget === null && event.toElement === null;
     };
 
     function handleViewportExit(event) {
@@ -996,7 +996,6 @@
 
     let revealTimer = null;
     let revealed = false;
-    const DOUGHERTY_SEQUENCE_MS = DOUGHERTY_BLUEPRINT_SEQUENCE_MS;
 
     const finishBlueprintAnimations = () => {
       const root = document.querySelector('.blueprint-title');
@@ -1044,7 +1043,7 @@
     window.addEventListener('scroll', onScrollMaybePastDougherty, { passive: true });
 
     // Deferred elements reveal when the blueprint completes
-    revealTimer = window.setTimeout(reveal, DOUGHERTY_SEQUENCE_MS);
+    revealTimer = window.setTimeout(reveal, DOUGHERTY_BLUEPRINT_SEQUENCE_MS);
   }
 
   /**
