@@ -140,11 +140,6 @@ function isV86DownloadProgress(value: unknown): value is V86DownloadProgress {
  */
 function showConfirmModal(message: string): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    // Fallback if document is not available (e.g., SSR or aggressive CSP)
-    if (typeof document === 'undefined' || typeof window.confirm === 'function') {
-      // Use window.confirm only as last resort — prefer the custom modal below
-    }
-
     const overlay = document.createElement('div');
     overlay.className = 'retro-vm-confirm-overlay';
     overlay.setAttribute('role', 'dialog');
@@ -213,7 +208,7 @@ function showConfirmModal(message: string): Promise<boolean> {
       'cursor:pointer'
     ].join(';');
     cancelBtn.addEventListener('click', () => {
-      overlay.remove();
+      handleCleanup();
       resolve(false);
     });
 
@@ -232,7 +227,7 @@ function showConfirmModal(message: string): Promise<boolean> {
       'font-weight:500'
     ].join(';');
     confirmBtn.addEventListener('click', () => {
-      overlay.remove();
+      handleCleanup();
       resolve(true);
     });
 
@@ -248,25 +243,32 @@ function showConfirmModal(message: string): Promise<boolean> {
     cancelBtn.focus();
 
     // Close on Escape
-    const handleKey = (e: KeyboardEvent) => {
+    let handleKey: ((e: KeyboardEvent) => void) | null = (e) => {
       if (e.key === 'Escape') {
-        handleDismiss();
+        handleCleanup();
+        resolve(false);
       }
     };
 
     // Close on overlay click (outside dialog)
-    const handleOverlayClick = (e: MouseEvent) => {
+    let handleOverlayClick: ((e: MouseEvent) => void) | null = (e) => {
       if (e.target === overlay) {
-        handleDismiss();
+        handleCleanup();
+        resolve(false);
       }
     };
 
-    const handleDismiss = () => {
-      document.removeEventListener('keydown', handleKey);
-      overlay.removeEventListener('click', handleOverlayClick);
+    function handleCleanup() {
+      if (handleKey) {
+        document.removeEventListener('keydown', handleKey);
+        handleKey = null;
+      }
+      if (handleOverlayClick) {
+        overlay.removeEventListener('click', handleOverlayClick);
+        handleOverlayClick = null;
+      }
       overlay.remove();
-      resolve(false);
-    };
+    }
 
     document.addEventListener('keydown', handleKey);
     overlay.addEventListener('click', handleOverlayClick);
@@ -287,6 +289,7 @@ class RetroVmMouseBridge {
   private pointerLocked = false;
   private lockRequested = false;
   private absoluteMouseMoveAttached = false;
+  private cachedRect: DOMRect | null = null;
   private lastAbsolutePosition: { x: number; y: number; width: number; height: number } | null = null;
   private readonly onMouseMove = (event: MouseEvent) => {
     this.sendAbsolutePosition(event);
@@ -442,29 +445,19 @@ class RetroVmMouseBridge {
     event.preventDefault();
   }
 
+  private getRect(): DOMRect {
+    if (this.cachedRect === null) {
+      this.cachedRect = this.root.getBoundingClientRect();
+    }
+    return this.cachedRect;
+  }
+
+  invalidateRectCache() {
+    this.cachedRect = null;
+  }
+
   private sendAbsolutePosition(event: MouseEvent) {
-    if (this.pointerLocked) {
-      return;
-    }
-
-    const bus = this.getBus();
-    const viewport = this.getGuestViewport();
-    if (!bus || viewport.scale <= 0) {
-      return;
-    }
-
-    const rect = this.root.getBoundingClientRect();
-    if (!isPointInsideRect(event.clientX, event.clientY, rect)) {
-      return;
-    }
-    const safeScale = viewport.scale || 1;
-    const rawX = event.clientX - rect.left - viewport.offsetX;
-    const rawY = event.clientY - rect.top - viewport.offsetY;
-    const clampedX = Math.max(0, Math.min(viewport.width - 1, rawX / safeScale));
-    const clampedY = Math.max(0, Math.min(viewport.height - 1, rawY / safeScale));
-
-    this.lastAbsolutePosition = { x: clampedX, y: clampedY, width: viewport.width, height: viewport.height };
-    bus.send('mouse-absolute', [clampedX, clampedY, viewport.width, viewport.height]);
+    this.sendAbsolutePositionFromPoint(event.clientX, event.clientY);
   }
 
   private sendAbsolutePositionFromPoint(clientX: number, clientY: number) {
@@ -478,7 +471,7 @@ class RetroVmMouseBridge {
       return;
     }
 
-    const rect = this.root.getBoundingClientRect();
+    const rect = this.getRect();
     if (!isPointInsideRect(clientX, clientY, rect)) {
       return;
     }
@@ -652,6 +645,7 @@ export class RetroVmController {
     this.queueGuestFitSync();
   };
   private readonly resizeHandler = () => {
+    this.mouseBridge.invalidateRectCache();
     this.queueGuestFitSync();
   };
   private readonly onScreenSize = (value?: unknown) => {
@@ -753,6 +747,7 @@ export class RetroVmController {
     this.mouseBridge.attach();
     if (typeof ResizeObserver !== 'undefined') {
       this.resizeObserver = new ResizeObserver(() => {
+        this.mouseBridge.invalidateRectCache();
         this.queueGuestFitSync();
       });
       this.resizeObserver.observe(this.screenContainer);
@@ -770,12 +765,20 @@ export class RetroVmController {
     this.syncUi();
   }
 
-  private requireElement<T extends HTMLElement>(id: string, ctor: { new(): T } = HTMLElement as { new(): T }) {
+  private getElementById(id: string): HTMLElement {
     const element = document.getElementById(id);
-    if (!(element instanceof ctor)) {
-      throw new Error(`Missing required element: ${id}`);
-    }
+    if (!element) throw new Error(`Missing required element: ${id}`);
     return element;
+  }
+
+  private requireElement(id: string): HTMLElement;
+  private requireElement<T extends HTMLElement>(id: string, type: new () => T): T;
+  private requireElement<T extends HTMLElement>(id: string, type?: new () => T): T {
+    const element = this.getElementById(id);
+    if (typeof type === 'function' && !(element instanceof type)) {
+      throw new Error(`Element #${id} is not a ${type.name}`);
+    }
+    return element as T;
   }
 
   private setVmStatusLine(text: string) {

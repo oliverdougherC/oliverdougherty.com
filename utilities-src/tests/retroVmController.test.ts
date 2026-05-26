@@ -133,11 +133,11 @@ function buildVmDom(rootId = 'retroVmApp') {
 describe('RetroVmController', () => {
   beforeEach(() => {
     // Enable test mode so FakeRetroVm is used instead of real V86
-    (window as any).__OD_RETRO_VM_TEST_MODE__ = true;
+    window.__OD_RETRO_VM_TEST_MODE__ = true;
   });
 
   afterEach(() => {
-    (window as any).__OD_RETRO_VM_TEST_MODE__ = undefined;
+    window.__OD_RETRO_VM_TEST_MODE__ = undefined;
     document.body.innerHTML = '';
   });
 
@@ -171,11 +171,10 @@ describe('RetroVmController', () => {
       // Trigger launch by clicking the launch button
       dom.launchBtn.click();
 
-      // Wait for FakeRetroVm to emit its events (150ms timeout internally)
-      await new Promise((resolve) => setTimeout(resolve, 300));
-
+      await vi.waitFor(() => {
+        expect(dom.root.dataset.vmState).toBe('running');
+      }, { timeout: 2000 });
       expect(dom.root.dataset.vmBooted).toBe('true');
-      expect(dom.root.dataset.vmState).toBe('running');
     });
 
     it('does not launch twice if already launching', async () => {
@@ -187,11 +186,9 @@ describe('RetroVmController', () => {
       // Second click should be a no-op
       dom.launchBtn.click();
 
-      await new Promise((resolve) => setTimeout(resolve, 300));
-
-      // Should have exactly one canvas from FakeRetroVm test mode
-      const canvases = dom.screenContainer.querySelectorAll('canvas');
-      expect(canvases.length).toBe(1);
+      await vi.waitFor(() => {
+        expect(dom.screenContainer.querySelectorAll('canvas').length).toBe(1);
+      }, { timeout: 2000 });
     });
 
     it('sets launch button disabled during launch', async () => {
@@ -214,14 +211,16 @@ describe('RetroVmController', () => {
 
       // Launch first
       dom.launchBtn.click();
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      expect(dom.root.dataset.vmState).toBe('running');
+      await vi.waitFor(() => {
+        expect(dom.root.dataset.vmState).toBe('running');
+      }, { timeout: 2000 });
 
       // Now reset
       dom.resetBtn.click();
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await vi.waitFor(() => {
+        expect(dom.root.dataset.vmState).toBe('idle');
+      }, { timeout: 2000 });
 
-      expect(dom.root.dataset.vmState).toBe('idle');
       expect(dom.root.dataset.vmBooted).toBe('false');
       expect(dom.screenContainer.innerHTML).toBe('');
     });
@@ -244,7 +243,9 @@ describe('RetroVmController', () => {
 
       // Launch first
       dom.launchBtn.click();
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await vi.waitFor(() => {
+        expect(dom.root.dataset.vmState).toBe('running');
+      }, { timeout: 2000 });
 
       // Dispose
       controller.dispose();
@@ -280,13 +281,15 @@ describe('RetroVmController', () => {
 
       // Launch and wait for running
       dom.launchBtn.click();
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      expect(dom.root.dataset.vmState).toBe('running');
+      await vi.waitFor(() => {
+        expect(dom.root.dataset.vmState).toBe('running');
+      }, { timeout: 2000 });
 
       // Reset and verify clean transition
       dom.resetBtn.click();
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      expect(dom.root.dataset.vmState).toBe('idle');
+      await vi.waitFor(() => {
+        expect(dom.root.dataset.vmState).toBe('idle');
+      }, { timeout: 2000 });
     });
   });
 
@@ -298,20 +301,23 @@ describe('RetroVmController', () => {
 
       // Launch
       dom.launchBtn.click();
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      expect(dom.root.dataset.vmState).toBe('running');
+      await vi.waitFor(() => {
+        expect(dom.root.dataset.vmState).toBe('running');
+      }, { timeout: 2000 });
       expect(dom.root.dataset.vmBooted).toBe('true');
 
       // Reset
       dom.resetBtn.click();
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      expect(dom.root.dataset.vmState).toBe('idle');
+      await vi.waitFor(() => {
+        expect(dom.root.dataset.vmState).toBe('idle');
+      }, { timeout: 2000 });
       expect(dom.root.dataset.vmBooted).toBe('false');
 
       // Re-launch after reset
       dom.launchBtn.click();
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      expect(dom.root.dataset.vmState).toBe('running');
+      await vi.waitFor(() => {
+        expect(dom.root.dataset.vmState).toBe('running');
+      }, { timeout: 2000 });
 
       // Dispose
       controller.dispose();
