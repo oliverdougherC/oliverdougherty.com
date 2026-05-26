@@ -599,6 +599,7 @@ export class RetroVmController {
   private readonly progressText: HTMLElement;
   private readonly progressMeta: HTMLElement;
   private readonly progressFill: HTMLElement | null;
+  private readonly launchButton: HTMLButtonElement;
   private readonly resetButton: HTMLButtonElement;
   private readonly fullscreenButton: HTMLButtonElement;
   private readonly pasteButton: HTMLButtonElement;
@@ -702,6 +703,7 @@ export class RetroVmController {
     this.progressText = this.requireElement('retroVmProgressText');
     this.progressMeta = this.requireElement('retroVmProgressMeta');
     this.progressFill = document.getElementById('retroVmProgressFill');
+    this.launchButton = this.requireElement('retroVmLaunchBtn', HTMLButtonElement);
     this.resetButton = this.requireElement('retroVmResetBtn', HTMLButtonElement);
     this.fullscreenButton = this.requireElement('retroVmFullscreenBtn', HTMLButtonElement);
     this.pasteButton = this.requireElement('retroVmPasteBtn', HTMLButtonElement);
@@ -720,6 +722,9 @@ export class RetroVmController {
   }
 
   init() {
+    this.launchButton.addEventListener('click', () => {
+      void this.launch();
+    });
     this.resetButton.addEventListener('click', () => {
       void this.reset();
     });
@@ -755,7 +760,7 @@ export class RetroVmController {
 
     this.root.dataset.vmSupported = 'true';
     this.supportNote.textContent = this.getDefaultSupportNote();
-    void this.launch();
+    this.setState('idle');
   }
 
   private getElementById(id: string): HTMLElement {
@@ -1169,7 +1174,12 @@ export class RetroVmController {
     if (this.progressFill) {
       this.progressFill.style.width = `${percent}%`;
     }
-    this.resetButton.disabled = !this.support.supported || (!this.emulator && this.state !== 'error');
+    this.launchButton.disabled =
+      !this.support.supported ||
+      Boolean(this.emulator) ||
+      this.isLaunching ||
+      this.state === 'loading' ||
+      this.state === 'resetting';
     this.resetButton.disabled = !this.support.supported || (!this.emulator && this.state !== 'error');
     this.fullscreenButton.disabled =
       !this.emulator || !document.fullscreenEnabled || (this.state !== 'running' && this.state !== 'fullscreen');

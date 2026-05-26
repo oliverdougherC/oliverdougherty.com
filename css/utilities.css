@@ -2624,7 +2624,15 @@ html[data-active-utility] .nav-back-btn {
 
 .vm-capture-badge {
   margin-left: auto;
-  max-width: 12rem;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 1 clamp(14rem, 24vw, 18rem);
+  inline-size: clamp(14rem, 24vw, 18rem);
+  max-inline-size: min(18rem, 40vw);
+  min-block-size: 1.55rem;
+  line-height: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2642,9 +2650,10 @@ html[data-active-utility] .nav-back-btn {
 
 
 [data-vm-capture-state='captured'] .vm-capture-badge {
-  border-color: rgba(143, 212, 168, 0.28);
-  background: rgba(143, 212, 168, 0.08);
-  color: #8fd4a8;
+  border-color: rgba(143, 212, 168, 0.5);
+  background: rgba(143, 212, 168, 0.18);
+  color: #bff0cf;
+  box-shadow: 0 0 12px rgba(143, 212, 168, 0.14);
 }
 
 .vm-screen-shell:fullscreen .vm-toolbar {

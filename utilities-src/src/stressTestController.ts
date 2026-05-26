@@ -277,18 +277,30 @@ export class StressTestController {
   constructor(root: HTMLElement) {
     this.root = root;
     this.modeButtons = Array.from(this.root.querySelectorAll<HTMLButtonElement>('[data-stress-mode-option]'));
-    this.startButton = this.requireElement('stressStartBtn', HTMLButtonElement);
-    this.stopButton = this.requireElement('stressStopBtn', HTMLButtonElement);
-    this.statusText = this.requireElement('stressStatusText', HTMLElement);
-    this.elapsedLabel = this.requireElement('stressElapsed', HTMLElement);
-    this.workerCountLabel = this.requireElement('stressWorkerCount', HTMLElement);
-    this.backendLabel = this.requireElement('stressGpuBackend', HTMLElement);
-    this.fpsLabel = this.requireElement('stressFrameRate', HTMLElement);
-    this.droppedFrameLabel = this.requireElement('stressDroppedFrames', HTMLElement);
-    this.iterationLabel = this.requireElement('stressIterations', HTMLElement);
-    this.metricsPanel = this.requireElement('stressMetrics', HTMLElement);
+    const startEl = this.requireElement('stressStartBtn');
+    if (!(startEl instanceof HTMLButtonElement)) {
+      throw new Error('Element #stressStartBtn is not an HTMLButtonElement.');
+    }
+    this.startButton = startEl;
+    const stopEl = this.requireElement('stressStopBtn');
+    if (!(stopEl instanceof HTMLButtonElement)) {
+      throw new Error('Element #stressStopBtn is not an HTMLButtonElement.');
+    }
+    this.stopButton = stopEl;
+    this.statusText = this.requireElement('stressStatusText') as HTMLElement;
+    this.elapsedLabel = this.requireElement('stressElapsed') as HTMLElement;
+    this.workerCountLabel = this.requireElement('stressWorkerCount') as HTMLElement;
+    this.backendLabel = this.requireElement('stressGpuBackend') as HTMLElement;
+    this.fpsLabel = this.requireElement('stressFrameRate') as HTMLElement;
+    this.droppedFrameLabel = this.requireElement('stressDroppedFrames') as HTMLElement;
+    this.iterationLabel = this.requireElement('stressIterations') as HTMLElement;
+    this.metricsPanel = this.requireElement('stressMetrics') as HTMLElement;
     this.metricCards = Array.from(this.metricsPanel.querySelectorAll<HTMLElement>('[data-stress-metric]'));
-    this.canvas = this.requireElement('stressCanvas', HTMLCanvasElement);
+    const canvasEl = this.requireElement('stressCanvas');
+    if (!(canvasEl instanceof HTMLCanvasElement)) {
+      throw new Error('Element #stressCanvas is not an HTMLCanvasElement.');
+    }
+    this.canvas = canvasEl;
     this.metricCards.forEach((card) => {
       const metricId = card.dataset.stressMetric;
       if (metricId === 'elapsed' || metricId === 'workers' || metricId === 'gpu' || metricId === 'fps' || metricId === 'dropped' || metricId === 'iterations') {
@@ -647,7 +659,7 @@ export class StressTestController {
       depth: false,
       stencil: false,
       powerPreference: 'high-performance' as const,
-      preserveDrawingBuffer: true
+      preserveDrawingBuffer: false
     };
 
     if (backend === 'webgl2-fragment') {
@@ -1125,22 +1137,8 @@ export class StressTestController {
 
     let ctx = this.canvas.getContext('2d', { alpha: true });
     if (!ctx) {
-      const parent = this.canvas.parentElement;
-      if (parent) {
-        const rect = this.canvas.getBoundingClientRect();
-        const nextCanvas = document.createElement('canvas');
-        nextCanvas.id = this.canvas.id;
-        nextCanvas.setAttribute('aria-label', this.canvas.getAttribute('aria-label') ?? 'Stress test output');
-        nextCanvas.dataset.stressIdle = this.canvas.dataset.stressIdle ?? 'true';
-        nextCanvas.style.cssText = this.canvas.style.cssText;
-        parent.replaceChild(nextCanvas, this.canvas);
-        this.canvas = nextCanvas;
-        this.bindCanvasResizeObserver();
-        const scale = Math.min(window.devicePixelRatio || 1, 3);
-        this.canvas.width = Math.max(1, Math.floor(rect.width * scale));
-        this.canvas.height = Math.max(1, Math.floor(rect.height * scale));
-        ctx = this.canvas.getContext('2d', { alpha: true });
-      }
+      this.replaceCanvasElement();
+      ctx = this.canvas.getContext('2d', { alpha: true });
     }
     if (!ctx) return;
 
@@ -1506,13 +1504,10 @@ export class StressTestController {
     this.canvas.dataset.stressIdle = 'true';
   }
 
-  private requireElement<T extends HTMLElement>(id: string, constructor: new () => T) {
+  private requireElement(id: string): Element {
     const element = document.getElementById(id);
     if (!element) {
       throw new Error(`Missing required element: #${id}`);
-    }
-    if (!(element instanceof constructor)) {
-      throw new Error(`Element #${id} is not a ${constructor.name}.`);
     }
     return element;
   }
