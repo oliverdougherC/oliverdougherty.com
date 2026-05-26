@@ -37,50 +37,16 @@ body, html {
 }
 
 /* ========================================
-   Nav Dot
-   Base styles inherited from design-system.css.
-   This block adds resume-page size override.
+   Focus-visible styles
    ======================================== */
 
-.nav-dot {
-  width: 20px;
-  height: 20px;
-}
-
 .nav-actions .flashlight-toggle:focus-visible,
-.nav-dot:focus-visible,
 .contact-item:focus-visible,
 .project-link:focus-visible,
 .skill-tag:focus-visible {
   outline: 2px solid var(--resume-accent);
   outline-offset: 4px;
 }
-
-/* ========================================
-   Nav Overlay Overrides
-   ======================================== */
-
-/* Use higher specificity (body + class) to override design-system's .nav-overlay-bg
-   without requiring !important. */
-body .nav-overlay-bg {
-  background-color: #FFFFFF;
-}
-
-.nav-overlay .nav-link,
-.nav-overlay .nav-menu-header,
-.nav-overlay .footer-link {
-  color: #000000;
-}
-
-.nav-overlay .nav-link.active,
-.nav-overlay .footer-link:hover {
-  color: var(--resume-accent);
-}
-
-.nav-overlay .nav-link--resume.active {
-  color: #000000;
-}
-
 /* ========================================
    Schematic Wrapper
    ======================================== */
@@ -104,6 +70,7 @@ body .nav-overlay-bg {
 
 .meta-tiny {
   position: absolute;
+  z-index: 20;
   font-size: 0.85rem;
   color: #000000;
   line-height: 1.6;
@@ -822,7 +789,6 @@ a.skill-tag:hover {
   }
 
   .nav-actions,
-  .nav-overlay,
   .footer,
   .schematic-grid,
   .typewriter-cursor {

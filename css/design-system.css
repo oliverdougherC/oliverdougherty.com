@@ -1009,193 +1009,6 @@ body.nav-open .nav.scrolled {
   color: var(--color-accent);
 }
 
-/* Fullscreen Menu Overlay */
-.nav-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-modal);
-  pointer-events: none;
-  display: flex;
-  align-items: stretch;
-  overflow-y: auto;
-}
-
-.nav-overlay-bg {
-  position: absolute;
-  inset: 0;
-  background: var(--color-bg-primary);
-  transform: translateY(-100%);
-  transition: transform 0.26s cubic-bezier(0.7, 0, 0.2, 1);
-  will-change: transform;
-}
-
-.nav-overlay.active {
-  pointer-events: all;
-}
-
-.nav-overlay.active .nav-overlay-bg {
-  transform: translateY(0);
-}
-
-.nav-overlay .nav-links {
-  position: relative;
-  z-index: calc(var(--z-modal) + 1);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-height: 100%;
-  width: 100%;
-  padding-top: calc(var(--nav-height) + var(--space-6));
-  padding-bottom: var(--space-10);
-}
-
-.nav-menu-header {
-  font-size: var(--text-sm);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-widest);
-  color: var(--color-text-muted);
-  margin-bottom: var(--space-8);
-  opacity: 0;
-  transform: translateY(20px);
-  transition: opacity 0.22s ease, transform 0.22s ease;
-}
-
-.nav-overlay .nav-link {
-  --nav-link-shift-x: 0px;
-  font-family: var(--font-display), serif;
-  font-size: clamp(3rem, 6vw, 6rem);
-  line-height: var(--leading-none);
-  color: var(--color-text-primary);
-  text-shadow: 0.012em 0 currentColor, -0.012em 0 currentColor;
-  text-decoration: none;
-  display: flex;
-  align-items: center;
-  width: 100%;
-  min-height: 44px;
-  padding: var(--space-2) 0;
-  opacity: 0;
-  transform: translate3d(var(--nav-link-shift-x), 40px, 0) rotate(2deg);
-  transform-origin: left center;
-  transition: opacity 0.24s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s ease, text-shadow 0.2s ease;
-}
-
-.nav-overlay .nav-link:is(:hover, :focus-visible) {
-  --nav-link-shift-x: 24px;
-}
-
-/* Per-destination nav link hover colors */
-.nav-overlay .nav-link--home:is(:hover, :focus-visible) {
-  text-shadow: 0 0 20px rgba(255, 103, 0, 0.8), 0 0 40px rgba(255, 103, 0, 0.4), 0.012em 0 currentColor, -0.012em 0 currentColor;
-}
-
-.nav-overlay .nav-link--gallery:is(:hover, :focus-visible) {
-  text-shadow: 0 0 20px rgba(0, 75, 168, 0.8), 0 0 40px rgba(0, 75, 168, 0.4), 0.012em 0 currentColor, -0.012em 0 currentColor;
-}
-
-.nav-overlay .nav-link--archive:is(:hover, :focus-visible) {
-  text-shadow: 0 0 20px rgba(205, 219, 205, 0.8), 0 0 40px rgba(205, 219, 205, 0.4), 0.012em 0 currentColor, -0.012em 0 currentColor;
-}
-
-.nav-overlay .nav-link--resume:is(:hover, :focus-visible) {
-  text-shadow: 0 0 20px rgba(43, 168, 74, 0.8), 0 0 40px rgba(43, 168, 74, 0.4), 0.012em 0 currentColor, -0.012em 0 currentColor;
-}
-
-.nav-overlay .nav-link--utilities:is(:hover, :focus-visible) {
-  text-shadow: 0 0 20px rgba(93, 63, 211, 0.8), 0 0 40px rgba(93, 63, 211, 0.4), 0.012em 0 currentColor, -0.012em 0 currentColor;
-}
-
-/* Entrance animations */
-.nav-overlay.active .nav-menu-header {
-  opacity: 1;
-  transform: translateY(0);
-  transition-delay: 0s;
-}
-
-.nav-overlay.active .nav-link:nth-child(2) {
-  opacity: 1;
-  transform: translate3d(var(--nav-link-shift-x), 0, 0) rotate(0);
-  transition-delay: 0s;
-}
-
-.nav-overlay.active .nav-link:nth-child(3) {
-  opacity: 1;
-  transform: translate3d(var(--nav-link-shift-x), 0, 0) rotate(0);
-  transition-delay: 0s;
-}
-
-.nav-overlay.active .nav-link:nth-child(4) {
-  opacity: 1;
-  transform: translate3d(var(--nav-link-shift-x), 0, 0) rotate(0);
-  transition-delay: 0s;
-}
-
-.nav-overlay.active .nav-link:nth-child(5) {
-  opacity: 1;
-  transform: translate3d(var(--nav-link-shift-x), 0, 0) rotate(0);
-  transition-delay: 0s;
-}
-
-.nav-overlay.active .nav-link:nth-child(6) {
-  opacity: 1;
-  transform: translate3d(var(--nav-link-shift-x), 0, 0) rotate(0);
-  transition-delay: 0s;
-}
-
-/* Apply stagger only while opening, then remove delay for snappy hover/focus */
-.nav-overlay.active.opening .nav-menu-header {
-  transition-delay: 0.03s;
-}
-
-.nav-overlay.active.opening .nav-link:nth-child(2) {
-  transition-delay: 0.05s;
-}
-
-.nav-overlay.active.opening .nav-link:nth-child(3) {
-  transition-delay: 0.08s;
-}
-
-.nav-overlay.active.opening .nav-link:nth-child(4) {
-  transition-delay: 0.11s;
-}
-
-.nav-overlay.active.opening .nav-link:nth-child(5) {
-  transition-delay: 0.14s;
-}
-
-.nav-overlay.active.opening .nav-link:nth-child(6) {
-  transition-delay: 0.17s;
-}
-
-.nav-menu-footer {
-  margin-top: var(--space-12);
-  display: flex;
-  gap: var(--space-8);
-  opacity: 0;
-  transform: translateY(20px);
-  transition: opacity 0.22s ease, transform 0.22s ease;
-}
-
-.nav-overlay.active .nav-menu-footer {
-  opacity: 1;
-  transform: translateY(0);
-  transition-delay: 0s;
-}
-
-.nav-overlay.active.opening .nav-menu-footer {
-  transition-delay: 0.2s;
-}
-
-.footer-link {
-  font-size: var(--text-sm);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
-  color: var(--color-text-secondary);
-  transition: color 0.14s ease;
-}
-
-.footer-link:is(:hover, :focus-visible) {
-  color: var(--color-text-primary);
-}
 
 /* minimal toggle button */
 .nav-toggle {
@@ -1559,29 +1372,12 @@ html.reduced-motion[data-flashlight-mode="on"] .flashlight-hud {
 }
 
 @media (max-width: 768px) {
-  .nav-overlay .nav-links {
-    padding-top: calc(var(--nav-height) + var(--space-4));
-    padding-bottom: var(--space-8);
-  }
-
-  .nav-overlay .nav-link {
-    font-size: clamp(2.5rem, 10vw, 4rem);
-  }
-
   .theme-toggle {
     width: 38px;
     height: 38px;
   }
 }
 
-@media (hover: hover) and (pointer: fine) {
-  .nav-overlay .nav-link {
-    width: auto;
-    min-height: 0;
-    display: inline-flex;
-    align-self: flex-start;
-  }
-}
 
 @media (max-width: 600px) {
   .container {
@@ -1681,59 +1477,43 @@ html.reduced-motion[data-flashlight-mode="on"] .flashlight-hud {
 }
 
 /* ========================================
-   Shared Nav Dot (canonical definition)
-   Used by schematic.css, gallery.css, resume.css.
-   Each page's stylesheet may add size/inner-content overrides.
+   Nav Actions (flashlight toggle only)
    ======================================== */
 
 .nav-actions {
   position: fixed;
   top: 1rem;
   right: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  opacity: 0;
-  pointer-events: none;
   z-index: calc(var(--flashlight-layer-z) + 3);
-  transition: opacity 160ms ease;
 }
 
-.nav-actions.is-visible {
-  opacity: 1;
-  pointer-events: auto;
+/* ========================================
+   Inline nav links in meta-tiny
+   ======================================== */
+
+.meta-tiny .nav-inline-link {
+  color: #000000;
+  text-decoration: none;
+  transition: text-shadow 0.2s ease;
+  margin: 0 0.15em;
 }
 
-.nav-actions .nav-dot,
-.nav-actions .flashlight-toggle {
-  flex: 0 0 auto;
+.meta-tiny .nav-inline-link:hover {
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
 }
 
-.nav-actions .nav-dot {
-  position: relative;
-  top: auto;
-  right: auto;
-  z-index: auto;
-  display: block;
-}
-.nav-dot {
-  position: fixed;
-  top: 1rem;
-  right: 1.25rem;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: #000000;
-  cursor: pointer;
-  z-index: 1000;
-  transition: transform 120ms ease, opacity 160ms ease;
+/* Per-page glow colors for active link */
+.page-home .meta-tiny .nav-inline-link--home.active {
+  text-shadow: 0 0 8px rgba(255, 103, 0, 0.8), 0 0 16px rgba(255, 103, 0, 0.4);
+  color: #FF6700;
 }
 
-.nav-dot:hover {
-  transform: scale(1.08);
+.page-resume .meta-tiny .nav-inline-link--resume.active {
+  text-shadow: 0 0 8px rgba(43, 168, 74, 0.8), 0 0 16px rgba(43, 168, 74, 0.4);
+  color: #2BA84A;
 }
 
-body.nav-open .nav-actions.is-visible {
-  opacity: 0.6;
+.page-gallery .meta-tiny .nav-inline-link--gallery.active {
+  text-shadow: 0 0 8px rgba(0, 75, 168, 0.8), 0 0 16px rgba(0, 75, 168, 0.4);
+  color: #004BA8;
 }

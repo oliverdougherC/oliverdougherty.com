@@ -35,10 +35,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (usesSharedReveal) {
           if (immediate) {
             el.style.transition = 'none';
-            el.classList.add('is-visible');
           } else {
-            window.revealNavDot?.();
+            el.style.transition = 'opacity 0.8s ease';
           }
+          el.style.opacity = '1';
           return;
         }
         if (immediate) {
