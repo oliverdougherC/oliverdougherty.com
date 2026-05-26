@@ -16,7 +16,6 @@ Generated: Tuesday, May 26, 2026
 
 ## Photo Gallery Page
 - [ ] [Priority: MED] [Error Handling] `js/gallery.js:1089` — `decodeURIComponent()` in `readPhotoHash()` can throw `URIError` on malformed percent-encoding in the URL hash (e.g., `#photo=%ZZ`). This is called from `syncGalleryFromUrl()` which fires on `hashchange` events. A crafted or corrupted hash would crash the gallery with no user-visible error. Wrap in try/catch and fall back to empty string.
-- [ ] [Priority: MED] [Accessibility] `pages/gallery/index.html:45` — Navigation links in `.meta-tiny` are placed directly adjacent with no whitespace or separator between them (same issue as home/resume pages). Screen readers concatenate "#004BA8 // HOME" "RESUME" "GALLERY" "BLOG" "UTILITIES" into a continuous string. Add `aria-separator` or invisible space spans between links.
 - [ ] [Priority: LOW] [Performance] `js/gallery.js:1047` — `refreshLightboxFocusables()` calls `window.getComputedStyle(element)` on every focusable element inside the lightbox, forcing synchronous layout recalculation. This function is called on every lightbox open, entry navigation, and info panel toggle. Consider caching the result or using a less expensive visibility check.
 - [ ] [Priority: LOW] [Code Quality] `js/gallery.js:375` — `entry.title` is set to `displayTitle` but never read anywhere in the codebase. Only `entry.displayTitle` is referenced (lines 591, 634, 667, 721, 726, 732, 806, 815). The `title` property is dead assignment and can be removed.
 
