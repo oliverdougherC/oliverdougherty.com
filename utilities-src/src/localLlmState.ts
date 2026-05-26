@@ -52,6 +52,12 @@ export function normalizeLocalLlmProgressState(status: unknown): 'downloading' |
   return 'downloading';
 }
 
+function isNonSystemMessage(
+  msg: { role: 'system' | 'user' | 'assistant'; content: string }
+): msg is { role: 'user' | 'assistant'; content: string } {
+  return msg.role !== 'system';
+}
+
 export function compactLocalLlmMessages(
   messages: LocalLlmMessage[],
   limits: LocalLlmLimits,
@@ -84,8 +90,8 @@ export function compactLocalLlmMessagesByTokenBudget(
   const messageCost = (text: string) => countTokens(text) + perMessageOverheadTokens;
 
   const chat = compactLocalLlmMessages(messages, limits)
-    .filter((message) => message.role !== 'system')
-    .map((message) => ({ role: message.role, content: message.content })) as Array<{ role: 'user' | 'assistant'; content: string }>;
+    .filter(isNonSystemMessage)
+    .map((message) => ({ role: message.role, content: message.content }));
 
   let latestUserIndex = -1;
   for (let index = chat.length - 1; index >= 0; index -= 1) {

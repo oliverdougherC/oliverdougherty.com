@@ -131,7 +131,13 @@ async function loadModelInternal() {
     const warmupInputs = generator.tokenizer('a');
     await generator.model.generate({ ...warmupInputs, max_new_tokens: 1 });
   } finally {
-    restoreConsole();
+    const consoleBuffer = restoreConsole();
+    if (consoleBuffer && consoleBuffer.length > 0 && !generator) {
+      postMessage({
+        type: 'console-buffer',
+        messages: consoleBuffer.slice(-20)
+      });
+    }
   }
 
   postReady();
@@ -147,7 +153,6 @@ function postReady() {
     dtype: LOCAL_LLM_CONFIG.runtime.dtype
   });
 }
-
 async function generateReply(messages) {
   pendingGenerateCount += 1;
   const generationId = ++activeGeneration;
@@ -640,11 +645,16 @@ function suppressConsoleNoise() {
     debug: self.console.debug,
     info: self.console.info
   };
-  self.console.debug = () => {};
-  self.console.info = () => {};
+  const buffer = [];
+  const bufferedLog = (...args) => {
+    buffer.push(args.map((a) => typeof a === 'string' ? a : String(a)).join(' '));
+  };
+  self.console.debug = bufferedLog;
+  self.console.info = bufferedLog;
   return () => {
     self.console.debug = original.debug;
     self.console.info = original.info;
+    return buffer;
   };
 }
 
