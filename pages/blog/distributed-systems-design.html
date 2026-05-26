@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Machine Learning via Optimal Control</title>
-  <meta name="description" content="Oliver Dougherty - Blog - Machine Learning via Optimal Control">
+  <title>Distributed Systems Design | Blog</title>
+  <meta name="description" content="Oliver Dougherty - Blog - Distributed Systems Design">
   <link rel="alternate" media="only screen and (max-width: 760px)" href="../../mobile/">
   <script src="../../js/mobile-gate.js" data-mobile-target="../../mobile/"></script>
   <script src="../../js/page-animations.js" data-page-id="blog"></script>
@@ -54,11 +54,11 @@
 
     <div class="blog-layout">
       <aside class="blog-sidebar">
-        <a href="index.html" class="blog-list-item active">
+        <a href="index.html" class="blog-list-item">
           <div class="blog-list-title">Machine Learning via Optimal Control</div>
           <div class="blog-list-date">Oct 12 2024</div>
         </a>
-        <a href="distributed-systems-design.html" class="blog-list-item">
+        <a href="distributed-systems-design.html" class="blog-list-item active">
           <div class="blog-list-title">Distributed Systems Design</div>
           <div class="blog-list-date">Sep 04 2024</div>
         </a>
@@ -78,35 +78,32 @@
 
       <section class="blog-content">
         <div class="blog-header">
-          <h1 class="blog-title">Machine Learning via Optimal Control</h1>
-          <p class="blog-subtitle">October 12, 2024</p>
+          <h1 class="blog-title">Distributed Systems Design</h1>
+          <p class="blog-subtitle">September 4, 2024</p>
         </div>
 
         <div class="blog-body">
-<p>This is a conceptual demonstration of the blog body rendered with markdown support.</p>
-          <h2>Introduction</h2>
-          <p>We can think of deep learning models as discrete-time dynamical systems. By taking the continuous-time limit, we arrive at neural ordinary differential equations (ODEs), which can be trained via the adjoint sensitivity method.</p>
+<p>Building systems that scale across multiple nodes requires careful attention to consistency, availability, and partition tolerance.</p>
+          <h2>The CAP Theorem</h2>
+          <p>No distributed system can simultaneously guarantee all three properties: Consistency, Availability, and Partition Tolerance. Every architecture makes tradeoffs.</p>
           
           <blockquote>
-            "The connections between deep learning and optimal control offer a unified mathematical framework for understanding sequence modeling and continuous-time dynamics."
+            "The only true single-system-image distributed database systems are those that use a single CPU and no network."
           </blockquote>
 
-          <h2>Mathematical Formulation</h2>
-          <p>Consider the continuous-time state evolution given by:</p>
-          <div class="latex-block">
-            $$ \frac{dx(t)}{dt} = f(x(t), u(t), t) $$
-          </div>
-          <p>Where \( x(t) \) is the hidden state and \( u(t) \) represents our parameters. The goal is to minimize some loss function \( L(x(T)) \) at the final time \( T\).</p>
+          <h2>Consensus Algorithms</h2>
+          <p>Paxos and Raft are the two most widely used consensus protocols. Raft was designed with understandability in mind, decomposing the consensus problem into leader election, log replication, and safety.</p>
 
-          <h2>Implementation Details</h2>
-          <p>Here is a basic snippet demonstrating the Euler method for solving this system:</p>
-<pre><code class="language-python">def euler_step(f, x, u, t, dt):
-    """
-    Perform a single Euler integration step.
-    """
-    return x + dt * f(x, u, t)
-</code></pre>
-          <p>More complex methods, such as Runge-Kutta, offer better numerical stability for stiff equations.</p>
+          <h2>Practical Patterns</h2>
+          <p>Here is a simple leader election heartbeat mechanism:</p>
+<pre><code class="language-go">func (n *Node) startHeartbeat() {
+    ticker := time.NewTicker(n.heartbeatInterval)
+    defer ticker.Stop()
+    for range ticker.C {
+        n.broadcastHeartbeat()
+    }
+}</code></pre>
+          <p>In practice, combining consensus with gRPC streams and exponential backoff gives you a resilient coordination layer.</p>
         </div>
       </section>
     </div>

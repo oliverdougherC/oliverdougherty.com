@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Machine Learning via Optimal Control</title>
-  <meta name="description" content="Oliver Dougherty - Blog - Machine Learning via Optimal Control">
+  <title>A Guide to Modern CSS | Blog</title>
+  <meta name="description" content="Oliver Dougherty - Blog - A Guide to Modern CSS">
   <link rel="alternate" media="only screen and (max-width: 760px)" href="../../mobile/">
   <script src="../../js/mobile-gate.js" data-mobile-target="../../mobile/"></script>
   <script src="../../js/page-animations.js" data-page-id="blog"></script>
@@ -54,7 +54,7 @@
 
     <div class="blog-layout">
       <aside class="blog-sidebar">
-        <a href="index.html" class="blog-list-item active">
+        <a href="index.html" class="blog-list-item">
           <div class="blog-list-title">Machine Learning via Optimal Control</div>
           <div class="blog-list-date">Oct 12 2024</div>
         </a>
@@ -66,7 +66,7 @@
           <div class="blog-list-title">The Future of Web Rendering</div>
           <div class="blog-list-date">Aug 18 2024</div>
         </a>
-        <a href="guide-to-modern-css.html" class="blog-list-item">
+        <a href="guide-to-modern-css.html" class="blog-list-item active">
           <div class="blog-list-title">A Guide to Modern CSS</div>
           <div class="blog-list-date">Jul 22 2024</div>
         </a>
@@ -78,35 +78,35 @@
 
       <section class="blog-content">
         <div class="blog-header">
-          <h1 class="blog-title">Machine Learning via Optimal Control</h1>
-          <p class="blog-subtitle">October 12, 2024</p>
+          <h1 class="blog-title">A Guide to Modern CSS</h1>
+          <p class="blog-subtitle">July 22, 2024</p>
         </div>
 
         <div class="blog-body">
-<p>This is a conceptual demonstration of the blog body rendered with markdown support.</p>
-          <h2>Introduction</h2>
-          <p>We can think of deep learning models as discrete-time dynamical systems. By taking the continuous-time limit, we arrive at neural ordinary differential equations (ODEs), which can be trained via the adjoint sensitivity method.</p>
+<p>CSS has evolved far beyond simple styling. Modern CSS provides powerful layout, animation, and theming capabilities without JavaScript.</p>
+          <h2>CSS Custom Properties</h2>
+          <p>Custom properties (CSS variables) enable dynamic theming and cascading values that can be updated at runtime through the cascade, media queries, or JavaScript.</p>
           
           <blockquote>
-            "The connections between deep learning and optimal control offer a unified mathematical framework for understanding sequence modeling and continuous-time dynamics."
+            "CSS is the only programming language I've enjoyed writing. It's declarative, visual, and the feedback loop is instant."
           </blockquote>
 
-          <h2>Mathematical Formulation</h2>
-          <p>Consider the continuous-time state evolution given by:</p>
-          <div class="latex-block">
-            $$ \frac{dx(t)}{dt} = f(x(t), u(t), t) $$
-          </div>
-          <p>Where \( x(t) \) is the hidden state and \( u(t) \) represents our parameters. The goal is to minimize some loss function \( L(x(T)) \) at the final time \( T\).</p>
+          <h2>Modern Layout</h2>
+          <p>Grid and Flexbox have replaced float-based layouts entirely. Grid excels at two-dimensional layouts while Flexbox is ideal for one-dimensional distributions.</p>
 
-          <h2>Implementation Details</h2>
-          <p>Here is a basic snippet demonstrating the Euler method for solving this system:</p>
-<pre><code class="language-python">def euler_step(f, x, u, t, dt):
-    """
-    Perform a single Euler integration step.
-    """
-    return x + dt * f(x, u, t)
-</code></pre>
-          <p>More complex methods, such as Runge-Kutta, offer better numerical stability for stiff equations.</p>
+          <h2>Theming Example</h2>
+          <p>A simple theme system using custom properties:</p>
+<pre><code class="language-css">:root {
+    --color-primary: #fed0bb;
+    --color-bg: #0a0a0a;
+    --font-body: "Inter", sans-serif;
+}
+
+[data-theme="light"] {
+    --color-primary: #2a2a2a;
+    --color-bg: #ffffff;
+}</code></pre>
+          <p>Combined with <code>@media (prefers-color-scheme)</code>, dark mode becomes a single attribute toggle.</p>
         </div>
       </section>
     </div>

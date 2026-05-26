@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Machine Learning via Optimal Control</title>
-  <meta name="description" content="Oliver Dougherty - Blog - Machine Learning via Optimal Control">
+  <title>The Future of Web Rendering | Blog</title>
+  <meta name="description" content="Oliver Dougherty - Blog - The Future of Web Rendering">
   <link rel="alternate" media="only screen and (max-width: 760px)" href="../../mobile/">
   <script src="../../js/mobile-gate.js" data-mobile-target="../../mobile/"></script>
   <script src="../../js/page-animations.js" data-page-id="blog"></script>
@@ -54,7 +54,7 @@
 
     <div class="blog-layout">
       <aside class="blog-sidebar">
-        <a href="index.html" class="blog-list-item active">
+        <a href="index.html" class="blog-list-item">
           <div class="blog-list-title">Machine Learning via Optimal Control</div>
           <div class="blog-list-date">Oct 12 2024</div>
         </a>
@@ -62,7 +62,7 @@
           <div class="blog-list-title">Distributed Systems Design</div>
           <div class="blog-list-date">Sep 04 2024</div>
         </a>
-        <a href="future-of-web-rendering.html" class="blog-list-item">
+        <a href="future-of-web-rendering.html" class="blog-list-item active">
           <div class="blog-list-title">The Future of Web Rendering</div>
           <div class="blog-list-date">Aug 18 2024</div>
         </a>
@@ -78,35 +78,28 @@
 
       <section class="blog-content">
         <div class="blog-header">
-          <h1 class="blog-title">Machine Learning via Optimal Control</h1>
-          <p class="blog-subtitle">October 12, 2024</p>
+          <h1 class="blog-title">The Future of Web Rendering</h1>
+          <p class="blog-subtitle">August 18, 2024</p>
         </div>
 
         <div class="blog-body">
-<p>This is a conceptual demonstration of the blog body rendered with markdown support.</p>
-          <h2>Introduction</h2>
-          <p>We can think of deep learning models as discrete-time dynamical systems. By taking the continuous-time limit, we arrive at neural ordinary differential equations (ODEs), which can be trained via the adjoint sensitivity method.</p>
+<p>Browser rendering engines are undergoing a fundamental shift as GPU acceleration, composited layers, and new layout algorithms reshape what's possible on the web.</p>
+          <h2>Compositor-Only Animations</h2>
+          <p>Moving animations to the compositor thread avoids layout and paint, enabling smooth 60fps transitions even on low-end devices. Properties like <code>transform</code> and <code>opacity</code> are compositor-safe.</p>
           
           <blockquote>
-            "The connections between deep learning and optimal control offer a unified mathematical framework for understanding sequence modeling and continuous-time dynamics."
+            "The critical rendering path is the sequence of steps the browser takes to convert markup into pixels on the screen."
           </blockquote>
 
-          <h2>Mathematical Formulation</h2>
-          <p>Consider the continuous-time state evolution given by:</p>
-          <div class="latex-block">
-            $$ \frac{dx(t)}{dt} = f(x(t), u(t), t) $$
-          </div>
-          <p>Where \( x(t) \) is the hidden state and \( u(t) \) represents our parameters. The goal is to minimize some loss function \( L(x(T)) \) at the final time \( T\).</p>
+          <h2>Container Queries and View Transitions</h2>
+          <p>Container queries let components respond to their parent's size rather than the viewport, enabling truly reusable UI. The View Transitions API provides declarative page-to-page animations without JavaScript orchestration.</p>
 
-          <h2>Implementation Details</h2>
-          <p>Here is a basic snippet demonstrating the Euler method for solving this system:</p>
-<pre><code class="language-python">def euler_step(f, x, u, t, dt):
-    """
-    Perform a single Euler integration step.
-    """
-    return x + dt * f(x, u, t)
+          <h2>Performance Budget</h2>
+          <p>Measuring rendering performance requires understanding the pipeline:</p>
+<pre><code class="language-javascript">const entry = performance.getEntriesByType("paint")[0];
+console.log("First Contentful Paint:", entry.startTime);
 </code></pre>
-          <p>More complex methods, such as Runge-Kutta, offer better numerical stability for stiff equations.</p>
+          <p>With First Contentful Paint as the primary metric, every millisecond of main thread blocking matters.</p>
         </div>
       </section>
     </div>
