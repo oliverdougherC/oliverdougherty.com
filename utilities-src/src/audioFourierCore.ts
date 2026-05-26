@@ -116,22 +116,13 @@ function createHannWindow(size: number) {
 }
 
 function downsampleForDisplay(samples: Float32Array, displaySampleCount: number) {
-  const output = new Float32Array(displaySampleCount);
   const scale = samples.length / displaySampleCount;
 
   if (scale < 1) {
-    const maxSourceIndex = Math.max(0, samples.length - 1);
-    for (let index = 0; index < displaySampleCount; index += 1) {
-      const sourcePosition = displaySampleCount === 1
-        ? 0
-        : (index / (displaySampleCount - 1)) * maxSourceIndex;
-      const leftIndex = Math.floor(sourcePosition);
-      const rightIndex = Math.min(maxSourceIndex, leftIndex + 1);
-      const phase = sourcePosition - leftIndex;
-      output[index] = samples[leftIndex] + (samples[rightIndex] - samples[leftIndex]) * phase;
-    }
-    return output;
+    return interpolateUpSampled(samples, displaySampleCount);
   }
+
+  const output = new Float32Array(displaySampleCount);
 
   for (let index = 0; index < displaySampleCount; index += 1) {
     const start = Math.floor(index * scale);
@@ -148,6 +139,21 @@ function downsampleForDisplay(samples: Float32Array, displaySampleCount: number)
     output[index] = peak;
   }
 
+  return output;
+}
+
+function interpolateUpSampled(samples: Float32Array, displaySampleCount: number): Float32Array {
+  const output = new Float32Array(displaySampleCount);
+  const maxSourceIndex = Math.max(0, samples.length - 1);
+  for (let index = 0; index < displaySampleCount; index += 1) {
+    const sourcePosition = displaySampleCount === 1
+      ? 0
+      : (index / (displaySampleCount - 1)) * maxSourceIndex;
+    const leftIndex = Math.floor(sourcePosition);
+    const rightIndex = Math.min(maxSourceIndex, leftIndex + 1);
+    const phase = sourcePosition - leftIndex;
+    output[index] = samples[leftIndex] + (samples[rightIndex] - samples[leftIndex]) * phase;
+  }
   return output;
 }
 
@@ -175,8 +181,8 @@ const ENERGY_SLIDER_LOW_EXPONENT = Math.log(ENERGY_SLIDER_LOW_REFERENCE_VALUE / 
   Math.log(ENERGY_SLIDER_LOW_REFERENCE / ENERGY_SLIDER_MIDPOINT);
 const FFT_PROGRESS_THROTTLE = 64;
 const OVERLAP_ADD_NORMALIZATION_THRESHOLD = 0.000001;
-const ENERGY_BAND_CACHE_WARNING_BYTES = 256 * 1024 * 1024;
-const ENERGY_BAND_CACHE_HARD_LIMIT_BYTES = 512 * 1024 * 1024;
+const ENERGY_BAND_CACHE_WARNING_BYTES = 192 * 1024 * 1024;
+const ENERGY_BAND_CACHE_HARD_LIMIT_BYTES = 384 * 1024 * 1024;
 const DEFAULT_ENVELOPE_TARGET_POINTS_PER_SECOND = 420;
 const DEFAULT_SMOOTHED_ENVELOPE_BLEND = 0.72;
 const VISUAL_ORIGINAL_CLAMP_START = 0.8;
@@ -586,10 +592,19 @@ export function buildEnergyBandReconstruction(
       `Allocating high-memory band cache (${Math.round(estimatedBandSampleBytes / 1024 / 1024)} MB). Use Fast or Balanced if this device stalls.`
     );
   }
+  if (typeof performance !== 'undefined' && 'memory' in performance) {
+    const heapLimit = (performance as any).memory?.jsHeapSizeLimit ?? 0;
+    const usedHeap = (performance as any).memory?.usedJSHeapSize ?? 0;
+    const available = heapLimit - usedHeap;
+    if (heapLimit > 0 && estimatedBandSampleBytes > available * 0.75) {
+      throw new Error(
+        `Insufficient JS heap for band cache (${Math.round(estimatedBandSampleBytes / 1024 / 1024)} MB needed, ~${Math.round(available / 1024 / 1024)} MB available). Choose Fast or Balanced quality.`
+      );
+    }
+  }
   const bandSamples = new Float32Array(resolvedBandCount * analysis.samples.length);
   const bandEndComponentCounts = new Uint32Array(resolvedBandCount);
   const bandEnergyFractions = new Float32Array(resolvedBandCount);
-  const mixedSamples = new Float32Array(analysis.samples.length);
   const reconstructionScratch = createReconstructionScratch(analysis);
   let totalEnergy = 0;
   for (let index = 0; index < analysis.componentEnergies.length; index += 1) {
@@ -612,16 +627,13 @@ export function buildEnergyBandReconstruction(
     }
 
     const bandOffset = bandIndex * analysis.samples.length;
-    const band = reconstructWindowedComponentRange(
+    reconstructWindowedComponentRange(
       analysis,
       componentStart,
       componentEnd,
       reconstructionScratch,
       bandSamples.subarray(bandOffset, bandOffset + analysis.samples.length)
     );
-    for (let sampleIndex = 0; sampleIndex < mixedSamples.length; sampleIndex += 1) {
-      mixedSamples[sampleIndex] += band[sampleIndex];
-    }
     bandEndComponentCounts[bandIndex] = componentEnd;
     bandEnergyFractions[bandIndex] = totalEnergy > 0 ? energySum / totalEnergy : (bandIndex + 1) / resolvedBandCount;
     componentStart = componentEnd;
@@ -630,10 +642,22 @@ export function buildEnergyBandReconstruction(
 
   bandEnergyFractions[resolvedBandCount - 1] = 1;
   const finalBandOffset = (resolvedBandCount - 1) * analysis.samples.length;
-  for (let sampleIndex = 0; sampleIndex < mixedSamples.length; sampleIndex += 1) {
-    const residual = analysis.samples[sampleIndex] - mixedSamples[sampleIndex];
+  const sampleCount = analysis.samples.length;
+  for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
+    let bandSum = 0;
+    for (let bandIndex = 0; bandIndex < resolvedBandCount; bandIndex += 1) {
+      bandSum += bandSamples[bandIndex * sampleCount + sampleIndex];
+    }
+    const residual = analysis.samples[sampleIndex] - bandSum;
     bandSamples[finalBandOffset + sampleIndex] += residual;
-    mixedSamples[sampleIndex] += residual;
+  }
+
+  const mixedSamples = new Float32Array(sampleCount);
+  for (let bandIndex = 0; bandIndex < resolvedBandCount; bandIndex += 1) {
+    const offset = bandIndex * sampleCount;
+    for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
+      mixedSamples[sampleIndex] += bandSamples[offset + sampleIndex];
+    }
   }
 
   return {

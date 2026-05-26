@@ -623,7 +623,9 @@ function shouldSkipWebGlRenderer() {
   const renderer = debugInfo
     ? String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) ?? '')
     : '';
-  return /swiftshader|software|llvmpipe/i.test(renderer);
+  const result = /swiftshader|software|llvmpipe/i.test(renderer);
+  gl.getExtension('WEBGL_lose_context')?.loseContext();
+  return result;
 }
 
 function getAudioWaveGlContext(
