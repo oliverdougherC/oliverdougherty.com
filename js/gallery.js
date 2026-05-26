@@ -101,11 +101,10 @@ function replaceChildrenCompat(container, ...children) {
   container.append(...children);
 }
 
-const GALLERY_NAV_DOT_REVEAL_MS = 2000;
 const GALLERY_HERO_REVEAL_MS = 4100;
 
 /**
- * Gallery hero: reveal nav dot mid-animation, then deferred elements once
+ * Gallery hero: reveal deferred elements once
  * the calibrate + color-reveal animations complete.
  * Calibrate: 3.8s duration + 0.3s delay = 4.1s
  * Color reveal: 3.4s duration + 0.6s delay = 4.0s
@@ -152,17 +151,11 @@ function initGalleryHeroReveal() {
 function scheduleGalleryHeroRevealTimers() {
   gallery.heroRevealTimers.forEach((timer) => window.clearTimeout(timer));
 
-  const navDotTimer = window.setTimeout(() => {
-    if (!gallery.heroRevealComplete) {
-      window.revealNavDot?.();
-    }
-  }, GALLERY_NAV_DOT_REVEAL_MS);
-
   const revealTimer = window.setTimeout(() => {
     completeGalleryHeroReveal();
   }, GALLERY_HERO_REVEAL_MS);
 
-  gallery.heroRevealTimers = [navDotTimer, revealTimer];
+  gallery.heroRevealTimers = [revealTimer];
 }
 
 function finishGalleryHeroAnimations() {
@@ -210,7 +203,6 @@ function completeGalleryHeroReveal({ finishAnimations = false } = {}) {
     finishGalleryHeroAnimations();
   }
 
-  window.revealNavDot?.();
   window.revealDeferredElements?.();
   revealAllPhotoCards();
 }

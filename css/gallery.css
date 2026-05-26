@@ -8,10 +8,6 @@
   color: #004BA8;
 }
 
-/* Gallery-specific nav overlay background override (replaces inline style) */
-.page-gallery .nav-overlay-bg {
-  background-color: #FFFFFF;
-}
 
 /* Gallery-specific color scheme override: forces light mode for system UI (scrollbars, form controls).
  * This is intentional for the gallery's light editorial theme, even if the user prefers dark mode. */
@@ -944,21 +940,6 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
   line-height: 1.4;
 }
 
-/* Nav dot
-   Base styles inherited from design-system.css.
-   This block adds gallery-page size override. */
-.nav-dot {
-  width: 20px;
-  height: 20px;
-}
-
-.nav-overlay-bg {
-  background-color: #FFFFFF;
-}
-
-.nav-overlay .nav-link {
-  color: #000000;
-}
 
 @media (max-width: 1280px) {
   .gallery-hero-layout {

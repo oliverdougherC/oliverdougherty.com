@@ -1,10 +1,10 @@
 /**
  * Oliver Unified main JavaScript (shared)
- * Handles navigation, scroll animations, smooth scroll, and portal glow.
+ * Handles scroll animations, smooth scroll, portal glow, and flashlight mode.
  * Loaded on all pages as the shared base.
  *
  * Wrapped in IIFE to avoid polluting global scope.
- * Intentionally exposed on window: revealNavDot, revealDeferredElements
+ * Intentionally exposed on window: revealDeferredElements
  * (used by page-specific scripts such as gallery.js).
  */
 (function () {
@@ -17,29 +17,7 @@
   const FLASHLIGHT_POINTER_SESSION_KEY = 'od-flashlight-pointer';
   const FLASHLIGHT_MODE_ON = 'on';
   const FLASHLIGHT_MODE_OFF = 'off';
-
-  /**
-   * Reveal the nav dot with a fade-in (opacity only, no transform).
-   * Exposed globally for use by page-specific scripts (e.g. gallery.js).
-   */
-  function revealNavDot() {
-    const navActions = document.querySelector('[data-nav-actions]');
-    if (navActions) {
-      navActions.style.transition = 'opacity 2s cubic-bezier(0.19, 1, 0.22, 1)';
-      navActions.classList.add('is-visible');
-      window.setTimeout(() => {
-        navActions.style.removeProperty('transition');
-      }, 2000);
-      return;
-    }
-
-    const navDot = document.getElementById('navToggle');
-    if (!navDot) return;
-    navDot.style.pointerEvents = 'auto';
-    navDot.style.transition = 'opacity 2s cubic-bezier(0.19, 1, 0.22, 1)';
-    navDot.style.opacity = '1';
-  }
-
+  
   /**
    * Reveal all .hero-deferred elements by adding .is-visible.
    * Exposed globally for use by page-specific scripts (e.g. gallery.js).
@@ -51,9 +29,7 @@
   }
 
   // Expose for use by page-specific scripts
-  window.revealNavDot = revealNavDot;
   window.revealDeferredElements = revealDeferredElements;
-
   /**
    * Honor reduced-motion preference globally.
    */
@@ -992,182 +968,10 @@
   }
 
   /**
-   * Navigation functionality (Fullscreen Overlay)
-   */
-  function initNavigation() {
-    const nav = document.getElementById('nav');
-    const navToggle = document.getElementById('navToggle');
-    const navOverlay = document.getElementById('navOverlay');
-    const navOverlayBg = navOverlay?.querySelector('.nav-overlay-bg');
-    let navScrollFrame = 0;
-    const syncNavScrollState = () => {
-      if (!nav) return;
-      nav.classList.toggle('scrolled', window.scrollY > 50);
-    };
-    const scheduleNavScrollState = () => {
-      if (navScrollFrame) return;
-      navScrollFrame = window.requestAnimationFrame(() => {
-        navScrollFrame = 0;
-        syncNavScrollState();
-      });
-    };
-
-    if (navToggle && navOverlay) {
-      const openingDurationMs = prefersReducedMotion() ? 0 : 280;
-      let openingTimer = null;
-      let previouslyFocusedElement = null;
-      const isMenuOpen = () => navOverlay.classList.contains('active');
-      const getOverlayFocusables = () => Array.from(navOverlay.querySelectorAll(
-        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      )).filter((element) => {
-        const style = window.getComputedStyle(element);
-        return !element.hasAttribute('hidden') && style.display !== 'none' && style.visibility !== 'hidden';
-      });
-
-      const clearOpeningState = () => {
-        if (openingTimer !== null) {
-          window.clearTimeout(openingTimer);
-          openingTimer = null;
-        }
-        navOverlay.classList.remove('opening');
-      };
-
-      const startOpeningState = () => {
-        clearOpeningState();
-        navOverlay.classList.add('opening');
-
-        if (openingDurationMs === 0) {
-          navOverlay.classList.remove('opening');
-          return;
-        }
-
-        openingTimer = window.setTimeout(() => {
-          navOverlay.classList.remove('opening');
-          openingTimer = null;
-        }, openingDurationMs);
-      };
-
-      const setNavState = (nextOpen, { opening = false } = {}) => {
-        const isOpen = Boolean(nextOpen);
-        navToggle.classList.toggle('active', isOpen);
-        navOverlay.classList.toggle('active', isOpen);
-        navToggle.setAttribute('aria-expanded', String(isOpen));
-        navOverlay.setAttribute('aria-hidden', String(!isOpen));
-        document.body.classList.toggle('nav-open', isOpen);
-        if (navToggle.classList.contains('nav-dot')) {
-          const label = isOpen ? 'Close menu' : 'Open menu';
-          navToggle.setAttribute('aria-label', label);
-          const visibleLabel = navToggle.querySelector('[data-nav-toggle-label]');
-          if (visibleLabel) visibleLabel.textContent = label;
-        }
-
-        if (isOpen && opening) {
-          previouslyFocusedElement = document.activeElement;
-          startOpeningState();
-          window.setTimeout(() => {
-            getOverlayFocusables()[0]?.focus();
-          }, openingDurationMs);
-        } else {
-          clearOpeningState();
-          if (!isOpen) {
-            const focusTarget = previouslyFocusedElement && document.contains(previouslyFocusedElement)
-              ? previouslyFocusedElement
-              : navToggle;
-            if (document.activeElement && navOverlay.contains(document.activeElement)) {
-              focusTarget.focus?.();
-            }
-            previouslyFocusedElement = null;
-          }
-        }
-      };
-
-      const closeMobileNav = () => {
-        setNavState(false);
-      };
-
-      navToggle.addEventListener('click', () => {
-        const shouldOpen = !isMenuOpen();
-        setNavState(shouldOpen, { opening: shouldOpen });
-      });
-
-      // Close menu when clicking a link inside the overlay
-      navOverlay.querySelectorAll('.nav-link, .footer-link').forEach(link => {
-        link.addEventListener('click', closeMobileNav);
-      });
-
-      // Explicitly close when clicking the overlay background.
-      navOverlayBg?.addEventListener('click', closeMobileNav);
-
-      // Close when users click any non-interactive part of the open overlay.
-      navOverlay.addEventListener('click', (event) => {
-        if (!isMenuOpen()) return;
-        if (event.target.closest('.nav-link, .footer-link, #navToggle, .theme-toggle, [data-theme-toggle], [data-flashlight-toggle]')) {
-          return;
-        }
-        closeMobileNav();
-      });
-
-      // Allow keyboard users to close the overlay quickly.
-      document.addEventListener('keydown', (event) => {
-        if (!isMenuOpen()) return;
-        if (event.key === 'Escape') {
-          closeMobileNav();
-          return;
-        }
-
-        if (event.key === 'Tab') {
-          const focusables = getOverlayFocusables();
-          if (!focusables.length) {
-            event.preventDefault();
-            navToggle.focus();
-            return;
-          }
-
-          const first = focusables[0];
-          const last = focusables[focusables.length - 1];
-          if (event.shiftKey && document.activeElement === first) {
-            event.preventDefault();
-            last.focus();
-          } else if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault();
-            first.focus();
-          }
-        }
-      });
-
-      // Defensively reset persisted nav state only for history/bfcache restores.
-      window.addEventListener('pageshow', (event) => {
-        const navEntry = performance.getEntriesByType?.('navigation')?.[0];
-        const isHistoryRestore = Boolean(event?.persisted) || navEntry?.type === 'back_forward';
-        if (isHistoryRestore) {
-          closeMobileNav();
-          syncNavScrollState();
-        }
-      });
-
-      // Ensure we do not carry locked scroll if the document is hidden mid-transition.
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden') {
-          clearOpeningState();
-        }
-      });
-
-      closeMobileNav();
-    }
-
-    // Scroll behavior for nav
-    if (nav) {
-      syncNavScrollState();
-      window.addEventListener('scroll', scheduleNavScrollState, { passive: true });
-    }
-  }
-
-  /**
-   * Home hero: keep the top bar off-screen until the DOUGHERTY blueprint finishes,
-   * or until the user scrolls past the wordmark (animations jump to the end, then the bar slides in).
+   * Home hero: reveal deferred elements when the DOUGHERTY blueprint finishes,
+   * or when the user scrolls past the wordmark (animations jump to the end).
    *
    * Timing:
-   *   - Nav dot fades in at ~50% of the blueprint sequence (~3.7s)
    *   - Deferred elements (corners, below-fold) fade in when the blueprint completes (~7.4s)
    *   - If user scrolls past the hero, everything reveals immediately
    */
@@ -1178,8 +982,6 @@
     if (!blueprint) return;
 
     if (prefersReducedMotion() || shouldSkipPageAnimation()) {
-      document.body.classList.add('dougherty-nav-revealed');
-      revealNavDot();
       revealDeferredElements();
       return;
     }
@@ -1188,17 +990,13 @@
     // Browser restores scrollY before DOMContentLoaded, so this catches the reload case.
     const heroBottom = blueprint.getBoundingClientRect().bottom;
     if (heroBottom < 0) {
-      document.body.classList.add('dougherty-nav-revealed');
-      revealNavDot();
       revealDeferredElements();
       return;
     }
 
     let revealTimer = null;
-    let navDotTimer = null;
     let revealed = false;
     const DOUGHERTY_SEQUENCE_MS = DOUGHERTY_BLUEPRINT_SEQUENCE_MS;
-    const NAV_DOT_REVEAL_MS = Math.round(DOUGHERTY_SEQUENCE_MS * 0.5);
 
     const finishBlueprintAnimations = () => {
       const root = document.querySelector('.blueprint-title');
@@ -1226,12 +1024,6 @@
         window.clearTimeout(revealTimer);
         revealTimer = null;
       }
-      if (navDotTimer !== null) {
-        window.clearTimeout(navDotTimer);
-        navDotTimer = null;
-      }
-      document.body.classList.add('dougherty-nav-revealed');
-      revealNavDot();
       revealDeferredElements();
       window.removeEventListener('scroll', onScrollMaybePastDougherty, { passive: true });
     };
@@ -1251,10 +1043,7 @@
 
     window.addEventListener('scroll', onScrollMaybePastDougherty, { passive: true });
 
-    // Nav dot fades in at ~50% of the animation
-    navDotTimer = window.setTimeout(revealNavDot, NAV_DOT_REVEAL_MS);
-
-    // Everything else reveals when the blueprint completes
+    // Deferred elements reveal when the blueprint completes
     revealTimer = window.setTimeout(reveal, DOUGHERTY_SEQUENCE_MS);
   }
 
@@ -1517,7 +1306,6 @@
   // --- Initialization ---
   document.addEventListener('DOMContentLoaded', () => {
     initMotionPreference();
-    initNavigation();
     initFlashlightMode();
     initBlueprintWordmark();
     initHeroNavReveal();

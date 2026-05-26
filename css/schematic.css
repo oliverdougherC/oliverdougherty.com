@@ -56,19 +56,6 @@ body.schematic-mode {
 }
 
 /* -------------------------------------
-   Menu dot (replaces header + hamburger)
-   Base styles inherited from design-system.css.
-   This block adds schematic-page size override.
-   ------------------------------------- */
-
-body.schematic-mode .nav-dot {
-  width: 20px;
-  height: 20px;
-}
-
-.nav-overlay.active {
-  display: flex;
-}
 
 /* -------------------------------------
    Hero Section
@@ -99,6 +86,7 @@ body.schematic-mode .nav-dot {
 
 .meta-tiny {
   position: absolute;
+  z-index: 20;
   font-size: 0.85rem;
   color: #000000;
   line-height: 1.6;
@@ -704,6 +692,13 @@ html.skip-page-animation[data-page-id="home"] .blueprint-outline-text {
 html.skip-page-animation[data-page-id="home"] .hero-deferred {
   opacity: 1;
   transform: translateY(0);
+}
+.nav-actions.hero-deferred {
+  transform: none;
+}
+
+.nav-actions.hero-deferred.is-visible {
+  transform: none;
 }
 
 html.skip-page-animation[data-page-id="home"] #navToggle {
