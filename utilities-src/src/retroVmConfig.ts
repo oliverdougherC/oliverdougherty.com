@@ -30,8 +30,6 @@ export const RETRO_VM_CONFIG: RetroVmConfig = {
       'Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. Relay-backed networking remains experimental.',
     supportNoteOffline:
       'Desktop browser recommended. Click into the VM screen to capture the mouse. Press Escape to release it, or to exit fullscreen. This Tiny Core rollback is offline-first.',
-    screenBadgeOnline: 'Experimental relay',
-    screenBadgeOffline: 'Local only',
     progressMeta: RETRO_VM_DISTRO
   },
   network: {
@@ -51,8 +49,6 @@ const RETRO_VM_COPY_DATASET_FIELDS = {
   vmBridgeLabelOffline: 'bridgeLabelOffline',
   vmSupportNoteOnline: 'supportNoteOnline',
   vmSupportNoteOffline: 'supportNoteOffline',
-  vmScreenBadgeOnline: 'screenBadgeOnline',
-  vmScreenBadgeOffline: 'screenBadgeOffline',
   vmProgressMeta: 'progressMeta'
 } as const satisfies Record<keyof Omit<RetroVmDatasetConfig, 'vmNetworkEnabled' | 'vmRelayUrl'>, keyof RetroVmCopyConfig>;
 

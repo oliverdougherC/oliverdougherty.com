@@ -33,8 +33,7 @@ export interface RetroVmCopyConfig {
   bridgeLabelOffline: string;
   supportNoteOnline: string;
   supportNoteOffline: string;
-  screenBadgeOnline: string;
-  screenBadgeOffline: string;
+  progressMeta: string;
   progressMeta: string;
 }
 
@@ -63,8 +62,7 @@ export interface RetroVmDatasetConfig {
   vmBridgeLabelOffline?: string;
   vmSupportNoteOnline?: string;
   vmSupportNoteOffline?: string;
-  vmScreenBadgeOnline?: string;
-  vmScreenBadgeOffline?: string;
+  vmProgressMeta?: string;
   vmProgressMeta?: string;
   vmNetworkEnabled?: string;
   vmRelayUrl?: string;

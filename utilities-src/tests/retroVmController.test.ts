@@ -52,10 +52,6 @@ function buildVmDom(rootId = 'retroVmApp') {
   const progressFill = document.createElement('div');
   progressFill.id = 'retroVmProgressFill';
 
-  // Buttons
-  const launchBtn = document.createElement('button');
-  launchBtn.id = 'retroVmLaunchBtn';
-
   const resetBtn = document.createElement('button');
   resetBtn.id = 'retroVmResetBtn';
 
@@ -82,9 +78,6 @@ function buildVmDom(rootId = 'retroVmApp') {
   const captureBadge = document.createElement('span');
   captureBadge.id = 'retroVmCaptureBadge';
 
-  const screenBadge = document.createElement('span');
-  screenBadge.id = 'retroVmScreenBadge';
-
   // Config script element
   const configScript = document.createElement('script');
   configScript.id = 'retroVmConfig';
@@ -97,7 +90,6 @@ function buildVmDom(rootId = 'retroVmApp') {
   root.appendChild(progressText);
   root.appendChild(progressMeta);
   root.appendChild(progressFill);
-  root.appendChild(launchBtn);
   root.appendChild(resetBtn);
   root.appendChild(fullscreenBtn);
   root.appendChild(pasteBtn);
@@ -105,7 +97,6 @@ function buildVmDom(rootId = 'retroVmApp') {
   root.appendChild(placeholder);
   root.appendChild(supportNote);
   root.appendChild(captureBadge);
-  root.appendChild(screenBadge);
 
   document.body.appendChild(configScript);
   document.body.appendChild(root);
@@ -117,7 +108,6 @@ function buildVmDom(rootId = 'retroVmApp') {
     progressText,
     progressMeta,
     progressFill,
-    launchBtn,
     resetBtn,
     fullscreenBtn,
     pasteBtn,
@@ -126,7 +116,6 @@ function buildVmDom(rootId = 'retroVmApp') {
     placeholder,
     supportNote,
     captureBadge,
-    screenBadge
   };
 }
 
@@ -151,14 +140,13 @@ describe('RetroVmController', () => {
       expect(dom.root.dataset.vmSupported).toBe('true');
     });
 
-    it('leaves vmState unset until first transition', () => {
+    it('auto-boots on init and transitions to loading state', () => {
       const dom = buildVmDom();
       const controller = new RetroVmController(dom.root);
       controller.init();
 
-      // The controller starts in idle state but does not write vmState to
-      // the dataset until a transition occurs.
-      expect(dom.root.dataset.vmState).toBeUndefined();
+      // init() calls launch() which sets vmState to 'loading'
+      expect(dom.root.dataset.vmState).toBe('loading');
     });
   });
 
@@ -168,13 +156,21 @@ describe('RetroVmController', () => {
       const controller = new RetroVmController(dom.root);
       controller.init();
 
-      // Trigger launch by clicking the launch button
-      dom.launchBtn.click();
-
+      // Auto-boot starts on init(); wait for running state
       await vi.waitFor(() => {
         expect(dom.root.dataset.vmState).toBe('running');
       }, { timeout: 2000 });
       expect(dom.root.dataset.vmBooted).toBe('true');
+    });
+
+    it('creates exactly one canvas after boot', async () => {
+      const dom = buildVmDom();
+      const controller = new RetroVmController(dom.root);
+      controller.init();
+
+      await vi.waitFor(() => {
+        expect(dom.screenContainer.querySelectorAll('canvas').length).toBe(1);
+      }, { timeout: 2000 });
     });
 
     it('does not launch twice if already launching', async () => {
@@ -182,24 +178,10 @@ describe('RetroVmController', () => {
       const controller = new RetroVmController(dom.root);
       controller.init();
 
-      dom.launchBtn.click();
-      // Second click should be a no-op
-      dom.launchBtn.click();
-
+      // init() already triggered launch; the guard prevents a second launch
       await vi.waitFor(() => {
         expect(dom.screenContainer.querySelectorAll('canvas').length).toBe(1);
       }, { timeout: 2000 });
-    });
-
-    it('sets launch button disabled during launch', async () => {
-      const dom = buildVmDom();
-      const controller = new RetroVmController(dom.root);
-      controller.init();
-
-      dom.launchBtn.click();
-
-      // Launch button should be disabled while loading
-      expect(dom.launchBtn.disabled).toBe(true);
     });
   });
 
@@ -209,8 +191,7 @@ describe('RetroVmController', () => {
       const controller = new RetroVmController(dom.root);
       controller.init();
 
-      // Launch first
-      dom.launchBtn.click();
+      // Wait for auto-boot to reach running state
       await vi.waitFor(() => {
         expect(dom.root.dataset.vmState).toBe('running');
       }, { timeout: 2000 });
@@ -225,12 +206,12 @@ describe('RetroVmController', () => {
       expect(dom.screenContainer.innerHTML).toBe('');
     });
 
-    it('leaves reset button disabled before launch', () => {
+    it('leaves reset button disabled before emulator is ready', () => {
       const dom = buildVmDom();
       const controller = new RetroVmController(dom.root);
       controller.init();
 
-      // Reset button should be disabled when there is no emulator
+      // Reset button should be disabled when there is no emulator yet
       expect(dom.resetBtn.disabled).toBe(true);
     });
   });
@@ -241,8 +222,7 @@ describe('RetroVmController', () => {
       const controller = new RetroVmController(dom.root);
       controller.init();
 
-      // Launch first
-      dom.launchBtn.click();
+      // Wait for auto-boot to reach running state
       await vi.waitFor(() => {
         expect(dom.root.dataset.vmState).toBe('running');
       }, { timeout: 2000 });
@@ -264,7 +244,7 @@ describe('RetroVmController', () => {
       expect(() => controller.dispose()).not.toThrow();
     });
 
-    it('can be called before launch without errors', () => {
+    it('can be called before boot completes without errors', () => {
       const dom = buildVmDom();
       const controller = new RetroVmController(dom.root);
       controller.init();
@@ -274,13 +254,12 @@ describe('RetroVmController', () => {
   });
 
   describe('error state transitions', () => {
-    it('transitions cleanly through launch and reset without entering error state', async () => {
+    it('transitions cleanly through boot and reset without entering error state', async () => {
       const dom = buildVmDom();
       const controller = new RetroVmController(dom.root);
       controller.init();
 
-      // Launch and wait for running
-      dom.launchBtn.click();
+      // Wait for auto-boot to reach running state
       await vi.waitFor(() => {
         expect(dom.root.dataset.vmState).toBe('running');
       }, { timeout: 2000 });
@@ -294,13 +273,12 @@ describe('RetroVmController', () => {
   });
 
   describe('full lifecycle', () => {
-    it('launches, runs, resets, and disposes in sequence', async () => {
+    it('boots, runs, resets, and disposes in sequence', async () => {
       const dom = buildVmDom();
       const controller = new RetroVmController(dom.root);
       controller.init();
 
-      // Launch
-      dom.launchBtn.click();
+      // Auto-boot
       await vi.waitFor(() => {
         expect(dom.root.dataset.vmState).toBe('running');
       }, { timeout: 2000 });
@@ -312,12 +290,6 @@ describe('RetroVmController', () => {
         expect(dom.root.dataset.vmState).toBe('idle');
       }, { timeout: 2000 });
       expect(dom.root.dataset.vmBooted).toBe('false');
-
-      // Re-launch after reset
-      dom.launchBtn.click();
-      await vi.waitFor(() => {
-        expect(dom.root.dataset.vmState).toBe('running');
-      }, { timeout: 2000 });
 
       // Dispose
       controller.dispose();

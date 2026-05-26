@@ -599,7 +599,6 @@ export class RetroVmController {
   private readonly progressText: HTMLElement;
   private readonly progressMeta: HTMLElement;
   private readonly progressFill: HTMLElement | null;
-  private readonly launchButton: HTMLButtonElement;
   private readonly resetButton: HTMLButtonElement;
   private readonly fullscreenButton: HTMLButtonElement;
   private readonly pasteButton: HTMLButtonElement;
@@ -608,7 +607,6 @@ export class RetroVmController {
   private readonly placeholder: HTMLElement;
   private readonly supportNote: HTMLElement;
   private readonly captureBadge: HTMLElement;
-  private readonly screenBadge: HTMLElement;
   private readonly mouseBridge: RetroVmMouseBridge;
   private resizeObserver: ResizeObserver | null = null;
 
@@ -704,7 +702,6 @@ export class RetroVmController {
     this.progressText = this.requireElement('retroVmProgressText');
     this.progressMeta = this.requireElement('retroVmProgressMeta');
     this.progressFill = document.getElementById('retroVmProgressFill');
-    this.launchButton = this.requireElement('retroVmLaunchBtn', HTMLButtonElement);
     this.resetButton = this.requireElement('retroVmResetBtn', HTMLButtonElement);
     this.fullscreenButton = this.requireElement('retroVmFullscreenBtn', HTMLButtonElement);
     this.pasteButton = this.requireElement('retroVmPasteBtn', HTMLButtonElement);
@@ -713,7 +710,6 @@ export class RetroVmController {
     this.placeholder = this.requireElement('retroVmPlaceholder');
     this.supportNote = this.requireElement('retroVmSupportNote');
     this.captureBadge = this.requireElement('retroVmCaptureBadge');
-    this.screenBadge = this.requireElement('retroVmScreenBadge');
     this.mouseBridge = new RetroVmMouseBridge(
       this.screenContainer,
       () => this.getGuestViewport(),
@@ -724,9 +720,6 @@ export class RetroVmController {
   }
 
   init() {
-    this.launchButton.addEventListener('click', () => {
-      void this.launch();
-    });
     this.resetButton.addEventListener('click', () => {
       void this.reset();
     });
@@ -762,7 +755,7 @@ export class RetroVmController {
 
     this.root.dataset.vmSupported = 'true';
     this.supportNote.textContent = this.getDefaultSupportNote();
-    this.syncUi();
+    void this.launch();
   }
 
   private getElementById(id: string): HTMLElement {
@@ -1079,13 +1072,8 @@ export class RetroVmController {
     return isRetroVmNetworkReady(this.config) ? this.config.copy.supportNoteOnline : this.config.copy.supportNoteOffline;
   }
 
-  private getScreenBadgeLabel() {
-    return isRetroVmNetworkReady(this.config) ? this.config.copy.screenBadgeOnline : this.config.copy.screenBadgeOffline;
-  }
-
   private applyRuntimeLabels() {
     this.progressMeta.textContent = this.config.copy.progressMeta;
-    this.screenBadge.textContent = this.getScreenBadgeLabel();
     this.root.dataset.vmNetworkReady = isRetroVmNetworkReady(this.config) ? 'true' : 'false';
     this.root.dataset.vmAssetLabel = this.config.copy.assetLabel;
     this.root.dataset.vmBridgeLabelOnline = this.config.copy.bridgeLabelOnline;
@@ -1181,7 +1169,7 @@ export class RetroVmController {
     if (this.progressFill) {
       this.progressFill.style.width = `${percent}%`;
     }
-    this.launchButton.disabled = this.shouldDisableLaunchButton();
+    this.resetButton.disabled = !this.support.supported || (!this.emulator && this.state !== 'error');
     this.resetButton.disabled = !this.support.supported || (!this.emulator && this.state !== 'error');
     this.fullscreenButton.disabled =
       !this.emulator || !document.fullscreenEnabled || (this.state !== 'running' && this.state !== 'fullscreen');
@@ -1190,18 +1178,9 @@ export class RetroVmController {
     this.applyInteractionStatusCopy();
   }
 
-  private shouldDisableLaunchButton() {
-    return (
-      !this.support.supported ||
-      Boolean(this.emulator) ||
-      this.state === 'loading' ||
-      this.state === 'resetting' ||
-      this.state === 'fullscreen'
-    );
-  }
-
   dispose() {
     if (this.bootHintTimer !== null) {
+      window.clearTimeout(this.bootHintTimer);
       window.clearTimeout(this.bootHintTimer);
       this.bootHintTimer = null;
     }
