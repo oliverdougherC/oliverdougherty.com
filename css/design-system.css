@@ -1517,3 +1517,12 @@ html.reduced-motion[data-flashlight-mode="on"] .flashlight-hud {
   text-shadow: 0 0 8px rgba(0, 75, 168, 0.8), 0 0 16px rgba(0, 75, 168, 0.4);
   color: #004BA8;
 }
+.page-blog .meta-tiny .nav-inline-link--blog.active {
+  text-shadow: 0 0 8px rgba(254, 208, 187, 0.8), 0 0 16px rgba(254, 208, 187, 0.4);
+  color: #FED0BB;
+}
+
+.page-utilities .meta-tiny .nav-inline-link--utilities.active {
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.8), 0 0 16px rgba(255, 255, 255, 0.4);
+  color: #ffffff;
+}

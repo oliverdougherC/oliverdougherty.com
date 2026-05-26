@@ -11,6 +11,7 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `mobile/resume/index.html`: dedicated mobile Resume page.
 - `pages/resume/index.html`: resume page using the shared site shell.
 - `pages/gallery/index.html`: editorial photo gallery powered by JSON metadata in `assets/photos/`.
+- `pages/blog/index.html`: blank blog page placeholder.
 - `pages/archive/index.html`: archive index for technical writeups.
 - `pages/archive/*/*.html`: article-style archive pages using the abstract/article layout.
 - `pages/utilities/index.html`: utilities page shell.

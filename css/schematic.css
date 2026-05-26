@@ -732,3 +732,41 @@ html.skip-page-animation[data-page-id="home"] #navToggle {
 .contact-link:hover {
   border-color: var(--schematic-flare) !important;
 }
+/* Blog page: dark base + Peach Fuzz flare */
+body.schematic-mode.page-blog {
+  --schematic-bg: #000000;
+  --schematic-text: #FFFFFF;
+  --schematic-border: #FFFFFF;
+  --schematic-flare: #FED0BB;
+  background-color: #000000;
+  color: #FFFFFF;
+}
+
+body.schematic-mode.page-blog ::selection {
+  background-color: #FFFFFF;
+  color: #000000;
+}
+
+body.schematic-mode.page-blog .schematic-wrapper {
+  background-color: #000000;
+}
+
+body.schematic-mode.page-blog .schematic-grid {
+  background-color: #000000;
+}
+
+body.schematic-mode.page-blog .grid-cell {
+  background-color: #000000;
+}
+
+body.schematic-mode.page-blog .meta-tiny {
+  color: #FFFFFF;
+}
+
+body.schematic-mode.page-blog .nav-inline-link {
+  color: #FFFFFF;
+}
+
+.meta-tiny .blog-accent-swatch {
+  color: #FED0BB;
+}

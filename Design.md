@@ -23,6 +23,7 @@ Flare colors are to be used only for interactive elements, key highlights, or su
 | **Landing** | Pumpkin Spice | `#FF6700` |
 | **Resume** | Medium Jungle | `#2BA84A` |
 | **Gallery** | Cobalt Blue | `#004BA8` |
+| **Blog** | Peach Fuzz | `#FED0BB` |
 
 ## Typography
 
