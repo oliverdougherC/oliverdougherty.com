@@ -7,6 +7,7 @@
   'use strict';
 
   const STORAGE_KEY = 'od-page-animations-seen';
+  const HARD_RELOAD_KEY = 'od-hard-reload';
   const VALID_PAGE_IDS = new Set(['home', 'resume', 'gallery', 'utilities']);
   const script = document.currentScript;
   const pageId = script?.dataset?.pageId || '';
@@ -30,12 +31,39 @@
     }
   }
 
+  function setHardReloadFlag() {
+    try { window.sessionStorage.setItem(HARD_RELOAD_KEY, '1'); } catch (_) {}
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('_hr')) {
+      url.searchParams.set('_hr', '1');
+      history.replaceState(null, '', url);
+    }
+  }
+
+  function wasHardReload() {
+    try {
+      if (window.sessionStorage.getItem(HARD_RELOAD_KEY) === '1') return true;
+    } catch (_) {}
+    try {
+      if (new URL(window.location.href).searchParams.get('_hr') === '1') return true;
+    } catch (_) {}
+    return false;
+  }
+
+  function clearHardReloadFlag() {
+    try { window.sessionStorage.removeItem(HARD_RELOAD_KEY); } catch (_) {}
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('_hr')) {
+      url.searchParams.delete('_hr');
+      history.replaceState(null, '', url);
+    }
+  }
+
   function clearPageOnReload(id) {
     if (!id || !VALID_PAGE_IDS.has(id)) return;
-
     const navEntry = window.performance?.getEntriesByType?.('navigation')?.[0];
     if (!navEntry || navEntry.type !== 'reload') return;
-
+    if (!wasHardReload()) return;
     const seen = readSeenMap();
     delete seen[id];
     writeSeenMap(seen);
@@ -74,6 +102,20 @@
       markPageSeen(pageId);
     }
   }
+
+  document.addEventListener('keydown', (event) => {
+    const isShift = event.shiftKey;
+    const isMetaOrCtrl = event.metaKey || event.ctrlKey;
+    const isHardReloadShortcut = (isMetaOrCtrl && isShift && event.code === 'KeyR') ||
+                                  (isShift && event.code === 'F5');
+    if (isHardReloadShortcut) {
+      event.preventDefault();
+      setHardReloadFlag();
+      window.location.reload();
+    }
+  });
+
+  window.addEventListener('load', clearHardReloadFlag);
 
   window.pageAnimations = {
     pageId,

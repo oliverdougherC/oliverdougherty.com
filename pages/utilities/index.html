@@ -23,14 +23,14 @@
   <link rel="stylesheet" href="../../css/local-llm-chat.css?v=utilities-2026-05-16-local-assistant-copy">
 </head>
 <body>
-  <canvas id="starfield"></canvas>
+  <canvas id="starfield" aria-hidden="true"></canvas>
   <div class="noise-overlay"></div>
 
   <nav class="nav" id="nav">
     <div class="nav-inner container">
       <div class="nav-btn-wrapper">
         <a href="../../index.html" class="nav-home-btn" data-cursor="hover">Home</a>
-        <button class="nav-back-btn" data-cursor="hover">Back</button>
+        <button type="button" class="nav-back-btn" data-cursor="hover">Back</button>
       </div>
     </div>
   </nav>
@@ -304,9 +304,8 @@
                               <span class="vm-toolbar-title" id="retroVmProgressText">Idle</span>
                               <span class="vm-toolbar-meta" id="retroVmProgressMeta">Tiny Core Linux 11</span>
                               <span class="utility-status-chip utility-status-chip--idle" id="retroVmStatusChip">Idle</span>
-                              <span class="sr-only" id="retroVmStatusText" aria-live="polite">Launch a fresh local session when you are ready.</span>
+                              <span class="sr-only" id="retroVmStatusText" aria-live="polite">Booting Tiny Core Linux 11.</span>
                               <span class="vm-capture-badge" id="retroVmCaptureBadge">Click desktop to capture mouse</span>
-                              <span class="vm-screen-badge" id="retroVmScreenBadge">Local only</span>
 
                               <div class="vm-toolbar-actions">
                                 <button type="button" class="btn-secondary-utility btn-secondary-utility--compact" id="retroVmLaunchBtn">Launch</button>
@@ -320,7 +319,7 @@
                               <div class="canvas-placeholder vm-placeholder" id="retroVmPlaceholder">
                                 <div class="vm-placeholder-stack">
                                   <strong>Tiny Core Linux 11</strong>
-                                  <span>Click Launch to boot the ephemeral session.</span>
+                                  <span>Launch the ephemeral session when ready.</span>
                                 </div>
                               </div>
                             </div>

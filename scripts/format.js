@@ -43,7 +43,8 @@ const SKIP_PREFIXES = [
   'assets/photos/large',
   'pages/utilities/assets',
   'image-transform',
-  'image-transform/target'
+  'image-transform/target',
+  'blogs/.obsidian'
 ];
 
 function rel(filePath) {

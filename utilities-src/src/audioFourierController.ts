@@ -62,6 +62,7 @@ function supportsModuleWorkers() {
 interface ActiveBandNode {
   source: AudioBufferSourceNode;
   gain: GainNode;
+  disconnected: boolean;
 }
 
 interface ActiveAudioFourier {
@@ -166,6 +167,7 @@ export class AudioFourierController {
   private audioContext: AudioContext | null = null;
   private bandBuffers: AudioBuffer[] = [];
   private activeBandNodes: ActiveBandNode[] = [];
+  private audioContextBlocked = false;
   private activeMasterGain: GainNode | null = null;
   private masterGainControlReadyAt = 0;
   private playbackStartedAt = 0;
@@ -188,13 +190,7 @@ export class AudioFourierController {
   private activeComponentsCacheKey = '';
   private activeComponentsCacheValue = 0;
   private readonly eventController = new AbortController();
-  private readonly reducedMotionChangeHandler = () => {
-    const prev = this.reducedMotion;
-    this.reducedMotion = this.reducedMotionQuery.matches;
-    if (prev !== this.reducedMotion) {
-      this.syncButtons();
-    }
-  };
+  private readonly reducedMotionChangeHandler = this.onReducedMotionChange.bind(this);
   private readonly spectrumBackgroundCanvas: HTMLCanvasElement;
   private readonly componentBackgroundCanvas: HTMLCanvasElement;
 
@@ -324,6 +320,7 @@ export class AudioFourierController {
 
   private installCanvasResizeObserver() {
     if (typeof ResizeObserver === 'undefined') {
+      // Fallback only covers window resize, not container layout changes (e.g., sidebar collapse, tab switch).
       window.addEventListener('resize', () => this.queueCanvasResize(), { signal: this.eventController.signal });
       return;
     }
@@ -383,12 +380,17 @@ export class AudioFourierController {
       : 'balanced';
   }
 
-  private requireElement<T extends HTMLElement>(id: string, ctor: { new(): T } = HTMLElement as { new(): T }) {
-    const element = document.getElementById(id);
-    if (!(element instanceof ctor)) {
+  private requireElement(id: string): HTMLElement;
+  private requireElement<T extends HTMLElement>(id: string, expected: new () => T): T;
+  private requireElement<T extends HTMLElement>(id: string, expected?: new () => T): HTMLElement | T {
+    const el = document.getElementById(id);
+    if (!el) {
       throw new Error(`Missing required element: ${id}`);
     }
-    return element;
+    if (expected && !(el instanceof expected)) {
+      throw new Error(`Element ${id} is not ${expected.name}`);
+    }
+    return el as T;
   }
 
   private getContext(canvas: HTMLCanvasElement) {
@@ -480,6 +482,13 @@ export class AudioFourierController {
     this.pauseButton.title = 'Pause';
   }
 
+  private onReducedMotionChange() {
+    const prev = this.reducedMotion;
+    this.reducedMotion = this.reducedMotionQuery.matches;
+    if (prev !== this.reducedMotion) {
+      this.syncButtons();
+    }
+  }
   private setState(state: AudioFourierState, text: string) {
     this.state = state;
     this.statusText.textContent = text;
@@ -596,6 +605,8 @@ export class AudioFourierController {
       // Some browsers still require a second explicit Play click after async analysis.
       console.warn('[AudioFourier] AudioContext resume was blocked before analysis started.', error);
       logAudioFourierWarning('AudioContext resume was blocked before analysis started.', error);
+      this.audioContextBlocked = true;
+      this.playPauseButton.title = 'Audio blocked by browser — click to unlock';
       this.setProgress(
         0.02,
         'Loading audio samples...',
@@ -813,7 +824,7 @@ export class AudioFourierController {
     this.syncEnergyReadout();
     this.resultMeta.textContent = '';
     this.setProgress(1, 'Fourier proxy ready.');
-    void this.tryAutoPlayAfterGeneration(message.requestId);
+    void this.attemptAutoPlay(message.requestId);
   }
 
   private configureSlider() {
@@ -997,7 +1008,11 @@ export class AudioFourierController {
     }
   }
 
-  private async tryAutoPlayAfterGeneration(requestId: number) {
+  /**
+   * Attempt to autoplay after generation completes.
+   * Intentionally voided at call site — browsers block autoplay until user gesture.
+   */
+  private async attemptAutoPlay(requestId: number) {
     if (requestId !== this.activeRequestId || !this.activeResult || this.state !== 'ready') {
       return;
     }
@@ -1064,8 +1079,8 @@ export class AudioFourierController {
     const activeResult = this.activeResult;
     const context = this.getAudioContext();
     await context.resume();
+    this.audioContextBlocked = false;
     this.ensureBandBuffers();
-
     const offset = clamp(this.playbackElapsedSeconds, 0, activeResult.metadata.proxyDurationSeconds);
     const startedAt = context.currentTime + PLAYBACK_START_DELAY_SECONDS;
     const masterGainValue = resolveEnergyMakeupGain(this.activeResult.energyPercent);
@@ -1084,7 +1099,7 @@ export class AudioFourierController {
       source.connect(gain);
       gain.connect(masterGain);
       source.start(startedAt, offset);
-      return { source, gain };
+      return { source, gain, disconnected: false };
     });
     if (this.activeBandNodes.length !== activeResult.bandGains.length) {
       this.stopPlayback(false);
@@ -1144,8 +1159,11 @@ export class AudioFourierController {
         // Stopping an already-ended one-shot source is harmless, but log unexpected failures.
         console.warn('[AudioFourier] stopPlayback: node.source.stop() failed:', error);
       }
-      node.source.disconnect();
-      node.gain.disconnect();
+      if (!node.disconnected) {
+        node.source.disconnect();
+        node.gain.disconnect();
+        node.disconnected = true;
+      }
     }
     this.activeBandNodes = [];
     if (this.activeMasterGain) {

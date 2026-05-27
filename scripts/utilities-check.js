@@ -1957,7 +1957,7 @@ async function main() {
       `GPU Stress Test should select a browser GPU backend, got ${stressGpuState.backend}.`
     );
     assert(stressGpuState.frames >= 2, 'GPU Stress Test should render multiple GPU frames.');
-    assert(stressGpuState.workload >= 1, 'GPU Stress Test should expose a positive workload level.');
+    assert(stressGpuState.workload >= 1, 'GPU Stress Test should expose a positive adaptive workload level.');
     assert(stressGpuState.activeCanvas === 'true', 'GPU Stress Test should report active GPU canvas output.');
     await assertStressCanvasActive(page, 'stress:gpu:running');
     await assertStressLayout(page, 'stress:desktop:gpu-running', { requirePanelFit: true });
@@ -1966,6 +1966,14 @@ async function main() {
     await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'idle', null, {
       timeout: 10000
     });
+    const stressGpuStoppedState = await page.evaluate(() => ({
+      backend: document.getElementById('stressTestApp')?.dataset.stressGpuBackend ?? '',
+      workload: document.getElementById('stressTestApp')?.dataset.stressGpuWorkloadLevel ?? '',
+      activeCanvas: document.getElementById('stressTestApp')?.dataset.stressGpuCanvasActive ?? ''
+    }));
+    assert(stressGpuStoppedState.backend === 'none', 'Stopped GPU Stress Test should clear the GPU backend.');
+    assert(stressGpuStoppedState.workload === '0', 'Stopped GPU Stress Test should clear the adaptive workload level.');
+    assert(stressGpuStoppedState.activeCanvas === 'false', 'Stopped GPU Stress Test should clear the active GPU canvas flag.');
     await page.setViewportSize({ width: 1440, height: 1100 });
 
     const webGl1Page = await browser.newPage({
@@ -1999,6 +2007,7 @@ async function main() {
         app?.dataset.stressState === 'running' &&
         app.dataset.stressGpuBackend === 'webgl1-fragment' &&
         Number(app.dataset.stressTotalRenderedFrames ?? '0') >= 2 &&
+        Number(app.dataset.stressGpuWorkloadLevel ?? '0') >= 1 &&
         app.dataset.stressGpuCanvasActive === 'true'
       );
     }, null, { timeout: 12000 });

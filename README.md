@@ -6,7 +6,7 @@ Static portfolio site for me (Oliver Dougherty, duh).
 
 - `index.html` — Landing page and main navigation hub
 - `mobile/` — Dedicated mobile site (Home + Resume only)
-- `pages/` — Routed desktop pages: resume, gallery, archive, utilities
+- `pages/` — Routed desktop pages: resume, gallery, archive, utilities, blog
 - `js/` — Shared browser scripts (nav, gallery, starfield, mobile gate, etc.)
 - `css/` — Design system tokens + page-specific stylesheets
 - `assets/` — Static media, gallery photos, utilities assets (demo images, audio, VM ISO)
@@ -40,8 +40,8 @@ Open `http://localhost:3000`. Done.
 ### Step-by-step (if you prefer manual control)
 
 ```bash
-git clone git@github.com:oliverdougherC/Oliver-Unified.git
-cd Oliver-Unified
+git clone git@github.com:oliverdougherC/oliverdougherty.com.git
+cd oliverdougherty.com
 
 npm install              # dependencies
 npm run utilities:build  # build utilities dashboard
@@ -81,7 +81,7 @@ npm run optimize-images
 ### Utilities
 
 - `npm run utilities:build` — Rebuild shipped bundle into `pages/utilities/assets/`
-- `npm run utilities:check` — TypeScript check + 176 unit tests
+- `npm run utilities:check` — TypeScript check + 218 unit tests
 - `npm run utilities:browser-check` — Playwright regression (Image Transform, Audio Fourier, Retro VM, Local Assistant, Stress Test)
 - `npm run utilities:perf` — Transform timing probe (image + audio)
 - `npm run utilities:cache:build` — Precompute built-in transform cache JSON
@@ -125,7 +125,7 @@ npm run utilities:browser-check
 
 ## CI
 
-GitHub Actions runs lint, format check, typecheck, tests, build, and smoke on every push and PR to `main` and `beta`.
+GitHub Actions runs lint, format check, typecheck, tests, build, smoke, and deploy on every push and PR to `main` and `beta`.
 
 ## Documentation
 

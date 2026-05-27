@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en" data-disable-color-mode>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blog</title>
+  <meta name="description" content="Oliver Dougherty - Blog">
+  <link rel="alternate" media="only screen and (max-width: 760px)" href="../../mobile/">
+  <script src="../../js/mobile-gate.js" data-mobile-target="../../mobile/"></script>
+  <script src="../../js/page-animations.js" data-page-id="blog"></script>
+  <link rel="icon" type="image/svg+xml" href="/favicon-happy.svg?v=face-6" id="favicon">
+  <link rel="alternate icon" href="/favicon-happy.ico?v=face-6" id="favicon-fallback">
+  <script src="../../js/favicon-swap.js" defer></script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=JetBrains+Mono:wght@200;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=JetBrains+Mono:wght@200;800&display=swap" rel="stylesheet"></noscript>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="../../css/design-system.css">
+  <link rel="stylesheet" href="../../css/schematic.css">
+  <link rel="stylesheet" href="../../css/blog.css">
+  <link rel="stylesheet" href="../../css/cursor.css">
+
+  <!-- KaTeX for LaTeX Support -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css" integrity="sha384-GvrOXuhMATgEsSwCs4smul74iXGOixntILdUW9XmUC6+HX0sLNAK3q71HotJqlAn" crossorigin="anonymous">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js" integrity="sha384-cpW21h6RZv/phavutF+AuVYrr+dA8xD9zs6FwLpaCct6O9ctzYFfFr4dgmgccOTx" crossorigin="anonymous"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
+  <script defer src="../../js/blog-math.js"></script>
+
+  <!-- Syntax highlighting for fenced code blocks (e.g. ```python) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+  <script defer src="../../js/blog-code-highlight.js"></script>
+
+  <!-- Markdown parser -->
+  <script defer src="https://cdn.jsdelivr.net/npm/marked@18.0.4/lib/marked.umd.js"></script>
+
+  <!-- Blog engine -->
+  <script defer src="../../js/blog.js"></script>
+
+  <!-- Fallback: show data-animate elements if JS is disabled -->
+  <noscript>
+    <style>
+      [data-animate] {
+        opacity: 1 !important;
+        transform: none !important;
+      }
+    </style>
+  </noscript>
+</head>
+<body class="page-blog schematic-mode">
+
+  <main class="blog-container">
+    <header>
+      <div class="meta-tiny top-left-pos"><span class="blog-accent-swatch">#FED0BB</span> // <a href="../../index.html" class="nav-inline-link nav-inline-link--home">HOME</a><span aria-hidden="true"> </span><a href="../resume/index.html" class="nav-inline-link nav-inline-link--resume">RESUME</a><span aria-hidden="true"> </span><a href="../gallery/index.html" class="nav-inline-link nav-inline-link--gallery">GALLERY</a><span aria-hidden="true"> </span><a href="index.html" class="nav-inline-link nav-inline-link--blog active" aria-current="page">BLOG</a><span aria-hidden="true"> </span><a href="../utilities/index.html" class="nav-inline-link nav-inline-link--utilities">UTILITIES</a></div>
+    </header>
+
+    <div class="blog-layout">
+      <aside class="blog-sidebar">
+        <!-- Sidebar populated by blog.js -->
+      </aside>
+
+      <section class="blog-content">
+        <div class="blog-header">
+          <h1 class="blog-title"></h1>
+          <p class="blog-subtitle"></p>
+        </div>
+
+        <div class="blog-body">
+          <!-- Post content rendered by blog.js -->
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="../../js/year.js" defer></script>
+  <script src="../../js/main.js" defer></script>
+</body>
+</html>

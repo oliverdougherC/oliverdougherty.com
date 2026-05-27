@@ -41,6 +41,7 @@ interface EmulatorLike {
   add_listener(event: string, listener: (value?: unknown) => void): void;
   remove_listener(event: string, listener: (value?: unknown) => void): void;
   destroy(): Promise<void>;
+  keyboard_send_scancodes?(codes: number[], delay?: number): Promise<void>;
   keyboard_send_keys(keys: number[], delay?: number): Promise<void>;
   keyboard_send_text(text: string, delay?: number): Promise<void>;
   screen_set_scale(scaleX: number, scaleY?: number): void;
@@ -56,9 +57,14 @@ class FakeRetroVm implements EmulatorLike {
   };
   private readonly listeners = new Map<string, Set<(value?: unknown) => void>>();
   private readonly cdromSizeBytes: number;
+  private readonly testScreenSizeHandler = (event: Event) => {
+    const detail = event instanceof CustomEvent ? event.detail : undefined;
+    this.emit('screen-set-size', detail);
+  };
 
   constructor(cdromSizeBytes: number) {
     this.cdromSizeBytes = cdromSizeBytes;
+    document.addEventListener('retro-vm-test-screen-set-size', this.testScreenSizeHandler);
     window.setTimeout(() => {
       this.emit('download-progress', {
         file_index: 0,
@@ -84,10 +90,21 @@ class FakeRetroVm implements EmulatorLike {
   }
 
   async destroy() {
+    document.removeEventListener('retro-vm-test-screen-set-size', this.testScreenSizeHandler);
     this.listeners.clear();
   }
 
-  async keyboard_send_keys() {}
+  async keyboard_send_scancodes(codes: number[]) {
+    document.dispatchEvent(new CustomEvent('retro-vm-test-keyboard', {
+      detail: { method: 'keyboard_send_scancodes', codes }
+    }));
+  }
+
+  async keyboard_send_keys(keys: number[]) {
+    document.dispatchEvent(new CustomEvent('retro-vm-test-keyboard', {
+      detail: { method: 'keyboard_send_keys', keys }
+    }));
+  }
 
   async keyboard_send_text() {}
 
@@ -140,11 +157,6 @@ function isV86DownloadProgress(value: unknown): value is V86DownloadProgress {
  */
 function showConfirmModal(message: string): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    // Fallback if document is not available (e.g., SSR or aggressive CSP)
-    if (typeof document === 'undefined' || typeof window.confirm === 'function') {
-      // Use window.confirm only as last resort — prefer the custom modal below
-    }
-
     const overlay = document.createElement('div');
     overlay.className = 'retro-vm-confirm-overlay';
     overlay.setAttribute('role', 'dialog');
@@ -213,7 +225,7 @@ function showConfirmModal(message: string): Promise<boolean> {
       'cursor:pointer'
     ].join(';');
     cancelBtn.addEventListener('click', () => {
-      overlay.remove();
+      handleCleanup();
       resolve(false);
     });
 
@@ -232,7 +244,7 @@ function showConfirmModal(message: string): Promise<boolean> {
       'font-weight:500'
     ].join(';');
     confirmBtn.addEventListener('click', () => {
-      overlay.remove();
+      handleCleanup();
       resolve(true);
     });
 
@@ -248,25 +260,32 @@ function showConfirmModal(message: string): Promise<boolean> {
     cancelBtn.focus();
 
     // Close on Escape
-    const handleKey = (e: KeyboardEvent) => {
+    let handleKey: ((e: KeyboardEvent) => void) | null = (e) => {
       if (e.key === 'Escape') {
-        handleDismiss();
+        handleCleanup();
+        resolve(false);
       }
     };
 
     // Close on overlay click (outside dialog)
-    const handleOverlayClick = (e: MouseEvent) => {
+    let handleOverlayClick: ((e: MouseEvent) => void) | null = (e) => {
       if (e.target === overlay) {
-        handleDismiss();
+        handleCleanup();
+        resolve(false);
       }
     };
 
-    const handleDismiss = () => {
-      document.removeEventListener('keydown', handleKey);
-      overlay.removeEventListener('click', handleOverlayClick);
+    function handleCleanup() {
+      if (handleKey) {
+        document.removeEventListener('keydown', handleKey);
+        handleKey = null;
+      }
+      if (handleOverlayClick) {
+        overlay.removeEventListener('click', handleOverlayClick);
+        handleOverlayClick = null;
+      }
       overlay.remove();
-      resolve(false);
-    };
+    }
 
     document.addEventListener('keydown', handleKey);
     overlay.addEventListener('click', handleOverlayClick);
@@ -287,6 +306,7 @@ class RetroVmMouseBridge {
   private pointerLocked = false;
   private lockRequested = false;
   private absoluteMouseMoveAttached = false;
+  private cachedRect: DOMRect | null = null;
   private lastAbsolutePosition: { x: number; y: number; width: number; height: number } | null = null;
   private readonly onMouseMove = (event: MouseEvent) => {
     this.sendAbsolutePosition(event);
@@ -442,29 +462,19 @@ class RetroVmMouseBridge {
     event.preventDefault();
   }
 
+  private getRect(): DOMRect {
+    if (this.cachedRect === null) {
+      this.cachedRect = this.root.getBoundingClientRect();
+    }
+    return this.cachedRect;
+  }
+
+  invalidateRectCache() {
+    this.cachedRect = null;
+  }
+
   private sendAbsolutePosition(event: MouseEvent) {
-    if (this.pointerLocked) {
-      return;
-    }
-
-    const bus = this.getBus();
-    const viewport = this.getGuestViewport();
-    if (!bus || viewport.scale <= 0) {
-      return;
-    }
-
-    const rect = this.root.getBoundingClientRect();
-    if (!isPointInsideRect(event.clientX, event.clientY, rect)) {
-      return;
-    }
-    const safeScale = viewport.scale || 1;
-    const rawX = event.clientX - rect.left - viewport.offsetX;
-    const rawY = event.clientY - rect.top - viewport.offsetY;
-    const clampedX = Math.max(0, Math.min(viewport.width - 1, rawX / safeScale));
-    const clampedY = Math.max(0, Math.min(viewport.height - 1, rawY / safeScale));
-
-    this.lastAbsolutePosition = { x: clampedX, y: clampedY, width: viewport.width, height: viewport.height };
-    bus.send('mouse-absolute', [clampedX, clampedY, viewport.width, viewport.height]);
+    this.sendAbsolutePositionFromPoint(event.clientX, event.clientY);
   }
 
   private sendAbsolutePositionFromPoint(clientX: number, clientY: number) {
@@ -478,7 +488,7 @@ class RetroVmMouseBridge {
       return;
     }
 
-    const rect = this.root.getBoundingClientRect();
+    const rect = this.getRect();
     if (!isPointInsideRect(clientX, clientY, rect)) {
       return;
     }
@@ -596,6 +606,10 @@ class RetroVmMouseBridge {
     const { x, y, width, height } = this.lastAbsolutePosition;
     bus.send('mouse-absolute', [x, y, width, height]);
   }
+
+  isPointerLocked() {
+    return this.pointerLocked;
+  }
 }
 
 export class RetroVmController {
@@ -615,7 +629,6 @@ export class RetroVmController {
   private readonly placeholder: HTMLElement;
   private readonly supportNote: HTMLElement;
   private readonly captureBadge: HTMLElement;
-  private readonly screenBadge: HTMLElement;
   private readonly mouseBridge: RetroVmMouseBridge;
   private resizeObserver: ResizeObserver | null = null;
 
@@ -652,6 +665,7 @@ export class RetroVmController {
     this.queueGuestFitSync();
   };
   private readonly resizeHandler = () => {
+    this.mouseBridge.invalidateRectCache();
     this.queueGuestFitSync();
   };
   private readonly onScreenSize = (value?: unknown) => {
@@ -719,7 +733,6 @@ export class RetroVmController {
     this.placeholder = this.requireElement('retroVmPlaceholder');
     this.supportNote = this.requireElement('retroVmSupportNote');
     this.captureBadge = this.requireElement('retroVmCaptureBadge');
-    this.screenBadge = this.requireElement('retroVmScreenBadge');
     this.mouseBridge = new RetroVmMouseBridge(
       this.screenContainer,
       () => this.getGuestViewport(),
@@ -753,6 +766,7 @@ export class RetroVmController {
     this.mouseBridge.attach();
     if (typeof ResizeObserver !== 'undefined') {
       this.resizeObserver = new ResizeObserver(() => {
+        this.mouseBridge.invalidateRectCache();
         this.queueGuestFitSync();
       });
       this.resizeObserver.observe(this.screenContainer);
@@ -767,15 +781,23 @@ export class RetroVmController {
 
     this.root.dataset.vmSupported = 'true';
     this.supportNote.textContent = this.getDefaultSupportNote();
-    this.syncUi();
+    this.setState('idle');
   }
 
-  private requireElement<T extends HTMLElement>(id: string, ctor: { new(): T } = HTMLElement as { new(): T }) {
+  private getElementById(id: string): HTMLElement {
     const element = document.getElementById(id);
-    if (!(element instanceof ctor)) {
-      throw new Error(`Missing required element: ${id}`);
-    }
+    if (!element) throw new Error(`Missing required element: ${id}`);
     return element;
+  }
+
+  private requireElement(id: string): HTMLElement;
+  private requireElement<T extends HTMLElement>(id: string, type: new () => T): T;
+  private requireElement<T extends HTMLElement>(id: string, type?: new () => T): T {
+    const element = this.getElementById(id);
+    if (typeof type === 'function' && !(element instanceof type)) {
+      throw new Error(`Element #${id} is not a ${type.name}`);
+    }
+    return element as T;
   }
 
   private setVmStatusLine(text: string) {
@@ -965,7 +987,7 @@ export class RetroVmController {
   }
 
   private async autoAdvanceBootMenu() {
-    if (!this.emulator || window.__OD_RETRO_VM_TEST_MODE__ || !this.config.bootMenuPrompt) {
+    if (!this.emulator || !this.config.bootMenuPrompt) {
       return;
     }
 
@@ -1001,7 +1023,13 @@ export class RetroVmController {
 
   private async dispatchEnterKey() {
     this.screenContainer.focus();
-    await this.emulator?.keyboard_send_keys([28]);
+    const enterMakeCode = 0x1c;
+    const enterBreakCode = enterMakeCode | 0x80;
+    if (this.emulator?.keyboard_send_scancodes) {
+      await this.emulator.keyboard_send_scancodes([enterMakeCode, enterBreakCode], 20);
+      return;
+    }
+    await this.emulator?.keyboard_send_keys([13]);
   }
 
   private syncGraphicalMode() {
@@ -1011,7 +1039,7 @@ export class RetroVmController {
       this.guestBpp > 0;
     this.graphicalModeActive = canvasVisible;
     this.root.dataset.vmGraphical = canvasVisible ? 'true' : 'false';
-    if (!canvasVisible) {
+    if (!canvasVisible && !this.mouseBridge.isPointerLocked()) {
       this.setCaptureState('uncaptured');
     }
   }
@@ -1076,13 +1104,8 @@ export class RetroVmController {
     return isRetroVmNetworkReady(this.config) ? this.config.copy.supportNoteOnline : this.config.copy.supportNoteOffline;
   }
 
-  private getScreenBadgeLabel() {
-    return isRetroVmNetworkReady(this.config) ? this.config.copy.screenBadgeOnline : this.config.copy.screenBadgeOffline;
-  }
-
   private applyRuntimeLabels() {
     this.progressMeta.textContent = this.config.copy.progressMeta;
-    this.screenBadge.textContent = this.getScreenBadgeLabel();
     this.root.dataset.vmNetworkReady = isRetroVmNetworkReady(this.config) ? 'true' : 'false';
     this.root.dataset.vmAssetLabel = this.config.copy.assetLabel;
     this.root.dataset.vmBridgeLabelOnline = this.config.copy.bridgeLabelOnline;
@@ -1178,7 +1201,12 @@ export class RetroVmController {
     if (this.progressFill) {
       this.progressFill.style.width = `${percent}%`;
     }
-    this.launchButton.disabled = this.shouldDisableLaunchButton();
+    this.launchButton.disabled =
+      !this.support.supported ||
+      Boolean(this.emulator) ||
+      this.isLaunching ||
+      this.state === 'loading' ||
+      this.state === 'resetting';
     this.resetButton.disabled = !this.support.supported || (!this.emulator && this.state !== 'error');
     this.fullscreenButton.disabled =
       !this.emulator || !document.fullscreenEnabled || (this.state !== 'running' && this.state !== 'fullscreen');
@@ -1187,18 +1215,9 @@ export class RetroVmController {
     this.applyInteractionStatusCopy();
   }
 
-  private shouldDisableLaunchButton() {
-    return (
-      !this.support.supported ||
-      Boolean(this.emulator) ||
-      this.state === 'loading' ||
-      this.state === 'resetting' ||
-      this.state === 'fullscreen'
-    );
-  }
-
   dispose() {
     if (this.bootHintTimer !== null) {
+      window.clearTimeout(this.bootHintTimer);
       window.clearTimeout(this.bootHintTimer);
       this.bootHintTimer = null;
     }

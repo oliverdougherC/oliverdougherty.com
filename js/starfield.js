@@ -9,7 +9,7 @@
   const canvas = document.getElementById('starfield');
   if (!canvas) return;
 
-  var STARFIELD_CONFIG = Object.freeze({
+  const STARFIELD_CONFIG = Object.freeze({
     baseStarCount: 500,
     baseSpeed: 9,
     maxDpr: 1.5,

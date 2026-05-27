@@ -61,13 +61,6 @@ body, html {
   display: none;
 }
 
-/* Hide typing target spans until JS clears them and starts the animation.
-   Prevents a flash of "Oliver Dougherty" before the typing sequence begins. */
-/* #typeTargetName1,
-#typeTargetName2 {
-  opacity: 0;
-} */
-
 .meta-tiny {
   position: absolute;
   z-index: 20;
@@ -184,6 +177,7 @@ body, html {
 
 .name-flair {
   color: var(--resume-accent);
+  white-space: nowrap;
 }
 
 .hero-subtitle {
@@ -632,12 +626,7 @@ html.skip-page-animation[data-page-id="resume"] .resume-hidden {
   transition: border-color 150ms ease;
 }
 
-a.skill-tag {
-  color: #000000;
-}
-
-.skill-tag:hover,
-a.skill-tag:hover {
+.skill-tag:hover {
   border-color: var(--resume-accent);
 }
 

@@ -5,6 +5,7 @@ import {
   escapeHtml,
   renderLocalLlmSafeText as renderSafeText
 } from './local-llm-rendering.js';
+import { LocalLlmMockWorker } from './local-llm-mock-worker.js';
 
 const MAX_INPUT_CHARS = LOCAL_LLM_CONFIG.limits.maxInputChars;
 const STATIC_READY_PLACEHOLDER = 'Oh, what to say...';
@@ -299,12 +300,12 @@ export class LocalLlmUtility {
 
     try {
       this.ensureWorker().postMessage({ type: 'load' });
-    } catch {
+    } catch (error) {
       this.showLoadFailure({
         status: WORKER_STATE.UNSUPPORTED,
         category: 'worker-unavailable',
         message: 'This browser could not create the local model worker.',
-        detail: 'The Worker API was unavailable in this page context.',
+        detail: error?.message ?? 'The Worker API was unavailable in this page context.',
         likelyFix: 'Try a current desktop browser from HTTPS or localhost.'
       });
     }
@@ -1008,6 +1009,16 @@ export class LocalLlmUtility {
     return [...notices, ...chat];
   }
 
+  _pruneMapsForMessages(messages) {
+    const messageSet = new Set(messages);
+    for (const [key] of this._messageElements) {
+      if (!messageSet.has(key)) this._messageElements.delete(key);
+    }
+    for (const [key] of this._renderedMessageContent) {
+      if (!messageSet.has(key)) this._renderedMessageContent.delete(key);
+    }
+  }
+
   renderMessages(options = {}) {
     const animate = options.animate !== false;
     const stickToBottom = options.stickToBottom !== false;
@@ -1045,6 +1056,10 @@ export class LocalLlmUtility {
         child.remove();
       }
     });
+
+    // Prune Map entries for messages that are no longer in this.messages
+    this._pruneMapsForMessages(this.messages);
+
     this.scrollMessagesIfNeeded(stickToBottom);
     this.renderStatePanel();
   }
@@ -1391,132 +1406,6 @@ export class LocalLlmUtility {
   }
 }
 
-class LocalLlmMockWorker extends EventTarget {
-  constructor(mode) {
-    super();
-    this.mode = mode;
-    this.disposed = false;
-    this.timerIds = [];
-    this.activeGenerationId = 0;
-  }
-
-  postMessage(message) {
-    if (this.disposed) return;
-    if (message.type === 'load') this.mockLoad();
-    if (message.type === 'generate') this.mockGenerate(message.messages || []);
-    if (message.type === 'interrupt' || message.type === 'cancel') {
-      this.emit({ type: 'interrupted', generationId: this.activeGenerationId });
-      this.activeGenerationId = 0;
-    }
-    if (message.type === 'reset') this.emit({ type: 'reset', state: WORKER_STATE.READY });
-    if (message.type === 'dispose') this.emit({ type: 'disposed', state: WORKER_STATE.DISPOSED });
-  }
-
-  terminate() {
-    this.disposed = true;
-    this.timerIds.forEach((id) => window.clearTimeout(id));
-    this.timerIds = [];
-  }
-
-  mockLoad() {
-    this.emit({
-      type: 'capabilities',
-      capabilities: {
-        secureContext: true,
-        webAssembly: true,
-        webGpu: this.mode !== 'unsupported',
-        cacheApi: true,
-        hardwareConcurrency: 4,
-        userAgent: 'mock'
-      }
-    });
-
-    if (this.mode === 'unsupported') {
-      this.queue(() => this.emit({
-        type: 'error',
-        status: WORKER_STATE.UNSUPPORTED,
-        category: 'unsupported-browser',
-        message: 'This browser cannot run the local WebGPU model.',
-        detail: 'Mocked unavailable WebGPU environment.',
-        likelyFix: 'Try current Chrome or Edge with WebGPU enabled.'
-      }), 80);
-      return;
-    }
-
-    this.queue(() => this.emit({ type: 'status', state: WORKER_STATE.CHECKING, message: 'Checking WebGPU support.' }), 20);
-    this.queue(() => this.emit({
-      type: 'progress',
-      state: WORKER_STATE.LOADING,
-      loaded: 145000000,
-      total: 290000000,
-      progress: 50,
-      file: LOCAL_LLM_CONFIG.model.id
-    }), 220);
-    this.queue(() => this.emit({ type: 'status', state: WORKER_STATE.OPTIMIZING, message: 'Optimizing Bonsai for WebGPU execution.' }), 850);
-    this.queue(() => this.emit({
-      type: 'ready',
-      state: WORKER_STATE.READY,
-      status: WORKER_STATE.READY,
-      backend: 'mock-webgpu',
-      model: LOCAL_LLM_CONFIG.model.displayName,
-      runtime: 'Mock Transformers.js'
-    }), 1250);
-  }
-
-  mockGenerate(messages) {
-    this.activeGenerationId += 1;
-    const generationId = this.activeGenerationId;
-    const contextStats = this.buildContextStats(messages);
-    const text = 'This is a mocked Bonsai response from the browser-only assistant.\n\nSolve $x^2 = 16$.\n\n$$\nx = \\pm \\sqrt{16}\n$$';
-    this.emit({ type: 'status', generationId, contextStats, state: WORKER_STATE.THINKING, message: 'Thinking locally.' });
-    if (contextStats.droppedMessageCount > 0) {
-      this.queue(() => this.emit({
-        type: 'notice',
-        generationId,
-        contextStats,
-        notice: 'Older chat turns were trimmed to fit the local context window.'
-      }), 18);
-    }
-    this.queue(() => this.emit({ type: 'start', generationId, contextStats }), 20);
-    this.queue(() => this.emit({ type: 'status', generationId, contextStats, state: WORKER_STATE.STREAMING, message: 'Streaming locally.' }), 30);
-    this.queue(() => this.emit({ type: 'token', generationId, contextStats, token: text.slice(0, 24), tps: 12.3, numTokens: 4 }), 420);
-    this.queue(() => this.emit({ type: 'token', generationId, contextStats, token: text.slice(24), tps: 18.7, numTokens: 10 }), 470);
-    this.queue(() => {
-      this.emit({ type: 'complete', generationId, contextStats, text, backend: 'mock-webgpu', tps: 18.7, numTokens: 10 });
-      this.activeGenerationId = 0;
-    }, 520);
-  }
-
-  buildContextStats(messages) {
-    const chat = messages.filter((message) => message && message.role !== 'notice' && typeof message.content === 'string');
-    const maxMessages = LOCAL_LLM_CONFIG.limits.maxHistoryMessages;
-    const droppedMessageCount = Math.max(0, chat.length - maxMessages);
-    const includedMessageCount = Math.min(maxMessages, chat.length);
-    return {
-      contextLimitTokens: LOCAL_LLM_CONFIG.context.fallbackContextTokens,
-      availableInputTokens: LOCAL_LLM_CONFIG.context.fallbackContextTokens
-        - LOCAL_LLM_CONFIG.context.reservedGenerationTokens
-        - LOCAL_LLM_CONFIG.context.reserveSafetyTokens,
-      reservedGenerationTokens: LOCAL_LLM_CONFIG.context.reservedGenerationTokens,
-      reserveSafetyTokens: LOCAL_LLM_CONFIG.context.reserveSafetyTokens,
-      promptTokens: Math.max(1, Math.ceil(chat.reduce((sum, item) => sum + item.content.length, 0) / 4)),
-      includedMessageCount,
-      droppedMessageCount,
-      truncatedUserInput: false
-    };
-  }
-
-  queue(callback, delay) {
-    const id = window.setTimeout(() => {
-      if (!this.disposed) callback();
-    }, delay);
-    this.timerIds.push(id);
-  }
-
-  emit(detail) {
-    this.dispatchEvent(new MessageEvent('message', { data: detail }));
-  }
-}
 
 function buildFailureCopy(message, diagnostics) {
   if (!diagnostics) {
@@ -1545,6 +1434,14 @@ function buildFailureCopy(message, diagnostics) {
   };
 }
 
+/**
+ * Render bold, italic, and inline code from controlled static strings.
+ *
+ * NOTE: The regex patterns do not handle nested or adjacent emphasis markers
+ * correctly (e.g., `***text***` matches as `*<strong>text</strong>*`).
+ * This is acceptable because the input is always controlled static strings
+ * from the loading copy animation — never user-supplied markdown.
+ */
 function renderSafeInlineText(text) {
   return escapeHtml(text)
     .replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>')

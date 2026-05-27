@@ -1,0 +1,407 @@
+/*
+ * Blog Layout Styles
+ * Industrialist aesthetic, utilizing #000000 background, #FFFFFF borders/text,
+ * and #FED0BB as the flare color for interaction.
+ */
+
+.blog-container {
+  position: relative;
+  width: 100vw;
+  min-height: 100vh;
+  background-color: var(--schematic-bg);
+}
+
+.blog-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 3rem;
+  padding: 6rem 3rem 3rem 3rem;
+  max-width: 1800px;
+  margin: 0 auto;
+}
+
+@media (max-width: 900px) {
+  .blog-layout {
+    grid-template-columns: 1fr;
+    padding: 5rem 1.5rem 1.5rem 1.5rem;
+  }
+}
+
+/* Sidebar / Blog List */
+.blog-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  border: none;
+  padding: 0;
+  height: fit-content;
+  max-height: calc(100vh - 9rem);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--schematic-flare) transparent;
+}
+
+.blog-sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+.blog-sidebar::-webkit-scrollbar-thumb {
+  background-color: var(--schematic-flare);
+}
+
+.blog-list-item {
+  position: relative;
+  padding: 0.75rem 1rem 0.75rem 1.5rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  font-family: var(--font-interface);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  color: var(--schematic-text);
+  overflow: hidden;
+  z-index: 1;
+  text-decoration: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  background-color: transparent;
+}
+
+.blog-list-item::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0.75rem;
+  width: 2px;
+  height: 24px;
+  transform: translateY(-50%);
+  background-color: #FFFFFF;
+  opacity: 0.6;
+  transition: opacity 0.2s ease, background-color 0.2s ease;
+  z-index: 0;
+}
+.blog-list-title {
+  font-weight: 800;
+  color: #FFFFFF;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+.blog-list-date {
+  font-weight: 400;
+  color: #888888;
+  font-size: 0.8rem;
+  position: relative;
+  z-index: 1;
+}
+
+.blog-list-item:hover,
+.blog-list-item.active {
+  background-color: rgba(254, 208, 187, 0.08);
+}
+
+.blog-list-item:hover .blog-list-title,
+.blog-list-item.active .blog-list-title,
+.blog-list-item:hover .blog-list-date,
+.blog-list-item.active .blog-list-date {
+  color: var(--schematic-flare);
+}
+
+.blog-list-item:hover::before,
+.blog-list-item.active::before {
+  background-color: var(--schematic-flare);
+  opacity: 1;
+}
+
+/* Content Area */
+.blog-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.blog-header {
+  padding-bottom: 2rem;
+  position: relative;
+  border-bottom: 1px solid var(--schematic-border);
+  margin-bottom: 2rem;
+}
+/* Top Right crosshair for schematic look */
+.blog-header::after {
+  content: '+';
+  position: absolute;
+  top: 0;
+  right: 0;
+  color: var(--schematic-flare);
+  font-family: var(--font-display);
+  font-weight: 200;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+.blog-title {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  font-weight: 800;
+  margin: 0 0 0.5rem 0;
+  color: var(--schematic-text);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.blog-subtitle {
+  font-family: var(--font-interface);
+  font-size: 1.1rem;
+  color: var(--schematic-text);
+  margin: 0;
+  opacity: 0.7;
+}
+
+.blog-body {
+  font-family: var(--font-body-text);
+  font-weight: 200;
+  font-size: 1.1rem;
+  line-height: 1.8;
+  color: var(--schematic-text);
+  min-height: 60vh;
+}
+
+.blog-body h1, .blog-body h2, .blog-body h3 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  color: var(--schematic-flare);
+  margin-top: 2.5rem;
+  margin-bottom: 1rem;
+  line-height: 1.2;
+}
+
+.blog-body p {
+  margin-bottom: 1.5rem;
+}
+
+.blog-body blockquote {
+  border-left: 2px solid var(--schematic-flare);
+  margin: 2rem 0;
+  padding-left: 1.5rem;
+  font-style: italic;
+  opacity: 0.9;
+}
+
+.blog-body :not(pre) > code {
+  font-family: var(--font-display);
+  font-weight: 400;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.2em 0.4em;
+  border-radius: 2px;
+  color: var(--schematic-flare);
+}
+
+.blog-body pre {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 1.5rem;
+  overflow-x: auto;
+  margin-bottom: 2rem;
+}
+
+.blog-body pre code {
+  display: block;
+  background: transparent !important;
+  padding: 0;
+  color: var(--schematic-text);
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  tab-size: 2;
+  text-shadow: none;
+}
+
+/*
+ * Prism token colors — full IDE rainbow (One Dark / VS Code–style).
+ * Language grammars assign token classes; each gets a distinct hue.
+ */
+.blog-body pre code[class*="language-"] {
+  --hl-fg: #abb2bf;
+  --hl-comment: #5c6370;
+  --hl-keyword: #c678dd;
+  --hl-string: #98c379;
+  --hl-function: #e5c07b;
+  --hl-number: #d19a66;
+  --hl-class: #56b6c2;
+  --hl-builtin: #e06c75;
+  --hl-variable: #61afef;
+  --hl-operator: #56b6c2;
+  --hl-punctuation: #7f848e;
+  --hl-regex: #be5046;
+  --hl-tag: #e06c75;
+  --hl-attr: #d19a66;
+  --hl-property: #61afef;
+  --hl-constant: #d19a66;
+  --hl-boolean: #d19a66;
+  --hl-namespace: #56b6c2;
+  --hl-decorator: #e5c07b;
+  --hl-url: #61afef;
+  --hl-inserted: #98c379;
+  --hl-deleted: #e06c75;
+  --hl-important: #c678dd;
+  color: var(--hl-variable);
+}
+
+.blog-body pre code[class*="language-"] .token.comment,
+.blog-body pre code[class*="language-"] .token.prolog,
+.blog-body pre code[class*="language-"] .token.doctype,
+.blog-body pre code[class*="language-"] .token.cdata {
+  color: var(--hl-comment);
+  font-style: italic;
+}
+
+.blog-body pre code[class*="language-"] .token.keyword,
+.blog-body pre code[class*="language-"] .token.atrule {
+  color: var(--hl-keyword);
+  font-weight: 600;
+}
+
+.blog-body pre code[class*="language-"] .token.string,
+.blog-body pre code[class*="language-"] .token.char,
+.blog-body pre code[class*="language-"] .token.attr-value,
+.blog-body pre code[class*="language-"] .token.triple-quoted-string {
+  color: var(--hl-string);
+}
+
+.blog-body pre code[class*="language-"] .token.function,
+.blog-body pre code[class*="language-"] .token.function-variable {
+  color: var(--hl-function);
+}
+
+.blog-body pre code[class*="language-"] .token.number {
+  color: var(--hl-number);
+}
+
+.blog-body pre code[class*="language-"] .token.constant,
+.blog-body pre code[class*="language-"] .token.symbol,
+.blog-body pre code[class*="language-"] .token.builtin {
+  color: var(--hl-constant);
+}
+
+.blog-body pre code[class*="language-"] .token.boolean {
+  color: var(--hl-boolean);
+}
+
+.blog-body pre code[class*="language-"] .token.class-name,
+.blog-body pre code[class*="language-"] .token.maybe-class-name {
+  color: var(--hl-class);
+}
+
+.blog-body pre code[class*="language-"] .token.namespace {
+  color: var(--hl-namespace);
+}
+
+.blog-body pre code[class*="language-"] .token.operator {
+  color: var(--hl-operator);
+}
+
+.blog-body pre code[class*="language-"] .token.punctuation,
+.blog-body pre code[class*="language-"] .token.entity {
+  color: var(--hl-punctuation);
+}
+
+.blog-body pre code[class*="language-"] .token.property,
+.blog-body pre code[class*="language-"] .token.variable {
+  color: var(--hl-property);
+}
+
+.blog-body pre code[class*="language-"] .token.parameter {
+  color: var(--hl-variable);
+}
+
+.blog-body pre code[class*="language-"] .token.tag {
+  color: var(--hl-tag);
+}
+
+.blog-body pre code[class*="language-"] .token.attr-name,
+.blog-body pre code[class*="language-"] .token.selector {
+  color: var(--hl-attr);
+}
+
+.blog-body pre code[class*="language-"] .token.regex,
+.blog-body pre code[class*="language-"] .token.important {
+  color: var(--hl-regex);
+}
+
+.blog-body pre code[class*="language-"] .token.url,
+.blog-body pre code[class*="language-"] .token.link {
+  color: var(--hl-url);
+  text-decoration: underline;
+}
+
+.blog-body pre code[class*="language-"] .token.decorator,
+.blog-body pre code[class*="language-"] .token.annotation {
+  color: var(--hl-decorator);
+}
+
+.blog-body pre code[class*="language-"] .token.plain {
+  color: var(--hl-fg);
+}
+
+.blog-body pre code[class*="language-"] .token.bold {
+  font-weight: 700;
+}
+
+.blog-body pre code[class*="language-"] .token.italic {
+  font-style: italic;
+}
+
+.blog-body pre code[class*="language-"] .token.inserted {
+  color: var(--hl-inserted);
+}
+
+.blog-body pre code[class*="language-"] .token.deleted {
+  color: var(--hl-deleted);
+  text-decoration: line-through;
+}
+
+/* Language-specific accents (Prism adds language-* on code element) */
+.blog-body pre code.language-css .token.property,
+.blog-body pre code.language-css .token.selector {
+  color: #e06c75;
+}
+
+.blog-body pre code.language-css .token.function {
+  color: #56b6c2;
+}
+
+.blog-body pre code.language-json .token.property {
+  color: #e06c75;
+}
+
+.blog-body pre code.language-json .token.string {
+  color: #98c379;
+}
+
+.blog-body pre code.language-markup .token.tag {
+  color: #e06c75;
+}
+
+.blog-body pre code.language-markup .token.attr-name {
+  color: #d19a66;
+}
+
+.blog-body pre code.language-markup .token.attr-value {
+  color: #98c379;
+}
+
+.latex-block {
+  display: block;
+  text-align: center;
+  margin: 2rem 0;
+  font-size: 1.3rem;
+  padding: 1.5rem;
+  overflow-x: auto;
+}
+
+.latex-inline {
+  font-style: normal;
+}

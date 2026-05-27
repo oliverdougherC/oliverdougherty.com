@@ -85,9 +85,13 @@
   }
 
   function getHashTarget() {
-    const hash = window.location.hash.replace(/^#/, '').trim();
-    if (!hash) return null;
-    return VALID_UTILITIES.has(hash) ? hash : null;
+    const raw = window.location.hash.replace(/^#/, '').trim();
+    if (!raw) return null;
+    try {
+      const hash = decodeURIComponent(raw);
+      if (VALID_UTILITIES.has(hash)) return hash;
+    } catch { /* malformed percent-encoding — fall through */ }
+    return VALID_UTILITIES.has(raw) ? raw : null;
   }
 
   function getStage(utilityId) {

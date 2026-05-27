@@ -54,6 +54,7 @@ declare module 'v86' {
     stop(): Promise<void>;
     run(): Promise<void>;
     restart(): void;
+    keyboard_send_scancodes(codes: number[], delay?: number): Promise<void>;
     keyboard_send_keys(keys: number[], delay?: number): Promise<void>;
     keyboard_send_text(text: string, delay?: number): Promise<void>;
     screen_set_scale(scaleX: number, scaleY?: number): void;

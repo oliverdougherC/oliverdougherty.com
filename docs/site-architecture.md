@@ -11,9 +11,9 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `mobile/resume/index.html`: dedicated mobile Resume page.
 - `pages/resume/index.html`: resume page using the shared site shell.
 - `pages/gallery/index.html`: editorial photo gallery powered by JSON metadata in `assets/photos/`.
+- `pages/blog/index.html`: markdown-driven blog SPA with hash routing (`#post=<slug>`), powered by `blogs/` directory and `js/blog.js`.
 - `pages/archive/index.html`: archive index for technical writeups.
 - `pages/archive/*/*.html`: article-style archive pages using the abstract/article layout.
-- `pages/utilities/index.html`: utilities page shell.
 - `pages/utilities/index.html`: utilities dashboard entrypoint.
 
 ## Shared browser layer
@@ -23,11 +23,22 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `js/year.js`: footer year updates and color-mode toggle handling.
 - `js/archive.js`: archive index filtering/search.
 - `js/gallery.js`: metadata-driven gallery rendering and lightbox behavior.
+- `js/blog.js`: blog SPA engine — fetches `blogs/manifest.json`, parses markdown via `marked`, hash routes posts, builds sidebar.
+- `js/blog-code-highlight.js`: Prism-based code highlighting for blog posts (exports `window.highlightBlogCode()`).
+- `js/blog-math.js`: KaTeX math rendering for blog posts (exports `window.renderBlogMath()`).
 - `js/starfield.js`: landing page background starfield animation.
 - `js/utilities-shell.js`: tabbed utilities dashboard shell (routing between utility panels).
 - `js/local-llm-chat.js`: Local LLM chat UI controller.
 - `js/local-llm-config.js`: Local LLM configuration (models, endpoints, worker settings).
 - `js/local-llm-worker.js`: Web Worker for Local LLM inference.
+- `js/local-llm-mock-worker.js`: Mock worker for Local LLM testing.
+- `js/local-llm-cache.js`: Local LLM response caching layer.
+- `js/local-llm-rendering.js`: Local LLM message rendering utilities.
+- `js/page-animations.js`: Shared page transition and entrance animations.
+- `js/favicon-swap.js`: Dynamic favicon state switching.
+- `js/resume-typing.js`: Resume page typing animation effects.
+- `js/utilities-title-reveal.js`: Utilities page title reveal animation.
+- `js/gallery3d/`: 3D WebGL gallery viewer (App, SceneController, UIController, InputController, GalleryItem, shaders, utils, WebGL).
 - `utilities-src/src/main.ts`: editable utilities page controller and DOM orchestration.
 - `utilities-src/src/transformCore.ts`: utilities matching pipeline and donor assignment logic.
 - `utilities-src/src/workerRuntime.ts`: shared worker/main-thread execution runtime for utilities transforms.
@@ -38,7 +49,7 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `css/design-system.css`: cross-site tokens and shared component styles.
 - `css/schematic.css`: landing page schematic mode styles (scoped to `body.schematic-mode`).
 - `css/mobile.css`: dedicated mobile-site styles for `/mobile/` only.
-- `css/landing.css`, `css/gallery.css`, `css/archive.css`, `css/resume.css`, `css/utilities.css`: page-family styles.
+- `css/landing.css`, `css/gallery.css`, `css/archive.css`, `css/resume.css`, `css/utilities.css`, `css/blog.css`: page-family styles.
 - `css/abstract.css`: article/report layout used by archive detail pages.
 - `css/cursor.css`: shared cursor presentation.
 - `css/local-llm-chat.css`: Local LLM chat UI styles.
@@ -61,4 +72,3 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - Treat `/mobile/` as a separate product surface, not as responsive overrides for the desktop site. It has exactly two pages, Home and Resume; unsupported full-site mobile routes should include `js/mobile-gate.js` and redirect to `/mobile/` unless `?full=1` is present.
 - `pages/utilities/assets/` is part of the shipped site, but it is generated from `utilities-src/` and should be treated as build output.
 - Utilities deployment readiness means more than type/tests: after utilities-source changes, rebuild the shipped bundle and rerun `utilities:browser-check` plus `utilities:perf`.
-- `pages/utilities/` is part of the shipped site, but it is generated from `utilities-src/` and should be treated as build output.
