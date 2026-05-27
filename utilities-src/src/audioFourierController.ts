@@ -129,7 +129,6 @@ export class AudioFourierController {
   private readonly qualitySelect: HTMLSelectElement;
   private readonly generateButton: HTMLButtonElement;
   private readonly playPauseButton: HTMLButtonElement;
-  private readonly pauseButton: HTMLButtonElement;
   private readonly resetButton: HTMLButtonElement;
   private readonly componentSlider: HTMLInputElement;
   private readonly componentReadout: HTMLElement;
@@ -200,7 +199,6 @@ export class AudioFourierController {
     this.qualitySelect = this.requireElement('audioFourierQuality', HTMLSelectElement);
     this.generateButton = this.requireElement('audioFourierGenerateBtn', HTMLButtonElement);
     this.playPauseButton = this.requireElement('audioFourierPlayBtn', HTMLButtonElement);
-    this.pauseButton = this.requireElement('audioFourierPauseBtn', HTMLButtonElement);
     this.resetButton = this.requireElement('audioFourierResetBtn', HTMLButtonElement);
     this.componentSlider = this.requireElement('audioFourierComponentSlider', HTMLInputElement);
     this.componentReadout = this.requireElement('audioFourierComponentReadout');
@@ -244,9 +242,8 @@ export class AudioFourierController {
       this.generate().catch((error) => this.handleGenerateFailure(error));
     }, { signal });
     this.playPauseButton.addEventListener('click', () => {
-      this.handlePlayOrSkipForwardClick().catch((error) => this.handleGenerateFailure(error));
+      this.handlePlayPauseClick().catch((error) => this.handleGenerateFailure(error));
     }, { signal });
-    this.pauseButton.addEventListener('click', () => this.pausePlayback(), { signal });
     this.resetButton.addEventListener('click', () => this.resetAll(), { signal });
     this.qualitySelect.addEventListener('change', () => this.invalidateComputedState('Quality changed. Generate again to rebuild the audio transform.'), { signal });
     this.componentSlider.addEventListener('input', () => this.handleSliderInput(), { signal });
@@ -468,8 +465,6 @@ export class AudioFourierController {
     this.qualitySelect.disabled = isProcessing;
     this.componentSlider.disabled = !hasResult || isProcessing;
     this.playPauseButton.disabled = !hasResult || isProcessing;
-    this.pauseButton.disabled = !hasResult || isProcessing || !isPlaying;
-    this.pauseButton.hidden = !isPlaying;
     const playbackButton = resolveAudioPlaybackButtonState({
       hasResult,
       isProcessing,
@@ -479,7 +474,6 @@ export class AudioFourierController {
     this.playPauseButton.textContent = playbackButton.icon;
     this.playPauseButton.setAttribute('aria-label', playbackButton.label);
     this.playPauseButton.title = playbackButton.label;
-    this.pauseButton.title = 'Pause';
   }
 
   private onReducedMotionChange() {
@@ -1031,28 +1025,9 @@ export class AudioFourierController {
     }
   }
 
-  // When playback is animating, the main play/pause button acts as a
-  // skip-forward control (advancing 0.75 s) rather than a pause toggle.
-  // The dedicated pause button handles pausing. This dual-role is
-  // intentional: the main button advances the visual playhead during
-  // playback, and starts/restarts playback when idle or complete.
-  private async handlePlayOrSkipForwardClick() {
+  private async handlePlayPauseClick() {
     if (this.state === 'animating') {
-      // Skip forward 0.75 s during playback instead of pausing.
-      if (this.activeResult) {
-        this.playbackElapsedSeconds = clamp(
-          this.playbackElapsedSeconds + 0.75,
-          0,
-          this.activeResult.metadata.proxyDurationSeconds
-        );
-        this.visualPlaybackElapsedSeconds = clamp(
-          this.playbackElapsedSeconds,
-          0,
-          this.activeResult.metadata.proxyDurationSeconds
-        );
-        this.visualPlaybackUpdatedAt = 0;
-        this.renderWaveViewport(true);
-      }
+      this.pausePlayback();
       return;
     }
 
@@ -1307,9 +1282,6 @@ export class AudioFourierController {
     );
     const visualPointCount = Math.max(1, range.lastBucketIndex - range.firstBucketIndex);
     const isFullEnergy = result.energyPercent >= FULL_ENERGY_VISUAL_THRESHOLD;
-    const liveAmplitudePulse = livePlayback
-      ? 0.96 + ((performance.now() % 1000) / 1000) * 0.04
-      : 1;
     this.ensureVisualScratch(visualPointCount);
 
     for (let pointIndex = 0; pointIndex < visualPointCount; pointIndex += 1) {
@@ -1326,7 +1298,7 @@ export class AudioFourierController {
         originalAmplitude,
         mixedAmplitude,
         result.energyPercent
-      ) * liveAmplitudePulse;
+      );
     }
 
     writeSmoothedEnvelopeAmplitudes(this.visualOriginalRawScratch, this.visualOriginalFrameScratch, visualPointCount);
