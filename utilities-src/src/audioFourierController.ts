@@ -170,6 +170,7 @@ export class AudioFourierController {
   private activeMasterGain: GainNode | null = null;
   private masterGainControlReadyAt = 0;
   private playbackStartedAt = 0;
+  private playbackAudioStartsAt = 0;
   private playbackElapsedSeconds = 0;
   private visualPlaybackElapsedSeconds = 0;
   private visualPlaybackUpdatedAt = 0;
@@ -950,7 +951,8 @@ export class AudioFourierController {
       if (!this.activeResult || this.state === 'processing' || this.state === 'error') {
         return;
       }
-      this.renderWaveViewport(this.state === 'animating');
+      const isAnimating = this.state === 'animating';
+      this.renderWaveViewport(isAnimating, isAnimating || this.hasPausedPlayhead());
     }, delayMs);
   }
 
@@ -1101,6 +1103,7 @@ export class AudioFourierController {
     }
 
     this.playbackStartedAt = startedAt - offset;
+    this.playbackAudioStartsAt = startedAt;
     this.visualPlaybackElapsedSeconds = offset;
     this.visualPlaybackUpdatedAt = 0;
     this.lastPlaybackProgressAt = 0;
@@ -1113,14 +1116,29 @@ export class AudioFourierController {
       return;
     }
 
-    const context = this.getAudioContext();
-    this.playbackElapsedSeconds = clamp(context.currentTime - this.playbackStartedAt, 0, this.activeResult.metadata.proxyDurationSeconds);
+    this.playbackElapsedSeconds = this.resolvePlaybackElapsedSeconds();
     this.visualPlaybackElapsedSeconds = this.playbackElapsedSeconds;
     this.stopPlayback(false);
     this.setState('ready', 'Playback paused.');
     this.drawSpectrumFrame();
     this.drawComponentFrame();
-    this.queueDeferredWaveRender(0);
+    this.renderWaveViewport(false, true);
+  }
+
+  private resolvePlaybackElapsedSeconds() {
+    if (!this.activeResult) {
+      return 0;
+    }
+
+    const context = this.getAudioContext();
+    const currentTime = this.playbackAudioStartsAt > 0
+      ? Math.max(context.currentTime, this.playbackAudioStartsAt)
+      : context.currentTime;
+    return clamp(currentTime - this.playbackStartedAt, 0, this.activeResult.metadata.proxyDurationSeconds);
+  }
+
+  private hasPausedPlayhead() {
+    return this.state === 'ready' && this.playbackElapsedSeconds > 0;
   }
 
   private stopPlayback(resetElapsed: boolean) {
@@ -1149,6 +1167,7 @@ export class AudioFourierController {
       this.playbackElapsedSeconds = 0;
       this.visualPlaybackElapsedSeconds = 0;
     }
+    this.playbackAudioStartsAt = 0;
     this.visualPlaybackUpdatedAt = 0;
   }
 
@@ -1182,8 +1201,7 @@ export class AudioFourierController {
         return;
       }
 
-      const context = this.getAudioContext();
-      this.playbackElapsedSeconds = clamp(context.currentTime - this.playbackStartedAt, 0, this.activeResult.metadata.proxyDurationSeconds);
+      this.playbackElapsedSeconds = this.resolvePlaybackElapsedSeconds();
       if (!this.visualPlaybackUpdatedAt) {
         this.visualPlaybackUpdatedAt = timestamp;
         this.visualPlaybackElapsedSeconds = this.playbackElapsedSeconds;
@@ -1266,7 +1284,7 @@ export class AudioFourierController {
     context.restore();
   }
 
-  private renderWaveViewport(livePlayback = false) {
+  private renderWaveViewport(livePlayback = false, showPlayhead = livePlayback) {
     if (!this.activeResult) {
       return;
     }
@@ -1312,7 +1330,7 @@ export class AudioFourierController {
     });
 
     const viewportLocalStartSample = range.startSample - range.firstBucketIndex * result.metadata.envelopeBucketSampleCount;
-    const playheadX = livePlayback
+    const playheadX = showPlayhead
       ? clamp((currentSeconds * result.metadata.proxySampleRate - range.startSample) / range.viewportSampleCount * this.waveCanvas.width, 0, this.waveCanvas.width)
       : null;
 
@@ -1328,7 +1346,7 @@ export class AudioFourierController {
   }
 
   private renderCurrentViewport() {
-    this.renderWaveViewport();
+    this.renderWaveViewport(false, this.hasPausedPlayhead());
     this.drawSpectrumFrame();
     this.drawComponentFrame();
   }
