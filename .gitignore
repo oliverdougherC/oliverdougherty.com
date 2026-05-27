@@ -41,3 +41,10 @@ pages/utilities/assets/pattern-face-balanced.json
 
 # Hermes agent state
 .hermes/
+
+# Obsidian editor workspace state (local editor config, not content)
+blogs/.obsidian/
+
+# Test coverage output
+coverage/
+.nyc_output/

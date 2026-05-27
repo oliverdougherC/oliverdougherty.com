@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   test: {
-    include: ['game-src/tests/**/*.test.ts', 'utilities-src/tests/**/*.test.ts'],
+    include: ['utilities-src/tests/**/*.test.ts'],
     environment: 'node',
     globals: true,
     coverage: {
@@ -16,7 +16,6 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'game-src/src'),
       '@utilities': path.resolve(__dirname, 'utilities-src/src')
     }
   }
