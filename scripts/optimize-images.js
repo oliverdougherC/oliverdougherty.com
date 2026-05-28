@@ -57,25 +57,25 @@ const VARIANTS = [
     key: 'thumbs',
     dir: path.join(PHOTOS_DIR, 'thumbs'),
     maxWidth: 800,
-    jpegQuality: 80,
-    webpQuality: 80,
-    avifQuality: 58
+    jpegQuality: 92,
+    webpQuality: 95,
+    avifQuality: 90
   },
   {
     key: 'medium',
     dir: path.join(PHOTOS_DIR, 'medium'),
     maxWidth: 1600,
-    jpegQuality: 84,
-    webpQuality: 84,
-    avifQuality: 52
+    jpegQuality: 94,
+    webpQuality: 96,
+    avifQuality: 92
   },
   {
     key: 'large',
     dir: path.join(PHOTOS_DIR, 'large'),
     maxWidth: 2400,
-    jpegQuality: 85,
-    webpQuality: 85,
-    avifQuality: 48
+    jpegQuality: 95,
+    webpQuality: 97,
+    avifQuality: 94
   }
 ];
 
@@ -237,7 +237,7 @@ async function generateVariant(inputPath, baseName, originalWidth, originalHeigh
       .toFile(webpPath),
     basePipeline
       .clone()
-      .avif({ quality: variant.avifQuality, effort: 4 })
+      .avif({ quality: variant.avifQuality, effort: 7 })
       .toFile(avifPath)
   ]);
 
