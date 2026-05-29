@@ -122,7 +122,7 @@
       var attempt = String(localAssistantLoadAttempt + 1);
       localAssistantLoadAttempt += 1;
       script.type = 'module';
-      script.src = '../../js/local-llm-chat.js?v=utilities-2026-05-21-todos';
+      script.src = '../../js/local-llm-chat.js?v=utilities-2026-05-28-local-assistant-perf';
       script.dataset.localLlmChat = 'true';
       script.dataset.localLlmAttempt = attempt;
       script.onload = function() {

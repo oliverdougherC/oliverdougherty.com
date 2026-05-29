@@ -15,16 +15,19 @@ export class LocalLlmMockWorker extends EventTarget {
     if (message.type === 'generate') this.mockGenerate(message.messages || []);
     if (message.type === 'interrupt' || message.type === 'cancel') {
       this.emit({ type: 'interrupted', generationId: this.activeGenerationId });
-      this.activeGenerationId = 0;
+      this.clearTimers();
     }
-    if (message.type === 'reset') this.emit({ type: 'reset', state: WORKER_STATE.READY });
+    if (message.type === 'reset') {
+      this.clearTimers();
+      this.activeGenerationId += 1;
+      this.emit({ type: 'reset', state: WORKER_STATE.READY });
+    }
     if (message.type === 'dispose') this.emit({ type: 'disposed', state: WORKER_STATE.DISPOSED });
   }
 
   terminate() {
     this.disposed = true;
-    this.timerIds.forEach((id) => window.clearTimeout(id));
-    this.timerIds = [];
+    this.clearTimers();
   }
 
   mockLoad() {
@@ -76,6 +79,10 @@ export class LocalLlmMockWorker extends EventTarget {
     this.activeGenerationId += 1;
     const generationId = this.activeGenerationId;
     const contextStats = this.buildContextStats(messages);
+    if (this.mode === 'long-stream') {
+      this.mockLongStreamGenerate(generationId, contextStats);
+      return;
+    }
     const text = 'This is a mocked Bonsai response from the browser-only assistant.\n\nSolve $x^2 = 16$.\n\n$$\nx = \\pm \\sqrt{16}\n$$';
     this.emit({ type: 'status', generationId, contextStats, state: WORKER_STATE.THINKING, message: 'Thinking locally.' });
     if (contextStats.droppedMessageCount > 0) {
@@ -92,8 +99,44 @@ export class LocalLlmMockWorker extends EventTarget {
     this.queue(() => this.emit({ type: 'token', generationId, contextStats, token: text.slice(24), tps: 18.7, numTokens: 10 }), 470);
     this.queue(() => {
       this.emit({ type: 'complete', generationId, contextStats, text, backend: 'mock-webgpu', tps: 18.7, numTokens: 10 });
-      this.activeGenerationId = 0;
     }, 520);
+  }
+
+  mockLongStreamGenerate(generationId, contextStats) {
+    const paragraphs = Array.from({ length: 90 }, (_, index) => (
+      `Streamed paragraph ${index + 1}: this chunk keeps the local assistant busy while the UI remains responsive.`
+    ));
+    const finalText = `${paragraphs.join('\n\n')}\n\nFinal markdown: **bold**, \`code\`, and $x^2 = 16$.\n\n$$\nx = \\pm \\sqrt{16}\n$$`;
+    const chunkSize = 52;
+    const chunks = [];
+    for (let index = 0; index < finalText.length; index += chunkSize) {
+      chunks.push(finalText.slice(index, index + chunkSize));
+    }
+
+    this.emit({ type: 'status', generationId, contextStats, state: WORKER_STATE.THINKING, message: 'Thinking locally.' });
+    this.queue(() => this.emit({ type: 'start', generationId, contextStats }), 20);
+    this.queue(() => this.emit({ type: 'status', generationId, contextStats, state: WORKER_STATE.STREAMING, message: 'Streaming locally.' }), 30);
+    chunks.forEach((chunk, index) => {
+      this.queue(() => this.emit({
+        type: 'token',
+        generationId,
+        contextStats,
+        token: chunk,
+        tps: 44.4,
+        numTokens: (index + 1) * 4
+      }), 60 + index * 12);
+    });
+    this.queue(() => {
+      this.emit({
+        type: 'complete',
+        generationId,
+        contextStats,
+        text: finalText,
+        backend: 'mock-webgpu',
+        tps: 44.4,
+        numTokens: chunks.length * 4
+      });
+    }, 90 + chunks.length * 12);
   }
 
   buildContextStats(messages) {
@@ -117,9 +160,15 @@ export class LocalLlmMockWorker extends EventTarget {
 
   queue(callback, delay) {
     const id = window.setTimeout(() => {
+      this.timerIds = this.timerIds.filter((timerId) => timerId !== id);
       if (!this.disposed) callback();
     }, delay);
     this.timerIds.push(id);
+  }
+
+  clearTimers() {
+    this.timerIds.forEach((id) => window.clearTimeout(id));
+    this.timerIds = [];
   }
 
   emit(detail) {

@@ -948,7 +948,8 @@ async function runLocalAssistantCheck(browser, pageUrl) {
           () => {
             const bubbleTyping = document.querySelector('#localLlmMessages .local-llm-typing');
             const composerTyping = document.querySelector('.local-llm-input-shell .local-llm-typing');
-            return Boolean(bubbleTyping) && !composerTyping;
+            const assistantText = document.querySelector('#localLlmMessages .local-llm-message--assistant .local-llm-message-content')?.textContent ?? '';
+            return (Boolean(bubbleTyping) || assistantText.trim().length > 0) && !composerTyping;
           },
           null,
           { timeout: 3000 }
@@ -957,6 +958,11 @@ async function runLocalAssistantCheck(browser, pageUrl) {
           () => /mocked Bonsai response/i.test(document.getElementById('localLlmMessages')?.textContent ?? ''),
           null,
           { timeout: 10000 }
+        );
+        await page.waitForFunction(
+          () => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'ready',
+          null,
+          { timeout: 5000 }
         );
         const generatedMetrics = await readLocalAssistantMetrics(page);
         assertLocalAssistantLayout(generatedMetrics, 'local-assistant:desktop:generated');
@@ -1028,6 +1034,106 @@ async function runLocalAssistantCheck(browser, pageUrl) {
     });
   } finally {
     await unsupportedPage.close();
+  }
+
+  const longStreamPage = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
+  await longStreamPage.addInitScript(() => {
+    window.__OD_RETRO_VM_TEST_MODE__ = true;
+    window.__OD_LOCAL_LLM_TEST_MODE__ = 'long-stream';
+  });
+
+  try {
+    await longStreamPage.goto(pageUrl.replace(/#.*$/, '#local-assistant'), { waitUntil: 'networkidle' });
+    await longStreamPage.waitForSelector('#localLlmStartBtn', { timeout: 10000 });
+    await longStreamPage.click('#localLlmStartBtn');
+    await observeLocalAssistantLoadingSequence(longStreamPage);
+    await longStreamPage.waitForFunction(
+      () => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'ready',
+      null,
+      { timeout: 10000 }
+    );
+    await longStreamPage.fill('#localLlmInput', 'Produce a long streamed response for responsiveness testing.');
+    await longStreamPage.click('.local-llm-send');
+    await longStreamPage.waitForFunction(
+      () => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'streaming',
+      null,
+      { timeout: 5000 }
+    );
+    await longStreamPage.waitForFunction(
+      () => {
+        const content = document.querySelector('#localLlmMessages .local-llm-message--assistant .local-llm-message-content');
+        return content?.classList.contains('local-llm-message-content--streaming');
+      },
+      null,
+      { timeout: 3000 }
+    );
+
+    const streamingSnapshot = await longStreamPage.evaluate(() => {
+      const content = document.querySelector('#localLlmMessages .local-llm-message--assistant .local-llm-message-content');
+      const scroller = document.getElementById('localLlmMessages');
+      const canvas = document.getElementById('starfield');
+      return {
+        hasStreamingClass: content?.classList.contains('local-llm-message-content--streaming') ?? false,
+        hasStrongMarkup: Boolean(content?.querySelector('strong')),
+        nearBottom: scroller ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 120 : false,
+        starfieldMode: canvas?.dataset.starfieldMode || ''
+      };
+    });
+    assert(streamingSnapshot.hasStreamingClass, 'Long-stream Local Assistant should render draft text in streaming mode.');
+    assert(!streamingSnapshot.hasStrongMarkup, 'Long-stream Local Assistant should defer markdown markup while streaming.');
+    assert(streamingSnapshot.nearBottom, 'Long-stream Local Assistant should keep transcript stuck to the bottom while streaming.');
+    assert(/busy|load/i.test(streamingSnapshot.starfieldMode), `Starfield should enter busy mode during local generation. Saw ${streamingSnapshot.starfieldMode || 'none'}.`);
+
+    const responsiveness = await longStreamPage.evaluate(async () => {
+      const samples = [];
+      const startedAt = performance.now();
+      let previous = startedAt;
+      await new Promise((resolve) => {
+        function step() {
+          const now = performance.now();
+          samples.push(now - previous);
+          previous = now;
+          if (now - startedAt >= 650) {
+            resolve();
+            return;
+          }
+          setTimeout(step, 50);
+        }
+        setTimeout(step, 50);
+      });
+      const sorted = samples.slice(1).sort((left, right) => left - right);
+      const p95 = sorted.length ? sorted[Math.floor(sorted.length * 0.95)] : 0;
+      const worst = sorted.length ? sorted[sorted.length - 1] : 0;
+      return { sampleCount: samples.length, p95, worst };
+    });
+    assert(responsiveness.sampleCount >= 8, `Long-stream Local Assistant should keep the event loop responsive during streaming. Saw ${responsiveness.sampleCount} timer samples.`);
+    assert(responsiveness.p95 < 180, `Long-stream Local Assistant timer p95 should stay responsive. Saw ${responsiveness.p95.toFixed(1)}ms.`);
+
+    await longStreamPage.waitForFunction(
+      () => document.getElementById('localLlmUtilityApp')?.dataset.localLlmStatus === 'ready' &&
+        /Final markdown/i.test(document.getElementById('localLlmMessages')?.textContent ?? ''),
+      null,
+      { timeout: 12000 }
+    );
+    const finalSnapshot = await longStreamPage.evaluate(() => {
+      const content = document.querySelector('#localLlmMessages .local-llm-message--assistant .local-llm-message-content');
+      const scroller = document.getElementById('localLlmMessages');
+      const canvas = document.getElementById('starfield');
+      return {
+        hasStreamingClass: content?.classList.contains('local-llm-message-content--streaming') ?? false,
+        hasStrongMarkup: Boolean(content?.querySelector('strong')),
+        hasMath: Boolean(content?.querySelector('.local-llm-math')),
+        nearBottom: scroller ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 120 : false,
+        starfieldMode: canvas?.dataset.starfieldMode || ''
+      };
+    });
+    assert(!finalSnapshot.hasStreamingClass, 'Long-stream Local Assistant should clear streaming mode after completion.');
+    assert(finalSnapshot.hasStrongMarkup, 'Long-stream Local Assistant should render markdown after completion.');
+    assert(finalSnapshot.hasMath, 'Long-stream Local Assistant should render math after completion.');
+    assert(finalSnapshot.nearBottom, 'Long-stream Local Assistant should remain near bottom after completion.');
+    assert(!/busy|load/i.test(finalSnapshot.starfieldMode), `Starfield should leave busy mode after generation. Saw ${finalSnapshot.starfieldMode || 'none'}.`);
+  } finally {
+    await longStreamPage.close();
   }
 }
 

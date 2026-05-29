@@ -426,6 +426,10 @@
   min-height: 1.55em;
 }
 
+.local-llm-message-content--streaming {
+  white-space: pre-wrap;
+}
+
 .local-llm-message--user .local-llm-message-content {
   color: #000000;
   border-color: #ffffff;

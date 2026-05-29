@@ -101,6 +101,55 @@ describe('local LLM state helpers', () => {
     expect(result.messages[0].content).not.toContain('one two three four five');
   });
 
+  it('applies an effective prompt cap below the raw context window', () => {
+    const result = compactLocalLlmMessagesByTokenBudget(
+      [
+        { role: 'user', content: 'older one two three four five six seven eight' },
+        { role: 'assistant', content: 'older reply one two three four five six' },
+        { role: 'user', content: 'latest request should remain available' }
+      ],
+      { maxHistoryMessages: 10, maxMessageChars: 400 },
+      {
+        maxInputTokens: 100,
+        effectiveInputTokens: 8,
+        perMessageOverheadTokens: 1,
+        countTokens: (text) => text.split(/\s+/).filter(Boolean).length
+      }
+    );
+
+    const totalTokens = result.messages.reduce(
+      (sum, message) => sum + message.content.split(/\s+/).filter(Boolean).length + 1,
+      0
+    );
+    expect(totalTokens).toBeLessThanOrEqual(8);
+    expect(result.messages[result.messages.length - 1]).toEqual({
+      role: 'user',
+      content: 'latest request should remain available'
+    });
+    expect(result.droppedMessageCount).toBeGreaterThan(0);
+  });
+
+  it('preserves the tail of an oversized latest message under the effective cap', () => {
+    const result = compactLocalLlmMessagesByTokenBudget(
+      [
+        { role: 'user', content: 'alpha beta gamma delta epsilon zeta eta theta iota kappa lambda omega' }
+      ],
+      { maxHistoryMessages: 10, maxMessageChars: 400 },
+      {
+        maxInputTokens: 100,
+        effectiveInputTokens: 6,
+        perMessageOverheadTokens: 1,
+        maxInputTokensPerMessage: 6,
+        countTokens: (text) => text.split(/\s+/).filter(Boolean).length
+      }
+    );
+
+    expect(result.truncatedUserInput).toBe(true);
+    expect(result.messages).toEqual([
+      { role: 'user', content: 'theta iota kappa lambda omega' }
+    ]);
+  });
+
   it('normalizes progress statuses without relying on transient exact names', () => {
     expect(normalizeLocalLlmProgressState('progress_total')).toBe('downloading');
     expect(normalizeLocalLlmProgressState('done')).toBe('loading');

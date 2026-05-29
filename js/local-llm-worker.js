@@ -15,6 +15,8 @@ const MAX_PENDING_GENERATE_MESSAGES = 1;
 const TOKEN_BATCH_SIZE = 4;
 const TOKEN_BATCH_MS = 100;
 const MAX_REASONABLE_CONTEXT_LIMIT = 1_000_000;
+const TOKEN_COUNT_CACHE_LIMIT = 256;
+const textTokenCountCache = new Map();
 
 self.addEventListener('message', (event) => {
   try {
@@ -370,7 +372,11 @@ function compactMessages(messages) {
     Number(LOCAL_LLM_CONFIG.context?.reservedGenerationTokens) || LOCAL_LLM_CONFIG.generation.max_new_tokens
   );
   const reserveSafetyTokens = Math.max(0, Number(LOCAL_LLM_CONFIG.context?.reserveSafetyTokens) || 0);
-  const availableInputTokens = Math.max(128, contextLimitTokens - reservedGenerationTokens - reserveSafetyTokens);
+  const rawAvailableInputTokens = Math.max(128, contextLimitTokens - reservedGenerationTokens - reserveSafetyTokens);
+  const configuredEffectiveInputTokens = Math.floor(Number(LOCAL_LLM_CONFIG.context?.effectiveInputTokens) || 0);
+  const availableInputTokens = configuredEffectiveInputTokens > 0
+    ? Math.max(128, Math.min(rawAvailableInputTokens, configuredEffectiveInputTokens))
+    : rawAvailableInputTokens;
   const perMessageOverheadTokens = Math.max(0, Number(LOCAL_LLM_CONFIG.context?.perMessageOverheadTokens) || 0);
   const maxInputTokensPerMessage = Math.max(64, Number(LOCAL_LLM_CONFIG.context?.maxInputTokensPerMessage) || 64);
 
@@ -384,6 +390,7 @@ function compactMessages(messages) {
         availableInputTokens,
         reservedGenerationTokens,
         reserveSafetyTokens,
+        rawAvailableInputTokens,
         promptTokens: 0,
         includedMessageCount: 0,
         droppedMessageCount: history.length,
@@ -466,6 +473,7 @@ function compactMessages(messages) {
     availableInputTokens,
     reservedGenerationTokens,
     reserveSafetyTokens,
+    rawAvailableInputTokens,
     promptTokens,
     includedMessageCount: packedMessages.length,
     droppedMessageCount,
@@ -503,25 +511,29 @@ function getContextLimitTokens() {
 }
 
 function messageTokenCost(message, perMessageOverheadTokens) {
-  return countTextTokens(message.content) + perMessageOverheadTokens;
+  return countTextTokensCached(message.content) + perMessageOverheadTokens;
 }
 
 function countConversationTokens(messages) {
-  const tokenizer = generator?.tokenizer;
-  if (tokenizer && typeof tokenizer.apply_chat_template === 'function') {
-    try {
-      const tokenized = tokenizer.apply_chat_template(messages, {
-        tokenize: true,
-        return_tensor: false,
-        add_generation_prompt: true
-      });
-      return countTokenContainer(tokenized);
-    } catch (error) {
-      console.debug('Local assistant chat-template token counting failed.', error);
-    }
+  return messages.reduce((sum, message) => sum + messageTokenCost(message, 4), 0) + 4;
+}
+
+function countTextTokensCached(text) {
+  const source = String(text || '');
+  if (textTokenCountCache.has(source)) {
+    const value = textTokenCountCache.get(source);
+    textTokenCountCache.delete(source);
+    textTokenCountCache.set(source, value);
+    return value;
   }
 
-  return messages.reduce((sum, message) => sum + messageTokenCost(message, 4), 0) + 4;
+  const value = countTextTokens(source);
+  textTokenCountCache.set(source, value);
+  if (textTokenCountCache.size > TOKEN_COUNT_CACHE_LIMIT) {
+    const oldestKey = textTokenCountCache.keys().next().value;
+    textTokenCountCache.delete(oldestKey);
+  }
+  return value;
 }
 
 function countTextTokens(text) {

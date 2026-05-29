@@ -20,6 +20,7 @@ export interface LocalLlmLimits {
 
 export interface LocalLlmTokenWindowOptions {
   maxInputTokens: number;
+  effectiveInputTokens?: number;
   perMessageOverheadTokens: number;
   maxInputTokensPerMessage?: number;
   countTokens: (text: string) => number;
@@ -84,7 +85,10 @@ export function compactLocalLlmMessagesByTokenBudget(
   options: LocalLlmTokenWindowOptions
 ): LocalLlmTokenWindowResult {
   const perMessageOverheadTokens = Math.max(0, options.perMessageOverheadTokens);
-  const maxInputTokens = Math.max(1, options.maxInputTokens);
+  const rawMaxInputTokens = Math.max(1, options.maxInputTokens);
+  const maxInputTokens = options.effectiveInputTokens
+    ? Math.max(1, Math.min(rawMaxInputTokens, options.effectiveInputTokens))
+    : rawMaxInputTokens;
   const maxInputTokensPerMessage = Math.max(1, options.maxInputTokensPerMessage ?? maxInputTokens);
   const countTokens = (text: string) => Math.max(1, options.countTokens(text));
   const messageCost = (text: string) => countTokens(text) + perMessageOverheadTokens;
@@ -117,12 +121,12 @@ export function compactLocalLlmMessagesByTokenBudget(
   const latestUser = { ...chat[latestUserIndex] };
   let latestUserCost = messageCost(latestUser.content);
   if (latestUserCost > maxInputTokensPerMessage) {
-    latestUser.content = truncateToTokenBudget(latestUser.content, Math.max(8, maxInputTokensPerMessage - perMessageOverheadTokens), countTokens);
+    latestUser.content = truncateToTokenBudget(latestUser.content, Math.max(1, maxInputTokensPerMessage - perMessageOverheadTokens), countTokens);
     latestUserCost = messageCost(latestUser.content);
     truncatedUserInput = true;
   }
   if (latestUserCost > maxInputTokens) {
-    latestUser.content = truncateToTokenBudget(latestUser.content, Math.max(8, maxInputTokens - perMessageOverheadTokens), countTokens);
+    latestUser.content = truncateToTokenBudget(latestUser.content, Math.max(1, maxInputTokens - perMessageOverheadTokens), countTokens);
     latestUserCost = messageCost(latestUser.content);
     truncatedUserInput = true;
   }

@@ -13,6 +13,9 @@
     baseStarCount: 500,
     baseSpeed: 9,
     maxDpr: 1.5,
+    busyStarScale: 0.34,
+    busyFrameMs: 100,
+    normalFrameMs: 16,
     colors: ['#ffffff', '#e0f7fa', '#fff3e0', '#fce4ec', '#f3e5f5']
   });
 
@@ -27,12 +30,18 @@
   let comets = [];
   let animationFrameId = 0;
   let resizeFrameId = 0;
+  let busyLoopTimerId = 0;
   let lastTimestamp = 0;
   let isHidden = document.hidden;
   let heavyUtilityActive = false;
   let diagnosticsFrameCounter = 0;
   const DIAGNOSTICS_BATCH_INTERVAL = 30; // sync dataset every N frames
   const activeLoadSources = new Set();
+  const activePauseSources = new Set();
+
+  function isPaused() {
+    return activePauseSources.size > 0;
+  }
 
   function startWorkerRenderer(targetCanvas, reduceMotion) {
     if (
@@ -104,7 +113,8 @@
         worker.postMessage({
           type: 'load-state',
           source: detail.source || 'unknown',
-          active: Boolean(detail.active)
+          active: Boolean(detail.active),
+          pauseRendering: Boolean(detail.pauseRendering)
         });
       });
 
@@ -121,6 +131,7 @@
     let width = 0;
     let height = 0;
     let dpr = 1;
+    let viewportDpr = 1;
     let stars = [];
     let comets = [];
     let timerId = 0;
@@ -129,13 +140,23 @@
     let lastDiagnosticsAt = 0;
     let isHidden = false;
     const activeLoadSources = new Set();
+    const activePauseSources = new Set();
 
     let hardwareConcurrency = 4;
+
+    function isBusy() {
+      return activeLoadSources.size > 0;
+    }
+
+    function isPaused() {
+      return activePauseSources.size > 0;
+    }
 
     function resolveStarCount() {
       const areaScale = Math.max(0.45, Math.min(1.15, width * height / (1440 * 900)));
       const coreScale = hardwareConcurrency <= 4 ? 0.72 : 1;
-      return Math.round(STARFIELD_CONFIG.baseStarCount * areaScale * coreScale);
+      const busyScale = isBusy() ? STARFIELD_CONFIG.busyStarScale : 1;
+      return Math.round(STARFIELD_CONFIG.baseStarCount * areaScale * coreScale * busyScale);
     }
 
     function createStar() {
@@ -161,12 +182,16 @@
       if (stars.length > targetCount) {
         stars.length = targetCount;
       }
+      if (isBusy()) {
+        comets = [];
+      }
     }
 
     function resize(nextWidth, nextHeight, nextDpr) {
       width = Math.max(1, nextWidth);
       height = Math.max(1, nextHeight);
-      dpr = Math.min(nextDpr || 1, STARFIELD_CONFIG.maxDpr);
+      viewportDpr = nextDpr || viewportDpr || 1;
+      dpr = isBusy() ? 1 : Math.min(viewportDpr, STARFIELD_CONFIG.maxDpr);
       canvas.width = Math.max(1, Math.floor(width * dpr));
       canvas.height = Math.max(1, Math.floor(height * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -206,7 +231,7 @@
         }
       }
 
-      if (comets.length === 0 && Math.random() < 0.06 * deltaSeconds) {
+      if (!isBusy() && comets.length === 0 && Math.random() < 0.06 * deltaSeconds) {
         comets.push(spawnComet());
       }
 
@@ -298,13 +323,13 @@
         type: 'diagnostics',
         starCount: stars.length,
         frameCount,
-        mode: activeLoadSources.size > 0 ? 'load-full-motion-worker' : 'full-motion-worker'
+        mode: isPaused() ? 'paused-worker' : isBusy() ? 'busy-worker' : 'full-motion-worker'
       });
     }
 
     function loop() {
       timerId = 0;
-      if (isHidden || !ctx) {
+      if (isHidden || !ctx || isPaused()) {
         return;
       }
       const timestamp = performance.now();
@@ -314,7 +339,7 @@
       draw();
       frameCount += 1;
       postDiagnostics(timestamp, false);
-      timerId = setTimeout(loop, 16);
+      timerId = setTimeout(loop, isBusy() ? STARFIELD_CONFIG.busyFrameMs : STARFIELD_CONFIG.normalFrameMs);
     }
 
     function start() {
@@ -322,7 +347,7 @@
         return;
       }
       lastTimestamp = 0;
-      timerId = setTimeout(loop, 16);
+      timerId = setTimeout(loop, isBusy() ? STARFIELD_CONFIG.busyFrameMs : STARFIELD_CONFIG.normalFrameMs);
     }
 
     function stop() {
@@ -351,11 +376,30 @@
           start();
         }
       } else if (data.type === 'load-state') {
-        if (data.active) {
-          activeLoadSources.add(data.source || 'unknown');
-        } else {
-          activeLoadSources.delete(data.source || 'unknown');
+        const source = data.source || 'unknown';
+        if (data.pauseRendering) {
+          if (data.active) {
+            activePauseSources.add(source);
+          } else {
+            activePauseSources.delete(source);
+          }
+          if (isPaused()) {
+            stop();
+            postDiagnostics(performance.now(), true);
+            return;
+          }
+          if (!isHidden && ctx) {
+            start();
+          }
+          postDiagnostics(performance.now(), true);
+          return;
         }
+        if (data.active) {
+          activeLoadSources.add(source);
+        } else {
+          activeLoadSources.delete(source);
+        }
+        resize(width, height, viewportDpr);
         postDiagnostics(performance.now(), true);
       }
     };
@@ -377,7 +421,7 @@
   }
 
   function resolveDpr() {
-    if (reducedMotion) {
+    if (reducedMotion || heavyUtilityActive) {
       return 1;
     }
     return Math.min(window.devicePixelRatio || 1, STARFIELD_CONFIG.maxDpr);
@@ -390,7 +434,8 @@
 
     const areaScale = Math.max(0.45, Math.min(1.15, width * height / (1440 * 900)));
     const coreScale = (navigator.hardwareConcurrency || 4) <= 4 ? 0.72 : 1;
-    return Math.round(STARFIELD_CONFIG.baseStarCount * areaScale * coreScale);
+    const busyScale = heavyUtilityActive ? STARFIELD_CONFIG.busyStarScale : 1;
+    return Math.round(STARFIELD_CONFIG.baseStarCount * areaScale * coreScale * busyScale);
   }
 
   function reconcileSpace() {
@@ -402,6 +447,9 @@
       stars.length = targetCount;
     }
     if (reducedMotion) {
+      comets = [];
+    }
+    if (heavyUtilityActive) {
       comets = [];
     }
   }
@@ -453,7 +501,7 @@
       }
     }
 
-    if (comets.length === 0 && Math.random() < 0.06 * deltaSeconds) {
+    if (!heavyUtilityActive && comets.length === 0 && Math.random() < 0.06 * deltaSeconds) {
       comets.push(spawnComet());
     }
 
@@ -569,8 +617,8 @@
   }
 
   function loop(timestamp) {
-    if (isHidden) {
-      animationFrameId = 0;
+    animationFrameId = 0;
+    if (isHidden || isPaused()) {
       return;
     }
 
@@ -581,13 +629,13 @@
     diagnosticsFrameCounter += 1;
     if (diagnosticsFrameCounter >= DIAGNOSTICS_BATCH_INTERVAL) {
       diagnosticsFrameCounter = 0;
-      syncDiagnostics(heavyUtilityActive ? 'load-full-motion' : 'full-motion');
+      syncDiagnostics(heavyUtilityActive ? 'busy' : 'full-motion');
     }
-    animationFrameId = requestAnimationFrame(loop);
+    queueNextFrame();
   }
 
   function startLoop() {
-    if (animationFrameId || reducedMotion || isHidden) {
+    if (animationFrameId || busyLoopTimerId || reducedMotion || isHidden || isPaused()) {
       return;
     }
     lastTimestamp = 0;
@@ -599,6 +647,21 @@
       cancelAnimationFrame(animationFrameId);
       animationFrameId = 0;
     }
+    if (busyLoopTimerId) {
+      clearTimeout(busyLoopTimerId);
+      busyLoopTimerId = 0;
+    }
+  }
+
+  function queueNextFrame() {
+    if (heavyUtilityActive) {
+      busyLoopTimerId = window.setTimeout(function() {
+        busyLoopTimerId = 0;
+        animationFrameId = requestAnimationFrame(loop);
+      }, STARFIELD_CONFIG.busyFrameMs);
+      return;
+    }
+    animationFrameId = requestAnimationFrame(loop);
   }
 
   function syncLoadState(active) {
@@ -606,6 +669,16 @@
       return;
     }
     heavyUtilityActive = active;
+    resize();
+  }
+
+  function syncPauseState() {
+    if (isPaused()) {
+      stopLoop();
+      syncDiagnostics('paused');
+      return;
+    }
+    startLoop();
   }
 
   function queueResize() {
@@ -631,6 +704,15 @@
   window.addEventListener('utilities-load-state', function(event) {
     const detail = event.detail || {};
     const source = detail.source || 'unknown';
+    if (detail.pauseRendering) {
+      if (detail.active) {
+        activePauseSources.add(source);
+      } else {
+        activePauseSources.delete(source);
+      }
+      syncPauseState();
+      return;
+    }
     if (detail.active) {
       activeLoadSources.add(source);
     } else {

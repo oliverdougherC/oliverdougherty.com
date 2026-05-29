@@ -181,7 +181,7 @@ describe('audio Fourier core', () => {
   it('rejects energy band reconstructions that would exceed the memory budget', () => {
     expect(() => buildEnergyBandReconstruction({
       componentOrder: new Uint32Array(20),
-      samples: { length: 8_000_000 }
+      samples: { length: 14_000_000 }
     } as never, 20)).toThrow(/Energy band cache would allocate/);
   });
 
