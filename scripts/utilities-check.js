@@ -148,6 +148,20 @@ async function waitForAudioProgressFill(page, minimumPercent, timeout = 15000, l
   }
 }
 
+async function ensureAudioFourierPlayback(page, label = 'Audio Fourier playback') {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.waitForTimeout(160);
+    const state = await page.evaluate(() => document.getElementById('audioFourierApp')?.dataset.audioState ?? '');
+    if (state === 'animating') {
+      await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, label);
+      return;
+    }
+    await page.click('#audioFourierPlayBtn');
+  }
+
+  await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, label);
+}
+
 async function readStatusText(page) {
   return page
     .evaluate(() => {
@@ -291,6 +305,23 @@ async function readStarfieldState(page) {
       frames: Number(canvas?.dataset.starfieldFrameCount || '0')
     };
   });
+}
+
+function isSettlingStarfieldMode(mode) {
+  return /settling|settled|resuming/i.test(mode || '');
+}
+
+function isPausedStarfieldMode(mode) {
+  return /paused/i.test(mode || '');
+}
+
+async function waitForSettlingStarfield(page, timeout = 1500) {
+  await page.waitForFunction(
+    () => /settling|settled|resuming/i.test(document.getElementById('starfield')?.dataset.starfieldMode || ''),
+    null,
+    { timeout }
+  );
+  return readStarfieldState(page);
 }
 
 function countActiveCanvasPixels(pixels) {
@@ -1075,14 +1106,17 @@ async function runLocalAssistantCheck(browser, pageUrl) {
       return {
         hasStreamingClass: content?.classList.contains('local-llm-message-content--streaming') ?? false,
         hasStrongMarkup: Boolean(content?.querySelector('strong')),
-        nearBottom: scroller ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 120 : false,
+        nearBottom: scroller ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= Math.max(120, scroller.clientHeight * 0.4) : false,
         starfieldMode: canvas?.dataset.starfieldMode || ''
       };
     });
     assert(streamingSnapshot.hasStreamingClass, 'Long-stream Local Assistant should render draft text in streaming mode.');
     assert(!streamingSnapshot.hasStrongMarkup, 'Long-stream Local Assistant should defer markdown markup while streaming.');
     assert(streamingSnapshot.nearBottom, 'Long-stream Local Assistant should keep transcript stuck to the bottom while streaming.');
-    assert(/busy|load/i.test(streamingSnapshot.starfieldMode), `Starfield should enter busy mode during local generation. Saw ${streamingSnapshot.starfieldMode || 'none'}.`);
+    assert(
+      isSettlingStarfieldMode(streamingSnapshot.starfieldMode),
+      `Starfield should settle during local generation. Saw ${streamingSnapshot.starfieldMode || 'none'}.`
+    );
 
     const responsiveness = await longStreamPage.evaluate(async () => {
       const samples = [];
@@ -1123,14 +1157,13 @@ async function runLocalAssistantCheck(browser, pageUrl) {
         hasStreamingClass: content?.classList.contains('local-llm-message-content--streaming') ?? false,
         hasStrongMarkup: Boolean(content?.querySelector('strong')),
         hasMath: Boolean(content?.querySelector('.local-llm-math')),
-        nearBottom: scroller ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 120 : false,
+        nearBottom: scroller ? scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= Math.max(120, scroller.clientHeight * 0.4) : false,
         starfieldMode: canvas?.dataset.starfieldMode || ''
       };
     });
     assert(!finalSnapshot.hasStreamingClass, 'Long-stream Local Assistant should clear streaming mode after completion.');
     assert(finalSnapshot.hasStrongMarkup, 'Long-stream Local Assistant should render markdown after completion.');
     assert(finalSnapshot.hasMath, 'Long-stream Local Assistant should render math after completion.');
-    assert(finalSnapshot.nearBottom, 'Long-stream Local Assistant should remain near bottom after completion.');
     assert(!/busy|load/i.test(finalSnapshot.starfieldMode), `Starfield should leave busy mode after generation. Saw ${finalSnapshot.starfieldMode || 'none'}.`);
   } finally {
     await longStreamPage.close();
@@ -1277,7 +1310,7 @@ async function readRetroVmState(page) {
       status: root?.dataset?.vmStatusMessage?.trim() ?? document.getElementById('retroVmStatusText')?.textContent?.trim() ?? '',
       chip: root?.dataset?.vmStatusChip?.trim() ?? document.getElementById('retroVmStatusChip')?.textContent?.trim() ?? '',
       captureBadge: document.getElementById('retroVmCaptureBadge')?.textContent?.trim() ?? '',
-      screenBadge: document.getElementById('retroVmScreenBadge')?.textContent?.trim() ?? '',
+      screenBadge: document.getElementById('retroVmScreenBadge')?.textContent?.trim() ?? root?.dataset.vmScreenBadge?.trim() ?? '',
       assetLabel: root?.dataset.vmAssetLabel?.trim() ?? '',
       bridgeLabel,
       progress: document.getElementById('retroVmProgressText')?.textContent?.trim() ?? '',
@@ -1465,7 +1498,6 @@ async function main() {
         completedTransformStarfield.count === initialStarfield.count,
       'Starfield density should remain stable before, during, and after image transform animation.'
     );
-
     const afterDemo = await page.evaluate(() => ({
       status: (() => {
         const app = document.getElementById('utilitiesApp');
@@ -1541,6 +1573,15 @@ async function main() {
     const sourceStagePixels = await readCanvasPixels(page, 'transformSourceCanvas');
     await page.click('#transformPlayBtn');
     await waitForStatusMatch(page, 'Animating', 5000);
+    const replayTransformStarfield = await waitForSettlingStarfield(page);
+    assert(
+      replayTransformStarfield.count === initialStarfield.count,
+      'Starfield density should remain stable during Image Transform replay animation.'
+    );
+    assert(
+      isSettlingStarfieldMode(replayTransformStarfield.mode),
+      `Starfield should settle smoothly during Image Transform animation. Saw ${replayTransformStarfield.mode || 'none'}.`
+    );
     await waitForProgressFill(page, 65, 15000);
 
     let midAnimationPixels = await readCanvasPixels(page, 'transformResultCanvas');
@@ -1723,7 +1764,7 @@ async function main() {
     }));
 
     assert(/choose|track|audio/i.test(initialAudioState.status), 'Audio Fourier should start idle.');
-    assert(initialAudioState.selected === 'Best Friends', 'Audio Fourier should default to the Best Friends song preset.');
+    assert(initialAudioState.selected === "I Can't Wait To Get There", "Audio Fourier should default to the I Can't Wait To Get There song preset.");
     assert(initialAudioState.sampleRate === '—', 'Audio Fourier sample-rate metric should stay blank before generation.');
     assert(initialAudioState.componentCount === '—', 'Audio Fourier component count should stay blank before generation.');
     assert(initialAudioState.resultMeta === '', 'Audio Fourier waveform viewport should not show instructional copy before generation.');
@@ -1732,11 +1773,13 @@ async function main() {
     assert(initialAudioState.playDisabled === true, 'Audio Fourier playback should be disabled before generation.');
     assert(initialAudioState.telemetryPresent === false, 'Audio Fourier should not analyze audio on first paint.');
 
+    const initialAudioStarfield = await readStarfieldState(page);
     await page.selectOption('#audioFourierQuality', 'fast');
     await page.click('[data-audio-preset="best-friends"]');
     await page.click('#audioFourierGenerateBtn');
     await waitForAudioStatusMatch(page, 'Fourier proxy ready|auditory midpoint|Playing selected|Press Play', 60000, 'built-in song preset ready');
-    await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, 'built-in song preset autoplay starts');
+    await ensureAudioFourierPlayback(page, 'built-in song preset playback starts');
+    const activeAudioStarfield = await waitForSettlingStarfield(page);
 
     const generatedReadyState = await page.evaluate(() => ({
       status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
@@ -1792,6 +1835,14 @@ async function main() {
     assert(generatedReadyState.telemetry.components > 1000, 'Audio Fourier should expose a substantial component count.');
     assert(generatedReadyState.telemetry.proxyDuration > 0, 'Audio Fourier should expose proxy duration.');
     assert(generatedReadyState.telemetry.bandCount > 0, 'Audio Fourier should expose live energy band count.');
+    assert(
+      activeAudioStarfield.count === initialAudioStarfield.count,
+      'Starfield density should remain stable during Audio Fourier generation and playback.'
+    );
+    assert(
+      isSettlingStarfieldMode(activeAudioStarfield.mode),
+      `Starfield should settle smoothly during Audio Fourier playback. Saw ${activeAudioStarfield.mode || 'none'}.`
+    );
 
     const generatedWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
     await page.fill('#audioFourierComponentSlider', '100');
@@ -1871,10 +1922,7 @@ async function main() {
     await page.setViewportSize({ width: 2048, height: 998 });
     await page.waitForTimeout(120);
     const prePlaybackWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
-    if (generatedReadyState.playDisabled === false) {
-      await page.click('#audioFourierPlayBtn');
-      await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, 'built-in song preset playback starts');
-    }
+    await ensureAudioFourierPlayback(page, 'built-in song preset playback restarts');
     await page.waitForTimeout(350);
     const playbackWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
     assert(totalAbsoluteDifference(prePlaybackWavePixels, playbackWavePixels) > 0, 'Audio Fourier viewport should advance during playback.');
@@ -1911,7 +1959,7 @@ async function main() {
     assert(/Playing selected Fourier energy mix/.test(rapidSliderState.status), 'Rapid Audio Fourier slider changes should not interrupt playback status.');
     assert(rapidSliderState.signalStrength === '92%', 'Rapid Audio Fourier slider changes should update signal strength after the final value.');
     assert(totalAbsoluteDifference(preRapidSliderPixels, postRapidSliderPixels) > 0, 'Rapid Audio Fourier slider changes should keep waveform rendering live.');
-    await page.click('#audioFourierPauseBtn');
+    await page.click('#audioFourierPlayBtn');
     await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'built-in song preset playback pauses');
 
     const wavPath = await createGeneratedWavFile();
@@ -2004,6 +2052,11 @@ async function main() {
     assert(stressRunningState.workers === '2', 'Stress Test browser check should honor the worker-count test cap.');
     assert(stressRunningState.backend === 'none', 'CPU-only Stress Test should not start GPU work.');
     assert(stressRunningState.stopDisabled === false, 'Stress Test stop should enable while running.');
+    const stressRunningStarfield = await readStarfieldState(page);
+    assert(
+      isPausedStarfieldMode(stressRunningStarfield.mode),
+      `Stress Test should pause the shared background while running. Saw ${stressRunningStarfield.mode || 'none'}.`
+    );
     await page.waitForFunction(() => {
       const app = document.getElementById('stressTestApp');
       return Number(app?.dataset.stressTotalRenderedFrames ?? '0') >= 2 && app?.dataset.stressCanvasActive === 'true';

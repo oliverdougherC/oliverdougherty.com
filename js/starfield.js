@@ -13,8 +13,8 @@
     baseStarCount: 500,
     baseSpeed: 9,
     maxDpr: 1.5,
-    busyStarScale: 0.34,
-    busyFrameMs: 100,
+    settleEasingMs: 420,
+    resumeEasingMs: 520,
     normalFrameMs: 16,
     colors: ['#ffffff', '#e0f7fa', '#fff3e0', '#fce4ec', '#f3e5f5']
   });
@@ -30,13 +30,14 @@
   let comets = [];
   let animationFrameId = 0;
   let resizeFrameId = 0;
-  let busyLoopTimerId = 0;
   let lastTimestamp = 0;
   let isHidden = document.hidden;
-  let heavyUtilityActive = false;
+  let utilitySettlingActive = false;
+  let motionScale = 1;
+  let targetMotionScale = 1;
   let diagnosticsFrameCounter = 0;
   const DIAGNOSTICS_BATCH_INTERVAL = 30; // sync dataset every N frames
-  const activeLoadSources = new Set();
+  const activeSettleSources = new Set();
   const activePauseSources = new Set();
 
   function isPaused() {
@@ -74,6 +75,7 @@
         targetCanvas.dataset.starCount = String(data.starCount || 0);
         targetCanvas.dataset.starfieldMode = data.mode || 'full-motion-worker';
         targetCanvas.dataset.starfieldFrameCount = String(data.frameCount || 0);
+        targetCanvas.dataset.starfieldLayerCount = '1';
       });
 
       const offscreen = targetCanvas.transferControlToOffscreen();
@@ -114,6 +116,7 @@
           type: 'load-state',
           source: detail.source || 'unknown',
           active: Boolean(detail.active),
+          mode: detail.mode || (detail.pauseRendering ? 'pause-background' : 'settle-background'),
           pauseRendering: Boolean(detail.pauseRendering)
         });
       });
@@ -139,13 +142,15 @@
     let frameCount = 0;
     let lastDiagnosticsAt = 0;
     let isHidden = false;
-    const activeLoadSources = new Set();
+    const activeSettleSources = new Set();
     const activePauseSources = new Set();
+    let motionScale = 1;
+    let targetMotionScale = 1;
 
     let hardwareConcurrency = 4;
 
     function isBusy() {
-      return activeLoadSources.size > 0;
+      return activeSettleSources.size > 0;
     }
 
     function isPaused() {
@@ -155,8 +160,7 @@
     function resolveStarCount() {
       const areaScale = Math.max(0.45, Math.min(1.15, width * height / (1440 * 900)));
       const coreScale = hardwareConcurrency <= 4 ? 0.72 : 1;
-      const busyScale = isBusy() ? STARFIELD_CONFIG.busyStarScale : 1;
-      return Math.round(STARFIELD_CONFIG.baseStarCount * areaScale * coreScale * busyScale);
+      return Math.round(STARFIELD_CONFIG.baseStarCount * areaScale * coreScale);
     }
 
     function createStar() {
@@ -182,16 +186,13 @@
       if (stars.length > targetCount) {
         stars.length = targetCount;
       }
-      if (isBusy()) {
-        comets = [];
-      }
     }
 
     function resize(nextWidth, nextHeight, nextDpr) {
       width = Math.max(1, nextWidth);
       height = Math.max(1, nextHeight);
       viewportDpr = nextDpr || viewportDpr || 1;
-      dpr = isBusy() ? 1 : Math.min(viewportDpr, STARFIELD_CONFIG.maxDpr);
+      dpr = Math.min(viewportDpr, STARFIELD_CONFIG.maxDpr);
       canvas.width = Math.max(1, Math.floor(width * dpr));
       canvas.height = Math.max(1, Math.floor(height * dpr));
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -213,12 +214,28 @@
       };
     }
 
+    function updateMotionScale(deltaSeconds) {
+      const durationMs = targetMotionScale === 0
+        ? STARFIELD_CONFIG.settleEasingMs
+        : STARFIELD_CONFIG.resumeEasingMs;
+      const step = Math.max(0.02, (deltaSeconds * 1000) / durationMs);
+      if (motionScale < targetMotionScale) {
+        motionScale = Math.min(targetMotionScale, motionScale + step);
+      } else if (motionScale > targetMotionScale) {
+        motionScale = Math.max(targetMotionScale, motionScale - step);
+      }
+    }
+
     function update(deltaSeconds) {
+      const scaledDeltaSeconds = deltaSeconds * motionScale;
+      if (scaledDeltaSeconds <= 0.0001) {
+        return;
+      }
       for (let i = 0; i < stars.length; i += 1) {
         const star = stars[i];
-        star.y -= star.speed * deltaSeconds;
-        star.x += star.drift * deltaSeconds;
-        star.twinklePhase += star.twinkleSpeed * deltaSeconds;
+        star.y -= star.speed * scaledDeltaSeconds;
+        star.x += star.drift * scaledDeltaSeconds;
+        star.twinklePhase += star.twinkleSpeed * scaledDeltaSeconds;
 
         if (star.y < -10) {
           star.y = height + 10;
@@ -231,14 +248,14 @@
         }
       }
 
-      if (!isBusy() && comets.length === 0 && Math.random() < 0.06 * deltaSeconds) {
+      if (!isBusy() && comets.length === 0 && Math.random() < 0.06 * scaledDeltaSeconds) {
         comets.push(spawnComet());
       }
 
       for (let i = comets.length - 1; i >= 0; i -= 1) {
         const comet = comets[i];
-        comet.x += comet.speedX * deltaSeconds;
-        comet.y += comet.speedY * deltaSeconds;
+        comet.x += comet.speedX * scaledDeltaSeconds;
+        comet.y += comet.speedY * scaledDeltaSeconds;
 
         const fadeMargin = 150;
         let fade = 1;
@@ -323,7 +340,15 @@
         type: 'diagnostics',
         starCount: stars.length,
         frameCount,
-        mode: isPaused() ? 'paused-worker' : isBusy() ? 'busy-worker' : 'full-motion-worker'
+        mode: isPaused()
+          ? 'paused-worker'
+          : isBusy() && motionScale <= 0.001
+            ? 'settled-worker'
+            : isBusy()
+              ? 'settling-worker'
+              : motionScale < 0.999
+                ? 'resuming-worker'
+                : 'full-motion-worker'
       });
     }
 
@@ -335,11 +360,16 @@
       const timestamp = performance.now();
       const deltaSeconds = lastTimestamp ? Math.min(0.08, (timestamp - lastTimestamp) / 1000) : 1 / 60;
       lastTimestamp = timestamp;
+      updateMotionScale(deltaSeconds);
       update(deltaSeconds);
       draw();
       frameCount += 1;
       postDiagnostics(timestamp, false);
-      timerId = setTimeout(loop, isBusy() ? STARFIELD_CONFIG.busyFrameMs : STARFIELD_CONFIG.normalFrameMs);
+      if (isBusy() && motionScale <= 0.001) {
+        postDiagnostics(timestamp, true);
+        return;
+      }
+      timerId = setTimeout(loop, STARFIELD_CONFIG.normalFrameMs);
     }
 
     function start() {
@@ -347,7 +377,7 @@
         return;
       }
       lastTimestamp = 0;
-      timerId = setTimeout(loop, isBusy() ? STARFIELD_CONFIG.busyFrameMs : STARFIELD_CONFIG.normalFrameMs);
+      timerId = setTimeout(loop, STARFIELD_CONFIG.normalFrameMs);
     }
 
     function stop() {
@@ -377,7 +407,8 @@
         }
       } else if (data.type === 'load-state') {
         const source = data.source || 'unknown';
-        if (data.pauseRendering) {
+        const mode = data.mode || (data.pauseRendering ? 'pause-background' : 'settle-background');
+        if (mode === 'pause-background' || data.pauseRendering) {
           if (data.active) {
             activePauseSources.add(source);
           } else {
@@ -395,12 +426,16 @@
           return;
         }
         if (data.active) {
-          activeLoadSources.add(source);
+          activeSettleSources.add(source);
         } else {
-          activeLoadSources.delete(source);
+          activeSettleSources.delete(source);
         }
-        resize(width, height, viewportDpr);
+        targetMotionScale = isBusy() ? 0 : 1;
+        reconcileSpace();
         postDiagnostics(performance.now(), true);
+        if (!isHidden && ctx) {
+          start();
+        }
       }
     };
   }
@@ -421,7 +456,7 @@
   }
 
   function resolveDpr() {
-    if (reducedMotion || heavyUtilityActive) {
+    if (reducedMotion) {
       return 1;
     }
     return Math.min(window.devicePixelRatio || 1, STARFIELD_CONFIG.maxDpr);
@@ -434,8 +469,7 @@
 
     const areaScale = Math.max(0.45, Math.min(1.15, width * height / (1440 * 900)));
     const coreScale = (navigator.hardwareConcurrency || 4) <= 4 ? 0.72 : 1;
-    const busyScale = heavyUtilityActive ? STARFIELD_CONFIG.busyStarScale : 1;
-    return Math.round(STARFIELD_CONFIG.baseStarCount * areaScale * coreScale * busyScale);
+    return Math.round(STARFIELD_CONFIG.baseStarCount * areaScale * coreScale);
   }
 
   function reconcileSpace() {
@@ -447,9 +481,6 @@
       stars.length = targetCount;
     }
     if (reducedMotion) {
-      comets = [];
-    }
-    if (heavyUtilityActive) {
       comets = [];
     }
   }
@@ -482,13 +513,29 @@
     };
   }
 
+  function updateMotionScale(deltaSeconds) {
+    const durationMs = targetMotionScale === 0
+      ? STARFIELD_CONFIG.settleEasingMs
+      : STARFIELD_CONFIG.resumeEasingMs;
+    const step = Math.max(0.02, (deltaSeconds * 1000) / durationMs);
+    if (motionScale < targetMotionScale) {
+      motionScale = Math.min(targetMotionScale, motionScale + step);
+    } else if (motionScale > targetMotionScale) {
+      motionScale = Math.max(targetMotionScale, motionScale - step);
+    }
+  }
+
   function update(deltaSeconds) {
+    const scaledDeltaSeconds = deltaSeconds * motionScale;
+    if (scaledDeltaSeconds <= 0.0001) {
+      return;
+    }
     // Update Stars
     for (let i = 0; i < stars.length; i++) {
       const star = stars[i];
-      star.y -= star.speed * deltaSeconds;
-      star.x += star.drift * deltaSeconds;
-      star.twinklePhase += star.twinkleSpeed * deltaSeconds;
+      star.y -= star.speed * scaledDeltaSeconds;
+      star.x += star.drift * scaledDeltaSeconds;
+      star.twinklePhase += star.twinkleSpeed * scaledDeltaSeconds;
 
       if (star.y < -10) {
         star.y = height + 10;
@@ -501,14 +548,14 @@
       }
     }
 
-    if (!heavyUtilityActive && comets.length === 0 && Math.random() < 0.06 * deltaSeconds) {
+    if (!utilitySettlingActive && comets.length === 0 && Math.random() < 0.06 * scaledDeltaSeconds) {
       comets.push(spawnComet());
     }
 
     for (let i = comets.length - 1; i >= 0; i--) {
       const comet = comets[i];
-      comet.x += comet.speedX * deltaSeconds;
-      comet.y += comet.speedY * deltaSeconds;
+      comet.x += comet.speedX * scaledDeltaSeconds;
+      comet.y += comet.speedY * scaledDeltaSeconds;
 
       // Graceful edge fade
       const fadeMargin = 150;
@@ -614,6 +661,7 @@
     canvas.dataset.starCount = String(stars.length);
     canvas.dataset.starfieldMode = mode;
     canvas.dataset.starfieldFrameCount = String(Number(canvas.dataset.starfieldFrameCount || '0') + 1);
+    canvas.dataset.starfieldLayerCount = '1';
   }
 
   function loop(timestamp) {
@@ -624,18 +672,23 @@
 
     const deltaSeconds = lastTimestamp ? Math.min(0.08, (timestamp - lastTimestamp) / 1000) : 1 / 60;
     lastTimestamp = timestamp;
+    updateMotionScale(deltaSeconds);
     update(deltaSeconds);
     draw();
     diagnosticsFrameCounter += 1;
     if (diagnosticsFrameCounter >= DIAGNOSTICS_BATCH_INTERVAL) {
       diagnosticsFrameCounter = 0;
-      syncDiagnostics(heavyUtilityActive ? 'busy' : 'full-motion');
+      syncDiagnostics(resolveDiagnosticsMode());
+    }
+    if (utilitySettlingActive && motionScale <= 0.001) {
+      syncDiagnostics('settled');
+      return;
     }
     queueNextFrame();
   }
 
   function startLoop() {
-    if (animationFrameId || busyLoopTimerId || reducedMotion || isHidden || isPaused()) {
+    if (animationFrameId || reducedMotion || isHidden || isPaused()) {
       return;
     }
     lastTimestamp = 0;
@@ -647,29 +700,37 @@
       cancelAnimationFrame(animationFrameId);
       animationFrameId = 0;
     }
-    if (busyLoopTimerId) {
-      clearTimeout(busyLoopTimerId);
-      busyLoopTimerId = 0;
-    }
   }
 
   function queueNextFrame() {
-    if (heavyUtilityActive) {
-      busyLoopTimerId = window.setTimeout(function() {
-        busyLoopTimerId = 0;
-        animationFrameId = requestAnimationFrame(loop);
-      }, STARFIELD_CONFIG.busyFrameMs);
-      return;
-    }
     animationFrameId = requestAnimationFrame(loop);
   }
 
-  function syncLoadState(active) {
-    if (heavyUtilityActive === active) {
+  function resolveDiagnosticsMode() {
+    if (isPaused()) {
+      return 'paused';
+    }
+    if (utilitySettlingActive && motionScale <= 0.001) {
+      return 'settled';
+    }
+    if (utilitySettlingActive) {
+      return 'settling';
+    }
+    if (motionScale < 0.999) {
+      return 'resuming';
+    }
+    return 'full-motion';
+  }
+
+  function syncSettleState(active) {
+    if (utilitySettlingActive === active) {
       return;
     }
-    heavyUtilityActive = active;
-    resize();
+    utilitySettlingActive = active;
+    targetMotionScale = active ? 0 : 1;
+    reconcileSpace();
+    syncDiagnostics(resolveDiagnosticsMode());
+    startLoop();
   }
 
   function syncPauseState() {
@@ -704,7 +765,8 @@
   window.addEventListener('utilities-load-state', function(event) {
     const detail = event.detail || {};
     const source = detail.source || 'unknown';
-    if (detail.pauseRendering) {
+    const mode = detail.mode || (detail.pauseRendering ? 'pause-background' : 'settle-background');
+    if (mode === 'pause-background' || detail.pauseRendering) {
       if (detail.active) {
         activePauseSources.add(source);
       } else {
@@ -714,11 +776,11 @@
       return;
     }
     if (detail.active) {
-      activeLoadSources.add(source);
+      activeSettleSources.add(source);
     } else {
-      activeLoadSources.delete(source);
+      activeSettleSources.delete(source);
     }
-    syncLoadState(activeLoadSources.size > 0);
+    syncSettleState(activeSettleSources.size > 0);
   });
   resize();
   if (reducedMotion) {

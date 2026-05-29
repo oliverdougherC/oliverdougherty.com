@@ -18,6 +18,7 @@ import {
 } from './audioFourierCore';
 import { resolveAudioPlaybackButtonState } from './audioFourierUiState';
 import { createAudioWaveRenderer, type AudioWaveRenderer } from './audioFourierWaveRenderer';
+import { createUtilityPerformanceController } from './utilityPerformance';
 import type { AudioFourierSourceTransfer, AudioFourierSuccessMessage, AudioFourierWorkerRequest, AudioFourierWorkerResponse } from './audioFourierWorkerTypes';
 import { arrayBufferLikeToArrayBuffer, sliceArrayBufferView } from './bufferUtils';
 
@@ -97,6 +98,7 @@ function formatFrequency(value: number) {
 const INITIAL_SLIDER_VALUE = 50;
 const PLAYBACK_FADE_SECONDS = 0.1;
 const PLAYBACK_START_DELAY_SECONDS = 0.035;
+const PLAYBACK_VISUAL_FRAME_MS = 125;
 const PLAYBACK_PROGRESS_UPDATE_MS = 100;
 const FULL_ENERGY_VISUAL_THRESHOLD = 0.999;
 const GAIN_RAMP_TIME_CONSTANT = 0.015;
@@ -181,6 +183,7 @@ export class AudioFourierController {
   private visualMixFrameScratch = new Float32Array(0);
   private visualRevision = 0;
   private lastPlaybackProgressAt = 0;
+  private lastPlaybackRenderAt = 0;
   private deferredWaveRenderTimeoutId = 0;
   private state: AudioFourierState = 'idle';
   private destroyed = false;
@@ -193,6 +196,7 @@ export class AudioFourierController {
   private readonly reducedMotionChangeHandler = this.onReducedMotionChange.bind(this);
   private readonly spectrumBackgroundCanvas: HTMLCanvasElement;
   private readonly componentBackgroundCanvas: HTMLCanvasElement;
+  private readonly performanceState = createUtilityPerformanceController('audio-fourier');
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -490,12 +494,7 @@ export class AudioFourierController {
     this.statusChip.textContent = state === 'animating' ? 'Playing' : state === 'ready' ? 'Ready' : state[0].toUpperCase() + state.slice(1);
     this.statusChip.className = `utility-status-chip utility-status-chip--${state}`;
     this.root.dataset.audioState = state;
-    window.dispatchEvent(new CustomEvent('utilities-load-state', {
-      detail: {
-        source: 'audio-fourier',
-        active: state === 'processing' || state === 'animating'
-      }
-    }));
+    this.performanceState.setActive(state === 'processing' || state === 'animating');
     this.syncButtons();
   }
 
@@ -868,15 +867,6 @@ export class AudioFourierController {
     this.syncEnergyReadout();
 
     if (this.state === 'animating') {
-      if (!this.sliderRafPending) {
-        this.sliderRafPending = true;
-        window.requestAnimationFrame(() => {
-          this.sliderRafPending = false;
-          this.renderWaveViewport(true);
-          this.drawSpectrumFrame();
-          this.drawComponentFrame();
-        });
-      }
       return;
     }
 
@@ -1107,6 +1097,7 @@ export class AudioFourierController {
     this.visualPlaybackElapsedSeconds = offset;
     this.visualPlaybackUpdatedAt = 0;
     this.lastPlaybackProgressAt = 0;
+    this.lastPlaybackRenderAt = 0;
     this.setState('animating', 'Playing selected Fourier energy mix...');
     this.tickPlayback();
   }
@@ -1118,6 +1109,7 @@ export class AudioFourierController {
 
     this.playbackElapsedSeconds = this.resolvePlaybackElapsedSeconds();
     this.visualPlaybackElapsedSeconds = this.playbackElapsedSeconds;
+    this.lastPlaybackRenderAt = 0;
     this.stopPlayback(false);
     this.setState('ready', 'Playback paused.');
     this.drawSpectrumFrame();
@@ -1224,7 +1216,10 @@ export class AudioFourierController {
           );
         }
       }
-      this.renderWaveViewport(true);
+      if (!this.lastPlaybackRenderAt || timestamp - this.lastPlaybackRenderAt >= PLAYBACK_VISUAL_FRAME_MS) {
+        this.lastPlaybackRenderAt = timestamp;
+        this.renderWaveViewport(true);
+      }
       if (!this.lastPlaybackProgressAt || timestamp - this.lastPlaybackProgressAt >= PLAYBACK_PROGRESS_UPDATE_MS) {
         this.lastPlaybackProgressAt = timestamp;
         this.progressMeta.textContent = `${formatSeconds(this.playbackElapsedSeconds)} / ${formatSeconds(this.activeResult.metadata.proxyDurationSeconds)}`;
@@ -1448,5 +1443,6 @@ export class AudioFourierController {
     this.stopAnimationFrame();
     this.sliderRafPending = false;
     this.setState('idle', 'Destroyed.');
+    this.performanceState.cleanup();
   }
 }

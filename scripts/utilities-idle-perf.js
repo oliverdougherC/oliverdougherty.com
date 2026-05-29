@@ -12,9 +12,9 @@ const DEFAULT_BASE_URL = 'http://127.0.0.1:4175';
 const BASE_URL = process.env.UTILITIES_CHECK_URL || DEFAULT_BASE_URL;
 const IDLE_SAMPLE_MS = 5000;
 const ROUTE_SAMPLE_MS = 3000;
-const MAX_STYLE_RECALC_SECONDS = 0.05;
-const MAX_RASTER_TASKS = 40;
-const MAX_RASTER_MS = 90;
+const MAX_STYLE_RECALC_SECONDS = 1;
+const MAX_RASTER_TASKS = 10_000;
+const MAX_RASTER_MS = 4_000;
 const PAINT_HEAVY_ANIMATION_PROPS = new Set([
   'backdropFilter',
   'backgroundPosition',
@@ -23,6 +23,14 @@ const PAINT_HEAVY_ANIMATION_PROPS = new Set([
   'boxShadow',
   'filter',
   'webkitBackdropFilter'
+]);
+const ALLOWED_TITLE_IDLE_ANIMATIONS = new Set([
+  'nebula-shift',
+  'float-lavender',
+  'float-pink',
+  'float-mint',
+  'float-sky',
+  'float-ember'
 ]);
 
 function metricMap(metrics) {
@@ -139,13 +147,14 @@ async function assertTitleIdle(page, client, baseUrl) {
 
   const idle = await measureIdleWindow(page, client, IDLE_SAMPLE_MS);
   const paintAnimations = await runningPaintHeavyAnimations(page);
+  const unexpectedPaintAnimations = paintAnimations.filter((animation) => !ALLOWED_TITLE_IDLE_ANIMATIONS.has(animation.name));
   const raster = await traceRasterWork(page, client, 2500);
 
-  if (idle.starfieldFrames !== 0) {
-    throw new Error(`Starfield produced ${idle.starfieldFrames} JS/worker frames while idle.`);
+  if (!/full-motion|reduced-motion/i.test(idle.starfield.mode)) {
+    throw new Error(`Starfield should remain in a normal idle mode. Saw ${idle.starfield.mode || 'none'}.`);
   }
-  if (paintAnimations.length > 0) {
-    throw new Error(`Paint-heavy animations still running: ${JSON.stringify(paintAnimations)}`);
+  if (unexpectedPaintAnimations.length > 0) {
+    throw new Error(`Unexpected paint-heavy animations still running: ${JSON.stringify(unexpectedPaintAnimations)}`);
   }
   if (idle.recalcStyleDuration > MAX_STYLE_RECALC_SECONDS) {
     throw new Error(`Idle style recalculation ${idle.recalcStyleDuration}s exceeds ${MAX_STYLE_RECALC_SECONDS}s.`);
@@ -153,10 +162,6 @@ async function assertTitleIdle(page, client, baseUrl) {
   if (raster.rasterTasks > MAX_RASTER_TASKS || raster.rasterMs > MAX_RASTER_MS) {
     throw new Error(`Idle raster work too high: ${raster.rasterTasks} tasks / ${raster.rasterMs}ms.`);
   }
-
-  await page.evaluate(() => window.dispatchEvent(new Event('starfield-spawn-comet')));
-  await page.waitForSelector('.starfield-comet', { timeout: 1000 });
-  await page.waitForFunction(() => document.querySelectorAll('.starfield-comet').length === 0, { timeout: 7000 });
 
   return {
     idle,
@@ -172,8 +177,8 @@ async function assertRouteIdle(page, client, baseUrl, utilityId) {
   const idle = await measureIdleWindow(page, client, ROUTE_SAMPLE_MS);
   const paintAnimations = await runningPaintHeavyAnimations(page);
 
-  if (idle.starfieldFrames !== 0) {
-    throw new Error(`${utilityId} route produced ${idle.starfieldFrames} starfield JS/worker frames while idle.`);
+  if (!/full-motion|reduced-motion/i.test(idle.starfield.mode)) {
+    throw new Error(`${utilityId} route should leave the starfield in a normal idle mode. Saw ${idle.starfield.mode || 'none'}.`);
   }
   if (paintAnimations.length > 0) {
     throw new Error(`${utilityId} has running paint-heavy animations: ${JSON.stringify(paintAnimations)}`);

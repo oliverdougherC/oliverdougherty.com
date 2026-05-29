@@ -10,6 +10,7 @@ import {
   type StressState
 } from './stressTestCore';
 import { startAdaptiveGpuStress, type StressGpuStressHandle } from './stressTestGpu';
+import { createUtilityPerformanceController } from './utilityPerformance';
 import type { StressTestWorkerRequest, StressTestWorkerResponse } from './stressTestWorkerTypes';
 
 interface StressWorkerRecord {
@@ -113,7 +114,8 @@ export class StressTestController {
   private gpuWorkloadLevel = 0;
   private lastError = '';
   private gpuCanvasActive = false;
-  private starfieldLoadActive = false;
+  private performanceActive = false;
+  private readonly performanceState = createUtilityPerformanceController(STRESS_STARFIELD_LOAD_SOURCE);
 
   private cpuVisualFrameId = 0;
   private controlPanelFitFrameId = 0;
@@ -211,7 +213,8 @@ export class StressTestController {
 
   dispose() {
     this.stop();
-    this.syncStarfieldLoadState(true);
+    this.syncPerformanceState(true);
+    this.performanceState.cleanup();
     this.stopCpuVisuals();
     this.stopMetricLoop();
     if (this.controlPanelFitFrameId) {
@@ -744,23 +747,17 @@ export class StressTestController {
     this.modeButtons.forEach((button) => {
       button.disabled = active;
     });
-    this.syncStarfieldLoadState();
+    this.syncPerformanceState();
     this.queueControlPanelFitSync();
   }
 
-  private syncStarfieldLoadState(forceInactive = false) {
+  private syncPerformanceState(forceInactive = false) {
     const active = !forceInactive && (this.state === 'starting' || this.state === 'running' || this.state === 'stopping');
-    if (this.starfieldLoadActive === active) {
+    if (this.performanceActive === active) {
       return;
     }
-    this.starfieldLoadActive = active;
-    window.dispatchEvent(new CustomEvent('utilities-load-state', {
-      detail: {
-        source: STRESS_STARFIELD_LOAD_SOURCE,
-        active,
-        pauseRendering: true
-      }
-    }));
+    this.performanceActive = active;
+    this.performanceState.setActive(active, { mode: 'pause-background' });
   }
 
   private queueControlPanelFitSync() {
