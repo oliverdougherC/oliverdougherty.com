@@ -35,6 +35,7 @@ export const LOCAL_LLM_CONFIG = {
   },
   context: {
     fallbackContextTokens: 8192,
+    effectiveInputTokens: 3072,
     reservedGenerationTokens: 512,
     reserveSafetyTokens: 256,
     perMessageOverheadTokens: 14,

@@ -181,8 +181,8 @@ const ENERGY_SLIDER_LOW_EXPONENT = Math.log(ENERGY_SLIDER_LOW_REFERENCE_VALUE / 
   Math.log(ENERGY_SLIDER_LOW_REFERENCE / ENERGY_SLIDER_MIDPOINT);
 const FFT_PROGRESS_THROTTLE = 64;
 const OVERLAP_ADD_NORMALIZATION_THRESHOLD = 0.000001;
-const ENERGY_BAND_CACHE_WARNING_BYTES = 192 * 1024 * 1024;
-const ENERGY_BAND_CACHE_HARD_LIMIT_BYTES = 384 * 1024 * 1024;
+const ENERGY_BAND_CACHE_WARNING_BYTES = 512 * 1024 * 1024;
+const ENERGY_BAND_CACHE_HARD_LIMIT_BYTES = 1024 * 1024 * 1024;
 const DEFAULT_ENVELOPE_TARGET_POINTS_PER_SECOND = 420;
 const DEFAULT_SMOOTHED_ENVELOPE_BLEND = 0.72;
 const VISUAL_ORIGINAL_CLAMP_START = 0.8;
@@ -577,8 +577,8 @@ export function buildEnergyBandReconstruction(
   onProgress?: (progress: number, message: string) => void
 ): EnergyBandReconstruction {
   // Memory note: bandSamples allocates O(bandCount × sampleCount).
-  // For a 7M sample signal with 12 bands this is ~336 MB. The bands are
-  // reconstructed once and stored for fast slider-driven mixing.
+  // Hard cap is 1 GiB (Detailed preset ~458 MB with 20 bands × 6M samples).
+  // The bands are reconstructed once and stored for fast slider-driven mixing.
   const resolvedBandCount = clamp(Math.round(bandCount), 1, analysis.componentOrder.length);
   const estimatedBandSampleBytes = resolvedBandCount * analysis.samples.length * Float32Array.BYTES_PER_ELEMENT;
   if (estimatedBandSampleBytes > ENERGY_BAND_CACHE_HARD_LIMIT_BYTES) {

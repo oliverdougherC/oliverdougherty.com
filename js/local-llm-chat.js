@@ -47,6 +47,7 @@ const LOAD_SEQUENCE_STEP_MS = 2000;
 const LOAD_SEQUENCE_VISIBLE_FLOOR_MS = 1000;
 const LOAD_SEQUENCE_FINAL_HOLD_MS = 1800;
 const GENERATION_IDLE_TIMEOUT_MS = 30_000;
+const STREAM_RENDER_INTERVAL_MS = 90;
 const LOAD_SEQUENCE_COPY = [
   'Loading Bonsai 1.7B',
   'Caching model files locally for faster reloads.'
@@ -54,6 +55,8 @@ const LOAD_SEQUENCE_COPY = [
 const LOAD_PSEUDO_PROGRESS_CAP = 96;
 const LOAD_COPY_FADE_MS = 250;
 const THINKING_CONTENT_MARKER = '__thinking__';
+const STREAMING_CONTENT_MARKER = '__streaming__';
+const LOCAL_ASSISTANT_LOAD_SOURCE = 'local-assistant';
 
 export class LocalLlmUtility {
   constructor(root) {
@@ -89,6 +92,10 @@ export class LocalLlmUtility {
     this._lastContextStats = null;
     this._messageElements = new Map();
     this._renderedMessageContent = new Map();
+    this._streamRenderTimer = 0;
+    this._streamRenderDue = false;
+    this._streamShouldStick = false;
+    this._loadStateActive = false;
     this.loadingSequenceTimer = null;
     this.loadingSequenceIndex = 0;
     this.loadingSequenceStartedAt = 0;
@@ -291,6 +298,7 @@ export class LocalLlmUtility {
     this.tps = null;
     this.numTokens = 0;
     this.diagnostics = null;
+    this.setLocalAssistantLoadState(true);
     this.hideDiagnostics();
     this.stopPromptCycle();
     this.updateProgressBar();
@@ -395,6 +403,8 @@ export class LocalLlmUtility {
     if (message.type === 'reset') {
       this.clearGenerationTimeout();
       this.hideTypingIndicator();
+      this.cancelStreamRender();
+      this.setLocalAssistantLoadState(false);
       this.assistantDraft = null;
       this.markGenerationComplete();
       this.captureContextStats(null);
@@ -419,6 +429,8 @@ export class LocalLlmUtility {
 
     if (message.type === 'disposed') {
       this.clearGenerationTimeout();
+      this.cancelStreamRender();
+      this.setLocalAssistantLoadState(false);
       if (this.assistantDraft) {
         this.messages = this.messages.filter((msg) => msg !== this.assistantDraft);
         this.assistantDraft = null;
@@ -549,6 +561,7 @@ export class LocalLlmUtility {
   applyReadyMessage(message) {
     this.pendingReadyMessage = null;
     this.stopLoadingSequence();
+    this.setLocalAssistantLoadState(false);
     clearTimeout(this._copyTimer);
     this._copyTimer = null;
     this._currentCopyTarget = '';
@@ -652,6 +665,18 @@ export class LocalLlmUtility {
   updateTelemetry() {
     this.backendLabel.textContent = this.backend === 'webgpu' ? 'WebGPU' : this.backend;
     this.tpsLabel.textContent = Number.isFinite(this.tps) ? this.tps.toFixed(1) : '--';
+  }
+
+  setLocalAssistantLoadState(active) {
+    const nextActive = Boolean(active);
+    if (this._loadStateActive === nextActive) return;
+    this._loadStateActive = nextActive;
+    window.dispatchEvent(new CustomEvent('utilities-load-state', {
+      detail: {
+        source: LOCAL_ASSISTANT_LOAD_SOURCE,
+        active: nextActive
+      }
+    }));
   }
 
   updateProgressBar() {
@@ -870,6 +895,7 @@ export class LocalLlmUtility {
 
     if (shouldShow) {
       contentDiv.classList.add('local-llm-message-content--thinking');
+      contentDiv.classList.remove('local-llm-message-content--streaming');
       contentDiv.innerHTML = '<span class="local-llm-typing" aria-hidden="true"><span class="local-llm-typing-dot"></span><span class="local-llm-typing-dot"></span><span class="local-llm-typing-dot"></span></span>';
       this._renderedMessageContent.set(this.assistantDraft, THINKING_CONTENT_MARKER);
       return;
@@ -877,6 +903,7 @@ export class LocalLlmUtility {
 
     if (this._renderedMessageContent.get(this.assistantDraft) === THINKING_CONTENT_MARKER) {
       contentDiv.classList.remove('local-llm-message-content--thinking');
+      contentDiv.classList.remove('local-llm-message-content--streaming');
       contentDiv.innerHTML = renderSafeText(this.assistantDraft.content);
       this._renderedMessageContent.set(this.assistantDraft, this.assistantDraft.content);
     }
@@ -897,14 +924,16 @@ export class LocalLlmUtility {
 
     this.tps = null;
     this.numTokens = 0;
+    this.setLocalAssistantLoadState(true);
     this.input.value = '';
     this.autoSizeInput();
     this.updatePromptVisibility();
     this.messages.push({ role: 'user', content });
     this.messages = this.trimHistory(this.messages, { notify: true });
-    this.assistantDraft = null;
+    this.assistantDraft = { role: 'assistant', content: '' };
+    this.messages.push(this.assistantDraft);
+    this.cancelStreamRender();
     this.renderMessages();
-    this.ensureAssistantDraft();
     this.renderStatePanel();
     this.showTypingAfterDelay();
     this.armGenerationTimeout();
@@ -920,14 +949,42 @@ export class LocalLlmUtility {
 
   appendAssistantToken(token) {
     if (!this.assistantDraft || (this.status !== WORKER_STATE.THINKING && this.status !== WORKER_STATE.STREAMING)) return;
-    const shouldStick = this.isMessageListNearBottom();
     this.assistantDraft.content += token;
-    this.updateAssistantElement(shouldStick);
+    this.scheduleAssistantStreamRender();
+  }
+
+  scheduleAssistantStreamRender() {
+    this._streamShouldStick = this.isMessageListNearBottom();
+    if (this._streamRenderTimer) {
+      this._streamRenderDue = true;
+      return;
+    }
+
+    this.flushAssistantStreamRender();
+    this._streamRenderTimer = window.setTimeout(() => {
+      this._streamRenderTimer = 0;
+      if (!this._streamRenderDue) return;
+      this._streamRenderDue = false;
+      this.scheduleAssistantStreamRender();
+    }, STREAM_RENDER_INTERVAL_MS);
+  }
+
+  cancelStreamRender() {
+    window.clearTimeout(this._streamRenderTimer);
+    this._streamRenderTimer = 0;
+    this._streamRenderDue = false;
+    this._streamShouldStick = false;
+  }
+
+  flushAssistantStreamRender() {
+    if (!this.assistantDraft) return;
+    this.updateAssistantElement(this._streamShouldStick || this.isMessageListNearBottom(), { plain: true });
   }
 
   finishAssistantMessage(finalText, generationId = null) {
     if (this.assistantDraft) {
       const shouldStick = this.isMessageListNearBottom();
+      this.cancelStreamRender();
       if (finalText && cleanupModelText(finalText).length >= cleanupModelText(this.assistantDraft.content).length) {
         this.assistantDraft.content = finalText;
       }
@@ -940,7 +997,7 @@ export class LocalLlmUtility {
         this._lastAssistantElement?.remove();
       } else {
         this._renderedMessageContent.delete(this.assistantDraft);
-        this.updateAssistantElement(shouldStick);
+        this.updateAssistantElement(shouldStick, { plain: false });
       }
       const trimmed = this.trimHistory(this.messages, { notify: true });
       const didTrim = trimmed.length !== this.messages.length || trimmed.some((message, index) => message !== this.messages[index]);
@@ -958,6 +1015,7 @@ export class LocalLlmUtility {
     if (this.status !== WORKER_STATE.UNSUPPORTED && this.status !== WORKER_STATE.ERROR) {
       this.hideTypingIndicator();
       this.updateStatus(WORKER_STATE.READY, 'Ready.');
+      this.setLocalAssistantLoadState(false);
       this.startPromptCycle();
       this.renderStatePanel();
     }
@@ -967,6 +1025,7 @@ export class LocalLlmUtility {
   finishInterruptedGeneration(generationId = null) {
     this.hideTypingIndicator();
     if (this.assistantDraft) {
+      this.cancelStreamRender();
       this.assistantDraft.content = cleanupModelText(this.assistantDraft.content) || 'Generation stopped.';
       this.assistantDraft = null;
       this._lastAssistantWasInterrupted = true;
@@ -974,6 +1033,7 @@ export class LocalLlmUtility {
       this.announceLastAssistantMessage();
     }
     this.updateStatus(WORKER_STATE.READY, 'Generation stopped.');
+    this.setLocalAssistantLoadState(false);
     this.startPromptCycle();
     this.renderStatePanel();
     this.markGenerationComplete(generationId);
@@ -1093,7 +1153,7 @@ export class LocalLlmUtility {
     } else if (this._renderedMessageContent.get(message) !== message.content) {
       const contentDiv = article.querySelector('.local-llm-message-content');
       if (contentDiv) {
-        contentDiv.classList.remove('local-llm-message-content--thinking');
+        contentDiv.classList.remove('local-llm-message-content--thinking', 'local-llm-message-content--streaming');
         contentDiv.innerHTML = renderSafeText(message.content);
       }
       this._renderedMessageContent.set(message, message.content);
@@ -1102,7 +1162,7 @@ export class LocalLlmUtility {
     return article;
   }
 
-  updateAssistantElement(stickToBottom = this.isMessageListNearBottom()) {
+  updateAssistantElement(stickToBottom = this.isMessageListNearBottom(), { plain = false } = {}) {
     if (!this._lastAssistantElement || !this.assistantDraft) return;
     const contentDiv = this._lastAssistantElement.querySelector('.local-llm-message-content');
     if (!contentDiv) return;
@@ -1110,8 +1170,15 @@ export class LocalLlmUtility {
     const currentContent = this.assistantDraft.content;
     const prevRendered = this._renderedMessageContent.get(this.assistantDraft) || '';
 
-    if (prevRendered !== currentContent) {
-      contentDiv.classList.remove('local-llm-message-content--thinking');
+    if (plain) {
+      if (prevRendered !== STREAMING_CONTENT_MARKER || contentDiv.textContent !== currentContent) {
+        contentDiv.classList.remove('local-llm-message-content--thinking');
+        contentDiv.classList.add('local-llm-message-content--streaming');
+        contentDiv.textContent = currentContent;
+        this._renderedMessageContent.set(this.assistantDraft, STREAMING_CONTENT_MARKER);
+      }
+    } else if (prevRendered !== currentContent) {
+      contentDiv.classList.remove('local-llm-message-content--thinking', 'local-llm-message-content--streaming');
       contentDiv.innerHTML = renderSafeText(currentContent);
       this._renderedMessageContent.set(this.assistantDraft, currentContent);
     }
@@ -1150,6 +1217,8 @@ export class LocalLlmUtility {
 
   showLoadFailure(message) {
     this.stopLoadingSequence({ clearPending: true });
+    this.cancelStreamRender();
+    this.setLocalAssistantLoadState(false);
     const fallback = buildFailureCopy(message, this.diagnostics);
     this.updateStatus(message.status || WORKER_STATE.ERROR, fallback.message);
     this.progress = 0;
@@ -1164,6 +1233,8 @@ export class LocalLlmUtility {
     fallback.detail = message.detail || fallback.detail;
     fallback.likelyFix = message.likelyFix || 'Retry the message. If it happens again, reset the model and reload it.';
     this.hideTypingIndicator();
+    this.cancelStreamRender();
+    this.setLocalAssistantLoadState(false);
     this.updateStatus(WORKER_STATE.ERROR, message.message || 'Local generation failed.');
     this.showDiagnostics(fallback);
     this.finishAssistantMessage(message.message || 'The local model could not finish this reply.', message.generationId);
@@ -1225,15 +1296,18 @@ export class LocalLlmUtility {
       this.assistantDraft = null;
       this._messageElements = new Map();
       this._renderedMessageContent = new Map();
+      this.cancelStreamRender();
       this.input.value = '';
       this.autoSizeInput();
       this.renderMessages();
     }
     this.tps = null;
     this.numTokens = 0;
+    this.cancelStreamRender();
     this.markGenerationComplete();
     this.captureContextStats(null);
     this.hideDiagnostics();
+    this.setLocalAssistantLoadState(false);
     this.stopPromptCycle();
     this.stopLoadingSequence({ clearPending: true });
     this.worker?.postMessage({ type: 'reset' });
@@ -1252,6 +1326,8 @@ export class LocalLlmUtility {
     this.progress = 0;
     this.tps = null;
     this.numTokens = 0;
+    this.cancelStreamRender();
+    this.setLocalAssistantLoadState(false);
     this.markGenerationComplete();
     this.captureContextStats(null);
     this.hideDiagnostics();
@@ -1292,6 +1368,8 @@ export class LocalLlmUtility {
       this.terminateWorker({ clearCache: true, delayMs: 400 });
     }
     this.clearGenerationTimeout();
+    this.cancelStreamRender();
+    this.setLocalAssistantLoadState(false);
     if (this._inputFrameId) {
       window.cancelAnimationFrame(this._inputFrameId);
       this._inputFrameId = 0;
@@ -1321,6 +1399,8 @@ export class LocalLlmUtility {
     });
     this.terminateWorker({ clearCache: true, delayMs: unload ? 0 : 400 });
     this.clearGenerationTimeout();
+    this.cancelStreamRender();
+    this.setLocalAssistantLoadState(false);
     this.modelReady = false;
     this.progress = 0;
     this.tps = null;
@@ -1396,6 +1476,8 @@ export class LocalLlmUtility {
 
     this.terminateWorker({ clearCache: false });
     this.modelReady = false;
+    this.cancelStreamRender();
+    this.setLocalAssistantLoadState(false);
     this.showGenerationFailure({
       status: WORKER_STATE.ERROR,
       category: 'generation-timeout',
