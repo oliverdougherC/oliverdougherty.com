@@ -52,7 +52,7 @@ The framework I envision takes this a step further, from the corporate level to 
 
 The process begins with the on-device model passively observing user activity within a secure, OS-level (NOT kernel-level) sandbox. This is the critical privacy preserving step. The raw data, the emails you write, the code you develop, the notes you take, never leaves your device and is never seen by any third party. The system isn't logging keystrokes, it's identifying high-quality "cause and effect" pairs. For example, it might note the initial prompt you gave the AI, ”summarize this report for an executive”, and the final version of the summary you actually sent after making your own edits. Your edits become the ultimate truth, the ideal response the model should have given.
 
-## Stage 2: Automated Pruning and Formatting
+### Stage 2: Automated Pruning and Formatting
 
 Raw data is messy. The second stage involves an automated process, running during device idle time, that prunes this curated data. It filters out duplicates, low-quality interactions, and personal data that isn't relevant for improving the model's utility. The goal is to distill the raw observations into a clean, high-quality dataset of instruction-response pairs. For instance, the system would format the previous example into a training sample:
 ```json
@@ -60,7 +60,7 @@ Raw data is messy. The second stage involves an automated process, running durin
 ```
 This clean dataset is the bible for the model's personalized education.
 
-## Stage 3: Lightweight, Idle-Time Fine-Tuning
+### Stage 3: Lightweight, Idle-Time Fine-Tuning
 
 This is where the magic happens. When your device is idle and charging (likely overnight), the system initiates a lightweight fine-tuning process using the newly formatted dataset and the device's specialized NPU. Leveraging techniques like LoRA, it updates the small adapter layers without touching the massive core model. This is computationally inexpensive and energy-efficient, akin to a software update happening in the background. Each cycle makes the model incrementally better, nudging its responses to be more aligned with your specific needs, style, and context.
 
