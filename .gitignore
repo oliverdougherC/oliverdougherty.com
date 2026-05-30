@@ -1,7 +1,17 @@
 node_modules/
 dist/
 output/
+build/
+
+# Environment files (secrets)
+.env
+.env.*
+
+# OS and editor artifacts
 .DS_Store
+Thumbs.db
+*.swp
+*.swo
 .idea/
 .vscode/
 .claude/
@@ -15,6 +25,7 @@ inspection_reports/
 .pi/
 .pi-lens/
 .cursor/
+# PNG in root (intentional — no PNGs currently exist at repo root)
 /*.png
 server.log
 server.pid
@@ -23,8 +34,6 @@ blogs/manifest.json
 *.pid
 npm-debug.log*
 old-todos/
-
-/image-transform/
 
 # Generated Vite sub-assets (workers, chunks) — rebuilt by npm run utilities:build
 # NOTE: pages/utilities/assets/assets/ IS tracked — workers must be deployed to GitHub Pages.

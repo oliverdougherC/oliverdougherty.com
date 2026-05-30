@@ -24,13 +24,14 @@
     "format:check": "node scripts/format.js --check",
     "check-links": "node scripts/check-links.js",
     "mobile:check": "node scripts/mobile-site-check.js",
+    "blog:check": "node scripts/blog-check.js",
     "gallery:shots": "node scripts/gallery-playwright.js",
     "gallery:perf": "node scripts/gallery-perf-probe.js",
     "gallery:check": "node scripts/gallery-dropdown-check.js",
     "nav:check": "node scripts/nav-overlay-check.js",
     "blueprint:check": "node scripts/blueprint-check.js",
     "smoke": "node scripts/smoke.js",
-    "quality": "npm run lint && npm run format:check && npm run check-links && npm run smoke",
+    "quality": "npm run lint && npm run format:check && npm run check-links && npm run smoke && npm run blog:check",
     "quality:full": "npm run quality && npm run utilities:check"
   },
   "devDependencies": {

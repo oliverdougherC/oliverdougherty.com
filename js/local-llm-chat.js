@@ -58,6 +58,43 @@ const THINKING_CONTENT_MARKER = '__thinking__';
 const STREAMING_CONTENT_MARKER = '__streaming__';
 const LOCAL_ASSISTANT_LOAD_SOURCE = 'local-assistant';
 
+function createLocalAssistantPerformanceController(source) {
+  if (typeof window.createUtilityPerformanceController === 'function') {
+    return window.createUtilityPerformanceController(source);
+  }
+
+  let active = false;
+  let currentMode = 'settle-background';
+  return {
+    setActive(nextActive, options = {}) {
+      const nextMode = options.mode === 'pause-background' ? 'pause-background' : 'settle-background';
+      if (active === Boolean(nextActive) && currentMode === nextMode) return;
+      active = Boolean(nextActive);
+      currentMode = nextMode;
+      window.dispatchEvent(new CustomEvent('utilities-load-state', {
+        detail: {
+          source,
+          active,
+          mode: currentMode,
+          pauseRendering: currentMode === 'pause-background'
+        }
+      }));
+    },
+    cleanup() {
+      if (!active) return;
+      active = false;
+      window.dispatchEvent(new CustomEvent('utilities-load-state', {
+        detail: {
+          source,
+          active: false,
+          mode: currentMode,
+          pauseRendering: currentMode === 'pause-background'
+        }
+      }));
+    }
+  };
+}
+
 export class LocalLlmUtility {
   constructor(root) {
     this.root = root;
@@ -96,6 +133,7 @@ export class LocalLlmUtility {
     this._streamRenderDue = false;
     this._streamShouldStick = false;
     this._loadStateActive = false;
+    this._performanceState = createLocalAssistantPerformanceController(LOCAL_ASSISTANT_LOAD_SOURCE);
     this.loadingSequenceTimer = null;
     this.loadingSequenceIndex = 0;
     this.loadingSequenceStartedAt = 0;
@@ -671,12 +709,7 @@ export class LocalLlmUtility {
     const nextActive = Boolean(active);
     if (this._loadStateActive === nextActive) return;
     this._loadStateActive = nextActive;
-    window.dispatchEvent(new CustomEvent('utilities-load-state', {
-      detail: {
-        source: LOCAL_ASSISTANT_LOAD_SOURCE,
-        active: nextActive
-      }
-    }));
+    this._performanceState.setActive(nextActive);
   }
 
   updateProgressBar() {
