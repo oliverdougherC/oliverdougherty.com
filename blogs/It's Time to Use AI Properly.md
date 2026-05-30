@@ -1,7 +1,7 @@
 ---
 date: May 29 2026
 ---
-The following is an essay that I actually wrote on August 27, 2025, but I never published it anywhere. It's surprisingly not outdated at all, which I think just reenforces my arguments. Regardless, enjoy.
+The following is an essay that I actually wrote on August 27, 2025, but I never published it anywhere. It's surprisingly not outdated at all, which I think just reinforces my arguments. Regardless, enjoy.
 
 ## Introduction
 
