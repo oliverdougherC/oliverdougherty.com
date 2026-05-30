@@ -3,7 +3,7 @@ date: May 29 2026
 ---
 Hello. This is my inaugural blog post.
 
-I've been sitting here, struggling to write this post for about 30 minutes. It seems that everything I write, I just want to scrap. But thats ok. There are no rules in writing. I can write whatever I want. I can use the wrong punctuation: Or mkae typos, or even stop in the middle of my 
+I've been sitting here, struggling to write this post for about 30 minutes. It seems that everything I write, I just want to scrap. But thats ok. There are no rules in writing. I can write whatever I want. I can use the wrong punctuation: Or mkae typos, or even stop in the middle of my
 
 All of the drafts that I ended up scrapping for this post essentially said the same thing: "I'm starting this blog because I want to share my opinion on technology". That definitely has some truth to it, but its not entirely correct. If I just wanted to share my opinion on tech, I would just talk my roommates ear off all day. What I actually want to do is write.
 

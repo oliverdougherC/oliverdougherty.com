@@ -54,10 +54,10 @@ The process begins with the on-device model passively observing user activity wi
 
 ## Stage 2: Automated Pruning and Formatting
 
-Raw data is messy. The second stage involves an automated process, running during device idle time, that prunes this curated data. It filters out duplicates, low-quality interactions, and personal data that isn't relevant for improving the model's utility. The goal is to distill the raw observations into a clean, high-quality dataset of instruction-response pairs. For instance, the system would format the previous example into a training sample: 
+Raw data is messy. The second stage involves an automated process, running during device idle time, that prunes this curated data. It filters out duplicates, low-quality interactions, and personal data that isn't relevant for improving the model's utility. The goal is to distill the raw observations into a clean, high-quality dataset of instruction-response pairs. For instance, the system would format the previous example into a training sample:
 ```json
 {"instruction": "summarize this report for an executive", "input": "[full report text]", "output": "[your final edited summary]"}
-``` 
+```
 This clean dataset is the bible for the model's personalized education.
 
 ## Stage 3: Lightweight, Idle-Time Fine-Tuning
