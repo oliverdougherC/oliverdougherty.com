@@ -99,12 +99,6 @@ body.schematic-mode {
   left: 1.5rem;
 }
 
-.bottom-right-pos {
-  bottom: 1.5rem;
-  right: 1.5rem;
-  text-align: right;
-}
-
 .accent-hover {
   color: #000000;
   text-decoration: none;
@@ -128,208 +122,6 @@ body.schematic-mode {
   left: 6vw;
   transform: translateY(-50%);
   z-index: 10;
-}
-
-.hero-text {
-  font-family: var(--font-display);
-  font-weight: 800;
-  font-size: clamp(4.25rem, 10.5vw, 8.75rem);
-  line-height: 0.85;
-  letter-spacing: -0.05em;
-  color: #000000;
-  margin: 0;
-  text-transform: uppercase;
-}
-
-.hero-name-line,
-.blueprint-title {
-  display: block;
-}
-
-.blueprint-title {
-  --dougherty-start: 180ms;
-  --grid-start: 180ms;
-  --trace-start: 1100ms;
-  --guide-fade-start: 6500ms;
-  --fill-start: 6120ms;
-  --blueprint-final-fill: var(--schematic-flare);
-  position: relative;
-  width: max-content;
-  max-width: 100%;
-  margin-top: 0.04em;
-  line-height: 0.85;
-  text-shadow: none;
-}
-
-.blueprint-final-word {
-  position: relative;
-  z-index: 3;
-  display: inline-block;
-  color: var(--blueprint-final-fill);
-  opacity: 0;
-  will-change: opacity, filter;
-}
-
-.blueprint-title.is-particle-complete .blueprint-final-word,
-.blueprint-title.is-static-wordmark .blueprint-final-word {
-  opacity: 0;
-}
-
-.blueprint-title.is-reduced-static-word .blueprint-final-word,
-.blueprint-title.is-static-word .blueprint-final-word {
-  opacity: 1;
-  animation: none;
-  filter: none;
-}
-
-.particle-canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 11;
-  display: block;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.blueprint-title.is-particle-building .particle-canvas,
-.blueprint-title.is-particle-complete .particle-canvas,
-.blueprint-title.is-static-wordmark .particle-canvas {
-  opacity: 1;
-}
-
-.blueprint-title.is-reduced-static-word .particle-canvas {
-  opacity: 0;
-}
-
-.blueprint-grid-line,
-.blueprint-outline-text {
-  vector-effect: non-scaling-stroke;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.blueprint-grid-line {
-  fill: none;
-  shape-rendering: crispEdges;
-  stroke-dasharray: var(--line-length, 120);
-  stroke-dashoffset: var(--line-length, 120);
-  opacity: 0.8;
-  animation: gridLineSketch var(--line-duration, 860ms) ease-in-out calc(var(--grid-start) + var(--line-delay, 0ms)) forwards;
-}
-
-.blueprint-grid-line--minor {
-  stroke: rgba(255, 103, 0, 0.18);
-  stroke-width: 0.65;
-  --line-duration: 820ms;
-}
-
-.blueprint-grid-line--major {
-  stroke: rgba(255, 103, 0, 0.32);
-  stroke-width: 0.8;
-  --line-duration: 920ms;
-}
-
-.blueprint-grid-line--rail {
-  stroke: rgba(0, 0, 0, 0.28);
-  stroke-width: 0.75;
-  --line-duration: 980ms;
-}
-
-.blueprint-grid-line--center {
-  stroke: rgba(0, 0, 0, 0.14);
-  stroke-width: 0.52;
-  --line-duration: 760ms;
-}
-
-.blueprint-outline-text {
-  --letter-step: 0ms;
-  --letter-duration: 2400ms;
-  --letter-dash: 120px;
-  --letter-nearly-complete: 16px;
-  --letter-final-gap: 8px;
-  fill: transparent;
-  stroke: color-mix(in srgb, var(--schematic-text) 66%, var(--schematic-flare));
-  stroke-width: 0.75px;
-  stroke-width: max(0.75px, 0.007em);
-  paint-order: stroke fill;
-  opacity: 0;
-  font-family: var(--font-display);
-  font-size: var(--blueprint-font-size);
-  font-weight: 800;
-  letter-spacing: var(--blueprint-letter-spacing);
-  text-anchor: start;
-  dominant-baseline: alphabetic;
-  text-rendering: geometricPrecision;
-  stroke-dasharray: var(--letter-dash);
-  stroke-dashoffset: var(--letter-dash);
-  animation:
-    blueprintLetterDraft var(--letter-duration) ease-in-out calc(var(--dougherty-start) + var(--trace-start) + var(--letter-step)) forwards,
-    blueprintGuidesOut 520ms ease calc(var(--dougherty-start) + var(--guide-fade-start)) forwards;
-}
-
-@keyframes blueprintGuidesIn {
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes blueprintGuidesOut {
-  to {
-    opacity: 0;
-  }
-}
-
-@keyframes gridLineSketch {
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-@keyframes blueprintLetterDraft {
-  0% {
-    opacity: 0;
-    stroke-dashoffset: var(--letter-dash);
-    stroke-opacity: 0.4;
-  }
-  12% {
-    opacity: 0.9;
-    stroke-opacity: 0.85;
-  }
-  72% {
-    stroke-dashoffset: var(--letter-nearly-complete);
-    stroke-opacity: 0.95;
-  }
-  92% {
-    stroke-dashoffset: var(--letter-final-gap);
-    stroke-opacity: 0.95;
-  }
-  100% {
-    opacity: 0.68;
-    stroke-dashoffset: 0;
-    stroke-opacity: 0.75;
-  }
-}
-
-@keyframes blueprintTitleMaterialize {
-  0% {
-    opacity: 0;
-    filter: saturate(0.7);
-  }
-
-  100% {
-    opacity: 1;
-    filter: saturate(1);
-  }
-}
-
-.hero-subtext {
-  font-family: var(--font-interface);
-  font-size: 1vw;
-  color: #000000;
-  margin: 1.5vw 0 0 0.5vw;
 }
 
 /* -------------------------------------
@@ -358,16 +150,6 @@ body.schematic-mode .container {
   color: #000000;
 }
 
-.schematic-mono-accent {
-  font-family: var(--font-interface);
-  color: var(--schematic-flare);
-  text-transform: uppercase;
-  font-size: 0.75rem;
-  letter-spacing: 0.05em;
-  display: block;
-  margin-bottom: 1rem;
-}
-
 .section-title {
   font-size: 4rem;
   font-weight: 800;
@@ -380,37 +162,7 @@ body.schematic-mode .container {
 /* Borders */
 .schematic-border { border: 1px solid #000000 !important; }
 .schematic-border-top { border-top: 1px solid #000000 !important; }
-.schematic-border-bottom { border-bottom: 1px solid #000000 !important; }
 .schematic-border-left { border-left: 1px solid #000000 !important; }
-
-/* -------------------------------------
-   Diamond Divider
-   ------------------------------------- */
-
-.diamond-divider {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 1.25rem;
-  padding: 2rem 0;
-  background-color: #FFFFFF;
-}
-
-.diamond {
-  display: inline-block;
-  background-color: #000000;
-  transform: rotate(45deg);
-}
-
-.diamond--small {
-  width: 8px;
-  height: 8px;
-}
-
-.diamond--large {
-  width: 14px;
-  height: 14px;
-}
 
 /* -------------------------------------
    About Grid & Stats
@@ -601,27 +353,9 @@ body.schematic-mode .tag:hover {
     right: 4vw;
   }
 
-  .hero-text {
-    font-size: 18vw;
-    line-height: 0.9;
-    letter-spacing: -0.04em;
-  }
-
-  .blueprint-title {
-    font-size: min(1em, 13.6vw);
-    margin-top: 0;
-  }
-
-  .hero-subtext {
-    font-size: 0.8rem;
-    margin-top: 1rem;
-    margin-left: 1vw;
-  }
 
   .meta-tiny { font-size: 0.65rem; }
   .top-left-pos { top: 1rem; left: 1rem; }
-  .bottom-right-pos { bottom: 1rem; right: 1rem; }
-
   .section-title { font-size: 2.5rem; }
   .about-stats { grid-template-columns: 1fr; gap: 1.5rem; }
   .stat { border-left: none !important; border-top: 1px solid #000000; padding-left: 0; padding-top: 1rem; }
@@ -630,26 +364,6 @@ body.schematic-mode .tag:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .blueprint-final-word,
-  .blueprint-svg,
-  .blueprint-drafting-layer,
-  .blueprint-grid-line,
-  .blueprint-outline-text {
-    animation: none !important;
-    transition: none !important;
-    filter: none !important;
-  }
-
-  .blueprint-final-word {
-    opacity: 1 !important;
-    visibility: visible !important;
-  }
-
-  .particle-canvas,
-  .blueprint-outline-text {
-    opacity: 0 !important;
-  }
-
   .osu-beaver {
     transition: none;
     transform: translate(0.25em, -50%) scale(1);
@@ -682,27 +396,8 @@ body.schematic-mode .tag:hover {
   transform: translateY(0);
 }
 
-html.skip-page-animation[data-page-id="home"] .blueprint-final-word {
-  opacity: 0 !important;
-  visibility: visible !important;
-  animation: none !important;
-  filter: none !important;
-}
 
-html.skip-page-animation[data-page-id="home"] .particle-canvas {
-  opacity: 1 !important;
-  animation: none !important;
-}
 
-html.skip-page-animation[data-page-id="home"] .blueprint-outline-text {
-  opacity: 0 !important;
-  animation: none !important;
-}
-
-html.skip-page-animation[data-page-id="home"] .hero-deferred {
-  opacity: 1;
-  transform: translateY(0);
-}
 .nav-actions.hero-deferred {
   transform: none;
 }
@@ -711,20 +406,8 @@ html.skip-page-animation[data-page-id="home"] .hero-deferred {
   transform: none;
 }
 
-html.skip-page-animation[data-page-id="home"] #navToggle {
-  opacity: 1 !important;
-  pointer-events: auto !important;
-}
 
-@media (prefers-reduced-motion: reduce) {
-  html.skip-page-animation[data-page-id="home"] .blueprint-final-word {
-    opacity: 1 !important;
-  }
 
-  html.skip-page-animation[data-page-id="home"] .particle-canvas {
-    opacity: 0 !important;
-  }
-}
 
 /* ========================================
    Spacing Utilities

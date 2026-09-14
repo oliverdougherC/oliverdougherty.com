@@ -336,7 +336,6 @@ export class StressTestController {
       return;
     }
 
-    const requestId = this.requestId;
     this.requestId += 1;
     const stoppingState = transitionStressState(this.state, 'stop');
     this.setState(stoppingState, 'Stopping stress workload...');

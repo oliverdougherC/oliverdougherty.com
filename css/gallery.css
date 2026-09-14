@@ -63,10 +63,6 @@ body.gallery-lightbox-open .nav-actions {
   padding: calc(var(--nav-height) + var(--space-10)) 0 var(--space-10);
 }
 
-.hero-aurora {
-  display: none;
-}
-
 .gallery-hero-layout {
   --gallery-hero-feature-width: clamp(30rem, 38vw, 41rem);
   --gallery-hero-title-size: clamp(5.5rem, 8.8vw, 9rem);

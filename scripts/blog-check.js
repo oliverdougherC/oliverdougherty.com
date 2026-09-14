@@ -13,6 +13,7 @@ const OUTPUT_DIR = path.join(ROOT, 'output', 'playwright', 'blog-check');
 const BLOG_POST_URL = '/pages/blog/index.html?full=1#post=it-s-time-to-use-ai-properly';
 const DEFAULT_BASE_URL = 'http://127.0.0.1:4173';
 let baseUrl = process.env.BLOG_CHECK_URL || DEFAULT_BASE_URL;
+const expectEnabled = process.env.BLOG_CHECK_ENABLED === '1';
 
 const VIEWPORTS = [
   { label: 'desktop', width: 1280, height: 900 },
@@ -126,14 +127,19 @@ async function run() {
       const page = await context.newPage();
 
       await page.goto(`${baseUrl}${BLOG_POST_URL}`, { waitUntil: 'networkidle' });
-      await assertBlogLayout(page, viewport.label);
+      if (expectEnabled) {
+        await assertBlogLayout(page, viewport.label);
+      } else {
+        await page.waitForURL((url) => /^\/(?:index\.html|mobile\/?)$/.test(url.pathname), { timeout: 5000 });
+        assert(await page.locator('.blog-body').count() === 0, `[${viewport.label}] disabled blog should redirect away from posts`);
+      }
       await page.screenshot({
-        path: path.join(OUTPUT_DIR, `${viewport.label}-blog-code-block.png`),
+        path: path.join(OUTPUT_DIR, `${viewport.label}-blog-${expectEnabled ? 'post' : 'redirect'}.png`),
         fullPage: false
       });
 
       await context.close();
-      console.log(`Verified blog code block layout at ${viewport.label} (${viewport.width}px).`);
+      console.log(`Verified ${expectEnabled ? 'blog code block layout' : 'disabled blog redirect'} at ${viewport.label} (${viewport.width}px).`);
     }
   } finally {
     if (browser) await browser.close();

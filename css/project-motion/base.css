@@ -1,0 +1,4 @@
+/* A fixed drawing space keeps geometry identical at every screen size. */
+.project-art { container-type: inline-size; position: relative; width: 100%; aspect-ratio: 25 / 16; overflow: hidden; background: #f6f5f2; color: #222; }
+.motion-stage { position: absolute; width: 500px; height: 320px; left: 50%; top: 50%; transform: translate(-50%,-50%) scale(.55); transform-origin: center; }
+@supports (scale: calc(100cqw / 500px)) { .motion-stage { transform: translate(-50%,-50%) scale(calc(100cqw / 500px)); } }

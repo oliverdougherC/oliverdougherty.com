@@ -67,25 +67,6 @@ input[type='radio'] {
   cursor: var(--cursor-link), pointer !important;
 }
 
-/* Use system cursors in fullscreen nav overlay to avoid cursor glyph artifacts. */
-.nav-overlay,
-.nav-overlay *,
-.nav-overlay *::before,
-.nav-overlay *::after {
-  cursor: default !important;
-}
-
-.nav-overlay a,
-.nav-overlay a *,
-.nav-overlay button,
-.nav-overlay button *,
-.nav-overlay [role='button'],
-.nav-overlay [role='button'] *,
-.nav-overlay [role='link'],
-.nav-overlay [role='link'] * {
-  cursor: pointer !important;
-}
-
 input[type='text'],
 input[type='search'],
 input[type='email'],
@@ -115,10 +96,6 @@ textarea,
 
 [draggable='true'] {
   cursor: var(--cursor-move), move !important;
-}
-
-.cursor-fox {
-  cursor: var(--cursor-move), grab !important;
 }
 
 [title^='Help'],

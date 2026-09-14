@@ -13,7 +13,6 @@
     "build:deploy": "node scripts/build-deploy.js",
     "utilities:build": "vite build --config config/vite.utilities.mts",
     "utilities:cache:build": "node scripts/generate-built-in-transform-cache.mjs",
-    "utilities:data:update": "node scripts/update-longevity-data.js",
     "utilities:typecheck": "tsc -p config/tsconfig.utilities.json --noEmit",
     "utilities:test": "vitest run --config config/vitest.utilities.mts",
     "utilities:check": "npm run utilities:typecheck && npm run utilities:test",
@@ -26,13 +25,13 @@
     "mobile:check": "node scripts/mobile-site-check.js",
     "blog:check": "node scripts/blog-check.js",
     "gallery:shots": "node scripts/gallery-playwright.js",
-    "gallery:perf": "node scripts/gallery-perf-probe.js",
     "gallery:check": "node scripts/gallery-dropdown-check.js",
     "nav:check": "node scripts/nav-overlay-check.js",
-    "blueprint:check": "node scripts/blueprint-check.js",
+    "home:check": "node scripts/home-check.js",
     "smoke": "node scripts/smoke.js",
     "quality": "npm run lint && npm run format:check && npm run check-links && npm run smoke && npm run blog:check",
-    "quality:full": "npm run quality && npm run utilities:check"
+    "quality:full": "npm run quality && npm run utilities:check",
+    "build:art": "node scripts/build-nighthawks-art.js"
   },
   "devDependencies": {
     "@types/jsdom": "28.0.3",

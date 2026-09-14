@@ -1,6 +1,6 @@
 /**
  * Oliver Unified main JavaScript (shared)
- * Handles scroll animations, smooth scroll, portal glow, and flashlight mode.
+ * Handles scroll animations, smooth scroll, and flashlight mode.
  * Loaded on all pages as the shared base.
  *
  * Wrapped in IIFE to avoid polluting global scope.
@@ -10,8 +10,6 @@
 (function () {
   'use strict';
 
-  const DOUGHERTY_PARTICLE_SEQUENCE_MS = 7600;
-  const DOUGHERTY_POINTER_SETTLE_START_MS = DOUGHERTY_PARTICLE_SEQUENCE_MS - 1850;
   let confettiFired = false;
   const FLASHLIGHT_MODE_STORAGE_KEY = 'od-flashlight-mode';
   const FLASHLIGHT_BATTERY_SESSION_KEY = 'od-flashlight-battery';
@@ -42,10 +40,6 @@
 
   function prefersReducedMotion() {
     return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  }
-
-  function shouldSkipPageAnimation() {
-    return window.pageAnimations?.shouldSkip?.() === true;
   }
 
   function isFlashlightTargetPage() {
@@ -286,7 +280,9 @@
     };
 
     const syncToggleLabel = () => {
-      const nextAction = modeEnabled ? 'Disable blackout mode' : 'Enable blackout mode';
+      const visibleLabel = modeToggleButton.querySelector(modeEnabled ? '.lights-on-label' : '.lights-off-label');
+      const action = modeEnabled ? 'Disable blackout mode' : 'Enable blackout mode';
+      const nextAction = visibleLabel ? `${visibleLabel.textContent.trim()}: ${action}` : action;
       modeToggleButton.setAttribute('aria-label', nextAction);
       modeToggleButton.setAttribute('aria-pressed', String(modeEnabled));
       modeToggleButton.dataset.mode = modeEnabled ? FLASHLIGHT_MODE_ON : FLASHLIGHT_MODE_OFF;
@@ -632,743 +628,16 @@
     });
   }
 
-  function initParticleWordmark() {
-    const title = document.querySelector('.blueprint-title');
-    const finalWord = title?.querySelector('.blueprint-final-word');
-    const canvas = title?.querySelector('.particle-canvas');
-
-    if (!title || !finalWord || !canvas) return;
-
-    const ctx = canvas.getContext('2d', { alpha: true });
-    if (!ctx) return;
-
-    if (prefersReducedMotion()) {
-      title.classList.add('is-reduced-static-word');
-      return;
-    }
-
-    const word = finalWord.textContent?.trim() || 'DOUGHERTY';
-    let particles = [];
-    let animationFrameId = 0;
-    let resizeFrameId = 0;
-    let isComplete = false;
-    let canvasWidth = 0;
-    let canvasHeight = 0;
-    let canvasDpr = 1;
-    let animationStartTime = 0;
-    let cachedGeom = null;
-    let cachedFontKey = '';
-    let resizeDebounceId = 0;
-    let resizeObserver = null;
-
-    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-    const easeOutCubic = (value) => 1 - Math.pow(1 - clamp(value, 0, 1), 3);
-    const easeOutQuint = (value) => 1 - Math.pow(1 - clamp(value, 0, 1), 5);
-    const easeInOutCubic = (value) => {
-      const easedValue = clamp(value, 0, 1);
-      return easedValue < 0.5
-        ? 4 * easedValue * easedValue * easedValue
-        : 1 - Math.pow(-2 * easedValue + 2, 3) / 2;
-    };
-
-    const hashString = (value) => {
-      let hash = 2166136261;
-      for (let i = 0; i < value.length; i += 1) {
-        hash ^= value.charCodeAt(i);
-        hash = Math.imul(hash, 16777619);
-      }
-      return hash >>> 0;
-    };
-
-    const createSeededRandom = (seed) => {
-      let state = seed >>> 0;
-      return () => {
-        state += 0x6D2B79F5;
-        let value = Math.imul(state ^ (state >>> 15), state | 1);
-        value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-        return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-      };
-    };
-
-    const supportsFinePointer = () => window.matchMedia
-      && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
-
-    const maxParticlesForViewport = () => {
-      if (canvasWidth < 640) return 2400;
-      if (canvasWidth < 1024) return 5200;
-      return 9000;
-    };
-
-    const measureGeometry = () => {
-      const dpr = window.devicePixelRatio || 1;
-      const wordRect = finalWord.getBoundingClientRect();
-      const width = wordRect.width;
-      const height = wordRect.height;
-      if (width === 0 || height === 0) return null;
-
-      const wordStyle = window.getComputedStyle(finalWord);
-      const fontSize = wordStyle.fontSize || '16px';
-      const fontSizePx = Number.parseFloat(fontSize) || height;
-      const fontFamily = wordStyle.fontFamily || 'sans-serif';
-      const fontWeight = wordStyle.fontWeight || '800';
-
-      const dprCapped = Math.min(dpr, 2.5);
-      const padX = clamp(width * 0.58, 160, 440);
-      const padTop = clamp(fontSizePx * 0.55, 72, 180);
-      const padBottom = clamp(fontSizePx * 0.82, 96, 240);
-      const cw = Math.max(1, Math.round(width + (padX * 2)));
-      const ch = Math.max(1, Math.round(height + padTop + padBottom));
-
-      return { dpr: dprCapped, width, height, fontSizePx, fontFamily, fontWeight, fontSize, padX, padTop, padBottom, canvasWidth: cw, canvasHeight: ch };
-    };
-
-    const getFontKey = (geom) => {
-      return `${word}:${Math.round(geom.fontSizePx)}:${geom.fontFamily}:${geom.fontWeight}`;
-    };
-
-    const applyCanvasGeometry = (geom) => {
-      canvasDpr = geom.dpr;
-      canvasWidth = geom.canvasWidth;
-      canvasHeight = geom.canvasHeight;
-      canvas.width = Math.round(canvasWidth * canvasDpr);
-      canvas.height = Math.round(canvasHeight * canvasDpr);
-      canvas.style.width = `${canvasWidth}px`;
-      canvas.style.height = `${canvasHeight}px`;
-      canvas.style.left = `${Math.round(-geom.padX)}px`;
-      canvas.style.top = `${Math.round(-geom.padTop)}px`;
-      ctx.setTransform(canvasDpr, 0, 0, canvasDpr, 0, 0);
-    };
-
-    const morphTargets = (parts, oldGeom, newGeom) => {
-      const canvasScaleX = oldGeom.canvasWidth > 0 ? newGeom.canvasWidth / oldGeom.canvasWidth : 1;
-      const canvasScaleY = oldGeom.canvasHeight > 0 ? newGeom.canvasHeight / oldGeom.canvasHeight : 1;
-
-      for (const p of parts) {
-        const normX = (p.targetX - oldGeom.padX) / oldGeom.width;
-        const normY = (p.targetY - oldGeom.padTop) / oldGeom.height;
-        p.targetX = newGeom.padX + normX * newGeom.width;
-        p.targetY = newGeom.padTop + normY * newGeom.height;
-        p.originX *= canvasScaleX;
-        p.originY *= canvasScaleY;
-      }
-    };
-
-    const drawParticle = (particle, x = particle.x, y = particle.y) => {
-      ctx.beginPath();
-      ctx.arc(x, y, particle.size, 0, Math.PI * 2);
-      ctx.fillStyle = particle.color;
-      ctx.fill();
-    };
-
-    const drawStaticFrame = () => {
-      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-      for (const p of particles) {
-        p.x = p.targetX;
-        p.y = p.targetY;
-        p.vx = 0;
-        p.vy = 0;
-        drawParticle(p);
-      }
-    };
-
-    let hoverPointer = null;
-    let hoverFrameId = 0;
-    let hoverProjectionFrameId = 0;
-    let lastPointerViewportPosition = null;
-
-    const syncHoverPointerFromViewportPosition = (pointerPosition) => {
-      if (!pointerPosition || !supportsFinePointer()) return;
-
-      const rect = canvas.getBoundingClientRect();
-      if (!rect.width || !rect.height) return;
-
-      const isInside = pointerPosition.x >= rect.left
-        && pointerPosition.x <= rect.right
-        && pointerPosition.y >= rect.top
-        && pointerPosition.y <= rect.bottom;
-
-      if (!isInside) {
-        if (hoverPointer) {
-          hoverPointer = null;
-          queueHoverFrame();
-        }
-        return;
-      }
-
-      hoverPointer = {
-        x: ((pointerPosition.x - rect.left) / rect.width) * canvasWidth,
-        y: ((pointerPosition.y - rect.top) / rect.height) * canvasHeight
-      };
-      queueHoverFrame();
-    };
-
-    const queueHoverPointerProjection = () => {
-      if (!lastPointerViewportPosition || hoverProjectionFrameId) return;
-
-      hoverProjectionFrameId = window.requestAnimationFrame(() => {
-        hoverProjectionFrameId = 0;
-        syncHoverPointerFromViewportPosition(lastPointerViewportPosition);
-      });
-    };
-
-    const resolvePointerTarget = (particle, strength = 1) => {
-      let desiredX = particle.targetX;
-      let desiredY = particle.targetY;
-
-      if (!hoverPointer || strength <= 0) {
-        return { x: desiredX, y: desiredY };
-      }
-
-      const radius = clamp(canvasWidth * 0.035, 26, 54);
-      const dx = particle.targetX - hoverPointer.x;
-      const dy = particle.targetY - hoverPointer.y;
-      const distance = Math.max(1, Math.hypot(dx, dy));
-
-      if (distance >= radius) {
-        return { x: desiredX, y: desiredY };
-      }
-
-      const field = Math.pow(1 - (distance / radius), 2);
-      const normalX = dx / distance;
-      const normalY = dy / distance;
-      const push = field * clamp(canvasWidth * 0.021, 12, 24) * strength;
-      desiredX += (normalX * push) - (normalY * push * 0.32);
-      desiredY += (normalY * push) + (normalX * push * 0.18);
-
-      return { x: desiredX, y: desiredY };
-    };
-
-    const completeWordmark = () => {
-      if (isComplete) return;
-      isComplete = true;
-      if (animationFrameId) {
-        window.cancelAnimationFrame(animationFrameId);
-        animationFrameId = 0;
-      }
-      if (hoverFrameId) {
-        window.cancelAnimationFrame(hoverFrameId);
-        hoverFrameId = 0;
-      }
-      title.classList.remove('is-particle-building');
-      title.classList.add('is-particle-complete', 'is-static-wordmark');
-      if (hoverPointer && supportsFinePointer()) {
-        hoverFrameId = window.requestAnimationFrame(renderHoverFrame);
-      } else {
-        drawStaticFrame();
-      }
-      title.dispatchEvent(new CustomEvent('od:home-wordmark-complete', { bubbles: true }));
-    };
-
-    const renderHoverFrame = (time) => {
-      hoverFrameId = 0;
-      if (!isComplete) return;
-
-      const pointerActive = Boolean(hoverPointer);
-      let needsNextFrame = false;
-
-      ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-
-      for (const p of particles) {
-        const desired = resolvePointerTarget(p, 1);
-
-        const ax = (desired.x - p.x) * 0.18;
-        const ay = (desired.y - p.y) * 0.18;
-        p.vx = (p.vx + ax) * 0.72;
-        p.vy = (p.vy + ay) * 0.72;
-        p.x += p.vx;
-        p.y += p.vy;
-
-        if (
-          Math.abs(p.x - p.targetX) > 0.08
-          || Math.abs(p.y - p.targetY) > 0.08
-          || Math.abs(p.vx) > 0.05
-          || Math.abs(p.vy) > 0.05
-          || pointerActive
-        ) {
-          needsNextFrame = true;
-        }
-
-        drawParticle(p);
-      }
-
-      if (needsNextFrame) {
-        hoverFrameId = window.requestAnimationFrame(renderHoverFrame);
-      } else {
-        drawStaticFrame();
-      }
-    };
-
-    const queueHoverFrame = () => {
-      if (!isComplete || hoverFrameId) return;
-      hoverFrameId = window.requestAnimationFrame(renderHoverFrame);
-    };
-
-    const updateHoverPointer = (event) => {
-      if (!supportsFinePointer()) return;
-
-      lastPointerViewportPosition = {
-        x: event.clientX,
-        y: event.clientY
-      };
-      syncHoverPointerFromViewportPosition(lastPointerViewportPosition);
-    };
-
-    title.addEventListener('od:home-wordmark-force-complete', completeWordmark);
-    window.addEventListener('pointermove', updateHoverPointer, { passive: true });
-    window.addEventListener('scroll', queueHoverPointerProjection, { passive: true });
-    window.addEventListener('pagehide', () => {
-      if (animationFrameId) {
-        window.cancelAnimationFrame(animationFrameId);
-        animationFrameId = 0;
-      }
-      if (hoverFrameId) {
-        window.cancelAnimationFrame(hoverFrameId);
-        hoverFrameId = 0;
-      }
-      if (resizeFrameId) {
-        window.cancelAnimationFrame(resizeFrameId);
-        resizeFrameId = 0;
-      }
-      if (hoverProjectionFrameId) {
-        window.cancelAnimationFrame(hoverProjectionFrameId);
-        hoverProjectionFrameId = 0;
-      }
-      if (resizeDebounceId) {
-        window.clearTimeout(resizeDebounceId);
-        resizeDebounceId = 0;
-      }
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-        resizeObserver = null;
-      }
-    }, { once: true });
-
-    const startRender = (options = {}) => {
-      if (animationFrameId) {
-        window.cancelAnimationFrame(animationFrameId);
-        animationFrameId = 0;
-      }
-      if (hoverFrameId) {
-        window.cancelAnimationFrame(hoverFrameId);
-        hoverFrameId = 0;
-      }
-      hoverPointer = null;
-
-      const geom = measureGeometry();
-      if (!geom) return;
-
-      applyCanvasGeometry(geom);
-
-      const fontKey = getFontKey(geom);
-      const wordRect = finalWord.getBoundingClientRect();
-      const width = wordRect.width;
-      const height = wordRect.height;
-      const wordStyle = window.getComputedStyle(finalWord);
-      const fontSize = wordStyle.fontSize || '16px';
-      const fontSizePx = Number.parseFloat(fontSize) || height;
-      const fontFamily = wordStyle.fontFamily || 'sans-serif';
-      const fontWeight = wordStyle.fontWeight || '800';
-
-      const measurementCanvas = document.createElement('canvas');
-      const measurementCtx = measurementCanvas.getContext('2d');
-      if (!measurementCtx) return;
-      measurementCtx.font = `${fontWeight} ${fontSize} ${fontFamily}`;
-      const sourcePad = Math.max(8, fontSizePx * 0.12);
-
-      const measureCharacterLayouts = () => {
-        const textNode = Array.from(finalWord.childNodes).find((node) => node.nodeType === Node.TEXT_NODE);
-        if (!textNode) return [];
-
-        const range = document.createRange();
-        const layouts = [];
-        let offset = 0;
-
-        for (const character of word) {
-          const nextOffset = offset + character.length;
-          range.setStart(textNode, offset);
-          range.setEnd(textNode, nextOffset);
-          const rect = range.getBoundingClientRect();
-          if (rect.width > 0 && rect.height > 0) {
-            layouts.push({
-              character,
-              left: rect.left - wordRect.left,
-              width: rect.width
-            });
-          }
-          offset = nextOffset;
-        }
-
-        range.detach();
-        return layouts;
-      };
-
-      const characterLayouts = measureCharacterLayouts();
-      if (!characterLayouts.length) return;
-
-      const wordMetrics = measurementCtx.measureText(word);
-      const ascent = wordMetrics.actualBoundingBoxAscent || fontSizePx * 0.78;
-      const descent = wordMetrics.actualBoundingBoxDescent || fontSizePx * 0.22;
-      const sourceWidth = Math.ceil(width + (sourcePad * 2));
-      const sourceHeight = Math.ceil(ascent + descent + (sourcePad * 2));
-      const offCanvas = document.createElement('canvas');
-      const offCtx = offCanvas.getContext('2d', { willReadFrequently: true });
-      if (!offCtx) return;
-
-      offCanvas.width = Math.ceil(sourceWidth * canvasDpr);
-      offCanvas.height = Math.ceil(sourceHeight * canvasDpr);
-      offCtx.scale(canvasDpr, canvasDpr);
-      offCtx.font = `${fontWeight} ${fontSize} ${fontFamily}`;
-      offCtx.fillStyle = '#000';
-      offCtx.textBaseline = 'alphabetic';
-
-      const baselineY = sourcePad + ascent;
-      for (const layout of characterLayouts) {
-        offCtx.fillText(layout.character, sourcePad + layout.left, baselineY);
-      }
-
-      const imgData = offCtx.getImageData(0, 0, offCanvas.width, offCanvas.height).data;
-      let alphaMinX = offCanvas.width;
-      let alphaMaxX = 0;
-      let alphaMinY = offCanvas.height;
-      let alphaMaxY = 0;
-
-      for (let y = 0; y < offCanvas.height; y += 1) {
-        for (let x = 0; x < offCanvas.width; x += 1) {
-          const alpha = imgData[(y * offCanvas.width + x) * 4 + 3];
-          if (alpha <= 128) continue;
-          alphaMinX = Math.min(alphaMinX, x);
-          alphaMaxX = Math.max(alphaMaxX, x);
-          alphaMinY = Math.min(alphaMinY, y);
-          alphaMaxY = Math.max(alphaMaxY, y);
-        }
-      }
-
-      if (alphaMaxX <= alphaMinX || alphaMaxY <= alphaMinY) return;
-
-      const targetOffsetX = geom.padX;
-      const targetOffsetY = geom.padTop;
-      const alphaMinXCss = alphaMinX / canvasDpr;
-      const alphaMaxXCss = alphaMaxX / canvasDpr;
-      const alphaMinYCss = alphaMinY / canvasDpr;
-      const alphaMaxYCss = alphaMaxY / canvasDpr;
-      const alphaHeightCss = Math.max(1, alphaMaxYCss - alphaMinYCss);
-      const heroCenterX = canvasWidth / 2;
-      const heroCenterY = canvasHeight / 2;
-      const random = createSeededRandom(hashString(`${word}:${Math.round(width)}:${Math.round(height)}:${Math.round(fontSizePx)}`));
-      const sampleSpacing = clamp(fontSizePx * 0.026, canvasWidth < 760 ? 3.25 : 2.75, canvasWidth < 760 ? 4.1 : 3.45);
-      const baseDotSize = clamp(fontSizePx * 0.012, canvasWidth < 760 ? 0.86 : 1.05, canvasWidth < 760 ? 1.32 : 1.72);
-      const sampledParticles = [];
-      const readAlphaAt = (cssX, cssY) => {
-        const pixelX = clamp(Math.round(cssX * canvasDpr), 0, offCanvas.width - 1);
-        const pixelY = clamp(Math.round(cssY * canvasDpr), 0, offCanvas.height - 1);
-        return imgData[(pixelY * offCanvas.width + pixelX) * 4 + 3];
-      };
-
-      for (let y = alphaMinYCss; y <= alphaMaxYCss; y += sampleSpacing) {
-        const rowIndex = Math.round((y - alphaMinYCss) / sampleSpacing);
-        const rowOffset = rowIndex % 2 === 0 ? 0 : sampleSpacing * 0.5;
-
-        for (let x = alphaMinXCss + rowOffset; x <= alphaMaxXCss; x += sampleSpacing) {
-          const jitterX = (random() - 0.5) * sampleSpacing * 0.72;
-          const jitterY = (random() - 0.5) * sampleSpacing * 0.72;
-          const sampleX = clamp(x + jitterX, alphaMinXCss, alphaMaxXCss);
-          const sampleY = clamp(y + jitterY, alphaMinYCss, alphaMaxYCss);
-          const alpha = readAlphaAt(sampleX, sampleY);
-
-          if (alpha <= 72) continue;
-
-          const targetX = targetOffsetX + sampleX - sourcePad;
-          const targetY = targetOffsetY + ((sampleY - alphaMinYCss) / alphaHeightCss) * height;
-
-          const normX = (targetX - geom.padX) / width;
-          const normY = (targetY - geom.padTop) / height;
-          const attrSeed = hashString(`pattr:${normX.toFixed(5)}:${normY.toFixed(5)}:${word}:${Math.round(baseDotSize * 100)}`);
-          const attrRng = createSeededRandom(attrSeed);
-
-          const edgeRoll = attrRng();
-          const originEdge = random();
-          let originX = heroCenterX + ((random() - 0.5) * canvasWidth * 0.42);
-          let originY = heroCenterY + ((random() - 0.5) * canvasHeight * 0.36);
-
-          if (originEdge < 0.32) {
-            originX = geom.padX * (0.35 + random() * 0.58);
-            originY = canvasHeight * (0.26 + random() * 0.48);
-          } else if (originEdge < 0.64) {
-            originX = canvasWidth - (geom.padX * (0.35 + random() * 0.58));
-            originY = canvasHeight * (0.26 + random() * 0.48);
-          } else if (originEdge < 0.82) {
-            originX = heroCenterX + ((random() - 0.5) * canvasWidth * 0.46);
-            originY = canvasHeight * (0.15 + random() * 0.18);
-          }
-
-          sampledParticles.push({
-            originX,
-            originY,
-            x: originX,
-            y: originY,
-            vx: (random() - 0.5) * 0.8,
-            vy: (random() - 0.5) * 0.8,
-            targetX,
-            targetY,
-            delay: (targetX / canvasWidth) * 470 + attrRng() * 580,
-            seed: attrRng() * Math.PI * 2,
-            charge: attrRng() > 0.5 ? 1 : -1,
-            field: 0.72 + attrRng() * 0.68,
-            order: random(),
-            color: edgeRoll > 0.955 ? '#FF6700' : '#000000',
-            size: baseDotSize * (0.82 + attrRng() * 0.58)
-          });
-        }
-      }
-
-      sampledParticles.sort((a, b) => a.order - b.order);
-      particles = sampledParticles.slice(0, maxParticlesForViewport());
-      cachedGeom = geom;
-      cachedFontKey = fontKey;
-      syncHoverPointerFromViewportPosition(lastPointerViewportPosition);
-
-      if (options.static || shouldSkipPageAnimation()) {
-        title.classList.remove('is-particle-building');
-        title.classList.add('is-particle-complete', 'is-static-wordmark');
-        isComplete = true;
-        drawStaticFrame();
-        return;
-      }
-
-      window.pageAnimations?.markSeen?.();
-      isComplete = false;
-      animationStartTime = performance.now();
-      title.classList.remove('is-particle-complete', 'is-static-wordmark');
-      title.classList.add('is-particle-building');
-
-      const draw = (time) => {
-        const elapsed = time - animationStartTime;
-        const progress = clamp(elapsed / DOUGHERTY_PARTICLE_SEQUENCE_MS, 0, 1);
-        const captureProgress = easeInOutCubic(clamp((elapsed - 420) / (DOUGHERTY_PARTICLE_SEQUENCE_MS - 1600), 0, 1));
-        const settleProgress = easeOutQuint(clamp((elapsed - (DOUGHERTY_PARTICLE_SEQUENCE_MS - 1850)) / 1550, 0, 1));
-        const pointerSettleProgress = easeOutCubic(clamp((elapsed - DOUGHERTY_POINTER_SETTLE_START_MS) / 620, 0, 1));
-        const pointerTargetStrength = settleProgress * pointerSettleProgress;
-
-        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-        for (let i = 0; i < particles.length; i++) {
-          const p = particles[i];
-          const localProgress = clamp(
-            (elapsed - p.delay) / (DOUGHERTY_PARTICLE_SEQUENCE_MS - 1450),
-            0,
-            1
-          );
-          const localCapture = easeInOutCubic(localProgress);
-          const arrival = easeOutCubic(clamp((localProgress - 0.64) / 0.36, 0, 1));
-          const desired = resolvePointerTarget(p, pointerTargetStrength);
-          const dxToTarget = desired.x - p.x;
-          const dyToTarget = desired.y - p.y;
-          const distanceToTarget = Math.max(1, Math.hypot(dxToTarget, dyToTarget));
-          const normalX = dxToTarget / distanceToTarget;
-          const normalY = dyToTarget / distanceToTarget;
-          const fieldTime = time * 0.001;
-          const fieldFade = 1 - captureProgress;
-          const curl = Math.sin((fieldTime * 1.45) + p.seed + (p.targetX * 0.004)) * p.charge * p.field;
-          const pull = 0.007 + (localCapture * 0.037) + (settleProgress * 0.036);
-          const swirl = fieldFade * (0.12 + (1 - localCapture) * 0.18) * p.field;
-          const oscillationX = Math.sin((fieldTime * 1.05) + p.seed) * fieldFade * 0.08;
-          const oscillationY = Math.cos((fieldTime * 0.95) + p.seed) * fieldFade * 0.08;
-
-          p.vx += (dxToTarget * pull) + (-normalY * swirl * curl) + oscillationX;
-          p.vy += (dyToTarget * pull) + (normalX * swirl * curl) + oscillationY;
-
-          const damping = 0.875 - (settleProgress * 0.17) - (arrival * 0.045);
-          p.vx *= damping;
-          p.vy *= damping;
-          p.x += p.vx;
-          p.y += p.vy;
-
-          if (settleProgress > 0.72) {
-            const snap = (settleProgress - 0.72) / 0.28;
-            p.x += (desired.x - p.x) * snap * 0.24;
-            p.y += (desired.y - p.y) * snap * 0.24;
-          }
-
-          drawParticle(p);
-        }
-
-        if (progress >= 1) {
-          completeWordmark();
-          return;
-        }
-
-        animationFrameId = window.requestAnimationFrame(draw);
-      };
-
-      animationFrameId = window.requestAnimationFrame(draw);
-    };
-
-    const handleResize = () => {
-      if (resizeFrameId) return;
-      resizeFrameId = window.requestAnimationFrame(() => {
-        resizeFrameId = 0;
-
-        const newGeom = measureGeometry();
-        if (!newGeom) return;
-
-        const fontKey = getFontKey(newGeom);
-
-        if (fontKey !== cachedFontKey || !cachedGeom || !particles.length) {
-          startRender({ static: isComplete });
-          return;
-        }
-
-        morphTargets(particles, cachedGeom, newGeom);
-        applyCanvasGeometry(newGeom);
-        cachedGeom = newGeom;
-
-        hoverPointer = null;
-        if (lastPointerViewportPosition) {
-          syncHoverPointerFromViewportPosition(lastPointerViewportPosition);
-        }
-
-        if (isComplete) {
-          if (hoverPointer && supportsFinePointer()) {
-            queueHoverFrame();
-          } else {
-            drawStaticFrame();
-          }
-        }
-      });
-    };
-
-    resizeObserver = new ResizeObserver(() => {
-      if (resizeDebounceId) window.clearTimeout(resizeDebounceId);
-      resizeDebounceId = window.setTimeout(() => {
-        resizeDebounceId = 0;
-        handleResize();
-      }, 200);
-    });
-    resizeObserver.observe(title);
-
-    if (document.fonts?.ready) {
-      Promise.race([
-        document.fonts.ready,
-        new Promise((resolve) => window.setTimeout(resolve, 3000))
-      ]).then(startRender).catch(startRender);
-    } else {
-      startRender();
-    }
-  }
-
-  /**
-   * Keep below-fold imagery out of the initial home-page load.
-   */
-  function initDeferredImages() {
-    const images = document.querySelectorAll('img[data-deferred-src]');
-    if (!images.length) return;
-
-    const loadImage = (image) => {
-      const src = image.getAttribute('data-deferred-src');
-      if (!src) return;
-
-      image.src = src;
-      image.removeAttribute('data-deferred-src');
-    };
-
-    if (!('IntersectionObserver' in window)) {
-      images.forEach(loadImage);
-      return;
-    }
-
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (!entry.isIntersecting) return;
-        loadImage(entry.target);
-        observer.unobserve(entry.target);
-      });
-    }, {
-      rootMargin: '80px 0px'
-    });
-
-    images.forEach((image) => observer.observe(image));
-  }
-
-  /**
-   * Home hero: reveal deferred elements when the DOUGHERTY blueprint finishes,
-   * or when the user scrolls past the wordmark (animations jump to the end).
-   *
-   * Timing:
-   *   - Deferred elements (corners, below-fold) fade in when the blueprint completes (~7.4s)
-   *   - If user scrolls past the hero, everything reveals immediately
-   */
-  function initHeroNavReveal() {
-    if (!document.body.classList.contains('page-home')) return;
-
-    const blueprint = document.querySelector('.blueprint-title');
-    if (!blueprint) return;
-
-    if (prefersReducedMotion() || shouldSkipPageAnimation()) {
-      revealDeferredElements();
-      return;
-    }
-
-    // If the user reloaded while scrolled past the hero, skip the animation entirely.
-    // Browser restores scrollY before DOMContentLoaded, so this catches the reload case.
-    const heroBottom = blueprint.getBoundingClientRect().bottom;
-    if (heroBottom < 0) {
-      revealDeferredElements();
-      return;
-    }
-
-    let revealTimer = null;
-    let revealed = false;
-
-    const finishParticleAnimations = () => {
-      blueprint.dispatchEvent(new CustomEvent('od:home-wordmark-force-complete', { bubbles: true }));
-    };
-
-    const reveal = () => {
-      if (revealed) return;
-      revealed = true;
-      if (revealTimer !== null) {
-        window.clearTimeout(revealTimer);
-        revealTimer = null;
-      }
-      revealDeferredElements();
-      blueprint.removeEventListener('od:home-wordmark-complete', reveal);
-      window.removeEventListener('scroll', onScrollMaybePastDougherty, { passive: true });
-    };
-
-    // rAF-throttled scroll handler to avoid calling getBoundingClientRect on every scroll event.
-    let scrollFrame = 0;
-    const onScrollMaybePastDougherty = () => {
-      if (scrollFrame) return;
-      scrollFrame = window.requestAnimationFrame(() => {
-        scrollFrame = 0;
-        if (blueprint.getBoundingClientRect().bottom < 0) {
-          finishParticleAnimations();
-          reveal();
-        }
-      });
-    };
-
-    window.addEventListener('scroll', onScrollMaybePastDougherty, { passive: true });
-    blueprint.addEventListener('od:home-wordmark-complete', reveal, { once: true });
-
-    // Deferred elements reveal when the particle animation completes
-    revealTimer = window.setTimeout(reveal, DOUGHERTY_PARTICLE_SEQUENCE_MS + 1400);
-  }
-
   /**
    * Scroll-triggered animations using Intersection Observer
    */
   function initScrollAnimations() {
     const animatedElements = document.querySelectorAll('[data-animate]');
-    const maskElements = document.querySelectorAll('.scroll-mask-wrap');
 
-    if (!animatedElements.length && !maskElements.length) return;
+    if (!animatedElements.length) return;
 
     if (prefersReducedMotion()) {
       animatedElements.forEach((el) => el.classList.add('visible'));
-      maskElements.forEach((el) => {
-        const inner = el.querySelector('.mask-inner');
-        if (inner) inner.style.transform = 'translateY(0)';
-      });
       return;
     }
 
@@ -1381,23 +650,13 @@
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
-          if (entry.target.hasAttribute('data-animate')) {
-            entry.target.classList.add('visible');
-          } else if (entry.target.classList.contains('scroll-mask-wrap')) {
-            const inner = entry.target.querySelector('.mask-inner');
-            if (inner) inner.style.animationName = 'maskReveal';
-          }
+          entry.target.classList.add('visible');
           observer.unobserve(entry.target);
         }
       });
     }, observerOptions);
 
     animatedElements.forEach(el => observer.observe(el));
-    maskElements.forEach(el => {
-      const inner = el.querySelector('.mask-inner');
-      if (inner) inner.style.animationName = 'none'; // Pause until intersected
-      observer.observe(el);
-    });
   }
 
   /**
@@ -1448,69 +707,9 @@
   }
 
   /**
-   * Utility: Debounce function
-   */
-  function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-      const later = () => {
-        func(...args);
-      };
-      clearTimeout(timeout);
-      timeout = setTimeout(later, wait);
-    };
-  }
-
-  /**
-   * Portal card cursor-following glow effect (landing page only)
-   * Throttled with requestAnimationFrame to avoid excessive reflows
-   */
-  function initPortalGlow() {
-    const portalCards = document.querySelectorAll('.portal-card');
-
-    if (!portalCards.length) return;
-    if (prefersReducedMotion()) return;
-
-    portalCards.forEach(card => {
-      const portalBg = card.querySelector('.portal-bg');
-      let rafPending = false;
-
-      card.addEventListener('mousemove', (e) => {
-        if (rafPending) return;
-        rafPending = true;
-
-        requestAnimationFrame(() => {
-          const rect = card.getBoundingClientRect();
-          const x = e.clientX - rect.left;
-          const y = e.clientY - rect.top;
-
-          card.style.setProperty('--mouse-x', `${x}px`);
-          card.style.setProperty('--mouse-y', `${y}px`);
-          rafPending = false;
-        });
-      });
-
-      card.addEventListener('mouseleave', () => {
-        if (portalBg) {
-          portalBg.style.transition = 'opacity 400ms ease';
-          portalBg.style.opacity = '0';
-          setTimeout(() => {
-            card.style.setProperty('--mouse-x', '50%');
-            card.style.setProperty('--mouse-y', '50%');
-            portalBg.style.transition = '';
-            portalBg.style.opacity = '';
-          }, 400);
-        }
-      });
-    });
-  }
-
-  /**
    * OSU stat hover: orange confetti emanates from the OSU text once per page load.
    */
   function initOsuConfetti() {
-    if (prefersReducedMotion()) return;
-
     const osuText = document.querySelector('.osu-text');
     if (!osuText) return;
 
@@ -1564,7 +763,7 @@
     };
 
     const fireConfetti = () => {
-      if (confettiFired) return;
+      if (prefersReducedMotion() || confettiFired) return;
       confettiFired = true;
 
       const rect = trigger.getBoundingClientRect();
@@ -1608,18 +807,23 @@
     };
 
     trigger.addEventListener('mouseenter', fireConfetti);
+    if (trigger instanceof HTMLButtonElement) {
+      trigger.addEventListener('click', (event) => {
+        const cheering = trigger.getAttribute('aria-pressed') !== 'true';
+        trigger.setAttribute('aria-pressed', String(cheering));
+        trigger.classList.toggle('is-cheered', cheering);
+        trigger.classList.toggle('keyboard-cheer', event.detail === 0);
+        if (cheering && event.detail > 0) fireConfetti();
+      });
+    }
   }
 
   // --- Initialization ---
   document.addEventListener('DOMContentLoaded', () => {
     initMotionPreference();
     initFlashlightMode();
-    initParticleWordmark();
-    initHeroNavReveal();
-    initDeferredImages();
     initScrollAnimations();
     initSmoothScroll();
-    initPortalGlow();
     initOsuConfetti();
   });
 })();

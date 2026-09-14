@@ -450,7 +450,6 @@ describe('audio Fourier core', () => {
       displaySampleCount: 128
     });
 
-    const binCount = frameSize / 2 + 1;
     for (let index = 0; index < analysis.componentEnergies.length; index += 1) {
       expect(Number.isFinite(analysis.componentEnergies[index])).toBe(true);
     }

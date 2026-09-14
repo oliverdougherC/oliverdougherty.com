@@ -18,188 +18,180 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=JetBrains+Mono:wght@200;400;800&display=swap" rel="stylesheet">
 
-  <script src="js/page-animations.js" data-page-id="home"></script>
 
   <!-- Design system reference: Design.md (industrialist aesthetic, #FFFFFF/#000000 base, #FF6700 flare) -->
   <!-- Keeping base styles for layout -->
   <link rel="stylesheet" href="css/design-system.css">
 
   <!-- Schematic overrides -->
-  <link rel="stylesheet" href="css/schematic.css?v=dougherty-scroll-1">
+  <link rel="stylesheet" href="css/schematic.css?v=nighthawks-1">
   <link rel="stylesheet" href="css/cursor.css">
+  <link rel="stylesheet" href="css/home.css?v=home-copy-4">
+  <link rel="preload" href="assets/fonts/nighthawks-mono-bold.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="preload" href="assets/art/nighthawks-colors.png" as="image">
+  <script src="js/nighthawks.js" defer></script>
 </head>
-<body class="page-home schematic-mode">
+<body class="page-home schematic-mode" id="top">
 
-  <div class="nav-actions hero-deferred" data-nav-actions>
-    <button class="flashlight-toggle" data-flashlight-toggle data-cursor="hover" aria-label="Enable blackout mode" aria-pressed="false" data-mode="off" type="button">
-      <span class="theme-toggle-icon" aria-hidden="true"></span>
-    </button>
-  </div>
-
+  <header class="home-header">
+    <nav class="meta-tiny" aria-label="Main navigation">
+      <span class="text-flare">#FF6700</span> // <a href="index.html" class="nav-inline-link nav-inline-link--home active" aria-current="page">HOME</a><span aria-hidden="true"> </span><a href="pages/resume/index.html" class="nav-inline-link nav-inline-link--resume">RESUME</a><span aria-hidden="true"> </span><a href="pages/gallery/index.html" class="nav-inline-link nav-inline-link--gallery">GALLERY</a><span aria-hidden="true"> </span><a href="pages/utilities/index.html" class="nav-inline-link nav-inline-link--utilities">UTILITIES</a>
+    </nav>
+    <div class="nav-actions" data-nav-actions>
+      <button class="flashlight-toggle" data-flashlight-toggle data-cursor="hover" aria-label="Enable blackout mode" aria-pressed="false" data-mode="off" type="button">
+        <span class="theme-toggle-icon" aria-hidden="true"></span>
+      </button>
+    </div>
+  </header>
 
   <main>
-    <!-- Schematic Hero -->
-    <header class="schematic-wrapper">
-      <div class="meta-tiny top-left-pos"><span class="text-flare">#FF6700</span> // <a href="index.html" class="nav-inline-link nav-inline-link--home active" aria-current="page">HOME</a><span aria-hidden="true"> </span><a href="pages/resume/index.html" class="nav-inline-link nav-inline-link--resume">RESUME</a><span aria-hidden="true"> </span><a href="pages/gallery/index.html" class="nav-inline-link nav-inline-link--gallery">GALLERY</a><span aria-hidden="true"> </span><a href="pages/utilities/index.html" class="nav-inline-link nav-inline-link--utilities">UTILITIES</a></div>
-      <div class="schematic-grid">
-        <div class="grid-cell"></div>
-        <div class="grid-cell"></div>
-        <div class="grid-cell"></div>
-      </div>
-
-      <div class="hero-overlay">
-        <h1 class="hero-text">
-          <span class="hero-name-line">OLIVER</span>
-          <span class="blueprint-title" aria-hidden="true">
-            <span class="blueprint-final-word">DOUGHERTY</span>
-            <canvas class="particle-canvas" role="presentation" aria-hidden="true"></canvas>
+    <header class="nighthawks-hero">
+      <h1 class="sr-only">Oliver Dougherty</h1>
+      <figure class="nighthawks-figure">
+        <a class="nighthawks-art-link" href="assets/art/nighthawks-credited.png" target="_blank" rel="noopener noreferrer" aria-label="View the Nighthawks binary artwork at full resolution">
+          <span id="nighthawksArtwork" role="img" aria-label="Nighthawks by Edward Hopper, 1942, rendered in colored binary characters with white credits." data-render-mode="loading" data-font-src="assets/fonts/nighthawks-mono-bold.ttf" data-color-map="assets/art/nighthawks-colors.png">
+            <pre id="nighthawksCharacters" class="nighthawks-characters" aria-hidden="true" hidden>11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111110111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111000000001100000000000000000
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111100000000000000000000000000000000000001100000000000000000
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111110000000000000000000000000000000000000000000000000000000000000000001100000000000000000
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001100000000000000000
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111101100010000000000000000000000000000000000000000000000000000000000000000000000000001100000000000000000
+11111111111111111111111111111111111111111111111111111111111111111111111111111011111111111111111111111111111111111111111111111111111111111111111111111111111111110000000000000000000001100000000000000000
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111000000000000000000000001100000000000000000
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111110000000000000000000000001100000000000000000
+11111111111111111111111111111111111111111111111111111111111111111111111111111011111111111111111111111111111111111111111111111111111111111111111111111111111100000000000000000000000001100000000000000000
+11111111111111111111111111111111111111111111111111111111111111111111111111111011111111111111111111111111111111111111111111111111111111111111111111111111111100000000000000000000000001100000000000000000
+11111111111111111111111111111111111111111111111111111111111111111111111111111011111111111111111111111111111111111111111111111111111111111111111111111111111100000000000000000000000001100000000000110000
+11111111111111111111111111111111111111111111111111111111111111111111111111111011111111111111111111111111111111111111111111111111111111111111111111111111111100000000000000000000000001000000000000111000
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111100000000000000000000000001100000000000101000
+11111111111111111111111111111111111111111111111111111111111111111111111111111011111111111111111111111111111111111111111111111111111111111111111111111111111100000000000000000000000001100000000000111000
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111100000000000000000000000001100000000001111000
+11111111111111111111111111111111111111111111111111111111111111011111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111100000000000000000000000011000000000001011000
+11111111111111111111111111111111111111111111111111111111111111011111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111100000000000000000000000001100000000100010000
+11111111111111111111111111111111111111111111111111111111111110011111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111100000000000000001110000111100000000111000000
+11111111111111111111111111111111111111111111111111111111111110011111111111111011111111111111111111111111111111111111111111111111111111111100111111111101111100000000000001101110010001110000011100111000
+11111111111111111111111111111111111111111111111111111111111100011111111111111111111111111111111111111111111111111111111111111111111111111111111111111100111100000000000001010110011011100000011000111000
+11111111111111111111111111111111111111111111111111111111111100011111111111111111111111111111111111111111111111111111111111111111111111111111001111111101111100000000000001000110000011100000111011100000
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111010010111100000000000001000100000011100000011011110000
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111100001111100001000100000011110000011111110000
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111101111101100001111000001010100000011110000011111111000
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111011100000001100000011100000111100000111111111000
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111101111111111111111111001101101111111110111111111000010000101111111100110011111111000
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111110111111111111111111111111111111111111111111111111001111100001111111111111111111111000
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111110111111110001111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111111111000001000000000000000000000011111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111111111111111001111111111111100001100000000001111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11101011111111111110010011100000000000010000001111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+01111100010000000000000110000010111000000000000000000000000111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+00000000000110000000000010000000000000000000000001001111111110111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+10100001000000000000001011101000100000000000111110100000000000000000111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+10001111111111110011100000110110011110001101000000000000000000000000001111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111111111111111011101110000010100110000000000000000000000000000000011111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11101011111111110000101000001010000000000000000000001100100010000011111111111111111111111111011111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+11111100000000000000101010000000000000000011101001001110111001001111111111111111111111110000000000000000111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+100NIGHTHAWKS0000010000000000000000001101110010111100111111111111111111111111111111101000000000000000000000000000111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+10000000000000000000000000000010010110101011111111111011111111111111111111111010110000000000000000000000000000000110011001111111111111111111111111111111111111111111111111111111111111111111111111111111
+000EDWARD HOPPER, 19421100100110100100000001001110010111101010111111110111100100010000000000000000000000000001001001000011111111111111111111111111111111111111111111111111111111111111111111111111111111
+10000000000000000100101000100011111101101111111111111111101111111111111110100000000000000000000000000011000100000011111111111111111111111111111111111111111111111111111111111111111111111111111111111111
+00001000011100110100111101001000000001001111111111000111111110101011111111100000000000000000000000000000010011110001100001001011001011111100111110010111111111111111111111111111111111111111111111111111</pre>
+            <picture class="nighthawks-fallback" hidden>
+            <source type="image/webp" data-srcset="assets/art/nighthawks-credited-720.webp 720w, assets/art/nighthawks-credited-1440.webp 1440w, assets/art/nighthawks-credited-2880.webp 2880w" sizes="(max-width: 600px) calc(100vw - 16px), min(calc(100vw - 48px), 1880px, 161vh)">
+            <img data-src="assets/art/nighthawks-credited.png" width="6000" height="3274" alt="A binary ASCII reinterpretation of Edward Hopper’s Nighthawks: four figures in a brightly lit corner diner, surrounded by a dark city street.">
+          </picture>
+            <noscript><picture class="nighthawks-fallback">
+            <source type="image/webp" srcset="assets/art/nighthawks-credited-720.webp 720w, assets/art/nighthawks-credited-1440.webp 1440w, assets/art/nighthawks-credited-2880.webp 2880w" sizes="(max-width: 600px) calc(100vw - 16px), min(calc(100vw - 48px), 1880px, 161vh)">
+            <img src="assets/art/nighthawks-credited.png" width="6000" height="3274" fetchpriority="high" alt="A binary ASCII reinterpretation of Edward Hopper’s Nighthawks: four figures in a brightly lit corner diner, surrounded by a dark city street.">
+          </picture></noscript>
           </span>
-        </h1>
-      </div>
+        </a>
+        <figcaption class="sr-only">NIGHTHAWKS — EDWARD HOPPER, 1942. Reinterpreted in binary ASCII.</figcaption>
+      </figure>
     </header>
 
-    <!-- Diamond Divider -->
-    <div class="diamond-divider hero-deferred" aria-hidden="true">
-      <span class="diamond diamond--small"></span>
-      <span class="diamond diamond--large"></span>
-      <span class="diamond diamond--small"></span>
-    </div>
-
-    <!-- About Section -->
-    <section class="about section schematic-section hero-deferred" id="about">
-      <div class="container">
-        <div class="about-grid">
-          <div class="about-content">
-            <h2 class="section-title text-display schematic-text">The intersection of <span class="text-flare">engineering</span> and <span class="text-flare">design</span></h2>
-            <p class="about-text schematic-text">
-              While my background in Electrical Engineering is built on mathematics and logic, my perspective is defined
-              by an appreciation for the arts. Whether it's the classical form of Michelangelo's <em>David</em> or the
-              visual storytelling of <em>2001: A Space Odyssey</em>, I am fascinated by work that marries structure with
-              beauty. I channel this duality into my own photography and web design, striving to create work that is as
-              technically sound as it is visually compelling.
-            </p>
-            <p class="about-text schematic-text">
-              My work exists at the intersection where engineered logic meets human creativity.
-            </p>
-            <div class="about-stats schematic-border-top">
-              <div class="stat schematic-border-left">
-                <span class="stat-value schematic-text">2028</span>
-                <span class="stat-label schematic-mono">Expected Graduation</span>
-              </div>
-              <div class="stat schematic-border-left">
-                <span class="stat-value schematic-text">
-                  <span class="osu-text">OSU</span>
-                  <img src="assets/OSU/Oregon_State_Beavers_logo.svg" class="osu-beaver" alt="Oregon State Beavers logo" role="img">
-                </span>
-                <span class="stat-label schematic-mono">Oregon State</span>
-              </div>
-              <div class="stat schematic-border-left">
-                <span class="stat-value schematic-text">ECE</span>
-                <span class="stat-label schematic-mono">B.S. + Math Minor</span>
-              </div>
-            </div>
-          </div>
-          <div class="about-visual">
-            <div class="visual-card schematic-border">
-              <img src="assets/images/blueprint-david.jpg" alt="Blueprint-styled photograph of Michelangelo's David used to frame engineering and classical art as paired influences." class="visual-image" style="filter: grayscale(100%) contrast(1.2);">
-            </div>
-          </div>
+    <section class="home-intro" id="about" aria-labelledby="home-intro-title">
+      <div class="home-shell home-intro-grid">
+        <h2 class="home-hi" id="home-intro-title">hi<span>.</span></h2>
+        <div class="home-intro-copy">
+          <p>I study electrical and computer engineering at <button type="button" class="osu-trigger stat-value" aria-pressed="false" aria-label="Oregon State. Go Beavs!"><span class="osu-text">Oregon State</span><img class="osu-beaver" src="assets/OSU/Oregon_State_Beavers_logo.svg" alt="" aria-hidden="true"></button>. I also have a math minor. Integrals hate to see me coming.</p>
+          <p>I do a little bit of this and a little bit of that. I just kinda do whatever I feel like. Usually, that’s either something video engineering or mathematics related (usually both), but sometimes I venture into more creative domains like photography and writing.</p>
+          <p>I have a new idea for a project basically every day, so most of them actually aren’t on this site. The only projects that make it on here are the ones that I think will be of most interest to others and exhibit at least some level of polish and cleanliness. I try to spare the public from exposure to my more unhinged excursions. You’re welcome.</p>
         </div>
       </div>
     </section>
+    <section class="home-work" id="projects" aria-labelledby="home-work-title">
+      <div class="home-shell">
+        <div class="section-masthead"><span>01 // PROJECTS</span></div>
+        <div class="work-heading"><h2 id="home-work-title">projects and such<span>.</span></h2></div>
 
-    <!-- Projects Preview -->
-    <section class="projects section schematic-section schematic-border-top hero-deferred" id="projects">
-      <div class="container">
-        <div class="section-header">
-          <h2 class="section-title text-display schematic-text">Recent Projects</h2>
-        </div>
-
-        <div class="projects-list">
-          <article class="project-item schematic-border">
-            <div class="project-number schematic-mono">01</div>
-            <div class="project-content">
-              <h3 class="project-title schematic-text">Encoding DB</h3>
-              <p class="project-desc schematic-text">Public FFmpeg-based video encoding database. RESTful backend built with Node.js,
-                Express, and Prisma with PostgreSQL.</p>
-              <div class="project-tags">
-                <span class="tag schematic-tag">Node.js</span>
-                <span class="tag schematic-tag">Video Engineering</span>
-                <span class="tag schematic-tag">FFmpeg</span>
-              </div>
-            </div>
-            <div class="project-meta">
-              <span class="project-date schematic-mono">2025 - Present</span>
-              <a href="https://encodingdb.platinumlabs.dev" class="project-link schematic-text accent-hover" target="_blank" rel="noopener noreferrer">
-                [VISIT]
-              </a>
+        <div class="project-list">
+          <article class="project-entry" data-project="Encoding_Database" aria-labelledby="project-Encoding_Database-title">
+            <h3 id="project-Encoding_Database-title">Encoding Database</h3>
+            <div class="project-copy">
+              <p class="project-hook">How small can a movie get before you notice?</p>
+              <p class="project-blurb">Freshman year of college, my roommate and I were watching a pirated copy of Oppenheimer, and noticed blocky compression during an explosion. Dissatisfied with this, I went down the video encoding pipeline for like a full year. How did I wind up here? Anyway, now I know everything about video encoding and I’ve achieved lossless enlightenment.</p>
+              <a class="project-link" href="https://encodingdb.platinumlabs.dev" target="_blank" rel="noopener noreferrer">Visit EncodingDB <span aria-hidden="true">↗</span></a>
             </div>
           </article>
-
-          <article class="project-item schematic-border mt-1">
-            <div class="project-number schematic-mono">02</div>
-            <div class="project-content">
-              <h3 class="project-title schematic-text">Computer Hardware Club</h3>
-              <p class="project-desc schematic-text">Founder and Vice-President of OSU's Computer Hardware Club. Designed and led workshops on Docker, CUDA, Soldering, KiCAD, and more.</p>
-              <div class="project-tags">
-                <span class="tag schematic-tag">Leadership</span>
-                <span class="tag schematic-tag">Docker</span>
-                <span class="tag schematic-tag">CUDA</span>
-              </div>
-            </div>
-            <div class="project-meta">
-              <span class="project-date schematic-mono">2024 - Present</span>
-              <a href="https://computerhardwareclub.org" class="project-link schematic-text accent-hover" target="_blank" rel="noopener noreferrer">
-                [VISIT]
-              </a>
+          <article class="project-entry" data-project="BetterVMAF" aria-labelledby="project-BetterVMAF-title">
+            <h3 id="project-BetterVMAF-title">Better VMAF</h3>
+            <div class="project-copy">
+              <p class="project-hook">Compression comes at a cost.</p>
+              <p class="project-blurb">During the aforementioned pipelining, I discovered that there were no good VMAF GUIs, and I could never remember the FFmpeg libvmaf command, so I just made my own. It’s MacOS native because Windows can’t even handle HDR properly. It has 2 users and I love them both dearly.</p>
+              <a class="project-link" href="https://github.com/oliverdougherC/BetterVMAF" target="_blank" rel="noopener noreferrer">Nerd? Source code <span aria-hidden="true">↗</span></a>
             </div>
           </article>
-
-          <article class="project-item schematic-border mt-1">
-            <div class="project-number schematic-mono">03</div>
-            <div class="project-content">
-              <h3 class="project-title schematic-text">NatGen</h3>
-              <p class="project-desc schematic-text">A generative AI model using diffusion architecture in PyTorch to synthesize nature
-                sounds. Produced in collaboration with SoundTrip LLC.</p>
-              <div class="project-tags">
-                <span class="tag schematic-tag">PyTorch</span>
-                <span class="tag schematic-tag">AI/ML</span>
-                <span class="tag schematic-tag">Audio</span>
-              </div>
-            </div>
-            <div class="project-meta">
-              <span class="project-date schematic-mono">2025 - Present</span>
+          <article class="project-entry" data-project="Keiri" aria-labelledby="project-Keiri-title">
+            <h3 id="project-Keiri-title">Keiri</h3>
+            <div class="project-copy">
+              <p class="project-hook">Master of Yahtzee, second to none.</p>
+              <p class="project-blurb">Yahtzee is a game that mixes luck and strategy perfectly. It is heavily dependent on luck, but you can win more often than not by having elite foresight and strategy. How much does strategy actually help though? Assuming every single decision you made, 100% of the time, was the most statistically optimal decision, how high could your average score be? Well, that’s what Keiri does. It’s 254.59 btw. That’s the highest average score.</p>
+              <a class="project-link" href="https://keiri.platinumlabs.dev" target="_blank" rel="noopener noreferrer">Play against Keiri <span aria-hidden="true">↗</span></a>
             </div>
           </article>
-        </div>
-        <div class="projects-footer mt-2">
-          <a href="https://github.com/oliverdougherC" class="projects-all-link schematic-mono accent-hover" target="_blank" rel="noopener noreferrer">[MORE_PROJECTS]</a>
+          <article class="project-entry" data-project="Lyra" aria-labelledby="project-Lyra-title">
+            <h3 id="project-Lyra-title">Lyra</h3>
+            <div class="project-copy">
+              <p class="project-hook">Your personal tutor that won't steal all your data.</p>
+              <p class="project-blurb">Lyra is a suite of AI-assisted study tools for students. It’s built on the foundation of data privacy and freedom. As with everything I build, there are no subscriptions, accounts, telemetry, or any other nasty stuff that has become sadly prevalent. It’s intended for users to run their own models for maximum data security, but I understand that most users (especially students) don’t have the hardware necessary for that, so users are free to choose whatever provider and model they wish. This paragraph wasn’t very funny compared to the others, huh? I don’t play about data privacy and consumer rights. Shit ain’t funny.</p>
+              <a class="project-link" href="https://github.com/oliverdougherC/Lyra" target="_blank" rel="noopener noreferrer">Source code <span aria-hidden="true">↗</span></a>
+            </div>
+          </article>
         </div>
       </div>
     </section>
-
-    <!-- Contact Section -->
-    <section class="contact section schematic-section schematic-border-top hero-deferred" id="contact">
-      <div class="container">
-        <div class="contact-inner">
-          <h2 class="contact-title text-display schematic-text">Let's build something together</h2>
-          <div class="contact-links">
-            <a href="mailto:hi@oliverdougherty.com" class="contact-link schematic-border accent-hover">
-              <span class="contact-link-label schematic-mono">Email</span><br>
-              <span class="contact-link-value schematic-text">hi@oliverdougherty.com</span>
-            </a>
-            <a href="https://github.com/oliverdougherC" class="contact-link schematic-border accent-hover" target="_blank" rel="noopener noreferrer">
-              <span class="contact-link-label schematic-mono">GitHub</span><br>
-              <span class="contact-link-value schematic-text">oliverdougherC</span>
-            </a>
-          </div>
-        </div>
+    <section class="home-contact" id="contact" aria-labelledby="home-contact-title">
+      <div class="home-shell">
+        <div class="section-masthead"><span>02 // CONTACT</span></div>
+        <div class="contact-heading"><h2 id="home-contact-title">say hi back<span>.</span></h2></div>
+        <a class="contact-address" href="mailto:hi@oliverdougherty.com">hi@oliverdougherty.com</a>
+        <div class="contact-actions"><button type="button" data-copy-email="hi@oliverdougherty.com" aria-describedby="copy-status">copy address</button><a href="https://github.com/oliverdougherC" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a></div>
+        <span id="copy-status" class="contact-status" data-copy-status role="status" aria-live="polite"></span>
+        <div class="home-colophon"><span>© <span data-current-year>2026</span> Oliver Dougherty</span><a href="#top">back to the painting <span aria-hidden="true">↑</span></a></div>
       </div>
     </section>
-
   </main>
 
   <script src="js/year.js" defer></script>
-  <script src="js/main.js?v=dougherty-scroll-1" defer></script>
+  <script src="js/main.js?v=nighthawks-1" defer></script>
+  <script src="js/home-interactions.js" defer></script>
 </body>
 </html>

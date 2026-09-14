@@ -1443,27 +1443,6 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      if (utilityId === 'death-calculator') {
-        const deathCalculatorRoot = document.getElementById('deathCalculatorApp');
-        if (!deathCalculatorRoot) {
-          return;
-        }
-        try {
-          const { DeathCalculatorController } = await import('./deathCalculatorController');
-          const deathController = new DeathCalculatorController(deathCalculatorRoot);
-          deathController.init();
-          initializedUtilities.add(utilityId);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Death Calculator failed to initialize.';
-          const statusText = document.getElementById('deathStatusText');
-          if (statusText) {
-            statusText.textContent = message;
-          }
-          deathCalculatorRoot.dataset.deathStatusMessage = message;
-        }
-        return;
-      }
-
       if (utilityId === 'virtual-machine') {
         const vmRoot = document.getElementById('retroVmApp');
         if (!vmRoot) {

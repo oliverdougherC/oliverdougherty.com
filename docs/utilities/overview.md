@@ -15,7 +15,7 @@ The utilities page (`/pages/utilities/`) is an interactive dashboard housing fiv
 
 | Utility | Description | Key files |
 |---|---|---|
-| **Image Transform** | Pixel-level morphing between two images using color-space matching and animated particle transitions | `transformCore.ts`, `transformIntelligence.ts`, `transformAnimation.ts`, `transform.worker.ts`, `transformCache.ts`, `transformRenderPlan.ts`, `parallelMatcher.ts`, `presets.ts`, `uiState.ts` |
+| **Image Transform** | Pixel-level morphing between two images using color-space matching and animated particle transitions | `transformCore.ts`, `transformIntelligence.ts`, `transformAnimation.ts`, `transform.worker.ts`, `transformCache.ts`, `transformRenderPlan.ts`, `presets.ts`, `uiState.ts` |
 | **Fourier Reconstruction** | Full-song audio analysis via windowed FFT with interactive component slider and live playback | `audioFourierController.ts`, `audioFourierCore.ts`, `audioFourierWaveRenderer.ts`, `audioPresets.ts`, `fft.ts` |
 | **Local Assistant** | In-browser LLM chat (Bonsai 1.7B) running on WebGPU via Transformers.js | `local-llm-chat.js`, `local-llm-worker.js`, `local-llm-config.js`, `local-llm-cache.js`, `local-llm-rendering.js` |
 | **Virtual Machine** | x86 PC emulator (v86) running Tiny Core Linux 11 in the browser with networking via TCP relay | `retroVmController.ts`, `retroVmConfig.ts`, `retroVmSupport.ts`, `retroVmTypes.ts` |

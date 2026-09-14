@@ -97,7 +97,6 @@ function formatFrequency(value: number) {
 const INITIAL_SLIDER_VALUE = 50;
 const PLAYBACK_FADE_SECONDS = 0.1;
 const PLAYBACK_START_DELAY_SECONDS = 0.035;
-const PLAYBACK_VISUAL_FRAME_MS = 0;
 const PLAYBACK_PROGRESS_UPDATE_MS = 100;
 const FULL_ENERGY_VISUAL_THRESHOLD = 0.999;
 const GAIN_RAMP_TIME_CONSTANT = 0.015;
@@ -162,12 +161,10 @@ export class AudioFourierController {
   private worker: Worker | null = null;
   private workerVersion = 0;
   private activeRequestId = 0;
-  private activeWorkerRequestId = 0;
   private activeResult: ActiveAudioFourier | null = null;
   private audioContext: AudioContext | null = null;
   private bandBuffers: AudioBuffer[] = [];
   private activeBandNodes: ActiveBandNode[] = [];
-  private audioContextBlocked = false;
   private activeMasterGain: GainNode | null = null;
   private masterGainControlReadyAt = 0;
   private playbackStartedAt = 0;
@@ -176,17 +173,12 @@ export class AudioFourierController {
   private visualPlaybackElapsedSeconds = 0;
   private visualPlaybackUpdatedAt = 0;
   private animationFrameId = 0;
-  private visualOriginalRawScratch = new Float32Array(0);
-  private visualMixRawScratch = new Float32Array(0);
-  private visualOriginalFrameScratch = new Float32Array(0);
-  private visualMixFrameScratch = new Float32Array(0);
   private visualRevision = 0;
   private fullSmoothedOriginal: Float32Array | null = null;
   private mixedEnvelopeCache: Float32Array | null = null;
   private mixedEnvelopeCacheKey = '';
   private renderInProgress = false;
   private lastPlaybackProgressAt = 0;
-  private lastPlaybackRenderAt = 0;
   private deferredWaveRenderTimeoutId = 0;
   private state: AudioFourierState = 'idle';
   private destroyed = false;
@@ -532,10 +524,6 @@ export class AudioFourierController {
   }
 
   private resetVisualScratch() {
-    this.visualOriginalRawScratch = new Float32Array(0);
-    this.visualMixRawScratch = new Float32Array(0);
-    this.visualOriginalFrameScratch = new Float32Array(0);
-    this.visualMixFrameScratch = new Float32Array(0);
     this.fullSmoothedOriginal = null;
     this.mixedEnvelopeCache = null;
     this.mixedEnvelopeCacheKey = '';
@@ -570,7 +558,6 @@ export class AudioFourierController {
   }
 
   private abandonActiveComputation() {
-    this.activeWorkerRequestId = 0;
     if (this.worker) {
       this.worker.terminate();
       this.worker = null;
@@ -601,7 +588,6 @@ export class AudioFourierController {
       // Some browsers still require a second explicit Play click after async analysis.
       console.warn('[AudioFourier] AudioContext resume was blocked before analysis started.', error);
       logAudioFourierWarning('AudioContext resume was blocked before analysis started.', error);
-      this.audioContextBlocked = true;
       this.playPauseButton.title = 'Audio blocked by browser — click to unlock';
       this.setProgress(
         0.02,
@@ -627,7 +613,6 @@ export class AudioFourierController {
         presetId: preset.id,
         source
       };
-      this.activeWorkerRequestId = requestId;
       worker.postMessage(request, transfer);
     } catch (error) {
       if (requestId !== this.activeRequestId) {
@@ -741,7 +726,6 @@ export class AudioFourierController {
   }
 
   private handleWorkerFailure() {
-    this.activeWorkerRequestId = 0;
     if (this.worker) {
       this.worker.terminate();
       this.worker = null;
@@ -763,7 +747,6 @@ export class AudioFourierController {
     }
 
     if (message.type === 'audio-fourier-error') {
-      this.activeWorkerRequestId = 0;
       this.clearDiagnostics();
       this.setState('error', message.message);
       this.setProgress(0, message.message, 'Try a built-in song preset, a shorter file, or the Fast quality preset.');
@@ -771,14 +754,12 @@ export class AudioFourierController {
     }
 
     if (message.type === 'audio-fourier-cancelled') {
-      this.activeWorkerRequestId = 0;
       this.clearDiagnostics();
       this.setState('idle', 'Audio Fourier analysis cancelled.');
       this.setProgress(0, 'Analysis cancelled.');
       return;
     }
 
-    this.activeWorkerRequestId = 0;
     this.applySuccess(message);
   }
 
@@ -933,17 +914,6 @@ export class AudioFourierController {
     return this.activeComponentsCacheValue;
   }
 
-  private ensureVisualScratch(pointCount: number) {
-    if (this.visualOriginalRawScratch.length >= pointCount) {
-      return;
-    }
-
-    this.visualOriginalRawScratch = new Float32Array(pointCount);
-    this.visualMixRawScratch = new Float32Array(pointCount);
-    this.visualOriginalFrameScratch = new Float32Array(pointCount);
-    this.visualMixFrameScratch = new Float32Array(pointCount);
-  }
-
   private queueDeferredWaveRender(delayMs = 80) {
     if (this.deferredWaveRenderTimeoutId) {
       window.clearTimeout(this.deferredWaveRenderTimeoutId);
@@ -966,27 +936,6 @@ export class AudioFourierController {
 
     window.clearTimeout(this.deferredWaveRenderTimeoutId);
     this.deferredWaveRenderTimeoutId = 0;
-  }
-
-  private resolveVisibleMixedAmplitude(bucketIndex: number) {
-    if (!this.activeResult) {
-      return 0;
-    }
-
-    let mixedMin = 0;
-    let mixedMax = 0;
-    const bucketCount = this.activeResult.metadata.envelopeBucketCount;
-    for (let bandIndex = 0; bandIndex < this.activeResult.bandGains.length; bandIndex += 1) {
-      const gain = Math.max(0, this.activeResult.bandGains[bandIndex]);
-      if (gain === 0) {
-        continue;
-      }
-      const envelopeIndex = bandIndex * bucketCount + bucketIndex;
-      mixedMin += (this.activeResult.bandEnvelopeMin[envelopeIndex] ?? 0) * gain;
-      mixedMax += (this.activeResult.bandEnvelopeMax[envelopeIndex] ?? 0) * gain;
-    }
-
-    return Math.max(Math.abs(mixedMin), Math.abs(mixedMax));
   }
 
   private ensureBandBuffers() {
@@ -1059,7 +1008,6 @@ export class AudioFourierController {
     const activeResult = this.activeResult;
     const context = this.getAudioContext();
     await context.resume();
-    this.audioContextBlocked = false;
     this.ensureBandBuffers();
     const offset = clamp(this.playbackElapsedSeconds, 0, activeResult.metadata.proxyDurationSeconds);
     const startedAt = context.currentTime + PLAYBACK_START_DELAY_SECONDS;
@@ -1110,7 +1058,6 @@ export class AudioFourierController {
     this.visualPlaybackElapsedSeconds = offset;
     this.visualPlaybackUpdatedAt = 0;
     this.lastPlaybackProgressAt = 0;
-    this.lastPlaybackRenderAt = 0;
     this.setState('animating', 'Playing selected Fourier energy mix...');
     this.tickPlayback();
   }
@@ -1122,7 +1069,6 @@ export class AudioFourierController {
 
     this.playbackElapsedSeconds = this.resolvePlaybackElapsedSeconds();
     this.visualPlaybackElapsedSeconds = this.playbackElapsedSeconds;
-    this.lastPlaybackRenderAt = 0;
     this.stopPlayback(false);
     this.setState('ready', 'Playback paused.');
     this.drawSpectrumFrame();

@@ -62,8 +62,7 @@ async function collectMobilePageState(page) {
 
 function assertMobileSurface(state, label, expectedPathPart) {
   assert(state.path.includes(expectedPathPart), `[${label}] expected path to include ${expectedPathPart}, got ${state.path}`);
-  assert(state.navLinks.join('|') === 'Home|Resume', `[${label}] mobile nav should contain only Home and Resume`);
-  assert(!/\bGallery\b/.test(state.text), `[${label}] mobile page should not expose Gallery`);
+  assert(state.navLinks.join('|') === 'Home|Resume|Gallery', `[${label}] mobile nav should contain Home, Resume, and Gallery`);
   assert(!/\bUtilities\b/.test(state.text), `[${label}] mobile page should not expose Utilities`);
   assert(!/\bArchive\b/.test(state.text), `[${label}] mobile page should not expose Archive`);
   assert(!/\bGame\b/.test(state.text), `[${label}] mobile page should not expose Game`);
@@ -93,7 +92,11 @@ async function assertMobilePages(browser) {
     await page.goto(`${baseUrl}/mobile/`, { waitUntil: 'networkidle' });
     let state = await collectMobilePageState(page);
     assertMobileSurface(state, `${viewport.label}:home`, '/mobile/');
-    assert(state.imageCount === 1, `[${viewport.label}:home] mobile home should use exactly one image`);
+    assert(/Oliver Dougherty/.test(state.text), `[${viewport.label}:home] profile heading missing`);
+    assert(await page.locator('#home-intro-title').textContent() === 'hi.', `[${viewport.label}:home] introduction missing`);
+    await page.waitForFunction(() => document.querySelector('#nighthawksArtwork')?.dataset.renderMode === 'text');
+    assert(await page.locator('#nighthawksCharacters').evaluate((pre) => pre.textContent.includes('EDWARD HOPPER, 1942')),
+      `[${viewport.label}:home] Nighthawks character artwork failed to load`);
     await page.screenshot({
       path: path.join(OUTPUT_DIR, `${viewport.label}-home.png`),
       fullPage: true
@@ -103,12 +106,26 @@ async function assertMobilePages(browser) {
     state = await collectMobilePageState(page);
     assertMobileSurface(state, `${viewport.label}:resume`, '/mobile/resume');
     assert(/Oregon State University/.test(state.text), `[${viewport.label}:resume] education content missing`);
-    assert(/Encoding DB/.test(state.text), `[${viewport.label}:resume] project content missing`);
+    assert(/NatGen/.test(state.text), `[${viewport.label}:resume] project content missing`);
     await page.screenshot({
       path: path.join(OUTPUT_DIR, `${viewport.label}-resume.png`),
       fullPage: true
     });
 
+    await page.goto(`${baseUrl}/mobile/gallery/`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('#mobileGalleryGrid img[data-entry-index]');
+    state = await collectMobilePageState(page);
+    assertMobileSurface(state, `${viewport.label}:gallery`, '/mobile/gallery');
+    assert(state.imageCount >= 20, `[${viewport.label}:gallery] photo grid is incomplete`);
+    await page.locator('#mobileGalleryGrid img[data-entry-index]').first().click();
+    await page.locator('#mobileLightbox').waitFor({ state: 'visible' });
+    await page.waitForFunction(() => {
+      const image = document.getElementById('mobileLightboxImage');
+      return image.complete && image.naturalWidth > 0;
+    });
+    await page.screenshot({ path: path.join(OUTPUT_DIR, `${viewport.label}-gallery-lightbox.png`) });
+    await page.locator('#mobileLightboxClose').click();
+    await page.locator('#mobileLightbox').waitFor({ state: 'hidden' });
     await context.close();
   }
 }
@@ -124,8 +141,6 @@ async function assertMobileGate(browser) {
   const gatedRoutes = [
     '/pages/gallery/index.html',
     '/pages/utilities/index.html',
-    '/pages/archive/index.html',
-    '/pages/archive/pi/pi.html'
   ];
 
   for (const route of gatedRoutes) {
@@ -167,7 +182,7 @@ async function run() {
     browser = await chromium.launch({ headless: true });
 
     await assertMobilePages(browser);
-    console.log('Verified dedicated mobile Home and Resume across phone viewports.');
+    console.log('Verified dedicated mobile Home, Resume, and Gallery across phone viewports.');
 
     await assertMobileGate(browser);
     console.log('Verified mobile redirects and ?full=1 escape.');

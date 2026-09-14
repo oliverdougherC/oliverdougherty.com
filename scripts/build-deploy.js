@@ -20,8 +20,6 @@ const ROOT_ENTRIES = [
   'js',
   'pages',
   'assets',
-  'favicon.svg',
-  'favicon.ico',
   'favicon-happy.svg',
   'favicon-happy.ico',
   'favicon-sad.svg',
@@ -33,10 +31,21 @@ function relPath(filePath) {
   return path.relative(ROOT, filePath) || '.';
 }
 
+const EXCLUDED_FILES = new Set([
+  'assets/utilities/vm/TinyCore-11.0.iso',
+  'assets/utilities/vm/flwm_topside.tcz',
+  'assets/utilities/vm/flwm_topside.tcz.md5.txt',
+  'assets/photos/descriptions.md',
+  'assets/art/nighthawks-binary.png',
+  'assets/art/nighthawks-binary.txt'
+]);
+
 function filterCopy(sourcePath) {
-  const base = path.basename(sourcePath);
-  if (base === '.DS_Store') return false;
-  return true;
+  const relativePath = path.relative(ROOT, sourcePath).split(path.sep).join('/');
+  return path.basename(sourcePath) !== '.DS_Store'
+    && relativePath !== 'blogs/.obsidian'
+    && !relativePath.startsWith('blogs/.obsidian/')
+    && !EXCLUDED_FILES.has(relativePath);
 }
 
 function assertExists(filePath) {

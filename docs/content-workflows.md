@@ -7,7 +7,7 @@ The photo gallery is driven by two checked-in JSON files:
 - `assets/photos/photos.json`: generated manifest containing dimensions, variant filenames, titles, descriptions, and EXIF-derived metadata.
 - `assets/photos/gallery-sequence.json`: hand-authored sequence/order metadata and editorial overrides.
 
-`js/gallery.js` merges those two inputs at runtime to build the gallery cards, hero feature, and lightbox state.
+`js/gallery.js` and `js/mobile-gallery.js` merge those two inputs at runtime to build the gallery cards, hero feature, and lightbox state.
 
 ## Adding or updating photos
 
@@ -39,7 +39,6 @@ npm run quality
 The Playwright gallery scripts are for regression and investigation, not for shipped assets:
 
 - `npm run gallery:shots`
-- `npm run gallery:perf`
 - `npm run gallery:check`
 
 These write to `output/`, which is intentionally ignored.
@@ -68,9 +67,13 @@ npm run smoke
 
 Do not hand-edit the generated utilities bundle or the hashed worker chunks in `pages/utilities/assets/assets/`.
 
+## Blog status
+
+The authored posts and manifest remain in `blogs/`, but `js/blog.js` currently redirects visitors home. `npm run build:blog` regenerates the manifest. The default `blog:check` verifies the redirect; use `BLOG_CHECK_ENABLED=1 npm run blog:check` for article layout checks only after deliberately enabling the blog.
+
 ## Deploy build workflow
 
-`npm run build:deploy` copies the shipped static site into `dist/`. The deploy build mirrors the repo's checked-in source plus generated utilities output and gallery assets. `dist/` is disposable output, not source.
+`npm run build:deploy` copies the shipped static site into `dist/`. The deploy build copies the shipped page trees, generated utilities output, and gallery assets. It excludes photo authoring descriptions, blog Obsidian settings, `.DS_Store`, and VM build inputs (`TinyCore-11.0.iso`, `flwm_topside.tcz`, and its checksum). The remastered `tinycore-retro-vm.iso`, BIOS files, and generated v86 runtime remain deployed for the retained VM implementation. `dist/` is disposable output, not source.
 
 ## Local artifact policy
 

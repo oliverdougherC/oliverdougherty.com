@@ -208,6 +208,48 @@ async function navigateUtility(page, utilityId) {
   );
 }
 
+async function assertPublicUtilityRoutes(browser, baseUrl) {
+  const page = await browser.newPage({ reducedMotion: 'reduce' });
+  const hiddenFeatureRequests = [];
+  page.on('request', (request) => {
+    if (/\/(?:local-llm-chat|retroVmController)\.js(?:\?|$)/.test(request.url())) {
+      hiddenFeatureRequests.push(request.url());
+    }
+  });
+
+  try {
+    await page.goto(`${baseUrl}/pages/utilities/index.html`, { waitUntil: 'networkidle' });
+    const visibleRoutes = await page.locator('.utilities-buttons button[data-utility]:visible')
+      .evaluateAll((buttons) => buttons.map((button) => button.dataset.utility));
+    assert(
+      JSON.stringify(visibleRoutes) === JSON.stringify(['image-transform', 'audio-fourier', 'stress-test']),
+      'Utilities should offer exactly the three public routes.'
+    );
+
+    for (const utilityId of ['local-assistant', 'virtual-machine']) {
+      await page.goto(`${baseUrl}/pages/utilities/index.html#${utilityId}`, { waitUntil: 'networkidle' });
+      const state = await page.evaluate((id) => {
+        const button = document.querySelector(`.utilities-buttons button[data-utility="${id}"]`);
+        const stage = document.querySelector(`.utility-stage[data-utility-id="${id}"]`);
+        return {
+          buttonHidden: button?.hidden === true && getComputedStyle(button).display === 'none',
+          stageRetained: Boolean(stage),
+          activeStageCount: document.querySelectorAll('.utility-stage.is-active').length,
+          titleActive: document.getElementById('utilitiesTitleView')?.classList.contains('utilities-view--active'),
+          assistantMounted: document.getElementById('localLlmUtilityApp')?.dataset.localLlmMounted === 'true'
+        };
+      }, utilityId);
+      assert(state.buttonHidden, `${utilityId} should retain its hidden launcher.`);
+      assert(state.stageRetained, `${utilityId} markup should remain available for future work.`);
+      assert(state.titleActive && state.activeStageCount === 0, `${utilityId} deep links should stay on the title view.`);
+      assert(!state.assistantMounted, 'Hidden routes should not mount the Local Assistant.');
+    }
+    assert(hiddenFeatureRequests.length === 0, 'Hidden routes should not load Local Assistant or VM controllers.');
+  } finally {
+    await page.close();
+  }
+}
+
 async function createInvalidImageFile() {
   const invalidPath = path.join(os.tmpdir(), `od-invalid-image-${Date.now()}.txt`);
   fs.writeFileSync(invalidPath, 'not an image');
@@ -757,11 +799,9 @@ async function readLightModeVisualMetrics(page) {
       metrics: [
         describe('image shell', '#utilitiesApp'),
         describe('audio shell', '#audioFourierApp'),
-        describe('longevity intro', '#deathCalculatorApp .death-card--intro'),
         describe('retro vm shell', '#retroVmApp'),
         describe('image status copy', '#transformProgressText'),
         describe('audio progress copy', '#audioFourierProgressText'),
-        describe('longevity intro copy', '#deathBeginBtn'),
         describe('retro vm status copy', '#retroVmProgressText'),
         describe('primary action', '#transformGenerateBtn'),
         describe('secondary action', '#transformResetBtn'),
@@ -799,11 +839,11 @@ async function runLightModeVisualCheck(browser, pageUrl) {
       await assertUtilityIsolationLayout(page, `light:${viewport.label}`);
 
       for (const metric of state.metrics) {
-        if (metric.missing && /audio|longevity|retro vm/.test(metric.label)) {
+        if (metric.missing && /audio|retro vm/.test(metric.label)) {
           continue;
         }
         assert(!metric.missing, `[light:${viewport.label}] missing ${metric.label}.`);
-        if (!metric.visible && /audio|longevity|retro vm/.test(metric.label)) {
+        if (!metric.visible && /audio|retro vm/.test(metric.label)) {
           continue;
         }
         assert(metric.visible, `[light:${viewport.label}] ${metric.label} should be visible.`);
@@ -850,6 +890,9 @@ async function main() {
 
   try {
     await waitForServer(`${baseUrl}/pages/utilities/index.html`);
+    await runUtilitySection(utilitySectionFailures, 'Public and Hidden Routes', async () => {
+      await assertPublicUtilityRoutes(browser, baseUrl);
+    });
 
     const page = await browser.newPage({
       viewport: { width: 1440, height: 1100 }

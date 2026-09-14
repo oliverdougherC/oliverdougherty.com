@@ -12,13 +12,10 @@ The result is a fluid reconstruction animation where the source image dissolves 
 Main thread (UtilitiesApp)
   |
   +-- transform.worker.ts (Web Worker)
-        |
-        +-- matching.worker.ts (nested Web Worker, experimental)
 ```
 
 - **Main thread** (`main.ts`): `UtilitiesApp` class handles all UI interactions, file selection, demo loading, progress reporting, and canvas rendering.
 - **Transform worker** (`transform.worker.ts`): Receives `ImageBitmap` objects, decodes and scales them, then runs the full matching pipeline. Communicates via structured clone / transferable ArrayBuffers.
-- **Matching worker** (`matching.worker.ts`): Nested worker for parallel ranking (experimental, currently disabled).
 
 ## Pipeline
 
@@ -147,17 +144,6 @@ Precomputed transform data is stored as base64-encoded JSON files in `src/data/p
 
 When a demo pair is selected and generated, the system first checks the cache. If a precomputed transform exists for that preset/demo combination, it loads instantly. Otherwise it computes and caches the result.
 
-## Parallel Matcher (Experimental)
-
-`parallelMatcher.ts` implements a parallel ranking system that splits target pixels across multiple nested Web Workers. Currently **disabled** (`EXPERIMENTAL_PARALLEL_MATCHER_ENABLED = false`).
-
-Requirements for activation:
-- Pixel count >= 160,000 (512x512 qualifies)
-- At least 4 workers available (`hardwareConcurrency - 1`, max 8)
-- Browser supports nested Web Workers
-
-When active, it splits the target order into chunks, ranks candidates in parallel workers, then merges results on the main worker.
-
 ## File Reference
 
 | File | Purpose |
@@ -169,9 +155,6 @@ When active, it splits the target order into chunks, ranks candidates in paralle
 | `transformRenderPlan.ts` | Final pixel computation, tint strength calculation |
 | `transformCache.ts` | Serialization/deserialization of precomputed transforms, in-memory cache |
 | `transform.worker.ts` | Web Worker entry — bitmap decoding, pipeline orchestration |
-| `matching.worker.ts` | Nested worker for parallel candidate ranking |
-| `matchingWorkerLogic.ts` | Ranking logic extracted for worker reuse |
-| `parallelMatcher.ts` | Parallel matching orchestration (experimental) |
 | `workerRuntime.ts` | Shared worker request handler with bitmap preparation and cancellation |
 | `workerTypes.ts` | Worker message type definitions |
 | `presets.ts` | Fast/Balanced/Detailed preset definitions |
