@@ -94,14 +94,32 @@ textarea,
   cursor: var(--cursor-busy), wait !important;
 }
 
-/* The excursions easter egg: while the excerpt is playing, the whole cursor
-   becomes the animated musical one. Browsers never animate cursor images —
-   a GIF or .ani sits on frame one — so home-interactions.js steps the
-   --cursor-musical-frame variable ten times a second (the .ani's original
-   rate) across eleven baked-in 32×32 frames. */
+/* The excursions easter egg: while the excerpt is playing the system cursor
+   hides and home-interactions.js paints the eleven baked-in .ani frames on a
+   small overlay that follows the pointer. (Browsers can't animate a cursor
+   image, and swapping the cursor URL per frame is unreliable — the OS cursor
+   only refreshes lazily and re-decodes the frames through a cache, so repeat
+   plays land frames late or out of order and the spin visibly jumps.) */
 html.is-musical,
 html.is-musical * {
-  cursor: var(--cursor-musical-frame) !important;
+  cursor: none !important;
+}
+
+.musical-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2147483647;
+  width: 32px;
+  height: 32px;
+  display: none;
+  pointer-events: none;
+  image-rendering: pixelated;
+  will-change: transform;
+}
+
+html.is-musical .musical-cursor {
+  display: block;
 }
 
 [draggable='true'] {

@@ -57,9 +57,15 @@
     const FADE_OUT_MS = 1500;
     const TAIL_FADE_MS = 1500;
 
-    // Eleven 32×32 frames of the original .ani, baked in as data URLs:
-    // browsers can't animate cursor images, so the spin is a 10 fps step
-    // of the --cursor-musical-frame variable (see css/cursor.css).
+    // Eleven 32×32 frames of the original .ani, baked in as data URLs.
+    // Browsers can't animate a cursor image, and swapping the CSS cursor
+    // per frame is unreliable too: the OS cursor is only refreshed lazily
+    // (on pointer activity) and the frames re-decode through a cache that
+    // evicts them, so repeat plays land frames late or out of order and
+    // the spin reads as jumps. Instead the system cursor hides while the
+    // excerpt plays (see css/cursor.css) and the frames are painted on a
+    // small overlay that tracks the pointer, stepped off the rAF clock so
+    // every frame lands exactly once, in order.
     const MUSICAL_FRAMES = [
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAPoAAAD6AG1e1JrAAABRUlEQVR4nO2Wu4qDQBSGfSdfIo3voG9hlyKNtZ1VAmJ6IwQihHSaToiKaOENu4ApLf9lZFlcbxujYZdlPjjgDL+HbwbhyDAUyl8DI8zJThK43+84n8/Ybrc4HA6I47i3MVlXVYXb7QZN06CqKq7X6zwJANB1nbz8rQzD6DQmz47jQBCErxzLsthsNq9LAKhP0xYg5bpuR8CyLHAc18nKsvy6gG3b4Hm+V6ItQJAkaTA7WQKfXC4XiKKI1Wo1KNDMK4rSEYii6PVbIBRFUd+GaZrY7/e9As2853n1x3s8HutskiS9+UkSzeZDAn15spXn+WB+sozv+6MC7TwVYKgAQwWY3xfIsuw9As9AsmmaLifgum7ddL1e/1hkhsyaBW1IkyAIeifeWIVhuJxAWZb1j8put3uqTqcTHo/HcgJzmC1AofxrPgB2Ujo/qTIMnQAAAABJRU5ErkJggg==",
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAC90lEQVR4nO2WS0gqYRTHlTKEyI2LNu0iKSwCiahFBIIRRssWgQsXQVBk1CJok0FEq5bRA0Jx4aZNq9pEUC0ECyOCIKSgsvdrjLR3/8s5zBdT6m26aXKhHwwzzsx3/sfz+kaj+eV/BQqyKq7kx4Tj8Th2dnZwdHSE8/Nz3NzcZN4RyEQiEUxOTsJisaCqqgqFhYXo7OzExcUFXl5eMuMAZGKxGKanp0kg4airq8P+/n5mogAZCvfQ0BAqKioSHCgqKoLL5cLt7e33HYBsQGmIrp+fnxEOhzE2NoampiZUVlaivLwcs7Oz/O8pHcFgkN/7JyeQgo/P7+/v8fj4iKurK5ycnODh4YHvh0IhlJSU4PLy8uupgMz19TVOT09xfHyMp6cnPpQR+ZuTdO7v78fw8DB3iioHIENCFL7BwUHo9XqYTCYUFxdjZGQEr6+vCcZSpYmE6XJra0tdV0AW39jYQHV1ddIKn5qaUh1Oem9paYltSZL0eSogs7i4CKPR+Caq1Wr5bDAYOCKixdRGtK2tDRMTE1wvqqIgSRJXd2trK8xmM5qbm9He3o65uTmMj4/DZrOpLixRSzk5Odjd3U2awqSLzs7OcHBwgPX1dWxubvJvWkxTzm63Y2Zm5kupoPZsbGxENBpVnwqBKCBxTQ7pdDp2hlDjAGG1WuH3+3F3d/f5OnxAeZ/GMKXI4XAkPE9mhyJHXdXS0oL8/HzevD5blxKxkOZDTU0NFhYWkhoS79FwGh0dRX19PRdyV1cX9vb21NVCKmghjdi1tTU2qpz5QpjaeXl5GR0dHSgoKOBiphZO2yYFgPd+2pB6e3vfpYtE3G43b9G5ubno6elBIBB4y/23xQlh6PDwEKWlpVhdXeU+n5+fh9PpRF5eHmpra+HxeHiUp01YCRmkjWhlZYX7vK+vD2VlZVxoAwMD3ML0PCPiAjG4uru7uR4aGhrg9Xr5eyGjwgIhQkPL5/Nhe3v73dzQ/ASQB5T4+PgxYSVZExZkVfwXTZr4AxXTO4tXc8YRAAAAAElFTkSuQmCC",
@@ -73,9 +79,49 @@
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAC7ElEQVR4nO1Xz0sqYRS1Io0gapNSiLtwVeLWVrYQpD/AhRAStHPlKiUqMHIhaEERuk2IWtiiRYuCwFzUJkIowSCCfhAlYqZZap7H/ZgZvh693mhq8HgHBn/g3HPunXvP/VQoGgwIaHRc2cQtFwABpVIJt7e3KBQKrRMAAUQcCoUwNjaGjY0NFIvF1ogAgEqlgt3dXej1eiKE0WjE+fl58wVAAGW7uLjIyMVre3sb7+/vzRUBAZlMBk6nEz09PZIAr9eLcrncmio8Pz8jGAyis7OTkdNrLBZr/jSAw97eniTA4XDg7e2teQLAgYgeHh6wvr4OrVaL/v5+HBwcNIccHKjxaPS2trYwPDyM0dFRHB4e/tGIviUGHPL5PC4vL7GysoLBwUHY7XacnZ19Svy7M9YsAgKq1Sqenp4Y0czMDLq7uzE9PY2bm5svMya8vLywq6aRhAAyGBqxk5MTTE5Oor29HcvLy8hms19mxFdrc3MTCwsL7HHVJKBcLiOZTGJ8fBxtbW0skNzOFn+zs7MDs9mMgYEBBAIB+TsCQtmj0SgbK7fbLZHLTYDK7nK5JGMaGRlBKpWqrQqpVIplYDKZcHp6KutmMXvqmaGhIUkA7Qe+Z2QJKJVKWFtbY49gbm5OViOJBNfX11Cr1ZIASoSmp6ZJAIBEIgGDwQCr1YqLiwvZVcjlckw0fezo6MDq6mrtowiANY7f74dSqcTS0tJfg/Bj6fP5mICJiQnmlnV7wfHxMXQ6HWw2GyvtZ0F44ng8zpyRGo/WMi2rusgJdBPNPRlQb28vIpHIh2DiexpbItNoNLBYLDg6OmKNKK7kbwkg7O/vo6+vD1NTU0in0xBB2YXDYWkLknfQd2LD1k3MgwLQM6RDB5kKZXp/f4/5+Xl0dXXB4/Hg6uqK9Qv5R0NIeYgBafOpVCp28qG1S519d3cnHUAbTsyDAj8+PmJ2dpadeqkCvDU3jViESPL6+tpaYh4fWH/qr5fiP/5F/AKPx0f6ND67AgAAAABJRU5ErkJggg==",
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAPoAAAD6AG1e1JrAAADD0lEQVR4nNVXS0hqURTVzAiiaGAEUdCgBoJDC2xeUqMoaFJIRDholI0i+gxKiIQGQmCjJIIGNYuIoEEJIkg/kiSogUbSTytCs7Jcj7259/J8r152/cRbcOHe6z17rbPOPvtsFYpvAAIUPwX8gbyTPz094eLiAg8PD/kVAQDJZBKbm5uoqqrC6OgoDg4OkEgk8iMEAK6vr2EymYiIr4aGBvj9fhaWUwEQEI1G0dfXh4KCAklEe3s7YrFYfhx4fHyE3W5HXV2dJKCiogLPz88py5CTJYGQA2R5d3c31Go1C6itrUUkEkkhzMlOgQCa7dHREcxmMwsoLi7G6+tryuzf39/Zrbu7Oyk/si7E7XajpqYGXq/3L+tDoRCsViuGh4exurrKQrImAkIuTE5OYmho6MO1DwQCaG1tZYdKS0uxuLiYnUQFgLe3N+zt7XFw2hUfrf3u7i6qq6v5m8LCQjQ1NeHk5CQzFyCAaoHBYMDW1taHwegdVcmOjg5pp9B1eHiYuYBoNIq5uTn09PR8Gkx8Pz09LZGrVCosLS3JFwAhs30+H2+/cDj8aSCR5ObmBvPz8ygvL2cRwWBQPjmBSNva2rCyssLP6YyhZO3q6oLRaJS/EwAgHo9jeXkZzc3NaQehb+7v79n+s7MzdlAWOeH4+BhlZWU4Pz/n53TH9ff3w+FwSKX6W+QEGkTWUdJRoHSD0Hc7OztobGyU3zdA2PN0/iuVSthsNlxdXX0ZTGxa6JbOjYysTyQSWFtbg06n44o2MDAAl8v1zyaE3o2MjHApptyRZT1BJHh5eYHH44HFYuGqptfrMTExIeXD7wR0v7+/j/r6eumElC1AhBjk8vISCwsLXAWLiorQ29uLjY0NaZaiY5WVlXxA0fJlTC5CJKBjl/rA8fFxlJSUQKvVYmxsDKenp/z77OwsBgcHc9chQcDt7S2cTidaWlq4Pevs7MTU1BTPnpzKivWfQQxO2U1ZPjMzA41Gw1m/vr6e0pzkFBBA+3x7e5vrBFW+nM7+q/zIO7kIifkn/zMSflyA4n/FL4O5PvTxktYkAAAAAElFTkSuQmCC"
     ];
-    const MUSICAL_CURSORS = MUSICAL_FRAMES.map((frame) => 'url("' + frame + '") , default');
-    let musicalFrame = 0;
-    let musicalTimer = 0;
+    const MUSICAL_FRAME_MS = 100; // the .ani's original 10 fps
+
+    // Decode the frames once up front so every overlay swap is instant.
+    MUSICAL_FRAMES.forEach((frame) => {
+      const image = new Image();
+      image.src = frame;
+    });
+
+    const musicalOverlay = document.createElement('img');
+    musicalOverlay.className = 'musical-cursor';
+    musicalOverlay.alt = '';
+    musicalOverlay.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(musicalOverlay);
+
+    let musicalRaf = 0;
+    let musicalFrame = -1;
+    let musicalStartAt = 0;
+    let pointerX = 0;
+    let pointerY = 0;
+    let pointerInside = false;
+
+    const notePointer = (event) => {
+      pointerX = event.clientX;
+      pointerY = event.clientY;
+      pointerInside = true;
+    };
+
+    window.addEventListener('pointermove', notePointer, { passive: true });
+    document.documentElement.addEventListener('pointerenter', notePointer);
+    document.documentElement.addEventListener('pointerleave', () => {
+      pointerInside = false;
+    });
+
+    const stepMusicalCursor = (now) => {
+      musicalRaf = window.requestAnimationFrame(stepMusicalCursor);
+      const frame = Math.floor((now - musicalStartAt) / MUSICAL_FRAME_MS) % MUSICAL_FRAMES.length;
+      if (frame !== musicalFrame) {
+        musicalFrame = frame;
+        musicalOverlay.src = MUSICAL_FRAMES[frame];
+      }
+      musicalOverlay.style.transform = 'translate(' + pointerX + 'px, ' + pointerY + 'px)';
+      musicalOverlay.style.visibility = pointerInside ? 'visible' : 'hidden';
+    };
 
     let audio = null;
     let playing = false;
@@ -84,19 +130,22 @@
 
     const setSinging = (on) => {
       if (on) {
-        if (musicalTimer) {
-          return;
+        if (!musicalRaf) {
+          // Cursors render at one image pixel per device pixel, so match
+          // that here (32 device px) regardless of the display's scale.
+          const size = Math.round(32 / Math.max(window.devicePixelRatio || 1, 1));
+          musicalOverlay.style.width = size + 'px';
+          musicalOverlay.style.height = size + 'px';
+          musicalFrame = 0;
+          musicalStartAt = window.performance.now();
+          musicalOverlay.src = MUSICAL_FRAMES[0];
+          musicalOverlay.style.transform = 'translate(' + pointerX + 'px, ' + pointerY + 'px)';
+          musicalOverlay.style.visibility = pointerInside ? 'visible' : 'hidden';
+          musicalRaf = window.requestAnimationFrame(stepMusicalCursor);
         }
-        musicalFrame = 0;
-        document.documentElement.style.setProperty('--cursor-musical-frame', MUSICAL_CURSORS[0]);
-        musicalTimer = window.setInterval(() => {
-          musicalFrame = (musicalFrame + 1) % MUSICAL_CURSORS.length;
-          document.documentElement.style.setProperty('--cursor-musical-frame', MUSICAL_CURSORS[musicalFrame]);
-        }, 100);
-      } else if (musicalTimer) {
-        window.clearInterval(musicalTimer);
-        musicalTimer = 0;
-        document.documentElement.style.removeProperty('--cursor-musical-frame');
+      } else if (musicalRaf) {
+        window.cancelAnimationFrame(musicalRaf);
+        musicalRaf = 0;
       }
       document.documentElement.classList.toggle('is-musical', on);
       excursionTrigger.classList.toggle('is-singing', on);
