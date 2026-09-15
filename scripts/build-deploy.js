@@ -23,8 +23,7 @@ const ROOT_ENTRIES = [
   'favicon-happy.svg',
   'favicon-happy.ico',
   'favicon-sad.svg',
-  'favicon-sad.ico',
-  'blogs'
+  'favicon-sad.ico'
 ];
 
 function relPath(filePath) {
@@ -43,8 +42,6 @@ const EXCLUDED_FILES = new Set([
 function filterCopy(sourcePath) {
   const relativePath = path.relative(ROOT, sourcePath).split(path.sep).join('/');
   return path.basename(sourcePath) !== '.DS_Store'
-    && relativePath !== 'blogs/.obsidian'
-    && !relativePath.startsWith('blogs/.obsidian/')
     && !EXCLUDED_FILES.has(relativePath);
 }
 
@@ -87,11 +84,6 @@ function bytesToMB(bytes) {
 
 function main() {
   console.log('Build Deploy Script');
-  // Generate blog manifest from .md files
-  const buildBlogManifestPath = path.join(__dirname, 'build-blog-manifest.js');
-  if (fs.existsSync(buildBlogManifestPath)) {
-    require(buildBlogManifestPath);
-  }
   console.log('='.repeat(60));
 
   assertExists(path.join(ASSET_PHOTOS_DIR, 'photos.json'));

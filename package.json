@@ -8,7 +8,6 @@
   },
   "scripts": {
     "setup": "bash scripts/setup.sh",
-    "build:blog": "node scripts/build-blog-manifest.js",
     "optimize-images": "node scripts/optimize-images.js",
     "build:deploy": "node scripts/build-deploy.js",
     "utilities:build": "vite build --config config/vite.utilities.mts",
@@ -23,13 +22,12 @@
     "format:check": "node scripts/format.js --check",
     "check-links": "node scripts/check-links.js",
     "mobile:check": "node scripts/mobile-site-check.js",
-    "blog:check": "node scripts/blog-check.js",
     "gallery:shots": "node scripts/gallery-playwright.js",
     "gallery:check": "node scripts/gallery-dropdown-check.js",
     "nav:check": "node scripts/nav-overlay-check.js",
     "home:check": "node scripts/home-check.js",
     "smoke": "node scripts/smoke.js",
-    "quality": "npm run lint && npm run format:check && npm run check-links && npm run smoke && npm run blog:check",
+    "quality": "npm run lint && npm run format:check && npm run check-links && npm run smoke",
     "quality:full": "npm run quality && npm run utilities:check",
     "build:art": "node scripts/build-nighthawks-art.js"
   },

@@ -12,7 +12,6 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `mobile/gallery/index.html`: dedicated mobile photo grid and touch lightbox.
 - `pages/resume/index.html`: resume page using the shared site shell.
 - `pages/gallery/index.html`: editorial photo gallery powered by JSON metadata in `assets/photos/`.
-- `pages/blog/index.html`: retained markdown blog, currently disabled by `BLOG_ENABLED = false` in `js/blog.js`; visitors redirect home. Its post renderer uses hash routing (`#post=<slug>`) when enabled.
 - `pages/utilities/index.html`: utilities dashboard entrypoint.
 
 ## Homepage artwork
@@ -39,9 +38,6 @@ Project order follows the current selection: Encoding_Database, BetterVMAF, Keir
 - `js/mobile-gate.js`: redirects phone-sized visitors away from desktop-only pages into `/mobile/`, unless `?full=1` is present.
 - `js/year.js`: footer year updates and color-mode toggle handling.
 - `js/gallery.js`: metadata-driven gallery rendering and lightbox behavior.
-- `js/blog.js`: blog SPA engine — fetches `blogs/manifest.json`, parses markdown via `marked`, hash routes posts, builds sidebar.
-- `js/blog-code-highlight.js`: Prism-based code highlighting for blog posts (exports `window.highlightBlogCode()`).
-- `js/blog-math.js`: KaTeX math rendering for blog posts (exports `window.renderBlogMath()`).
 - `js/iridescence-bg.js`: active Utilities WebGL background.
 - `js/mobile-gallery.js`: dedicated mobile gallery and touch lightbox.
 - `js/utilities-shell.js`: tabbed utilities dashboard shell (routing between utility panels).
@@ -70,7 +66,7 @@ Home, Resume, and Gallery use inline navigation; Utilities has Home and Back con
 - `css/home.css`: shared Nighthawks hero and introduction for desktop and dedicated mobile Home.
 - `css/schematic.css`: landing page schematic mode styles (scoped to `body.schematic-mode`).
 - `css/mobile.css`: dedicated mobile-site styles for `/mobile/` only.
-- `css/gallery.css`, `css/mobile-gallery.css`, `css/resume.css`, `css/utilities.css`, `css/blog.css`: page-family styles.
+- `css/gallery.css`, `css/mobile-gallery.css`, `css/resume.css`, `css/utilities.css`: page-family styles.
 - `css/cursor.css`: shared cursor presentation.
 - `css/local-llm-chat.css`: Local LLM chat UI styles.
 

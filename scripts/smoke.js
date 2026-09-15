@@ -15,7 +15,6 @@ const REQUIRED_PAGES = [
   'index.html',
   'pages/resume/index.html',
   'pages/gallery/index.html',
-  'pages/blog/index.html',
   'mobile/index.html',
   'mobile/resume/index.html',
   'mobile/gallery/index.html',
@@ -241,7 +240,7 @@ function validateDeployOutput() {
     'assets/utilities/vm/flwm_topside.tcz',
     'assets/utilities/vm/flwm_topside.tcz.md5.txt',
     'assets/photos/descriptions.md',
-    'blogs/.obsidian',
+    'blogs',
     'pages/archive',
     'css/darkroom',
     'js/darkroom'

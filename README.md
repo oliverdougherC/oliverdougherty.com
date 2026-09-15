@@ -6,7 +6,7 @@ Static portfolio site for me (Oliver Dougherty, duh).
 
 - `index.html` — Landing page and main navigation hub
 - `mobile/` — Dedicated mobile site (Home, Resume, and Gallery)
-- `pages/` — Routed desktop pages: resume, gallery, utilities, and disabled blog
+- `pages/` — Routed desktop pages: resume, gallery, and utilities
 - `js/` — Shared browser scripts (navigation, gallery, page effects, mobile gate, etc.)
 - `css/` — Design system tokens + page-specific stylesheets
 - `assets/` — Static media, gallery photos, utilities assets (demo images, audio, VM ISO)
@@ -75,7 +75,7 @@ npm run optimize-images
 - `npm run format` / `format:check` — Text normalization (line endings, trailing whitespace, EOF newline)
 - `npm run check-links` — Local href/src link validation across all HTML files
 - `npm run smoke` — Structural checks: critical routes, gallery data, utilities bundle
-- `npm run quality` — Lint + format check + link check + smoke + blog check
+- `npm run quality` — Lint + format check + link check + smoke
 - `npm run quality:full` — Site quality + utilities typecheck and unit tests
 
 ### Utilities
@@ -99,8 +99,6 @@ Local Assistant and Virtual Machine are retained but hidden and excluded from th
 - `npm run home:check` — Nighthawks artwork and introduction on both homepages, from 320px phones through 2560px desktops, including short landscape, resize, 200% CSS zoom and zoom-equivalent layout, exact character content, font/color-map failure fallbacks, no-JavaScript, reduced motion, absence of painting downloads during text rendering, four selected projects, sticky navigation, and readable project stories, responsive text columns, and keyboard/touch contact interactions. Set `HOME_CHECK_BROWSERS=chromium,firefox,webkit` to exercise all three engines. Screenshots go to `output/playwright/home-check/`.
 - `npm run mobile:check` — Mobile Home/Resume/Gallery across 3 phone viewports + redirect gate
 - `npm run nav:check` — Inline desktop and mobile navigation regression
-
-The blog is deliberately disabled and redirects visitors home. `npm run blog:check` verifies this; after intentionally enabling the blog, `BLOG_CHECK_ENABLED=1 npm run blog:check` verifies article code-block layout.
 
 ## Source-of-truth rules
 

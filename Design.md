@@ -39,7 +39,7 @@ Keep functional utility interiors intact when adjusting their presentation.
 
 The mobile site has separate Home, Resume, and Gallery pages styled by `css/mobile.css`
 and `css/mobile-gallery.css`. Maintain these until a responsive consolidation is explicitly
-agreed. The blog remains disabled pending its own review.
+agreed.
 
 ## Working rules
 
