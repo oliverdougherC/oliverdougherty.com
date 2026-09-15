@@ -12,7 +12,6 @@
   --cursor-ns: url("../assets/professional/Vertical Resize.cur");
   --cursor-nwse: url("../assets/professional/Diagonal Resize 1.cur");
   --cursor-nesw: url("../assets/professional/Diagonal Resize 2.cur");
-  --cursor-musical: url("../assets/professional/Musical Cursor Busy.gif");
 }
 
 html,
@@ -95,11 +94,15 @@ textarea,
   cursor: var(--cursor-busy), wait !important;
 }
 
-  /* The excursions easter egg: while the excerpt is actually playing, the
-     pointer over the trigger becomes the animated musical cursor. */
-  .excursion-trigger.is-singing {
-    cursor: var(--cursor-musical), default !important;
-  }
+/* The excursions easter egg: while the excerpt is playing, the whole cursor
+   becomes the animated musical one. Browsers never animate cursor images —
+   a GIF or .ani sits on frame one — so home-interactions.js steps the
+   --cursor-musical-frame variable ten times a second (the .ani's original
+   rate) across eleven baked-in 32×32 frames. */
+html.is-musical,
+html.is-musical * {
+  cursor: var(--cursor-musical-frame) !important;
+}
 
 [draggable='true'] {
   cursor: var(--cursor-move), move !important;
