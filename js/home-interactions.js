@@ -62,6 +62,10 @@
     let volume = 0;
     let fadeToken = 0;
 
+    const setSinging = (on) => {
+      excursionTrigger.classList.toggle('is-singing', on);
+    };
+
     const ensureAudio = () => {
       if (!audio) {
         audio = new Audio(excursionTrigger.dataset.audio);
@@ -71,6 +75,7 @@
           playing = false;
           volume = 0;
           audio.volume = 0;
+          setSinging(false);
         });
       }
       return audio;
@@ -109,6 +114,7 @@
         .play()
         .then(() => {
           if (token === fadeToken && playing) {
+            setSinging(true);
             window.requestAnimationFrame(tick);
           }
         })
@@ -142,6 +148,7 @@
           source.currentTime = 0;
           volume = 0;
           source.volume = 0;
+          setSinging(false);
         }
       };
       window.requestAnimationFrame(fadeDown);

@@ -12,6 +12,7 @@
   --cursor-ns: url("../assets/professional/Vertical Resize.cur");
   --cursor-nwse: url("../assets/professional/Diagonal Resize 1.cur");
   --cursor-nesw: url("../assets/professional/Diagonal Resize 2.cur");
+  --cursor-musical: url("../assets/professional/Musical Cursor Busy.ani");
 }
 
 html,
@@ -93,6 +94,12 @@ textarea,
 .is-loading {
   cursor: var(--cursor-busy), wait !important;
 }
+
+  /* The excursions easter egg: while the excerpt is actually playing, the
+     pointer over the trigger becomes the animated musical cursor. */
+  .excursion-trigger.is-singing {
+    cursor: var(--cursor-musical), default !important;
+  }
 
 [draggable='true'] {
   cursor: var(--cursor-move), move !important;
