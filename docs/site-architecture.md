@@ -29,11 +29,11 @@ Desktop and mobile Home share a sticky `.home-header`, the Nighthawks artwork, p
 
 Project order follows the current selection: Encoding_Database, BetterVMAF, Keiri, and Lyra. Each `.project-entry` has one title, one `.project-blurb`, one `.project-link` to its repository, and one noninteractive `.project-art` animation. Copy combines documented project behavior with personal stories supplied by Oliver; do not infer anecdotes. The illustrations use native HTML, character art, and SVG; there are no project screenshot assets.
 
-`js/home-interactions.js` handles the copy-email action; both homepages also load `js/main.js` for the shared OSU interaction. The four project entries are static prose in both homepages: name, hook, paragraph, and repository link. Shared `css/home.css` provides the responsive two-column reading layout. No project animation runtime or artwork build is required. The email remains a usable `mailto:` link if scripting or clipboard access is unavailable.
+`js/home-interactions.js` handles the copy-email action on both homepages and, on the desktop home, the “excursions” hover easter egg: hovering the word plays `assets/audio/2000-excursion-excerpt.mp3` once, fading in on mouseenter, fading out on mouseleave, and dissolving into silence at the file’s end. Both homepages also load `js/main.js` for the shared OSU interaction. The four project entries are static prose in both homepages: name, hook, paragraph, and repository link. Shared `css/home.css` provides the responsive two-column reading layout. No project animation runtime or artwork build is required. The email remains a usable `mailto:` link if scripting or clipboard access is unavailable.
 
 ## Shared browser layer
 
-- `js/home-interactions.js`: shared homepage clipboard feedback.
+- `js/home-interactions.js`: shared homepage clipboard feedback; on the desktop home, the “excursions” hover audio easter egg.
 - `js/nighthawks.js`: homepage text artwork initialization, font/color-map readiness, responsive grid fitting, and image fallback.
 - `js/main.js`: shared navigation helpers, reduced-motion handling, scroll animations, and smooth scrolling.
 - `js/mobile-gate.js`: redirects phone-sized visitors away from desktop-only pages into `/mobile/`, unless `?full=1` is present.
