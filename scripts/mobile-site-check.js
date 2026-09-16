@@ -104,6 +104,7 @@ async function assertMobilePages(browser) {
     assertMobileSurface(state, `${viewport.label}:resume`, '/mobile/resume');
     assert(/Oregon State University/.test(state.text), `[${viewport.label}:resume] education content missing`);
     assert(/Encoding DB/.test(state.text), `[${viewport.label}:resume] project content missing`);
+    assert(/Deloitte Technology/.test(state.text), `[${viewport.label}:resume] experience content missing`);
     await page.screenshot({
       path: path.join(OUTPUT_DIR, `${viewport.label}-resume.png`),
       fullPage: true
