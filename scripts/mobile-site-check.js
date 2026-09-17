@@ -62,7 +62,7 @@ async function collectMobilePageState(page) {
 
 function assertMobileSurface(state, label, expectedPathPart) {
   assert(state.path.includes(expectedPathPart), `[${label}] expected path to include ${expectedPathPart}, got ${state.path}`);
-  assert(state.navLinks.join('|') === 'Home|Resume|Gallery', `[${label}] mobile nav should contain Home, Resume, and Gallery`);
+  assert(state.navLinks.join('|') === 'Home|Résumé|Gallery', `[${label}] mobile nav should contain Home, Résumé, and Gallery`);
   assert(!/\bUtilities\b/.test(state.text), `[${label}] mobile page should not expose Utilities`);
   assert(!/\bArchive\b/.test(state.text), `[${label}] mobile page should not expose Archive`);
   assert(!/\bGame\b/.test(state.text), `[${label}] mobile page should not expose Game`);
@@ -106,7 +106,8 @@ async function assertMobilePages(browser) {
     state = await collectMobilePageState(page);
     assertMobileSurface(state, `${viewport.label}:resume`, '/mobile/resume');
     assert(/Oregon State University/.test(state.text), `[${viewport.label}:resume] education content missing`);
-    assert(/NatGen/.test(state.text), `[${viewport.label}:resume] project content missing`);
+    assert(/Encoding DB/.test(state.text), `[${viewport.label}:resume] project content missing`);
+    assert(/Deloitte Technology/.test(state.text), `[${viewport.label}:resume] experience content missing`);
     await page.screenshot({
       path: path.join(OUTPUT_DIR, `${viewport.label}-resume.png`),
       fullPage: true

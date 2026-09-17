@@ -58,7 +58,7 @@ Project order follows the current selection: Encoding_Database, BetterVMAF, Keir
 
 The visible Utilities routes are Image Transform, Audio Fourier, and Stress Test. Local Assistant and Virtual Machine remain implemented and bundled, but their buttons are hidden and their routes are excluded from `VALID_UTILITIES`. Image Transform uses its serial matcher inside the transform worker; there is no parallel matching worker.
 
-Home, Resume, and Gallery use inline navigation; Utilities has Home and Back controls. Mobile pages use their own three-link navigation.
+Home, Resume, and Gallery use inline navigation; Utilities has Home and Back controls. Mobile pages use their own three-link navigation. The visible Resume nav label is spelled with accents (`RÉSUMÉ` on desktop, `Résumé` on mobile) so it does not read as the pause/resume verb; route slugs, file paths, and CSS/class names stay `resume`.
 
 ## Shared styling
 
