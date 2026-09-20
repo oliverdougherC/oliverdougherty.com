@@ -1,6 +1,6 @@
 # Homepage project stories
 
-The homepage introduces Oliver’s interests in video engineering and mathematics through four projects: Encoding DataBase, Better VMAF, Keiri, and Lyra.
+The homepage introduces Oliver’s interests in video engineering and mathematics through four projects: Encoding Database, Better VMAF, Keiri, and Lyra.
 
 ## Editing the writing
 
@@ -17,7 +17,7 @@ Personal anecdotes must come from Oliver. Keep both homepages in sync when editi
 
 Four full-width entries, separated by thin rules. Project names occupy a narrower left column; hooks, prose, and links occupy the right column. At phone widths each title sits above its writing. Rows grow naturally with the content. Styles live in `css/home.css`.
 
-The Encoding DataBase title wraps its E, D, and B initials in `span.project-title-accent`, which paints them in `--home-orange` so the three letters read as the EDB / Encoding DB abbreviation. Keep the casing (`Encoding DataBase`) and the spans together when editing that heading.
+The Encoding Database title renders as plain heading text — the old orange `span.project-title-accent` initials and `DataBase` casing were retired, so keep the heading plain when editing it.
 
 The project animations are retired and no longer loaded. Their old source files remain available as reference; the old artwork generators are not part of the current authoring workflow, and the `build:project-art` npm command has been removed.
 

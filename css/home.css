@@ -21,8 +21,7 @@
 .page-home .nighthawks-hero { padding-block: clamp(16px, 1.7vw, 32px); }
 .page-home .nighthawks-figure { margin-block: 0; }
 
-.nighthawks-hero a:focus-visible { outline: 2px solid var(--home-orange); outline-offset: 5px; }
-
+/* The artwork is interactive-free: nothing behind the characters to click into. */
 .nighthawks-figure {
   /* The painting fills the stage, with a ceiling for very large displays. */
   width: min(100%, 1880px, calc(clamp(320px, 88svh, 1026px) * 1.83262));
@@ -31,7 +30,6 @@
   container-type: inline-size;
 }
 
-.nighthawks-art-link,
 .nighthawks-figure picture { display: block; }
 
 #nighthawksArtwork {
@@ -126,8 +124,6 @@
 .project-list { display: block; }
 .project-entry { min-width: 0; display: grid; grid-template-columns: .75fr 1.25fr; gap: clamp(32px,6vw,100px); align-items: baseline; padding: clamp(36px,5vw,64px) 0; border-top: 1px solid #000; }
 .home-work h3 { margin: 0; font: 800 50px/1.15 'JetBrains Mono',monospace; letter-spacing: -.045em; overflow-wrap: anywhere; }
-/* Edged initials in the Encoding DataBase title read as the EDB / Encoding DB abbreviation. */
-.home-work h3 .project-title-accent { color: var(--home-orange); }
 .project-copy { min-width: 0; max-width: 58ch; }
 .project-entry .project-hook { margin: 0 0 22px; color: #000; font: 400 clamp(21px,2.1vw,28px)/1.4 'JetBrains Mono',monospace; letter-spacing: -.045em; text-wrap: pretty; }
 .project-entry .project-blurb { margin: 0 0 1em; font: 400 16px/1.85 'JetBrains Mono',monospace; color: #444; overflow-wrap: anywhere; }
