@@ -12,7 +12,7 @@ The site is a static, hand-authored HTML/CSS/JS project. There is no templating 
 - `mobile/gallery/index.html`: dedicated mobile photo grid and touch lightbox.
 - `pages/resume/index.html`: resume page using the shared site shell.
 - `pages/gallery/index.html`: editorial photo gallery powered by JSON metadata in `assets/photos/`.
-- `pages/utilities/index.html`: utilities dashboard entrypoint.
+- `pages/utilities/index.html`: desktop utilities workbench entrypoint.
 
 ## Homepage artwork
 
@@ -38,27 +38,21 @@ Project order follows the current selection: Encoding_Database, BetterVMAF, Keir
 - `js/mobile-gate.js`: redirects phone-sized visitors away from desktop-only pages into `/mobile/`, unless `?full=1` is present.
 - `js/year.js`: footer year updates and color-mode toggle handling.
 - `js/gallery.js`: metadata-driven gallery rendering and lightbox behavior.
-- `js/iridescence-bg.js`: active Utilities WebGL background.
 - `js/mobile-gallery.js`: dedicated mobile gallery and touch lightbox.
-- `js/utilities-shell.js`: tabbed utilities dashboard shell (routing between utility panels).
-- `js/local-llm-chat.js`: Local LLM chat UI controller.
-- `js/local-llm-config.js`: Local LLM configuration (models, endpoints, worker settings).
-- `js/local-llm-worker.js`: Web Worker for Local LLM inference.
-- `js/local-llm-mock-worker.js`: Mock worker for Local LLM testing.
-- `js/local-llm-cache.js`: Local LLM response caching layer.
-- `js/local-llm-rendering.js`: Local LLM message rendering utilities.
+- `js/utilities-shell.js`: index/workspace hash routing, workspace headings and switcher, keyboard focus, and utility activation/deactivation events.
 - `js/page-animations.js`: Shared page transition and entrance animations.
 - `js/favicon-swap.js`: Dynamic favicon state switching.
 - `js/resume-typing.js`: Resume page typing animation effects.
-- `js/utilities-title-reveal.js`: Utilities page title reveal animation.
 - `utilities-src/src/main.ts`: editable utilities page controller and DOM orchestration.
 - `utilities-src/src/transformCore.ts`: utilities matching pipeline and donor assignment logic.
 - `utilities-src/src/workerRuntime.ts`: shared worker/main-thread execution runtime for utilities transforms.
 - `pages/utilities/assets/*`: generated utilities app bundle, including nested worker chunks under `pages/utilities/assets/assets/`.
 
-The visible Utilities routes are Image Transform, Audio Fourier, and Stress Test. Local Assistant and Virtual Machine remain implemented and bundled, but their buttons are hidden and their routes are excluded from `VALID_UTILITIES`. Image Transform uses its serial matcher inside the transform worker; there is no parallel matching worker.
+The visible Utilities routes are Image Transform (`image-transform`), Fourier Reconstruction (`audio-fourier`), and Stress Test (`stress-test`). With no active route, the numbered name-only index is shown. The shell reads each stage's `data-utility-title` and `data-utility-number` for the shared workspace heading. An explicit route allowlist keeps hidden or unknown hashes out of the workspaces. `utility-activate` and `utility-deactivate` events originate at each inner utility root and bubble through its stage to the document; `utilities-src/src/main.ts` initializes each controller once and shares pending initialization promises. Controllers stop or pause active work on deactivation. Active Utilities views use a viewport-sized CSS grid/flex layout with no document or internal scrolling. A compact command bar combines the index action, title and switcher; tool-specific layouts reserve room for controls/status and allocate remaining height to the output.
 
-Home, Resume, and Gallery use inline navigation; Utilities has Home and Back controls. Mobile pages use their own three-link navigation. The visible Resume nav label is spelled with accents (`RÉSUMÉ` on desktop, `Résumé` on mobile) so it does not read as the pause/resume verb; route slugs, file paths, and CSS/class names stay `resume`.
+Virtual Machine source, markup, build inputs, generated runtime, assets and tests remain preserved, but its route stays unavailable. Local Assistant source, stylesheet and dedicated tests are retired. Image Transform uses its serial matcher inside the transform worker; there is no parallel matching worker. See [Adding a utility](utilities/adding-a-utility.md) for the extension contract.
+
+Desktop pages use inline site navigation; Utilities also has an index return action and workspace switcher. Mobile pages use their own three-link navigation. The visible Resume nav label is spelled with accents (`RÉSUMÉ` on desktop, `Résumé` on mobile) so it does not read as the pause/resume verb; route slugs, file paths, and CSS/class names stay `resume`.
 
 ## Shared styling
 
@@ -68,7 +62,6 @@ Home, Resume, and Gallery use inline navigation; Utilities has Home and Back con
 - `css/mobile.css`: dedicated mobile-site styles for `/mobile/` only.
 - `css/gallery.css`, `css/mobile-gallery.css`, `css/resume.css`, `css/utilities.css`: page-family styles.
 - `css/cursor.css`: shared cursor presentation.
-- `css/local-llm-chat.css`: Local LLM chat UI styles.
 
 ## Verification scripts
 

@@ -19,7 +19,6 @@
   },
   "include": [
     "../utilities-src/src/**/*.ts",
-    "../js/local-llm-rendering.js",
     "../utilities-src/tests/**/*.ts",
     "./vite.utilities.mts",
     "./vitest.utilities.mts"

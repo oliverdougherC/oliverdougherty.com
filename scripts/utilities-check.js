@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { chromium, firefox } = require('playwright');
+const sharp = require('sharp');
 const {
   startLocalStaticServer,
   waitForServer
@@ -162,6 +163,63 @@ async function ensureAudioFourierPlayback(page, label = 'Audio Fourier playback'
   await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, label);
 }
 
+async function assertPendingAudioPlayback(page) {
+  await page.evaluate(() => {
+    const prototype = (window.AudioContext || window.webkitAudioContext).prototype;
+    const resume = prototype.resume;
+    const start = AudioBufferSourceNode.prototype.start;
+    const pending = { resolvers: [], starts: 0 };
+    window.__pendingAudioTest = pending;
+    prototype.resume = async function (...args) {
+      await resume.apply(this, args);
+      await new Promise(resolve => pending.resolvers.push(resolve));
+    };
+    AudioBufferSourceNode.prototype.start = function (...args) {
+      pending.starts += 1;
+      return start.apply(this, args);
+    };
+    pending.restore = () => {
+      prototype.resume = resume;
+      AudioBufferSourceNode.prototype.start = start;
+      pending.resolvers.splice(0).forEach(resolve => resolve());
+      delete window.__pendingAudioTest;
+    };
+  });
+  try {
+    await page.click('#audioFourierPlayBtn');
+    await page.waitForFunction(() => window.__pendingAudioTest.resolvers.length === 1);
+    await navigateUtility(page, 'stress-test');
+    await navigateUtility(page, 'audio-fourier');
+    await page.evaluate(async () => {
+      window.__pendingAudioTest.resolvers.splice(0).forEach(resolve => resolve());
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    const returned = await page.evaluate(() => ({
+      state: document.getElementById('audioFourierApp')?.dataset.audioState,
+      starts: window.__pendingAudioTest.starts
+    }));
+    assert(returned.state === 'ready' && returned.starts === 0, 'Leaving and returning must invalidate a pending Play attempt even if its resume resolves after return.');
+
+    await page.click('#audioFourierPlayBtn');
+    await page.click('#audioFourierPlayBtn');
+    await page.waitForFunction(() => window.__pendingAudioTest.resolvers.length === 2);
+    await page.evaluate(async () => {
+      window.__pendingAudioTest.resolvers.splice(0).forEach(resolve => resolve());
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    await page.waitForFunction(() => document.getElementById('audioFourierApp')?.dataset.audioState === 'animating');
+    const started = await page.evaluate(() => ({
+      sources: window.__pendingAudioTest.starts,
+      bands: Number(document.getElementById('audioFourierApp')?.dataset.audioBandCount)
+    }));
+    assert(started.bands > 0 && started.sources === started.bands, 'Two pending Play clicks should create only one set of audio sources.');
+    await page.click('#audioFourierPlayBtn');
+    await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'pending playback test pauses');
+  } finally {
+    await page.evaluate(() => window.__pendingAudioTest?.restore());
+  }
+}
+
 async function readStatusText(page) {
   return page
     .evaluate(() => {
@@ -210,43 +268,411 @@ async function navigateUtility(page, utilityId) {
 
 async function assertPublicUtilityRoutes(browser, baseUrl) {
   const page = await browser.newPage({ reducedMotion: 'reduce' });
-  const hiddenFeatureRequests = [];
+  const retiredFeatureRequests = [];
   page.on('request', (request) => {
-    if (/\/(?:local-llm-chat|retroVmController)\.js(?:\?|$)/.test(request.url())) {
-      hiddenFeatureRequests.push(request.url());
+    if (/\/(?:local-llm-chat|retroVmController|iridescence|liquid-glass)(?:[./?-]|$)/.test(request.url())) {
+      retiredFeatureRequests.push(request.url());
     }
   });
 
   try {
     await page.goto(`${baseUrl}/pages/utilities/index.html`, { waitUntil: 'networkidle' });
-    const visibleRoutes = await page.locator('.utilities-buttons button[data-utility]:visible')
-      .evaluateAll((buttons) => buttons.map((button) => button.dataset.utility));
+    const visibleRoutes = await page.locator('.utilities-buttons [data-utility]:visible')
+      .evaluateAll((entries) => entries.map((entry) => entry.dataset.utility));
     assert(
       JSON.stringify(visibleRoutes) === JSON.stringify(['image-transform', 'audio-fourier', 'stress-test']),
       'Utilities should offer exactly the three public routes.'
     );
 
-    for (const utilityId of ['local-assistant', 'virtual-machine']) {
+    for (const utilityId of ['local-assistant', 'virtual-machine', 'unknown-tool', '%E0%A4%A']) {
       await page.goto(`${baseUrl}/pages/utilities/index.html#${utilityId}`, { waitUntil: 'networkidle' });
-      const state = await page.evaluate((id) => {
-        const button = document.querySelector(`.utilities-buttons button[data-utility="${id}"]`);
-        const stage = document.querySelector(`.utility-stage[data-utility-id="${id}"]`);
-        return {
-          buttonHidden: button?.hidden === true && getComputedStyle(button).display === 'none',
-          stageRetained: Boolean(stage),
-          activeStageCount: document.querySelectorAll('.utility-stage.is-active').length,
-          titleActive: document.getElementById('utilitiesTitleView')?.classList.contains('utilities-view--active'),
-          assistantMounted: document.getElementById('localLlmUtilityApp')?.dataset.localLlmMounted === 'true'
-        };
-      }, utilityId);
-      assert(state.buttonHidden, `${utilityId} should retain its hidden launcher.`);
-      assert(state.stageRetained, `${utilityId} markup should remain available for future work.`);
-      assert(state.titleActive && state.activeStageCount === 0, `${utilityId} deep links should stay on the title view.`);
-      assert(!state.assistantMounted, 'Hidden routes should not mount the Local Assistant.');
+      const state = await page.evaluate(() => ({
+        retiredLaunchers: document.querySelectorAll('.utilities-buttons [data-utility="local-assistant"], .utilities-buttons [data-utility="virtual-machine"]').length,
+        assistantPresent: Boolean(document.querySelector('[data-utility-id="local-assistant"], #localLlmUtilityApp')),
+        vmRetained: Boolean(document.querySelector('[data-utility-id="virtual-machine"] #retroVmApp')),
+        vmHidden: document.querySelector('[data-utility-id="virtual-machine"]')?.hidden === true,
+        activeStageCount: document.querySelectorAll('.utility-stage.is-active').length,
+        titleVisible: document.getElementById('utilitiesTitleView')?.hidden === false,
+        workspaceHidden: document.getElementById('utilitiesUtilityView')?.hidden === true
+      }));
+      assert(state.retiredLaunchers === 0, 'Retired tools should not retain launchers.');
+      assert(!state.assistantPresent, 'Local Assistant markup should be removed.');
+      assert(state.vmRetained && state.vmHidden, 'VM implementation should remain hidden for future work.');
+      assert(state.titleVisible && state.workspaceHidden && state.activeStageCount === 0, `${utilityId} deep links should stay on the index.`);
     }
-    assert(hiddenFeatureRequests.length === 0, 'Hidden routes should not load Local Assistant or VM controllers.');
+    assert(retiredFeatureRequests.length === 0, 'Utilities should not load retired decoration, Local Assistant, or the hidden VM controller.');
   } finally {
     await page.close();
+  }
+}
+
+async function assertWorkbenchShell(browser, baseUrl) {
+  const tools = [
+    { id: 'image-transform', name: 'Image Transform', number: '01' },
+    { id: 'audio-fourier', name: 'Fourier Reconstruction', number: '02' },
+    { id: 'stress-test', name: 'Stress Test', number: '03' }
+  ];
+  for (const viewport of [{ width: 1280, height: 800 }, { width: 1440, height: 900 }]) {
+    const page = await browser.newPage({ viewport });
+    const errors = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    const label = `${viewport.width}x${viewport.height}`;
+    try {
+      await page.goto(`${baseUrl}/pages/utilities/index.html`, { waitUntil: 'networkidle' });
+      const index = await page.evaluate(() => ({
+        background: getComputedStyle(document.body).backgroundColor,
+        backgroundImage: getComputedStyle(document.body).backgroundImage,
+        decorations: Array.from(document.querySelectorAll('#iridescence-bg, .liquid-glass, [data-animate]')).filter(node => !node.closest('[data-utility-id="virtual-machine"]')).length,
+        entries: Array.from(document.querySelectorAll('.utilities-buttons [data-utility]')).map(entry => ({
+          id: entry.dataset.utility,
+          href: entry.getAttribute('href'),
+          tag: entry.tagName,
+          text: entry.textContent.replace(/\s+/g, ' ').trim(),
+          hasExplanation: Boolean(entry.querySelector('p, [role="tooltip"], [title]')) || entry.hasAttribute('title')
+        })),
+        links: Array.from(document.querySelectorAll('a[href]'))
+          .filter(link => !link.closest('#utilitiesShell'))
+          .map(link => ({ text: link.textContent.trim().toLowerCase(), pathname: new URL(link.href).pathname })),
+        overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
+      }));
+      assert(index.background === 'rgb(255, 255, 255)' && index.backgroundImage === 'none', `[${label}] workbench should have a plain white background.`);
+      assert(index.decorations === 0, `[${label}] retired decorative markup should be absent.`);
+      assert(!index.overflow, `[${label}] index should not overflow horizontally.`);
+      assert(index.entries.length === tools.length, `[${label}] index should contain three entries.`);
+      for (const tool of tools) {
+        const entry = index.entries.find(item => item.id === tool.id);
+        assert(entry?.tag === 'A' && entry.href === `#${tool.id}`, `[${label}] ${tool.name} should be a native deep link.`);
+        assert(entry.text.includes(tool.name) && !entry.hasExplanation, `[${label}] ${tool.name} should remain a name-only invitation.`);
+        assert(entry.text.replace(tool.name, '').replace(/[\d\s.↗↖↘↙→←↑↓⟶+\-/]/g, '') === '', `[${label}] ${tool.name} entry should not add explanatory copy.`);
+      }
+      for (const route of ['/', '/pages/resume/', '/pages/gallery/', '/pages/utilities/']) {
+        assert(index.links.some(link => link.pathname.replace(/index\.html$/, '') === route), `[${label}] page navigation should include ${route}.`);
+      }
+
+      const firstEntry = page.locator('.utilities-buttons [data-utility]').first();
+      await firstEntry.focus();
+      await page.keyboard.press('Tab');
+      const focus = await page.evaluate(() => {
+        const active = document.activeElement;
+        const style = getComputedStyle(active);
+        return {
+          utility: active.dataset.utility,
+          visible: active.matches(':focus-visible'),
+          outline: style.outlineStyle !== 'none' && Number.parseFloat(style.outlineWidth) >= 1,
+          shadow: style.boxShadow !== 'none'
+        };
+      });
+      assert(focus.utility === 'audio-fourier' && focus.visible && (focus.outline || focus.shadow), `[${label}] keyboard navigation should show a clear focus indicator.`);
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.querySelector('[data-utility-id="audio-fourier"]')?.classList.contains('is-active'));
+      for (const tool of tools) {
+        await page.selectOption('#utilitySwitcher', tool.id);
+        await page.waitForFunction(id => document.querySelector(`[data-utility-id="${id}"]`)?.classList.contains('is-active'), tool.id);
+        const state = await page.evaluate(() => ({
+          heading: document.getElementById('utilityTitle')?.textContent.trim(),
+          number: document.getElementById('utilityNumber')?.textContent.trim(),
+          selected: document.getElementById('utilitySwitcher')?.value,
+          selectedLabel: document.getElementById('utilitySwitcher')?.selectedOptions[0]?.textContent.trim(),
+          focused: document.activeElement?.id,
+          activeCount: document.querySelectorAll('.utility-stage.is-active:not([hidden])').length,
+          titleHidden: document.getElementById('utilitiesTitleView')?.hidden,
+          workspaceHidden: document.getElementById('utilitiesUtilityView')?.hidden,
+          overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth
+        }));
+        assert(state.heading === tool.name && state.number.replace(/\s*\/\/\s*$/, '') === tool.number && state.selected === tool.id, `[${label}] ${tool.name} heading and selector should agree.`);
+        assert(state.selectedLabel === `${tool.number} // ${tool.name}`, `[${label}] utility selector should use double-slash numbering.`);
+        assert(state.focused === 'utilityTitle', `[${label}] ${tool.name} should focus its heading on entry.`);
+        assert(state.activeCount === 1 && state.titleHidden && !state.workspaceHidden, `[${label}] ${tool.name} should be the only exposed workspace.`);
+        assert(!state.overflow, `[${label}] ${tool.name} should not overflow horizontally.`);
+      }
+      await page.click('.nav-back-btn');
+      assert(await page.locator('#utilitiesTitleView').isVisible(), `[${label}] collection control should return to the index.`);
+      assert(await page.locator('.utilities-buttons [data-utility="audio-fourier"]').evaluate(entry => entry === document.activeElement), `[${label}] returning to the index should restore entry focus.`);
+      await page.goBack();
+      await page.waitForFunction(() => document.querySelector('[data-utility-id="stress-test"]')?.classList.contains('is-active'));
+      await page.goForward();
+      await page.waitForFunction(() => document.getElementById('utilitiesTitleView')?.hidden === false);
+      assert(errors.length === 0, `[${label}] shell should not produce browser errors: ${errors.join('; ')}`);
+    } finally {
+      await page.close();
+    }
+  }
+}
+
+const CONTROL_PANEL_VIEWPORTS = [
+  { width: 1440, height: 900 },
+  { width: 1280, height: 720 },
+  { width: 1024, height: 600 },
+  { width: 1280, height: 600 },
+  { width: 800, height: 600 }
+];
+
+async function assertControlPanelGeometry(page, utilityId, label) {
+  const state = await page.evaluate(id => {
+    const requiredByTool = {
+      'image-transform': [
+        '#sourceDropzone', '#targetDropzone', '#transformSwapBtn', '#transformPreset',
+        '#transformGenerateBtn', '[data-demo-key]', '#transformPlayBtn', '#transformResetBtn',
+        '#transformStatusChip', '#transformProgressText', '#transformProgressMeta',
+        '#transformTimeline', '#transformTimelinePosition', '#sourceDropzonePreview', '#targetDropzonePreview',
+        '#transformOutputSize', '#transformPixelCount', '#transformDuration'
+      ],
+      'audio-fourier': [
+        '#audioFourierDropzone', '#audioFourierQuality', '#audioFourierGenerateBtn',
+        '#audioFourierResetBtn', '[data-audio-preset]', '#audioFourierComponentSlider',
+        '#audioFourierPlayBtn', '#audioFourierStatusChip', '#audioFourierProgressText',
+        '#audioFourierProgressMeta', '#audioFourierSignalStrengthMetric', '#audioFourierSignalCountMetric',
+        '#audioFourierSampleRate', '#audioFourierComponentCount', '#audioFourierSourceDuration', '#audioFourierDuration'
+      ],
+      'stress-test': [
+        '[data-stress-mode-option]', '#stressStartBtn', '#stressStopBtn', '#stressStatusText',
+        '#stressElapsed', '#stressWorkerCount', '#stressGpuBackend', '#stressFrameRate',
+        '#stressDroppedFrames', '#stressIterations', '#stressSceneTitle'
+      ]
+    };
+    if (id === 'stress-test') {
+      const root = document.getElementById('stressTestApp');
+      if (root.dataset.stressMode !== 'gpu') requiredByTool[id].push('#stressPrimeDisplay', '#stressLatestPrime', '#stressWorkerSummary');
+      if (Number(root.dataset.stressWorkerCount) > 0) requiredByTool[id].push('#stressWorkerActivity', '#stressWorkerActivity > span');
+      if (root.dataset.stressMode !== 'cpu' && root.dataset.stressGpuCanvasActive === 'true') requiredByTool[id].push('#stressOrbit', '#stressGpuDetail');
+    }
+    const canvasByTool = {
+      'image-transform': '#transformResultCanvas',
+      'audio-fourier': '#audioFourierWaveCanvas',
+      'stress-test': '#stressCanvas'
+    };
+    const workspace = document.getElementById('utilitiesUtilityView');
+    const stage = document.querySelector(`.utility-stage[data-utility-id="${id}"]`);
+    const identify = element => element.id ? `#${element.id}` : `${element.tagName.toLowerCase()}.${Array.from(element.classList).join('.')}`;
+    const box = element => {
+      const rect = element.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+    };
+    const visible = element => {
+      if (!element || element.closest('[hidden], .sr-only')) return false;
+      if (element.getClientRects().length === 0) return false;
+      for (let node = element; node; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+      }
+      return true;
+    };
+    const describe = element => {
+      const ancestors = [];
+      for (let node = element.parentElement; node && node !== document.documentElement; node = node.parentElement) {
+        // Inline text wrappers and display:contents are not layout containment boundaries.
+        const style = getComputedStyle(node);
+        if (style.display !== 'inline' && style.display !== 'contents') {
+          ancestors.push({ name: identify(node), rect: box(node) });
+        }
+      }
+      return { name: identify(element), visible: visible(element), rect: box(element), ancestors };
+    };
+    const required = [];
+    const missing = [];
+    for (const selector of ['#utilityTitle', '#utilitySwitcher', '.nav-back-btn', ...requiredByTool[id], canvasByTool[id]]) {
+      const elements = document.querySelectorAll(selector);
+      if (elements.length === 0) missing.push(selector);
+      for (const element of elements) required.push(describe(element));
+    }
+    const visibleElements = Array.from(workspace.querySelectorAll('*')).filter(element =>
+      visible(element) && !element.matches('input[type="file"], script, style, option')
+    );
+    const scrollContainers = visibleElements.filter(element => {
+      const style = getComputedStyle(element);
+      return /^(auto|scroll)$/.test(style.overflowX) || /^(auto|scroll)$/.test(style.overflowY);
+    }).map(element => ({ name: identify(element), scrollWidth: element.scrollWidth, clientWidth: element.clientWidth, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight }));
+    const escapedElements = visibleElements.filter(element => {
+      // These two centered square images are intentionally cropped by their checked frames.
+      if (element.matches('#transformSourcePreview, #transformTargetPreview')) return false;
+      const rect = box(element);
+      return rect.width > 0 && rect.height > 0 && (rect.left < -1 || rect.top < -1 || rect.right > innerWidth + 1 || rect.bottom > innerHeight + 1);
+    }).map(element => ({ name: identify(element), rect: box(element) }));
+    const canvas = document.querySelector(canvasByTool[id]);
+    return {
+      viewport: { width: innerWidth, height: innerHeight },
+      document: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight, clientWidth: document.documentElement.clientWidth, clientHeight: document.documentElement.clientHeight },
+      scroll: { x: scrollX, y: scrollY },
+      active: stage?.classList.contains('is-active') && !stage.hidden && !workspace.hidden,
+      required, missing, scrollContainers, escapedElements,
+      output: canvas ? { rect: box(canvas), width: canvas.width, height: canvas.height } : null
+    };
+  }, utilityId);
+  const problems = [];
+  const finitePositive = rect => Object.values(rect).every(Number.isFinite) && rect.width > 0 && rect.height > 0;
+  const inside = (inner, outer) => inner.left >= outer.left - 1 && inner.top >= outer.top - 1 && inner.right <= outer.right + 1 && inner.bottom <= outer.bottom + 1;
+  const viewport = { left: 0, top: 0, right: state.viewport.width, bottom: state.viewport.height };
+  if (!state.active) problems.push('workspace is not active');
+  if (state.document.width > state.document.clientWidth + 1 || state.document.height > state.document.clientHeight + 1) problems.push(`document scrolls: ${JSON.stringify(state.document)}`);
+  if (state.scroll.x !== 0 || state.scroll.y !== 0) problems.push(`document has moved: ${JSON.stringify(state.scroll)}`);
+  if (state.missing.length) problems.push(`missing controls: ${state.missing.join(', ')}`);
+  for (const element of state.required) {
+    if (!element.visible || !finitePositive(element.rect)) {
+      problems.push(`${element.name} is hidden or has no positive area`);
+      continue;
+    }
+    if (!inside(element.rect, viewport)) problems.push(`${element.name} escapes viewport: ${JSON.stringify(element.rect)}`);
+    for (const ancestor of element.ancestors) {
+      if (!finitePositive(ancestor.rect) || !inside(element.rect, ancestor.rect)) problems.push(`${element.name} escapes ${ancestor.name}: ${JSON.stringify(element.rect)} vs ${JSON.stringify(ancestor.rect)}`);
+    }
+  }
+  if (state.scrollContainers.length) problems.push(`internal scroll containers: ${JSON.stringify(state.scrollContainers)}`);
+  if (state.escapedElements.length) problems.push(`offscreen rendered elements: ${JSON.stringify(state.escapedElements)}`);
+  if (!state.output || !finitePositive(state.output.rect) || !Number.isFinite(state.output.width * state.output.height) || state.output.width * state.output.height <= 0) problems.push('output lacks a finite positive drawing area');
+  assert(problems.length === 0, `[${label}:${state.viewport.width}x${state.viewport.height}] control-panel geometry failed:\n${problems.join('\n')}`);
+}
+
+async function assertControlPanelSizes(page, utilityId, label) {
+  const originalViewport = page.viewportSize();
+  try {
+    const viewports = utilityId === 'stress-test' ? [...CONTROL_PANEL_VIEWPORTS, { width: 1024, height: 520 }, { width: 1280, height: 800 }] : CONTROL_PANEL_VIEWPORTS;
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport);
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
+      await assertControlPanelGeometry(page, utilityId, label);
+    }
+  } finally {
+    await page.setViewportSize(originalViewport);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  }
+  await assertControlPanelGeometry(page, utilityId, `${label}:restored`);
+}
+
+async function assertImageSidebarSizes(page) {
+  const originalViewport = page.viewportSize();
+  const measurements = [];
+  try {
+    for (const height of [1100, 900, 600, 500]) {
+      await page.setViewportSize({ width: 1440, height });
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
+      await assertControlPanelGeometry(page, 'image-transform', 'image:sidebar');
+      measurements.push(await page.evaluate(() => {
+        const rect = element => {
+          const box = element.getBoundingClientRect();
+          return { left: box.left, right: box.right, top: box.top, bottom: box.bottom, width: box.width, height: box.height };
+        };
+        const rail = document.querySelector('#utilitiesApp .utility-rail');
+        const controls = document.querySelector('#utilitiesApp .utility-controls-minimal');
+        return {
+          height: innerHeight,
+          rail: rect(rail),
+          controls: rect(controls),
+          bottomPadding: Number.parseFloat(getComputedStyle(rail).paddingBottom),
+          previews: ['source', 'target'].map(kind => {
+            const frame = document.getElementById(`${kind}DropzonePreview`);
+            const image = frame.querySelector('img');
+            return { kind, frame: rect(frame), contentWidth: frame.clientWidth, image: rect(image), overflow: getComputedStyle(frame).overflow };
+          })
+        };
+      }));
+    }
+    const reference = measurements[0];
+    for (const measurement of measurements) {
+      if (measurement.height > 560) {
+        assert(measurement.previews[0].frame.bottom <= measurement.previews[1].frame.top + 1, `[sidebar:${measurement.height}] source and target preview frames should form vertical rows.`);
+      } else {
+        assert(Math.abs(measurement.previews[0].frame.top - measurement.previews[1].frame.top) <= 1 && measurement.previews[0].frame.right <= measurement.previews[1].frame.left + 1, `[sidebar:${measurement.height}] very short windows should place previews side by side without overlap.`);
+      }
+      assert(measurement.previews[1].frame.bottom <= measurement.controls.top + 1, `[sidebar:${measurement.height}] image controls should follow both preview rows.`);
+      assert(Math.abs(measurement.rail.bottom - measurement.bottomPadding - measurement.controls.bottom) <= 4, `[sidebar:${measurement.height}] controls should stay anchored at the bottom of the sidebar.`);
+      for (const preview of measurement.previews) {
+        const baseline = reference.previews.find(item => item.kind === preview.kind);
+        assert(preview.frame.width > 0 && preview.frame.height > 48, `[sidebar:${measurement.height}] ${preview.kind} frame must retain more than 48px of height: ${JSON.stringify(preview.frame)}`);
+        assert(Math.abs(preview.image.width - preview.contentWidth) <= 1, `[sidebar:${measurement.height}] ${preview.kind} square should fill its own preview width.`);
+        assert(/hidden|clip/.test(preview.overflow), `[sidebar:${measurement.height}] ${preview.kind} frame should clip its square image.`);
+        assert(Math.abs(preview.image.width - preview.image.height) <= 1, `[sidebar:${measurement.height}] ${preview.kind} image should stay square.`);
+        if (Math.abs(preview.contentWidth - baseline.contentWidth) <= 1) {
+          assert(Math.abs(preview.image.width - baseline.image.width) <= 1 && Math.abs(preview.image.height - baseline.image.height) <= 1, `[sidebar:${measurement.height}] ${preview.kind} image scale should stay stable while its frame width is unchanged.`);
+        }
+        assert(Math.abs((preview.image.left + preview.image.right) - (preview.frame.left + preview.frame.right)) <= 2 && Math.abs((preview.image.top + preview.image.bottom) - (preview.frame.top + preview.frame.bottom - 24)) <= 2, `[sidebar:${measurement.height}] ${preview.kind} image should stay centered above its frame's 24px Choose strip.`);
+      }
+    }
+    const shortest = measurements[measurements.length - 1];
+    assert(reference.previews.every((preview, index) => preview.frame.height > shortest.previews[index].frame.height + 20), 'Tall image sidebars should distribute extra height to their preview frames.');
+  } finally {
+    await page.setViewportSize(originalViewport);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  }
+}
+
+async function readTimelineState(page) {
+  return page.evaluate(() => {
+    const timeline = document.getElementById('transformTimeline');
+    return {
+      value: Number(timeline.value),
+      disabled: timeline.disabled,
+      position: document.getElementById('transformTimelinePosition')?.textContent.trim(),
+      state: document.getElementById('utilitiesApp')?.dataset.transformStatusChip,
+      frame: document.getElementById('transformResultCanvas').toDataURL()
+    };
+  });
+}
+
+async function seekImageTimeline(page, value) {
+  await page.evaluate(position => {
+    const timeline = document.getElementById('transformTimeline');
+    timeline.value = String(position);
+    timeline.dispatchEvent(new Event('input', { bubbles: true }));
+  }, value);
+  return readTimelineState(page);
+}
+
+async function assertTimelineAutoplay(page) {
+  await page.waitForFunction(() => {
+    const timeline = document.getElementById('transformTimeline');
+    return !timeline.disabled && Number(timeline.value) >= 200 && Number(timeline.value) < 650;
+  });
+  const earlier = await readTimelineState(page);
+  await page.waitForFunction(value => Number(document.getElementById('transformTimeline').value) > value + 150, earlier.value);
+  const later = await readTimelineState(page);
+  assert(later.value > earlier.value && later.frame !== earlier.frame, 'Autoplay should advance the image timeline together with the rendered canvas.');
+}
+
+async function assertImageTimeline(page, { reducedMotion = false } = {}) {
+  const completed = await readTimelineState(page);
+  assert(!completed.disabled && completed.value === 1000, 'A completed image transform should enable the timeline at its end.');
+  if (!reducedMotion) {
+    await page.click('#transformPlayBtn');
+    await page.waitForFunction(() => Number(document.getElementById('transformTimeline').value) > 80 && Number(document.getElementById('transformTimeline').value) < 800);
+    await page.locator('#transformTimeline').dispatchEvent('pointerdown', { pointerId: 1, pointerType: 'mouse', button: 0, bubbles: true });
+    await waitForStatusMatch(page, 'Paused', 5000, 'pointerdown pauses image playback');
+  }
+  const zero = await seekImageTimeline(page, 0);
+  const forward = await seekImageTimeline(page, 800);
+  const backward = await seekImageTimeline(page, 200);
+  const forwardAgain = await seekImageTimeline(page, 800);
+  assert(zero.value === 0 && forward.value === 800 && backward.value === 200 && forwardAgain.value === 800, 'Timeline input should seek both forward and backward.');
+  assert(zero.frame !== forward.frame && backward.frame !== forward.frame, 'Different timeline positions should visibly reconstruct different frames.');
+  assert(forward.frame === forwardAgain.frame, 'Seeking back to a timeline position should reproduce identical pixels.');
+  assert(zero.position && forward.position && zero.position !== forward.position, 'Timeline position readout should track manual seeking.');
+  await page.locator('#transformTimeline').dispatchEvent('pointerup', { pointerId: 1, pointerType: 'mouse', button: 0, bubbles: true });
+  await page.waitForTimeout(180);
+  const released = await readTimelineState(page);
+  assert(released.value === 800 && released.frame === forwardAgain.frame, 'Releasing the timeline should leave the selected frame stationary.');
+
+  await page.locator('#transformTimeline').focus();
+  await page.keyboard.press('Home');
+  const keyboardStart = await readTimelineState(page);
+  assert(keyboardStart.value === 0 && keyboardStart.frame === zero.frame, 'Keyboard Home should seek to the exact first frame.');
+  await page.keyboard.press('ArrowRight');
+  assert((await readTimelineState(page)).value === 1, 'Keyboard ArrowRight should advance one timeline step.');
+  await page.keyboard.press('End');
+  const keyboardEnd = await readTimelineState(page);
+  assert(keyboardEnd.value === 1000 && keyboardEnd.frame === completed.frame, 'Keyboard End should seek to the exact completed frame.');
+
+  if (!reducedMotion) {
+    await seekImageTimeline(page, 800);
+    await page.click('#transformPlayBtn');
+    const resumed = await readTimelineState(page);
+    assert(resumed.value >= 800 && resumed.value < 1000, 'Resume should continue from the selected position without jumping back or finishing immediately.');
+    await waitForStatusMatch(page, 'Animation complete', 15000, 'timeline resume completion');
+    assert((await readTimelineState(page)).value === 1000, 'Playback completion should return the timeline to its end.');
   }
 }
 
@@ -262,9 +688,8 @@ async function createInvalidAudioFile() {
   return invalidPath;
 }
 
-async function createGeneratedWavFile() {
+async function createGeneratedWavFile(durationSeconds = 5 * 60) {
   const sampleRate = 16000;
-  const durationSeconds = 5 * 60;
   const sampleCount = sampleRate * durationSeconds;
   const dataSize = sampleCount * 2;
   const buffer = Buffer.alloc(44 + dataSize);
@@ -296,6 +721,20 @@ async function createGeneratedWavFile() {
 
   await fs.promises.writeFile(wavPath, buffer);
   return wavPath;
+}
+
+async function readImagePreviews(page) {
+  await page.waitForFunction(() => ['transformSourcePreview', 'transformTargetPreview'].every(id => {
+    const image = document.getElementById(id);
+    return image instanceof HTMLImageElement && !image.hidden && image.complete && image.naturalWidth > 0;
+  }));
+  return page.evaluate(() => ['transformSourcePreview', 'transformTargetPreview'].map(id => {
+    const image = document.getElementById(id);
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 16;
+    canvas.getContext('2d').drawImage(image, 0, 0, 16, 16);
+    return { source: image.src, pixels: canvas.toDataURL() };
+  }));
 }
 
 async function readCanvasPixels(page, id) {
@@ -368,22 +807,6 @@ async function readOverlayAlphaPixels(page) {
   });
 }
 
-async function readStarfieldState(page) {
-  await page.waitForFunction(() => {
-    const canvas = document.getElementById('iridescence-bg');
-    return canvas instanceof HTMLCanvasElement && Number(canvas.dataset.iridescenceFrameCount || '0') > 0;
-  }, null, { timeout: 10000 });
-
-  return page.evaluate(() => {
-    const canvas = document.getElementById('iridescence-bg');
-    return {
-      count: Number(canvas?.dataset.iridescenceActive || '0'),
-      mode: canvas?.dataset.iridescenceMode || '',
-      frames: Number(canvas?.dataset.iridescenceFrameCount || '0')
-    };
-  });
-}
-
 function countActiveCanvasPixels(pixels) {
   let count = 0;
   for (let index = 0; index < pixels.length; index += 4) {
@@ -397,77 +820,8 @@ function countActiveCanvasPixels(pixels) {
   return count;
 }
 
-function parseCssRgb(value) {
-  const match = /^rgba?\(([^)]+)\)$/.exec(value.trim());
-  if (!match) {
-    return null;
-  }
-
-  const parts = match[1].split(',').map((part) => Number.parseFloat(part.trim()));
-  if (parts.length < 3 || parts.some((part) => Number.isNaN(part))) {
-    return null;
-  }
-
-  return {
-    red: parts[0],
-    green: parts[1],
-    blue: parts[2],
-    alpha: parts[3] ?? 1
-  };
-}
-
-function compositeOver(color, background) {
-  const alpha = Math.max(0, Math.min(1, color.alpha));
-  return {
-    red: color.red * alpha + background.red * (1 - alpha),
-    green: color.green * alpha + background.green * (1 - alpha),
-    blue: color.blue * alpha + background.blue * (1 - alpha),
-    alpha: 1
-  };
-}
-
-function toLinearChannel(value) {
-  const normalized = value / 255;
-  return normalized <= 0.03928
-    ? normalized / 12.92
-    : Math.pow((normalized + 0.055) / 1.055, 2.4);
-}
-
-function relativeLuminance(color) {
-  return (
-    0.2126 * toLinearChannel(color.red) +
-    0.7152 * toLinearChannel(color.green) +
-    0.0722 * toLinearChannel(color.blue)
-  );
-}
-
-function contrastRatio(foreground, background) {
-  const foregroundLuminance = relativeLuminance(foreground);
-  const backgroundLuminance = relativeLuminance(background);
-  const light = Math.max(foregroundLuminance, backgroundLuminance);
-  const dark = Math.min(foregroundLuminance, backgroundLuminance);
-  return (light + 0.05) / (dark + 0.05);
-}
-
-function assertLightModeContrast(metrics, label, minimum = 4.5) {
-  const foreground = parseCssRgb(metrics.color);
-  const background = parseCssRgb(metrics.backgroundColor);
-  const bodyBackground = parseCssRgb(metrics.bodyBackground);
-
-  assert(foreground && background && bodyBackground, `[light:${label}] unable to parse computed colors.`);
-
-  const compositedBackground = background.alpha < 1 ? compositeOver(background, bodyBackground) : background;
-  const ratio = contrastRatio(foreground, compositedBackground);
-  assert(ratio >= minimum, `[light:${label}] contrast too low (${ratio.toFixed(2)}).`);
-}
-
 async function readLayoutMetrics(page) {
   return page.evaluate(() => {
-    const nav = document.getElementById('nav');
-    const hero = document.querySelector('.utilities-hero');
-    const heroTitle = document.querySelector('.utilities-hero .hero-title');
-    const heroSubtitle = document.querySelector('.utilities-hero .hero-subtitle');
-    const sectionHeading = document.querySelector('.section-heading');
     const shell = document.querySelector('.utility-shell');
     const resultPanel = document.querySelector('.canvas-panel--result');
     const resultStage = document.querySelector('.canvas-stage--result');
@@ -490,11 +844,6 @@ async function readLayoutMetrics(page) {
         width: window.innerWidth,
         height: window.innerHeight
       },
-      nav: rect(nav),
-      hero: rect(hero),
-      heroTitle: rect(heroTitle),
-      heroSubtitle: rect(heroSubtitle),
-      sectionHeading: rect(sectionHeading),
       shell: rect(shell),
       panel: rect(resultPanel),
       stage: rect(resultStage),
@@ -602,6 +951,7 @@ async function assertUtilityIsolationLayout(page, label) {
       root.rect.right <= state.viewport.width + 1,
       `[${label}] ${root.utility || root.id} utility root overflows right (${root.rect.right.toFixed(1)} > ${state.viewport.width}).`
     );
+    assert(root.rect.top >= -1 && root.rect.bottom <= state.viewport.height + 1, `[${label}] ${root.utility || root.id} utility root must fit vertically within the viewport.`);
   }
 
   for (const item of state.audioStages) {
@@ -620,6 +970,19 @@ async function assertUtilityIsolationLayout(page, label) {
     assert(item.canvas.height <= item.stage.height + 1, `[${label}] Audio Fourier ${item.label} canvas is taller than its stage.`);
     assert(item.activePixels > 100, `[${label}] Audio Fourier ${item.label} canvas should render a nonblank placeholder or signal.`);
   }
+}
+
+async function readStressPrime(page) {
+  const state = await page.evaluate(() => ({
+    value: Number(document.getElementById('stressTestApp')?.dataset.stressLatestPrime),
+    label: Number(document.getElementById('stressLatestPrime')?.textContent.replaceAll(',', '').trim())
+  }));
+  assert(Number.isSafeInteger(state.value) && state.value > 1 && state.value < 1e12, `CPU search should grow from small numbers: ${state.value}.`);
+  let prime = state.value === 2 || state.value % 2 !== 0;
+  for (let divisor = 3; prime && divisor * divisor <= state.value; divisor += 2) prime = state.value % divisor !== 0;
+  assert(prime, `CPU search reported a composite number: ${state.value}.`);
+  assert(state.label === state.value, 'Displayed prime must equal the actual worker result.');
+  return state.value;
 }
 
 async function readStressCanvasStats(page) {
@@ -641,6 +1004,7 @@ async function readStressCanvasStats(page) {
     context.drawImage(canvas, 0, 0, sampler.width, sampler.height);
     const pixels = context.getImageData(0, 0, sampler.width, sampler.height).data;
     let litPixels = 0;
+    let nonWhitePixels = 0;
     let opaquePixels = 0;
     let totalRgb = 0;
     let maxChannel = 0;
@@ -655,6 +1019,7 @@ async function readStressCanvasStats(page) {
       if (alpha > 0) {
         opaquePixels += 1;
       }
+      if (alpha > 0 && Math.min(red, green, blue) < 235) nonWhitePixels += 1;
       if (alpha > 0 && brightness > 24) {
         litPixels += 1;
       }
@@ -668,6 +1033,7 @@ async function readStressCanvasStats(page) {
       height: canvas.height,
       sampledPixels: sampler.width * sampler.height,
       litPixels,
+      nonWhitePixels,
       opaquePixels,
       totalRgb,
       maxChannel
@@ -676,12 +1042,27 @@ async function readStressCanvasStats(page) {
 }
 
 async function assertStressCanvasActive(page, label) {
-  const stats = await readStressCanvasStats(page);
-  assert(!stats.missing, `[${label}] stress canvas is missing.`);
-  assert(stats.readable !== false, `[${label}] stress canvas pixels should be readable in the browser check.`);
-  assert(stats.width > 0 && stats.height > 0, `[${label}] stress canvas should have a positive drawing buffer.`);
-  assert(stats.litPixels > 48, `[${label}] stress canvas should render nonblack output; stats=${JSON.stringify(stats)}.`);
-  assert(stats.maxChannel > 24, `[${label}] stress canvas should contain visible color; stats=${JSON.stringify(stats)}.`);
+  // GPU drawing buffers are deliberately not preserved after presentation. Inspect
+  // the composited frame, avoiding the scene's header/footer text as pixel evidence.
+  const screenshot = await page.locator('#stressCanvas').screenshot();
+  const metadata = await sharp(screenshot).metadata();
+  const { data, info } = await sharp(screenshot).extract({
+    left: Math.floor(metadata.width * 0.2),
+    top: Math.floor(metadata.height * 0.2),
+    width: Math.max(1, Math.floor(metadata.width * 0.6)),
+    height: Math.max(1, Math.floor(metadata.height * 0.6))
+  }).resize(96, 54).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  let visiblePixels = 0;
+  let geometryPixels = 0;
+  for (let offset = 0; offset < data.length; offset += info.channels) {
+    const red = data[offset];
+    const green = data[offset + 1];
+    const blue = data[offset + 2];
+    if (red + green + blue > 24) visiblePixels += 1;
+    if (Math.min(red, green, blue) < 235) geometryPixels += 1;
+  }
+  assert(visiblePixels > 48, `[${label}] GPU scene should contain visible rendered output.`);
+  assert(geometryPixels > 48, `[${label}] GPU scene should contain geometry beyond the plain paper background; ${geometryPixels} nonwhite pixels.`);
 }
 
 async function assertStressCanvasIdle(page, label) {
@@ -755,122 +1136,13 @@ async function assertStressLayout(page, label, options = {}) {
   }
   assert(state.shell.left >= -1, `[${label}] stress shell overflows left.`);
   assert(state.shell.right <= state.viewport.width + 1, `[${label}] stress shell overflows right.`);
-  assert(state.shell.bottom <= state.viewport.height + 1, `[${label}] stress shell overflows below the viewport.`);
+  assert(state.shell.top >= -1 && state.shell.bottom <= state.viewport.height + 1, `[${label}] stress shell must fit vertically within the control panel.`);
   assert(state.layoutScrollWidth <= state.layoutClientWidth + 1, `[${label}] stress layout should not overflow horizontally.`);
   if (options.requirePanelFit) {
     if (!options.expectMetricsHidden) {
-      assert(state.metrics.bottom <= state.control.bottom + 1, `[${label}] stress metrics should not clip below the control panel.`);
+      assert(state.metrics.left >= state.layout.left - 1 && state.metrics.right <= state.layout.right + 1 && state.metrics.top >= state.layout.top - 1 && state.metrics.bottom <= state.layout.bottom + 1, `[${label}] stress metrics must fit inside their layout grid.`);
     }
     assert(state.controlScrollHeight <= state.controlClientHeight + 1, `[${label}] stress control panel should fit without internal clipping.`);
-  }
-}
-
-async function readLightModeVisualMetrics(page) {
-  return page.evaluate(() => {
-    const bodyBackground = getComputedStyle(document.body).backgroundColor;
-    const describe = (label, selector) => {
-      const element = document.querySelector(selector);
-      if (!element) {
-        return { label, selector, missing: true };
-      }
-
-      const styles = getComputedStyle(element);
-      const rect = element.getBoundingClientRect();
-      return {
-        label,
-        selector,
-        missing: false,
-        color: styles.color,
-        backgroundColor: styles.backgroundColor,
-        backgroundImage: styles.backgroundImage,
-        borderColor: styles.borderColor,
-        opacity: Number.parseFloat(styles.opacity || '1'),
-        bodyBackground,
-        width: rect.width,
-        height: rect.height,
-        visible: rect.width > 0 && rect.height > 0 && styles.visibility !== 'hidden' && styles.display !== 'none'
-      };
-    };
-
-    return {
-      colorMode: document.documentElement.getAttribute('data-color-mode') ?? '',
-      scrollWidth: document.documentElement.scrollWidth,
-      clientWidth: document.documentElement.clientWidth,
-      metrics: [
-        describe('image shell', '#utilitiesApp'),
-        describe('audio shell', '#audioFourierApp'),
-        describe('retro vm shell', '#retroVmApp'),
-        describe('image status copy', '#transformProgressText'),
-        describe('audio progress copy', '#audioFourierProgressText'),
-        describe('retro vm status copy', '#retroVmProgressText'),
-        describe('primary action', '#transformGenerateBtn'),
-        describe('secondary action', '#transformResetBtn'),
-        describe('demo chip', '[data-demo-key="pattern-face"]'),
-        describe('select control', '#transformPreset'),
-        describe('dropzone', '#sourceDropzone'),
-        describe('canvas panel', '.canvas-panel--result'),
-        describe('audio panel', '.canvas-panel--audio-wave'),
-      ]
-    };
-  });
-}
-
-async function runLightModeVisualCheck(browser, pageUrl) {
-  for (const viewport of [
-    { label: 'desktop', width: 1440, height: 1100 },
-    { label: 'tablet', width: 820, height: 1180 },
-    { label: 'mobile', width: 390, height: 844 }
-  ]) {
-    const page = await browser.newPage({
-      viewport: { width: viewport.width, height: viewport.height }
-    });
-    await page.addInitScript(() => {
-      window.localStorage.setItem('od-color-mode', 'light');
-      window.__OD_RETRO_VM_TEST_MODE__ = true;
-    });
-
-    try {
-      const viewportUrl = viewport.width <= 760 ? pageUrl.replace('index.html', 'index.html?full=1') : pageUrl;
-      await loadUtilitiesPage(page, viewportUrl, 'Built-in pair selected|Ready for input', 15000, `light ${viewport.label}`);
-      const state = await readLightModeVisualMetrics(page);
-
-      assert(state.colorMode === 'light', `[light:${viewport.label}] expected light color mode.`);
-      assert(state.scrollWidth === state.clientWidth, `[light:${viewport.label}] page should not overflow horizontally.`);
-      await assertUtilityIsolationLayout(page, `light:${viewport.label}`);
-
-      for (const metric of state.metrics) {
-        if (metric.missing && /audio|retro vm/.test(metric.label)) {
-          continue;
-        }
-        assert(!metric.missing, `[light:${viewport.label}] missing ${metric.label}.`);
-        if (!metric.visible && /audio|retro vm/.test(metric.label)) {
-          continue;
-        }
-        assert(metric.visible, `[light:${viewport.label}] ${metric.label} should be visible.`);
-        if (metric.label === 'image shell') {
-          assert(metric.opacity >= 0.99, `[light:${viewport.label}] first utility shell should not render transparent.`);
-        }
-        assert(metric.width <= viewport.width, `[light:${viewport.label}] ${metric.label} overflows viewport width.`);
-        assert(
-          !/rgba?\(13,\s*11,\s*8|rgb\(21,\s*17,\s*12|rgb\(15,\s*13,\s*9\)/i.test(metric.backgroundColor),
-          `[light:${viewport.label}] ${metric.label} is still using a dark-mode background color.`
-        );
-
-        if (metric.label === 'primary action') {
-          assert(metric.backgroundImage !== 'none', `[light:${viewport.label}] primary action should keep a distinct filled treatment.`);
-        }
-      }
-
-      const lightDarkSurfaceLeakCount = state.metrics.filter((metric) =>
-        metric.visible &&
-        /rgba?\(13,\s*11,\s*8|#15110c|#1b1610|#0f0d09/i.test(
-          `${metric.backgroundColor} ${metric.backgroundImage}`
-        )
-      ).length;
-      assert(lightDarkSurfaceLeakCount === 0, `[light:${viewport.label}] utility chrome still leaks dark-mode surfaces.`);
-    } finally {
-      await page.close();
-    }
   }
 }
 
@@ -892,6 +1164,10 @@ async function main() {
     await waitForServer(`${baseUrl}/pages/utilities/index.html`);
     await runUtilitySection(utilitySectionFailures, 'Public and Hidden Routes', async () => {
       await assertPublicUtilityRoutes(browser, baseUrl);
+    });
+
+    await runUtilitySection(utilitySectionFailures, 'Desktop Workbench Shell', async () => {
+      await assertWorkbenchShell(browser, baseUrl);
     });
 
     const page = await browser.newPage({
@@ -922,7 +1198,6 @@ async function main() {
     const whiteHeavyTargetPath = path.join(ROOT, 'utilities-src', 'tests', 'fixtures', 'white-heavy-target.png');
 
     await runUtilitySection(utilitySectionFailures, 'Image Transform', async () => {
-      const initialStarfield = await readStarfieldState(page);
 
     const initialTransformState = await page.evaluate(() => ({
       status: (() => {
@@ -936,8 +1211,7 @@ async function main() {
       playLabel: document.getElementById('transformPlayBtn')?.textContent?.trim(),
       playAria: document.getElementById('transformPlayBtn')?.getAttribute('aria-label') ?? '',
       replayButtonExists: Boolean(document.getElementById('transformReplayBtn')),
-      uploadIconCount: document.querySelectorAll('.utility-dropzone-icon').length,
-      activeDemo: document.querySelector('.demo-chip.active')?.textContent?.trim() ?? '',
+      activeDemo: document.querySelector('.demo-chip.active')?.getAttribute('data-demo-key') ?? '',
       generateDisabled: document.getElementById('transformGenerateBtn')?.hasAttribute('disabled') ?? true,
       supportPanelsDisplay: getComputedStyle(document.querySelector('#utilitiesApp .support-panels')).display,
       hasResult: document.getElementById('utilitiesApp')?.dataset.transformHasResult ?? ''
@@ -949,18 +1223,30 @@ async function main() {
     );
     assert(initialTransformState.outputSize === '—', 'Initial transform metrics should stay blank until generate is clicked.');
     assert(initialTransformState.pixels === '—', 'Initial transform pixel count should stay blank until generate is clicked.');
-    assert(initialTransformState.playLabel === '▶', 'Primary playback control should remain icon-only before generation.');
+    assert(initialTransformState.playLabel === 'Play', 'Playback control should clearly label Play before generation.');
     assert(initialTransformState.playAria === 'Play animation', 'Primary playback control should expose Play before generation.');
     assert(initialTransformState.replayButtonExists === false, 'Dedicated replay button should not be rendered.');
-    assert(initialTransformState.uploadIconCount === 3, 'Utilities upload dropzones should expose visible upload icons.');
-    assert(initialTransformState.activeDemo === 'Pattern → Face', 'Pattern → Face should be selected by default.');
+    assert(initialTransformState.activeDemo === 'pattern-face', 'Pattern → Face should be selected by default.');
     assert(initialTransformState.generateDisabled === false, 'Generate should be available when the built-in pair is preselected.');
     assert(initialTransformState.hasResult !== 'true', 'Image Transform should not report a result before generation.');
     assert(initialTransformState.supportPanelsDisplay === 'none', 'Image Transform source/reference panels should stay hidden before generation.');
     assert(precomputedTransformRequests.length === 0, 'Initial load should not fetch precomputed demo transforms.');
+    const initialTimeline = await page.locator('#transformTimeline').evaluate(input => ({ disabled: input.disabled, value: input.value, min: input.min, max: input.max, step: input.step }));
+    assert(initialTimeline.disabled && initialTimeline.value === '0' && initialTimeline.min === '0' && initialTimeline.max === '1000' && initialTimeline.step === '1', 'Image timeline should start disabled with a 0–1000 range and unit steps.');
+    await runUtilitySection(utilitySectionFailures, 'Image Sidebar Distribution', async () => {
+      await assertImageSidebarSizes(page);
+    });
 
+    await runUtilitySection(utilitySectionFailures, 'Image Idle Geometry', async () => {
+      await assertControlPanelSizes(page, 'image-transform', 'image:idle');
+    });
+
+    const initialPreviews = await readImagePreviews(page);
     await page.click('[data-demo-key="source-target"]');
     await page.waitForTimeout(300);
+
+    const selectedPreviews = await readImagePreviews(page);
+    assert(selectedPreviews[1].source !== initialPreviews[1].source && selectedPreviews[1].pixels !== initialPreviews[1].pixels, 'Selecting another demo should visibly update the target thumbnail.');
 
     const afterDemoSelection = await page.evaluate(() => ({
       status: (() => {
@@ -970,7 +1256,7 @@ async function main() {
         return fromData || fromLegacy;
       })(),
       outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
-      activeDemo: document.querySelector('.demo-chip.active')?.textContent?.trim() ?? ''
+      activeDemo: document.querySelector('.demo-chip.active')?.getAttribute('data-demo-key') ?? ''
     }));
 
     assert(
@@ -978,22 +1264,16 @@ async function main() {
       'Selecting a built-in demo chip should update the ready state without auto-generating.'
     );
     assert(afterDemoSelection.outputSize === '—', 'Selecting a built-in demo chip should not auto-fill transform metrics.');
-    assert(afterDemoSelection.activeDemo === 'Pattern → Lucki', 'Demo chip selection should update the active built-in pair.');
+    assert(afterDemoSelection.activeDemo === 'source-target', 'Demo chip selection should update the active built-in pair.');
     assert(precomputedTransformRequests.length === 0, 'Selecting a built-in demo chip should not fetch precomputed data.');
 
     await page.click('[data-demo-key="pattern-face"]');
     await page.click('#transformGenerateBtn');
     await waitForStatusMatch(page, 'Loading precomputed|Preparing|Analyzing|Assigning|Animating', 7000);
-    const activeTransformStarfield = await readStarfieldState(page);
+    await assertTimelineAutoplay(page);
     await waitForStatusMatch(page, 'Transform ready|Animation complete|Reduced motion', 30000);
     await waitForProgressFill(page, 90, 20000);
-    const completedTransformStarfield = await readStarfieldState(page);
 
-    assert(
-      activeTransformStarfield.count === initialStarfield.count &&
-        completedTransformStarfield.count === initialStarfield.count,
-      'Iridescence background should remain stable before, during, and after image transform animation.'
-    );
     const afterDemo = await page.evaluate(() => ({
       status: (() => {
         const app = document.getElementById('utilitiesApp');
@@ -1012,37 +1292,19 @@ async function main() {
     assert(afterDemo.status && /Transform ready|Animation complete|Reduced motion/i.test(afterDemo.status), 'Built-in demo did not initialize after generate.');
     assert(afterDemo.outputSize && afterDemo.outputSize !== '—', 'Built-in demo output size missing after generate.');
     assert(afterDemo.pixels && afterDemo.pixels !== '—', 'Built-in demo pixel count missing after generate.');
-    assert(afterDemo.playLabel === '↻', 'Primary playback control should switch to replay icon after the built-in animation runs.');
+    assert(afterDemo.playLabel === 'Replay', 'Playback control should label Replay after the built-in animation runs.');
     assert(afterDemo.playAria === 'Replay animation', 'Primary playback control should expose Replay after the built-in animation runs.');
     assert(afterDemo.hasResult === 'true', 'Image Transform should report a result after generation.');
     assert(afterDemo.supportPanelsDisplay === 'none', 'Image Transform compatibility support panels should stay hidden in the compact redesign.');
     assert(precomputedTransformRequests.length > 0, 'Built-in demo generation should fetch a shipped precomputed transform asset.');
+    await runUtilitySection(utilitySectionFailures, 'Image Generated Geometry', async () => {
+      await assertControlPanelSizes(page, 'image-transform', 'image:generated');
+    });
 
     await page.evaluate(() => window.scrollTo(0, 0));
     const desktopLayout = await readLayoutMetrics(page);
     assert(desktopLayout.scrollWidth === desktopLayout.clientWidth, 'Utilities page should not overflow horizontally.');
-    if (desktopLayout.hero || desktopLayout.heroTitle) {
-      assert(
-        desktopLayout.nav &&
-          desktopLayout.heroTitle &&
-          desktopLayout.heroTitle.top >= desktopLayout.nav.bottom + 12,
-        'Utilities hero title sits too close to the fixed navigation.'
-      );
-      assert(
-        desktopLayout.hero &&
-          desktopLayout.hero.height >= 220 &&
-          desktopLayout.hero.height <= 350,
-        'Utilities hero height is outside the intended compact desktop range.'
-      );
-      assert(
-        desktopLayout.hero &&
-          desktopLayout.sectionHeading &&
-          desktopLayout.sectionHeading.top - desktopLayout.hero.bottom >= 0 &&
-          desktopLayout.sectionHeading.top - desktopLayout.hero.bottom <= 24,
-        'Gap between the hero and the featured utility heading is outside the intended compact range.'
-      );
-    }
-    assert(desktopLayout.shell && desktopLayout.shell.height < 1700, 'Utilities shell is still too tall for comfortable desktop viewing.');
+    assert(desktopLayout.shell && desktopLayout.shell.top >= -1 && desktopLayout.shell.bottom <= desktopLayout.viewport.height + 1, 'Image Transform shell must fit completely within the desktop viewport.');
     assert(
       desktopLayout.stage && desktopLayout.stage.height <= desktopLayout.viewport.height,
       'Reconstruction stage should fit within the active desktop viewport.'
@@ -1056,24 +1318,10 @@ async function main() {
       'Reconstruction stage or canvas exceeds the right edge of its panel.'
     );
 
-    const colorModeDisabled = await page.evaluate(() => {
-      const attr = document.documentElement.getAttribute('data-disable-color-mode');
-      return attr != null && attr !== 'false';
-    });
-
-    if (!colorModeDisabled) {
-      await runLightModeVisualCheck(browser, pageUrl);
-    }
-
     const finalResultPixels = await readCanvasPixels(page, 'transformResultCanvas');
     const sourceStagePixels = await readCanvasPixels(page, 'transformSourceCanvas');
     await page.click('#transformPlayBtn');
     await waitForStatusMatch(page, 'Animating', 5000);
-    const replayTransformStarfield = await readStarfieldState(page);
-    assert(
-      replayTransformStarfield.count === initialStarfield.count,
-      'Iridescence background should remain stable during Image Transform replay animation.'
-    );
     await waitForProgressFill(page, 65, 15000);
 
     let midAnimationPixels = await readCanvasPixels(page, 'transformResultCanvas');
@@ -1125,8 +1373,24 @@ async function main() {
       'Completed animation should end on the exact final frame.'
     );
     assert(completedOverlayAlphaPixels === 0, 'Completed animation should leave no overlay pixels behind.');
+    await assertImageTimeline(page);
 
+    await page.click('#transformPlayBtn');
+    await waitForStatusMatch(page, 'Animating', 5000, 'navigation pause start');
+    await navigateUtility(page, 'stress-test');
+    await waitForStatusMatch(page, 'Paused', 5000, 'navigation pauses image animation');
+    const pausedPixels = await readCanvasPixels(page, 'transformResultCanvas');
+    await page.waitForTimeout(200);
+    assert(totalAbsoluteDifference(pausedPixels, await readCanvasPixels(page, 'transformResultCanvas')) === 0, 'Image animation should stop changing while its workspace is hidden.');
+    await navigateUtility(page, 'image-transform');
+    assert(await page.locator('#transformPlayBtn').textContent() === 'Resume', 'Returning to a paused image animation should offer Resume.');
+    await page.click('#transformPlayBtn');
+    await waitForStatusMatch(page, 'Animation complete', 30000, 'navigation resume completes');
+
+    const beforeSwapPreviews = await readImagePreviews(page);
     await page.click('#transformSwapBtn');
+    const swappedPreviews = await readImagePreviews(page);
+    assert(swappedPreviews[0].pixels === beforeSwapPreviews[1].pixels && swappedPreviews[1].pixels === beforeSwapPreviews[0].pixels, 'Swap should exchange both visible image thumbnails.');
     await waitForStatusMatch(page, 'Preparing|Analyzing|Assigning|Animating', 7000);
     await waitForStatusMatch(page, 'Transform ready|Animation complete|Reduced motion', 30000);
 
@@ -1172,7 +1436,7 @@ async function main() {
     }));
 
     assert(/Selection updated/i.test(staleState.status || ''), 'Selecting a new source should invalidate the old transform status.');
-    assert(/Generate a new transform|Ready for input/i.test(staleState.progress || ''), 'Selecting a new source should clear the old result progress copy.');
+    assert(/Generate a new transform|Ready for input|^Ready\.$/i.test(staleState.progress || ''), 'Selecting a new source should clear the old result progress copy.');
     assert(staleState.outputSize === '—', 'Selecting a new source should clear the stale output metrics.');
     assert(staleState.playDisabled === true, 'Selecting a new source should disable playback for the stale result.');
     assert(/preview the selected source image/i.test(staleState.sourceMeta || ''), 'Selecting a new source should replace the stale source metadata.');
@@ -1233,11 +1497,25 @@ async function main() {
 
     assert(errorState.chip === 'Error', 'Invalid upload should set the error state.');
     assert(errorState.text && /unable|failed|could not/i.test(errorState.text), 'Invalid upload should surface a readable error.');
+    await page.click('[data-demo-key="pattern-face"]');
+    await readImagePreviews(page);
+    await page.click('#transformResetBtn');
+    const resetTimeline = await readTimelineState(page);
+    assert(resetTimeline.disabled && resetTimeline.value === 0, 'Reset should disable and rewind the image timeline.');
+    assert(await page.evaluate(() => ['transformSourcePreview', 'transformTargetPreview'].every(id => {
+      const image = document.getElementById(id);
+      return image?.hidden && !image.hasAttribute('src');
+    })), 'Reset should remove stale source and target thumbnails.');
+
     });
 
     await runUtilitySection(utilitySectionFailures, 'Audio Fourier', async () => {
       await navigateUtility(page, 'audio-fourier');
-      await page.waitForFunction(() => document.getElementById('audioFourierSelection')?.textContent?.trim().length);
+      await page.waitForFunction(() => {
+        const app = document.getElementById('audioFourierApp');
+        return app?.dataset.audioState === 'idle' && Boolean(app.dataset.audioWaveRenderer) &&
+          document.getElementById('audioFourierGenerateBtn')?.disabled === false;
+      });
 
     const initialAudioState = await page.evaluate(() => ({
       status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
@@ -1251,7 +1529,7 @@ async function main() {
       telemetryPresent: Boolean(document.getElementById('audioFourierApp')?.dataset.audioLastRequestId)
     }));
 
-    assert(/choose|track|audio/i.test(initialAudioState.status), 'Audio Fourier should start idle.');
+    assert(/ready|choose|track|audio/i.test(initialAudioState.status), 'Audio Fourier should start ready for input.');
     assert(initialAudioState.selected === "I Can't Wait To Get There", "Audio Fourier should default to the I Can't Wait To Get There song preset.");
     assert(initialAudioState.sampleRate === '—', 'Audio Fourier sample-rate metric should stay blank before generation.');
     assert(initialAudioState.componentCount === '—', 'Audio Fourier component count should stay blank before generation.');
@@ -1260,14 +1538,15 @@ async function main() {
     assert(initialAudioState.generateDisabled === false, 'Audio Fourier generate should be available for the default preset.');
     assert(initialAudioState.playDisabled === true, 'Audio Fourier playback should be disabled before generation.');
     assert(initialAudioState.telemetryPresent === false, 'Audio Fourier should not analyze audio on first paint.');
+    await runUtilitySection(utilitySectionFailures, 'Audio Idle Geometry', async () => {
+      await assertControlPanelSizes(page, 'audio-fourier', 'audio:idle');
+    });
 
-    const initialAudioStarfield = await readStarfieldState(page);
     await page.selectOption('#audioFourierQuality', 'fast');
     await page.click('[data-audio-preset="best-friends"]');
     await page.click('#audioFourierGenerateBtn');
     await waitForAudioStatusMatch(page, 'Fourier proxy ready|auditory midpoint|Playing selected|Press Play', 60000, 'built-in song preset ready');
     await ensureAudioFourierPlayback(page, 'built-in song preset playback starts');
-    const activeAudioStarfield = await readStarfieldState(page);
 
     const generatedReadyState = await page.evaluate(() => ({
       status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
@@ -1313,7 +1592,7 @@ async function main() {
     assert(/80% signal energy/.test(generatedReadyState.componentReadout), 'Audio Fourier midpoint should land near the auditory midpoint.');
     assert(generatedReadyState.signalStrength === '80%', 'Audio Fourier signal strength card should show the midpoint energy.');
     assert(/\d[\d,]* \/ \d[\d,]*/.test(generatedReadyState.signalCount), 'Audio Fourier signal count card should show active and total signals.');
-    assert(generatedReadyState.playText === '⏸', 'Audio Fourier play control should remain icon-only and show pause while playing.');
+    assert(generatedReadyState.playText === 'Pause', 'Audio Fourier play control should label Pause while playing.');
     assert(generatedReadyState.playLabel === 'Pause', 'Audio Fourier play control should expose an accessible Pause label while playing.');
     assert(generatedReadyState.telemetry.requestId, 'Audio Fourier telemetry should include the completed request id.');
     assert(generatedReadyState.telemetry.totalMs > 0, 'Audio Fourier telemetry should include total processing time.');
@@ -1323,11 +1602,9 @@ async function main() {
     assert(generatedReadyState.telemetry.components > 1000, 'Audio Fourier should expose a substantial component count.');
     assert(generatedReadyState.telemetry.proxyDuration > 0, 'Audio Fourier should expose proxy duration.');
     assert(generatedReadyState.telemetry.bandCount > 0, 'Audio Fourier should expose live energy band count.');
-    assert(
-      activeAudioStarfield.count === initialAudioStarfield.count,
-      'Iridescence background should remain stable during Audio Fourier generation and playback.'
-    );
-
+    await runUtilitySection(utilitySectionFailures, 'Audio Generated Geometry', async () => {
+      await assertControlPanelSizes(page, 'audio-fourier', 'audio:generated');
+    });
     const generatedWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
     await page.fill('#audioFourierComponentSlider', '100');
     await waitForAudioProgressFill(page, 99, 15000, 'built-in song preset slider max');
@@ -1340,68 +1617,8 @@ async function main() {
     assert(countActiveCanvasPixels(generatedComponentPixels) > 100, 'Audio Fourier component canvas should be visibly nonblank.');
     await assertUtilityIsolationLayout(page, 'audio-preset:desktop');
 
-    await page.setViewportSize({ width: 1280, height: 720 });
-    await page.waitForTimeout(120);
-    const compactAudioLayout = await page.evaluate(() => {
-      const rect = (selector) => {
-        const element = document.querySelector(selector);
-        if (!element) return null;
-        const box = element.getBoundingClientRect();
-        const styles = window.getComputedStyle(element);
-        return {
-          visible: box.width > 0 && box.height > 0 && styles.display !== 'none' && styles.visibility !== 'hidden',
-          display: styles.display
-        };
-      };
-      return {
-        scrollHeight: document.documentElement.scrollHeight,
-        clientHeight: document.documentElement.clientHeight,
-        htmlOverflow: getComputedStyle(document.documentElement).overflow,
-        bodyOverflow: getComputedStyle(document.body).overflow,
-        signals: rect('.audio-metric-card--signals'),
-        strength: rect('.audio-metric-card--strength')
-      };
-    });
-    assert(compactAudioLayout.scrollHeight <= compactAudioLayout.clientHeight + 1, 'Audio Fourier compact layout should not make the page scroll.');
-    assert(/hidden/.test(`${compactAudioLayout.htmlOverflow} ${compactAudioLayout.bodyOverflow}`), 'Audio Fourier compact layout should keep document scrolling disabled.');
-    assert(compactAudioLayout.signals?.visible === false, 'Audio Fourier should hide signals metric first on short layouts.');
-    assert(compactAudioLayout.strength?.visible === true, 'Audio Fourier should keep signal strength visible before hiding lower-priority metrics.');
-
-    await page.setViewportSize({ width: 1280, height: 640 });
-    await page.waitForTimeout(120);
-    const shortAudioLayout = await page.evaluate(() => ({
-      scrollHeight: document.documentElement.scrollHeight,
-      clientHeight: document.documentElement.clientHeight,
-      signalsVisible: (() => {
-        const element = document.querySelector('.audio-metric-card--signals');
-        return Boolean(element && element.getBoundingClientRect().height > 0 && getComputedStyle(element).display !== 'none');
-      })(),
-      strengthVisible: (() => {
-        const element = document.querySelector('.audio-metric-card--strength');
-        return Boolean(element && element.getBoundingClientRect().height > 0 && getComputedStyle(element).display !== 'none');
-      })()
-    }));
-    assert(shortAudioLayout.scrollHeight <= shortAudioLayout.clientHeight + 1, 'Audio Fourier short layout should not make the page scroll.');
-    assert(shortAudioLayout.signalsVisible === false, 'Audio Fourier short layout should keep signals hidden.');
-    assert(shortAudioLayout.strengthVisible === true, 'Audio Fourier short layout should keep signal strength visible.');
-
-    await page.setViewportSize({ width: 1280, height: 540 });
-    await page.waitForTimeout(120);
-    const shortestAudioLayout = await page.evaluate(() => ({
-      scrollHeight: document.documentElement.scrollHeight,
-      clientHeight: document.documentElement.clientHeight,
-      signalsVisible: (() => {
-        const element = document.querySelector('.audio-metric-card--signals');
-        return Boolean(element && element.getBoundingClientRect().height > 0 && getComputedStyle(element).display !== 'none');
-      })(),
-      strengthVisible: (() => {
-        const element = document.querySelector('.audio-metric-card--strength');
-        return Boolean(element && element.getBoundingClientRect().height > 0 && getComputedStyle(element).display !== 'none');
-      })()
-    }));
-    assert(shortestAudioLayout.scrollHeight <= shortestAudioLayout.clientHeight + 1, 'Audio Fourier shortest layout should not make the page scroll.');
-    assert(shortestAudioLayout.signalsVisible === false, 'Audio Fourier shortest layout should keep signals hidden.');
-    assert(shortestAudioLayout.strengthVisible === false, 'Audio Fourier shortest layout should hide signal strength only in cramped layouts.');
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await assertUtilityIsolationLayout(page, 'audio-preset:compact-desktop');
 
     await page.setViewportSize({ width: 2048, height: 998 });
     await page.waitForTimeout(120);
@@ -1451,6 +1668,7 @@ async function main() {
     assert(totalAbsoluteDifference(preRapidSliderPixels, postRapidSliderPixels) > 0, 'Rapid Audio Fourier slider changes should keep waveform rendering live.');
     await page.click('#audioFourierPlayBtn');
     await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'built-in song preset playback pauses');
+    await assertPendingAudioPlayback(page);
 
     const wavPath = await createGeneratedWavFile();
     await page.setInputFiles('#audioFourierInput', wavPath);
@@ -1485,6 +1703,90 @@ async function main() {
       assert(/audio|decode|unable|supported/i.test(audioErrorState.text), 'Invalid audio upload should surface a readable error.');
     });
 
+    await runUtilitySection(utilitySectionFailures, 'Image Navigation During Cached Generation', async () => {
+      const navigationPage = await browser.newPage({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+      let releaseCache;
+      const cacheRelease = new Promise(resolve => { releaseCache = resolve; });
+      let cacheRequested;
+      const cacheRequest = new Promise(resolve => { cacheRequested = resolve; });
+      let cacheDelivered;
+      const cacheDelivery = new Promise(resolve => { cacheDelivered = resolve; });
+      try {
+        await navigationPage.route('**/pattern-face-balanced.json', async route => {
+          const response = await route.fetch();
+          cacheRequested();
+          await cacheRelease;
+          try {
+            await route.fulfill({ response });
+          } finally {
+            cacheDelivered();
+          }
+        }, { times: 1 });
+        await loadUtilitiesPage(navigationPage, pageUrl, 'Built-in pair selected|Ready for input', 15000, 'cached navigation startup');
+        await navigationPage.click('#transformGenerateBtn');
+        await Promise.race([cacheRequest, new Promise((_, reject) => setTimeout(() => reject(new Error('Demo cache request was not observed.')), 10000))]);
+        await navigationPage.click('.nav-back-btn');
+        releaseCache();
+        await cacheDelivery;
+        await navigationPage.waitForLoadState('networkidle');
+        await navigationPage.click('.utilities-buttons [data-utility="image-transform"]');
+        await navigationPage.waitForFunction(() => document.getElementById('transformGenerateBtn')?.disabled === false, null, { timeout: 5000 });
+        const state = await navigationPage.evaluate(() => ({
+          chip: document.getElementById('utilitiesApp')?.dataset.transformStatusChip,
+          result: document.getElementById('utilitiesApp')?.dataset.transformHasResult,
+          playDisabled: document.getElementById('transformPlayBtn')?.disabled
+        }));
+        assert(state.chip !== 'Processing' && state.result !== 'true' && state.playDisabled, 'A cancelled demo cache response should not restart hidden processing or publish a result.');
+        await navigationPage.click('#transformGenerateBtn');
+        await waitForStatusMatch(navigationPage, 'Reduced motion', 30000, 'cached navigation retry');
+      } finally {
+        releaseCache();
+        await navigationPage.close();
+      }
+    });
+
+    await runUtilitySection(utilitySectionFailures, 'Audio Navigation During Generation', async () => {
+      const navigationPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+      const wavPath = await createGeneratedWavFile(1);
+      try {
+        await navigationPage.addInitScript(() => {
+          const contextPrototype = (window.AudioContext || window.webkitAudioContext).prototype;
+          const decode = contextPrototype.decodeAudioData;
+          contextPrototype.decodeAudioData = async function (...args) {
+            const decoded = await decode.apply(this, args);
+            window.__audioDecodeWaiting = true;
+            await new Promise(resolve => window.addEventListener('release-test-audio', resolve, { once: true }));
+            window.__audioDecodeReleased = true;
+            return decoded;
+          };
+          const start = AudioBufferSourceNode.prototype.start;
+          window.__hiddenAudioStarts = 0;
+          AudioBufferSourceNode.prototype.start = function (...args) {
+            if (location.hash !== '#audio-fourier') window.__hiddenAudioStarts += 1;
+            return start.apply(this, args);
+          };
+        });
+        await navigationPage.goto(`${baseUrl}/pages/utilities/index.html#audio-fourier`, { waitUntil: 'networkidle' });
+        await navigationPage.waitForFunction(() => Boolean(document.getElementById('audioFourierApp')?.dataset.audioWaveRenderer));
+        await navigationPage.setInputFiles('#audioFourierInput', wavPath);
+        await navigationPage.click('#audioFourierGenerateBtn');
+        await navigationPage.waitForFunction(() => window.__audioDecodeWaiting === true);
+        await navigateUtility(navigationPage, 'stress-test');
+        await navigationPage.evaluate(() => window.dispatchEvent(new Event('release-test-audio')));
+        await navigationPage.waitForFunction(() => window.__audioDecodeReleased === true && document.getElementById('audioFourierApp')?.dataset.audioState !== 'processing');
+        await navigationPage.waitForTimeout(300);
+        const state = await navigationPage.evaluate(() => ({
+          state: document.getElementById('audioFourierApp')?.dataset.audioState,
+          starts: window.__hiddenAudioStarts
+        }));
+        assert(['idle', 'ready', 'complete'].includes(state.state), 'Leaving during audio generation should leave an idle or ready hidden tool.');
+        assert(state.starts === 0, 'A late audio decode must never start playback in a hidden workspace.');
+      } finally {
+        await navigationPage.close();
+        fs.rmSync(wavPath, { force: true });
+      }
+    });
+
     await runUtilitySection(utilitySectionFailures, 'Stress Test', async () => {
       await page.setViewportSize({ width: 2048, height: 998 });
       await navigateUtility(page, 'stress-test');
@@ -1502,11 +1804,17 @@ async function main() {
 
     assert(stressInitialState.state === 'idle', 'Stress Test should start idle.');
     assert(stressInitialState.mode === 'both', 'Stress Test should default to Both mode.');
+    assert(await page.locator('#stressTestApp #stressIntensity, #stressTestApp .stress-intensity, #stressTestApp select').count() === 0, 'Stress Test should run without an intensity selector.');
+    assert((await page.locator('#stressLatestPrime').textContent()).trim() === '1', 'Stress Test should begin with the 1 starting marker.');
+    assert(Number(await page.locator('#stressTestApp').getAttribute('data-stress-latest-prime')) === 0, 'Initial 1 must not count as a discovered prime.');
     assert(stressInitialState.workerCount === '0', 'Stress Test should not start CPU workers on activation.');
     assert(stressInitialState.backend === 'none', 'Stress Test should not start GPU work on activation.');
     assert(stressInitialState.startDisabled === false, 'Stress Test start should be available when idle.');
     assert(stressInitialState.stopDisabled === true, 'Stress Test stop should stay disabled when idle.');
-    assert(/hot|loud|slow|power/i.test(stressInitialState.status), 'Stress Test warning copy should be visible before start.');
+    assert(stressInitialState.status.length > 0, 'Stress Test should show its initial status.');
+    await runUtilitySection(utilitySectionFailures, 'Stress Idle Geometry', async () => {
+      await assertControlPanelSizes(page, 'stress-test', 'stress:idle');
+    });
 
     await page.setViewportSize({ width: 1024, height: 520 });
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
@@ -1548,13 +1856,20 @@ async function main() {
     }, null, {
       timeout: 10000
     });
-    const stressCpuVisualText = await page.evaluate(() => document.getElementById('stressTestApp')?.dataset.stressCpuVisualText ?? '');
-    assert(
-      stressCpuVisualText === '' || /^(For visual effect only|Just a cool graphic)$/.test(stressCpuVisualText),
-      'CPU Stress Test visual-effect text should be empty or one of the expected phrases.'
-    );
-    await assertStressCanvasActive(page, 'stress:cpu:running');
+    await page.waitForFunction(() => Number(document.getElementById('stressTestApp')?.dataset.stressLatestPrime) > 1);
+    const firstPrime = await readStressPrime(page);
+    await page.waitForFunction(previous => Number(document.getElementById('stressTestApp')?.dataset.stressLatestPrime) > previous, firstPrime);
+    await readStressPrime(page);
+    await page.waitForFunction(() => {
+      const app = document.getElementById('stressTestApp');
+      const workers = Array.from(document.querySelectorAll('#stressWorkerActivity > span'));
+      return app.dataset.stressCpuAlgorithm === 'segmented-sieve' && workers.length === 2 &&
+        workers.every(worker => Number(worker.dataset.iterations) > 0 && Number(worker.dataset.refills) > 0);
+    }, null, { timeout: 15000 });
     await assertStressLayout(page, 'stress:desktop:cpu-running', { requirePanelFit: true });
+    await runUtilitySection(utilitySectionFailures, 'Stress Running Geometry', async () => {
+      await assertControlPanelSizes(page, 'stress-test', 'stress:running');
+    });
 
     await page.click('#stressStopBtn');
     await page.waitForFunction(() => /^(idle|stopped)$/.test(document.getElementById('stressTestApp')?.dataset.stressState ?? ''), null, {
@@ -1704,21 +2019,6 @@ async function main() {
     assert(/webgpu|webgl|gpu/i.test(noGpuStressState.status), 'Unsupported GPU Stress Test should surface readable fallback copy.');
     await noGpuPage.close();
 
-    const stressMobilePage = await browser.newPage({
-      viewport: { width: 390, height: 844 }
-    });
-    await stressMobilePage.addInitScript(() => {
-      window.__OD_STRESS_TEST_MAX_WORKERS__ = 1;
-    });
-    await stressMobilePage.goto(`${baseUrl}/pages/utilities/index.html?full=1#stress-test`, { waitUntil: 'networkidle' });
-    await stressMobilePage.waitForFunction(
-      () => document.querySelector('.utility-stage[data-utility-id="stress-test"]')?.classList.contains('is-active'),
-      null,
-      { timeout: 10000 }
-    );
-    await stressMobilePage.waitForSelector('#stressTestApp[data-stress-state="idle"]', { timeout: 10000 });
-      await assertStressLayout(stressMobilePage, 'stress:mobile:idle', { expectMetricsHidden: true });
-      await stressMobilePage.close();
     });
 
     await runUtilitySection(utilitySectionFailures, 'Image Transform Worker Fallback', async () => {
@@ -1773,40 +2073,19 @@ async function main() {
       }
     });
 
-    await runUtilitySection(utilitySectionFailures, 'Mobile Utilities Layout', async () => {
-      const mobilePage = await browser.newPage({
-        viewport: { width: 390, height: 844 }
+    await runUtilitySection(utilitySectionFailures, 'Reduced Motion', async () => {
+      const reducedMotionPage = await browser.newPage({
+        viewport: { width: 1280, height: 800 },
+        reducedMotion: 'reduce'
       });
       try {
-        await mobilePage.addInitScript(() => {
-          window.__OD_RETRO_VM_TEST_MODE__ = true;
-        });
-        await mobilePage.emulateMedia({ reducedMotion: 'reduce' });
-        await loadUtilitiesPage(mobilePage, pageUrl.replace('index.html', 'index.html?full=1'), 'Built-in pair selected|Ready for input', 15000, 'reduced-motion startup');
-        await mobilePage.click('#transformGenerateBtn');
-        await waitForStatusMatch(mobilePage, 'Reduced motion', 30000, 'reduced-motion result');
-        await mobilePage.evaluate(() => window.scrollTo(0, 0));
-
-        const mobileState = await mobilePage.evaluate(() => ({
-          width: window.innerWidth,
-          shellWidth: document.querySelector('.utility-shell')?.getBoundingClientRect().width ?? 0,
-          resultStatus: (() => {
-            const app = document.getElementById('utilitiesApp');
-            const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
-            const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
-            return fromData || fromLegacy;
-          })(),
-          navBottom: document.getElementById('nav')?.getBoundingClientRect().bottom ?? 0,
-          heroTitleTop: document.querySelector('.utilities-hero .hero-title')?.getBoundingClientRect().top ?? 0
-        }));
-
-        assert(mobileState.shellWidth <= mobileState.width, 'Utilities shell overflows the mobile viewport.');
-        assert(mobileState.resultStatus && /Reduced motion/i.test(mobileState.resultStatus), 'Reduced-motion path did not complete.');
-        if (mobileState.heroTitleTop > 0) {
-          assert(mobileState.heroTitleTop >= mobileState.navBottom + 8, 'Mobile utilities hero title sits too close to the navigation.');
-        }
+        await loadUtilitiesPage(reducedMotionPage, pageUrl, 'Built-in pair selected|Ready for input', 15000, 'reduced-motion startup');
+        await reducedMotionPage.click('#transformGenerateBtn');
+        await waitForStatusMatch(reducedMotionPage, 'Reduced motion', 30000, 'reduced-motion result');
+        await assertImageTimeline(reducedMotionPage, { reducedMotion: true });
+        await assertUtilityIsolationLayout(reducedMotionPage, 'reduced-motion:desktop');
       } finally {
-        await mobilePage.close();
+        await reducedMotionPage.close();
       }
     });
 

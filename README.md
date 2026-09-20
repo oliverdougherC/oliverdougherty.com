@@ -10,7 +10,7 @@ Static portfolio site for me (Oliver Dougherty, duh).
 - `js/` — Shared browser scripts (navigation, gallery, page effects, mobile gate, etc.)
 - `css/` — Design system tokens + page-specific stylesheets
 - `assets/` — Static media, gallery photos, utilities assets (demo images, audio, VM ISO)
-- `utilities-src/` — Editable TypeScript source for the utilities dashboard
+- `utilities-src/` — Editable TypeScript source for the utilities workbench
 - `vm-src/` — Tiny Core Linux rootfs overlay for the Retro VM utility
 - `config/` — Vite, Vitest, and TypeScript configs for generated projects
 - `scripts/` — Image processing, linting, build deploy, Playwright testing
@@ -44,7 +44,7 @@ git clone git@github.com:oliverdougherC/oliverdougherty.com.git
 cd oliverdougherty.com
 
 npm install              # dependencies
-npm run utilities:build  # build utilities dashboard
+npm run utilities:build  # build utilities workbench
 ```
 
 ### IDE setup — WebStorm / VS Code
@@ -86,7 +86,7 @@ npm run optimize-images
 - `npm run utilities:perf` — Transform timing probe (image + audio)
 - `npm run utilities:cache:build` — Precompute built-in transform cache JSON
 
-Local Assistant and Virtual Machine are retained but hidden and excluded from the active utility routes. Keep their sources and runtime assets until their product direction is reviewed.
+Utilities is a desktop-only, curiosity-driven workbench with Image Transform, Fourier Reconstruction, and Stress Test. Its name-only index opens individual workspaces with shared controls and navigation. Virtual Machine remains hidden; preserve its source, build inputs, runtime assets, and tests for future development. The old Local Assistant implementation is retired. See [Adding a utility](docs/utilities/adding-a-utility.md) for the extension workflow.
 
 ### Gallery
 

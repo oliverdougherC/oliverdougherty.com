@@ -152,11 +152,6 @@ function validatePages() {
 
 function validateRetainedUtilityAssets(root) {
   const retained = [
-    'js/local-llm-chat.js',
-    'js/local-llm-worker.js',
-    'js/local-llm-config.js',
-    'js/local-llm-cache.js',
-    'js/local-llm-rendering.js',
     'assets/utilities/vm/tinycore-retro-vm.iso',
     'assets/utilities/vm/seabios.bin',
     'assets/utilities/vm/vgabios.bin'

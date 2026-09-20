@@ -11,29 +11,27 @@ import {
 } from './stressTestCore';
 import { startAdaptiveGpuStress, type StressGpuStressHandle } from './stressTestGpu';
 import type { StressTestWorkerRequest, StressTestWorkerResponse } from './stressTestWorkerTypes';
+import { PrimeBlockAllocator, PRIME_PREFETCH_BLOCKS } from './stressTestPrimeScheduler';
 
 interface StressWorkerRecord {
   worker: Worker;
   stopped: boolean;
   iterations: number;
+  primesFound: number;
+  activity: number;
+  index: number;
+  supplyId: number;
+  blocksAssigned: number;
+  refills: number;
+  activityElement: HTMLElement;
   messageListener: (event: MessageEvent<StressTestWorkerResponse>) => void;
   errorListener: (event: ErrorEvent) => void;
-}
-
-interface ThermalNode {
-  x: number;
-  y: number;
-  radius: number;
-  speed: number;
-  phase: number;
-  intensity: number;
 }
 
 type StressMetricId = 'elapsed' | 'workers' | 'gpu' | 'fps' | 'dropped' | 'iterations';
 
 const DEFAULT_MODE: StressMode = 'both';
-const METRIC_INTERVAL_MS = 250;
-const CPU_THERMAL_NODE_COUNT = 42;
+const METRIC_INTERVAL_MS = 120;
 const STRESS_METRIC_HIDE_ORDER: Record<StressMode, StressMetricId[]> = {
   // Hide least relevant metrics first when the control panel is height-limited.
   cpu: ['dropped', 'gpu', 'fps', 'iterations', 'elapsed', 'workers'],
@@ -99,7 +97,11 @@ export class StressTestController {
   private state: StressState = 'idle';
   private requestId = 0;
   private workers: StressWorkerRecord[] = [];
+  private primeAllocator = new PrimeBlockAllocator();
+  private blocksAssigned = 0;
+  private cpuRefills = 0;
   private gpu: StressGpuStressHandle | null = null;
+  private gpuAbort: AbortController | null = null;
   private startedAt = 0;
   private metricFrameId = 0;
   private lastFrameAt = 0;
@@ -108,6 +110,19 @@ export class StressTestController {
   private droppedFrames = 0;
   private lastFps = 0;
   private totalIterations = 0;
+  private latestPrime = 0;
+  private primesFound = 0;
+  private candidatesPerSecond = 0;
+  private previousIterations = 0;
+  private pointerX = 0;
+  private pointerY = 0;
+  private readonly primeLabel: HTMLElement;
+  private readonly primeCaption: HTMLElement;
+  private readonly primeSummary: HTMLElement;
+  private readonly workerSummary: HTMLElement;
+  private readonly workerActivity: HTMLElement;
+  private readonly gpuDetail: HTMLElement;
+  private readonly visualPanel: HTMLElement;
   private gpuBackend: StressGpuBackend = 'none';
   private gpuWorkloadLevel = 0;
   private lastError = '';
@@ -118,10 +133,16 @@ export class StressTestController {
   private canvasResizeFrameId = 0;
   private canvas2dCtx: CanvasRenderingContext2D | null = null;
   private canvasResizeObserver: ResizeObserver | null = null;
-  private thermalNodes: ThermalNode[] = [];
   private readonly cleanupCallbacks: Array<() => void> = [];
   constructor(root: HTMLElement) {
     this.root = root;
+    this.primeLabel = this.requireElement('stressLatestPrime') as HTMLElement;
+    this.primeCaption = this.requireElement('stressPrimeCaption') as HTMLElement;
+    this.primeSummary = this.requireElement('stressPrimeSummary') as HTMLElement;
+    this.workerSummary = this.requireElement('stressWorkerSummary') as HTMLElement;
+    this.workerActivity = this.requireElement('stressWorkerActivity') as HTMLElement;
+    this.gpuDetail = this.requireElement('stressGpuDetail') as HTMLElement;
+    this.visualPanel = this.requireElement('stressVisualPanel') as HTMLElement;
     this.modeButtons = Array.from(this.root.querySelectorAll<HTMLButtonElement>('[data-stress-mode-option]'));
     const startEl = this.requireElement('stressStartBtn');
     if (!(startEl instanceof HTMLButtonElement)) {
@@ -172,6 +193,25 @@ export class StressTestController {
       this.start().catch((error) => this.handleStartFailure(error));
     });
     this.listen(this.stopButton, 'click', () => this.stop());
+    this.listen(this.visualPanel, 'pointermove', (event) => {
+      if (!(event instanceof PointerEvent) || !this.gpu) return;
+      const rect = this.visualPanel.getBoundingClientRect();
+      this.pointerX = Math.max(-1, Math.min(1, (event.clientX - rect.left) / rect.width * 2 - 1));
+      this.pointerY = Math.max(-1, Math.min(1, (event.clientY - rect.top) / rect.height * 2 - 1));
+      this.gpu.setPointer?.(this.pointerX, this.pointerY);
+    });
+    this.listen(this.requireElement('stressOrbit'), 'keydown', (event) => {
+      if (!(event instanceof KeyboardEvent)) return;
+      const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home'];
+      if (!keys.includes(event.key)) return;
+      event.preventDefault();
+      if (event.key === 'Home') { this.pointerX = 0; this.pointerY = 0; }
+      else {
+        this.pointerX = Math.max(-1, Math.min(1, this.pointerX + (event.key === 'ArrowRight' ? .15 : event.key === 'ArrowLeft' ? -.15 : 0)));
+        this.pointerY = Math.max(-1, Math.min(1, this.pointerY + (event.key === 'ArrowDown' ? .15 : event.key === 'ArrowUp' ? -.15 : 0)));
+      }
+      this.gpu?.setPointer?.(this.pointerX, this.pointerY);
+    });
     this.listen(this.root, 'utility-deactivate', () => this.stop());
     this.listen(window, 'hashchange', () => {
       if (window.location.hash !== '#stress-test') {
@@ -183,10 +223,12 @@ export class StressTestController {
       this.queueCanvasResizeSync();
     });
     this.listen(window, 'pagehide', () => this.stop());
+    this.listen(document, 'visibilitychange', () => { if (document.hidden) this.stop(); });
     this.listen(this.reducedMotionQuery, 'change', () => {
       this.reducedMotion = this.reducedMotionQuery.matches;
       this.root.dataset.stressReducedMotion = this.reducedMotion ? 'true' : 'false';
-      if (this.reducedMotion) {
+      this.gpu?.setReducedMotion?.(this.reducedMotion);
+      if (this.reducedMotion && !this.gpu) {
         this.stopCpuVisuals();
       } else if (!this.gpu && this.state === 'running') {
         this.startCpuVisuals();
@@ -243,6 +285,10 @@ export class StressTestController {
     this.requestId += 1;
     const requestId = this.requestId;
     this.totalIterations = 0;
+    this.latestPrime = 0;
+    this.primesFound = 0;
+    this.previousIterations = 0;
+    this.candidatesPerSecond = 0;
     this.frameCount = 0;
     this.droppedFrames = 0;
     this.lastFps = 0;
@@ -263,6 +309,7 @@ export class StressTestController {
         try {
           this.startCpuStress(requestId);
         } catch (error) {
+          this.stopCpuStress();
           cpuStartError = error instanceof Error ? error.message : 'CPU stress failed to start.';
           if (this.mode === 'cpu') {
             throw error;
@@ -302,7 +349,7 @@ export class StressTestController {
       } else if (this.mode === 'both' && !this.gpu) {
         this.setState(transitionStressState(this.state, 'running'), 'CPU stress is running. GPU stress is unavailable in this browser.');
       } else {
-        this.setState(transitionStressState(this.state, 'running'), 'Stress test running until you stop it or leave this utility.');
+        this.setState(transitionStressState(this.state, 'running'), 'Running until stopped or hidden. CPU utilization and GPU watts depend on your hardware and browser.');
       }
 
       if (!this.gpu && this.workers.length > 0) {
@@ -343,7 +390,7 @@ export class StressTestController {
     this.stopGpuStress();
     this.stopCpuVisuals();
     this.stopMetricLoop();
-    this.totalIterations = 0;
+    this.candidatesPerSecond = 0;
     this.frameCount = 0;
     this.droppedFrames = 0;
     this.lastFps = 0;
@@ -365,12 +412,26 @@ export class StressTestController {
       maxWorkers: getStressTestMaxWorkersOverride()
     });
 
+    this.primeAllocator = new PrimeBlockAllocator();
+    this.blocksAssigned = 0;
+    this.cpuRefills = 0;
+    this.root.dataset.stressCpuAlgorithm = 'segmented-sieve';
+    this.root.dataset.stressCpuBlocksAssigned = '0';
+    this.root.dataset.stressCpuRefills = '0';
+    this.workerActivity.style.setProperty('--stress-workers', String(workerCount));
+
+    this.workerActivity.replaceChildren(...Array.from({ length: workerCount }, (_, index) => {
+      const bar = document.createElement('span');
+      bar.setAttribute('aria-label', `Worker ${index + 1}: starting`);
+      return bar;
+    }));
     for (let index = 0; index < workerCount; index += 1) {
       const worker = new Worker(new URL('./stressTest.worker.ts', import.meta.url), { type: 'module' });
       const messageListener = (event: MessageEvent<StressTestWorkerResponse>) => {
         this.handleWorkerMessage(record, event.data);
       };
       const errorListener = (event: ErrorEvent) => {
+        if (requestId !== this.requestId || record.stopped) return;
         console.error('[StressTest] CPU worker error', event.message, event.filename, event.lineno);
         const details = [event.message, event.filename, event.lineno ? `line ${event.lineno}` : ''].filter(Boolean).join(' ');
         this.handleCpuStressFailure(details ? `CPU stress worker failed: ${details}` : 'A CPU stress worker failed.');
@@ -379,19 +440,34 @@ export class StressTestController {
         worker,
         stopped: false,
         iterations: 0,
+        primesFound: 0,
+        activity: 0,
+        index,
+        supplyId: 0,
+        blocksAssigned: 0,
+        refills: 0,
+        activityElement: this.workerActivity.children[index] as HTMLElement,
         messageListener,
         errorListener
       };
       worker.addEventListener('message', messageListener);
       worker.addEventListener('error', errorListener);
       this.workers.push(record);
+      const blocks = this.primeAllocator.take(PRIME_PREFETCH_BLOCKS);
+      record.blocksAssigned = blocks.length;
+      this.blocksAssigned += blocks.length;
+      record.activityElement.dataset.blocksAssigned = String(blocks.length);
+      record.activityElement.dataset.refills = '0';
       const request: StressTestWorkerRequest = {
         type: 'start-cpu-stress',
         requestId,
-        workerIndex: index
+        workerIndex: index,
+        blocks,
+        exhausted: this.primeAllocator.exhausted
       };
       worker.postMessage(request);
     }
+    this.root.dataset.stressCpuBlocksAssigned = String(this.blocksAssigned);
   }
 
   private stopCpuStress() {
@@ -402,23 +478,59 @@ export class StressTestController {
       record.stopped = true;
     }
     this.workers = [];
+    this.workerActivity.replaceChildren();
   }
 
   private handleWorkerMessage(record: StressWorkerRecord, message: StressTestWorkerResponse) {
-    if (message.requestId !== this.requestId || record.stopped) {
+    if (message.requestId !== this.requestId || message.workerIndex !== record.index || record.stopped) {
+      return;
+    }
+
+    if (message.type === 'cpu-stress-work-request') {
+      if (message.supplyId !== record.supplyId + 1 || !Number.isInteger(message.count)
+        || message.count < 1 || message.count > PRIME_PREFETCH_BLOCKS) return;
+      record.supplyId = message.supplyId;
+      const blocks = this.primeAllocator.take(message.count);
+      record.blocksAssigned += blocks.length;
+      record.refills += 1;
+      this.blocksAssigned += blocks.length;
+      this.cpuRefills += 1;
+      const response: StressTestWorkerRequest = {
+        type: 'supply-cpu-stress-work', requestId: this.requestId, workerIndex: record.index,
+        supplyId: message.supplyId, blocks, exhausted: this.primeAllocator.exhausted
+      };
+      record.worker.postMessage(response);
       return;
     }
 
     if (message.type === 'cpu-stress-heartbeat') {
       const previousIterations = record.iterations;
       record.iterations = Math.max(record.iterations, message.iterations);
-      this.totalIterations += Math.max(0, record.iterations - previousIterations);
+      record.activity = Math.max(0, record.iterations - previousIterations);
+      this.totalIterations += record.activity;
+      this.latestPrime = Math.max(this.latestPrime, message.latestPrime);
+      this.primesFound += Math.max(0, message.primesFound - record.primesFound);
+      record.primesFound = Math.max(record.primesFound, message.primesFound);
       this.root.dataset.stressLastChecksum = String(message.checksum);
       return;
     }
 
     if (message.type === 'cpu-stress-stopped') {
       record.stopped = true;
+      return;
+    }
+
+    if (message.type === 'cpu-stress-exhausted') {
+      record.stopped = true;
+      if (this.workers.every(worker => worker.stopped)) {
+        this.stopCpuStress();
+        this.stopCpuVisuals();
+        if (!this.gpu) {
+          this.stopMetricLoop();
+          this.setState('idle', 'Prime search reached the safe integer limit.');
+        }
+        this.syncMetrics(true);
+      }
       return;
     }
 
@@ -442,6 +554,8 @@ export class StressTestController {
       return;
     }
 
+    // Cancel a GPU initialization that may still be awaiting an adapter/device.
+    this.requestId += 1;
     this.stopGpuStress({ loseContext: true });
     this.stopMetricLoop();
     this.setState(transitionStressState(this.state, 'error'), message);
@@ -449,21 +563,31 @@ export class StressTestController {
   }
 
   private async startGpuStress() {
+    const requestId = this.requestId;
     this.prepareGpuCanvas();
+    this.gpuAbort = new AbortController();
     const gpu = await startAdaptiveGpuStress(this.canvas, {
       onFrame: () => {
+        if (requestId !== this.requestId) return;
         this.recordRenderFrame();
       },
       onWorkloadLevel: (level) => {
+        if (requestId !== this.requestId) return;
         this.gpuWorkloadLevel = Math.max(0, Math.floor(level));
       },
       onCanvasActive: (active) => {
+        if (requestId !== this.requestId) return;
         this.gpuCanvasActive = active;
       },
       onAsyncError: (message) => {
-        this.handleGpuStressFailure(message);
+        if (requestId === this.requestId) this.handleGpuStressFailure(message);
+      },
+      onCanvasReplace: (canvas) => {
+        if (requestId !== this.requestId) return;
+        this.canvas = canvas;
+        this.bindCanvasResizeObserver();
       }
-    });
+    }, { reducedMotion: this.reducedMotion, signal: this.gpuAbort.signal });
 
     return gpu;
   }
@@ -491,13 +615,11 @@ export class StressTestController {
     this.syncMetrics(true);
   }
 
-  private stopGpuStress({ loseContext = false }: { loseContext?: boolean } = {}) {
-    if (!this.gpu) {
-      return;
-    }
-
-    this.gpu.stop({ loseContext });
+  private stopGpuStress({ loseContext = true }: { loseContext?: boolean } = {}) {
+    this.gpu?.stop({ loseContext });
     this.gpu = null;
+    this.gpuAbort?.abort();
+    this.gpuAbort = null;
   }
 
   private startCpuVisuals() {
@@ -514,20 +636,6 @@ export class StressTestController {
 
     this.syncCanvasSize();
     this.canvas2dCtx = ctx;
-    this.thermalNodes = [];
-    for (let i = 0; i < CPU_THERMAL_NODE_COUNT; i++) {
-      const column = i % 7;
-      const row = Math.floor(i / 7);
-      this.thermalNodes.push({
-        x: (column + 0.5 + ((row % 2) * 0.28)) / 7,
-        y: (row + 0.55) / 6,
-        radius: 0.08 + ((i % 5) * 0.018),
-        speed: 0.55 + ((i * 17) % 9) * 0.08,
-        phase: i * 0.73,
-        intensity: 0.42 + ((i * 11) % 8) * 0.055
-      });
-    }
-
     const frame = (time: number) => {
       if (!this.cpuVisualFrameId) return;
       this.renderCpuVisualsFrame(time);
@@ -544,116 +652,23 @@ export class StressTestController {
     }
     this.clearCanvasSurface();
     this.canvas2dCtx = null;
-    this.thermalNodes = [];
   }
 
-  private renderCpuVisualsFrame(time: number) {
+  private renderCpuVisualsFrame(_time: number) {
     const ctx = this.canvas2dCtx;
-    const canvas = this.canvas;
     if (!ctx) return;
-    const w = canvas.width;
-    const h = canvas.height;
-    const t = time * 0.001;
-
-    const cx = w * 0.5;
-    const cy = h * 0.5;
-    const minDim = Math.min(w, h);
-
-    const workerLoad = Math.max(1, this.workers.length);
-    const iterationSignal = Math.min(1, Math.log10(this.totalIterations + 10) / 8);
-    const heat = 0.42 + iterationSignal * 0.5;
-    const baseHue = 18 + iterationSignal * 20;
-
-    const background = ctx.createLinearGradient(0, 0, w, h);
-    background.addColorStop(0, '#050101');
-    background.addColorStop(0.48, '#160603');
-    background.addColorStop(1, '#030000');
-    ctx.fillStyle = background;
-    ctx.fillRect(0, 0, w, h);
-
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    for (const node of this.thermalNodes) {
-      const pulse = 0.65 + Math.sin(t * node.speed + node.phase + iterationSignal * 8) * 0.35;
-      const orbit = Math.sin(t * 0.33 + node.phase) * minDim * 0.025;
-      const x = node.x * w + orbit;
-      const y = node.y * h + Math.cos(t * 0.29 + node.phase) * minDim * 0.02;
-      const radius = minDim * node.radius * (0.8 + pulse * 0.55);
-      const alpha = node.intensity * heat * pulse;
-      const glow = ctx.createRadialGradient(x, y, 0, x, y, radius);
-      glow.addColorStop(0, `hsla(${baseHue + 20}, 100%, 76%, ${alpha * 0.42})`);
-      glow.addColorStop(0.35, `hsla(${baseHue}, 95%, 52%, ${alpha * 0.16})`);
-      glow.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = glow;
-      ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+    const { width: w, height: h } = this.canvas;
+    ctx.clearRect(0, 0, w, h);
+    // Each lane represents a real worker; incoming candidate counts drive its brightness.
+    const lanes = Math.max(1, this.workers.length);
+    const spacing = w / lanes;
+    for (let i = 0; i < lanes; i++) {
+      const activity = this.workers[i]?.activity ?? 0;
+      const brightness = Math.min(1, Math.log10(activity + 1) / 5);
+      const x = (i + .5) * spacing;
+      ctx.fillStyle = `rgba(112, 80, 192, ${.025 + brightness * .05})`;
+      ctx.fillRect(x, h * (1 - brightness), 1, h * brightness);
     }
-    ctx.restore();
-
-    ctx.save();
-    ctx.globalCompositeOperation = 'screen';
-    ctx.lineWidth = Math.max(1, minDim * 0.002);
-    for (let lane = 0; lane < workerLoad; lane += 1) {
-      const y = ((lane + 0.7) / (workerLoad + 0.4)) * h;
-      const phase = (t * (0.35 + lane * 0.015) + lane * 0.19) % 1;
-      const x = phase * w;
-      const laneAlpha = 0.16 + 0.22 * iterationSignal;
-      ctx.strokeStyle = `hsla(${baseHue + lane * 7}, 95%, 62%, ${laneAlpha})`;
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      for (let xStep = 0; xStep <= w; xStep += Math.max(24, w / 36)) {
-        const wave = Math.sin(xStep * 0.015 + t * 3 + lane) * minDim * 0.018;
-        ctx.lineTo(xStep, y + wave);
-      }
-      ctx.stroke();
-
-      const packet = ctx.createLinearGradient(x - w * 0.12, y, x + w * 0.12, y);
-      packet.addColorStop(0, 'rgba(255, 90, 36, 0)');
-      packet.addColorStop(0.5, `rgba(255, 196, 104, ${0.34 + iterationSignal * 0.28})`);
-      packet.addColorStop(1, 'rgba(255, 90, 36, 0)');
-      ctx.fillStyle = packet;
-      ctx.fillRect(x - w * 0.12, y - 2, w * 0.24, 4);
-    }
-    ctx.restore();
-
-    ctx.save();
-    ctx.globalAlpha = 0.2 + iterationSignal * 0.16;
-    ctx.strokeStyle = 'rgba(255, 120, 72, 0.42)';
-    ctx.lineWidth = 1;
-    const grid = Math.max(26, Math.floor(minDim / 18));
-    for (let x = (t * 18) % grid; x < w; x += grid) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-      ctx.stroke();
-    }
-    for (let y = (t * 11) % grid; y < h; y += grid) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    ctx.save();
-    ctx.globalCompositeOperation = 'screen';
-    ctx.lineWidth = 1;
-    for (let i = 0; i < 8; i++) {
-      const radius = ((t * (36 + iterationSignal * 40) + i * 34) % (minDim * 0.5));
-      const alpha = 0.12 * (1.0 - radius / (minDim * 0.5));
-      ctx.beginPath();
-      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-      ctx.strokeStyle = `hsla(${baseHue + i * 10}, 95%, 70%, ${alpha})`;
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    ctx.save();
-    ctx.globalAlpha = 0.18;
-    ctx.fillStyle = '#000000';
-    for (let y = 0; y < h; y += 4) {
-      ctx.fillRect(0, y, w, 1);
-    }
-    ctx.restore();
   }
 
   private recordRenderFrame() {
@@ -699,17 +714,47 @@ export class StressTestController {
       this.lastFps = this.frameCount / Math.max(1, elapsed / 1000);
     }
 
+    const sampleMs = now - this.lastMetricAt;
+    if (sampleMs > 0 && this.workers.length) {
+      this.candidatesPerSecond = Math.max(0, (this.totalIterations - this.previousIterations) * 1000 / sampleMs);
+    }
+    this.previousIterations = this.totalIterations;
+    this.root.dataset.stressCpuBlocksAssigned = String(this.blocksAssigned);
+    this.root.dataset.stressCpuRefills = String(this.cpuRefills);
+    this.primeLabel.textContent = this.latestPrime > 0 ? this.latestPrime.toLocaleString('en-US') : '1';
+    this.primeLabel.style.setProperty('--prime-digits', String(this.primeLabel.textContent.length));
+    this.primeCaption.textContent = this.latestPrime > 0 ? 'Largest prime' : this.workers.length ? 'Searching from 1' : 'Search from 1';
+    this.primeSummary.textContent = this.latestPrime > 0
+      ? `${this.primesFound.toLocaleString()} primes found · ${Math.round(this.candidatesPerSecond).toLocaleString()} candidates/s`
+      : '0 primes found';
+    this.workerSummary.textContent = this.workers.length ? `CPU · ${this.workers.length} workers` : 'CPU ready';
+    const maxActivity = Math.max(1, ...this.workers.map((record) => record.activity));
+    Array.from(this.workerActivity.children).forEach((element, index) => {
+      const record = this.workers[index];
+      if (!(element instanceof HTMLElement) || !record) return;
+      element.dataset.blocksAssigned = String(record.blocksAssigned);
+      element.dataset.refills = String(record.refills);
+      element.dataset.iterations = String(record.iterations);
+      element.dataset.primesFound = String(record.primesFound);
+      element.style.transform = `scaleY(${.1 + .9 * record.activity / maxActivity})`;
+      element.setAttribute('aria-label', `Worker ${index + 1}: ${record.iterations.toLocaleString()} candidates, ${record.primesFound.toLocaleString()} primes`);
+    });
+    const diagnostic = this.gpu?.getDiagnostics?.();
+    this.gpuDetail.textContent = diagnostic ? `${diagnostic.adapter} · ${diagnostic.detail}` : 'GPU ready';
+    this.root.dataset.stressLatestPrime = String(this.latestPrime);
+    this.root.dataset.stressPrimesFound = String(this.primesFound);
     this.elapsedLabel.textContent = formatStressElapsed(elapsed);
     this.workerCountLabel.textContent = String(this.workers.length);
     this.backendLabel.textContent = this.gpuBackend;
     this.fpsLabel.textContent = (this.gpu || this.cpuVisualFrameId) ? this.lastFps.toFixed(1) : '0.0';
     this.droppedFrameLabel.textContent = String(this.droppedFrames);
     this.iterationLabel.textContent = this.totalIterations > 0 ? this.totalIterations.toLocaleString() : '0';
+    this.iterationLabel.style.setProperty('--readout-chars', String(this.iterationLabel.textContent.length));
     this.root.dataset.stressWorkerCount = String(this.workers.length);
     this.root.dataset.stressGpuBackend = this.gpuBackend;
     this.root.dataset.stressTotalRenderedFrames = String(this.frameCount);
     this.root.dataset.stressGpuWorkloadLevel = String(this.gpuWorkloadLevel);
-    this.root.dataset.stressGpuCanvasActive = (this.gpuCanvasActive || this.cpuVisualFrameId > 0) ? 'true' : 'false';
+    this.root.dataset.stressGpuCanvasActive = this.gpuCanvasActive ? 'true' : 'false';
     this.root.dataset.stressCanvasActive = (this.gpuCanvasActive || this.cpuVisualFrameId > 0) ? 'true' : 'false';
     this.root.dataset.stressGpuLastError = this.lastError;
     this.root.dataset.stressIterations = String(this.totalIterations);
@@ -721,6 +766,7 @@ export class StressTestController {
 
   private setMode(mode: StressMode) {
     this.mode = mode;
+    (this.requireElement('stressSceneTitle') as HTMLElement).textContent = mode === 'cpu' ? 'CPU' : mode === 'gpu' ? 'GPU' : 'CPU + GPU';
     this.root.dataset.stressMode = mode;
     this.modeButtons.forEach((button) => {
       const isActive = button.dataset.stressModeOption === mode;
@@ -732,6 +778,7 @@ export class StressTestController {
 
   private setState(state: StressState, message: string) {
     this.state = state;
+    (this.requireElement('stressSceneState') as HTMLElement).textContent = state === 'running' ? 'LIVE' : state === 'starting' ? 'WARMING UP' : state === 'error' || state === 'unsupported' ? 'UNAVAILABLE' : 'STANDBY';
     this.root.dataset.stressState = state;
     this.statusText.textContent = message;
     const active = state === 'running' || state === 'starting';
@@ -850,7 +897,6 @@ export class StressTestController {
 
   private prepareGpuCanvas() {
     this.canvas2dCtx = null;
-    this.thermalNodes = [];
     this.replaceCanvasElement();
     this.syncCanvasSize();
     this.canvas.dataset.stressIdle = 'false';

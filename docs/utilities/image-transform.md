@@ -97,6 +97,26 @@ distance = ((512 + redMean) * deltaR^2) / 256 + 4 * deltaG^2 + ((767 - redMean) 
 - **Final pixels** are computed by mixing source and target colors using the tint strength.
 - **Cheated target pixels** flag which target positions received a tint > 0.08 (i.e., needed color correction).
 
+## Control panel and playback
+
+The source and target frames share the sidebar height left after settings and presets.
+Settings stay anchored at the bottom. At very short desktop heights (560px and below),
+the two inputs sit side by side. Each image fills its own frame's width and remains square and vertically centered.
+A shorter frame crops vertically without changing image scale; switching to the
+side-by-side layout reduces image size to match the narrower frame. Labels and Choose controls remain visible and unclipped.
+
+After generation, playback starts automatically and advances `#transformTimeline`.
+The native range uses 0–1000 to select animation phase, with a percentage readout.
+Pointer-down pauses immediately; dragging or keyboard changes render the selected
+frame in either direction. Releasing the input never resumes automatically. Resume
+continues from that position; at 100%, Replay starts again. Reset or invalidating a
+result disables and resets the range. Reduced-motion generation shows the final frame
+immediately; manual seeking and an explicit Play action remain available.
+
+The same deterministic renderer is used for automatic playback and seeking. Each
+render resets its scratch buffers, so visiting a phase produces the same pixels
+regardless of the order in which frames were visited.
+
 ## Animation System
 
 The animation (`transformAnimation.ts`) interpolates each source pixel from its original position to its assigned target position:

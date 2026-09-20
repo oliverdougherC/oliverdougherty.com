@@ -16,7 +16,6 @@ export interface GpuBackendSupportInput {
 export type StressEvent = 'start' | 'running' | 'stop' | 'stopped' | 'unsupported' | 'error' | 'reset' | 'retry';
 
 const DEFAULT_CPU_WORKERS = 4;
-const MAX_CPU_WORKERS = 64;
 
 export function isStressMode(value: string | undefined): value is StressMode {
   return value === 'cpu' || value === 'gpu' || value === 'both';
@@ -31,15 +30,16 @@ export function shouldStressGpu(mode: StressMode) {
 }
 
 export function resolveCpuWorkerCount(input: CpuWorkerResolutionInput = {}) {
-  const raw = Number.isFinite(input.hardwareConcurrency)
+  // hardwareConcurrency is an unsigned-long browser value. Honor all reported threads.
+  const raw = Number.isFinite(input.hardwareConcurrency) && Number(input.hardwareConcurrency) <= 0xffff_ffff
     ? Number(input.hardwareConcurrency)
     : DEFAULT_CPU_WORKERS;
   const requested = Math.max(1, Math.floor(raw));
   const configuredMax = Number.isFinite(input.maxWorkers)
     ? Math.max(1, Math.floor(Number(input.maxWorkers)))
-    : MAX_CPU_WORKERS;
+    : requested;
 
-  return Math.min(requested, configuredMax, MAX_CPU_WORKERS);
+  return Math.min(requested, configuredMax);
 }
 
 export function resolveGpuBackend(input: GpuBackendSupportInput): StressGpuBackend {

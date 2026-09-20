@@ -48,6 +48,8 @@ class UtilitiesApp {
   private readonly swapButton: HTMLButtonElement;
   private readonly resetButton: HTMLButtonElement;
   private readonly playButton: HTMLButtonElement;
+  private readonly timeline: HTMLInputElement;
+  private readonly timelinePosition: HTMLOutputElement;
   private readonly statusChip: HTMLElement | null;
   private readonly statusText: HTMLElement | null;
   private readonly progressText: HTMLElement;
@@ -95,6 +97,7 @@ class UtilitiesApp {
   private state: StateKind = 'idle';
   private workerUnavailable = false;
   private workerFallbackScheduled = false;
+  private previewUrls: Partial<Record<SelectionKind, string>> = {};
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -105,6 +108,8 @@ class UtilitiesApp {
     this.swapButton = this.requireElement('transformSwapBtn');
     this.resetButton = this.requireElement('transformResetBtn');
     this.playButton = this.requireElement('transformPlayBtn');
+    this.timeline = this.requireElement('transformTimeline');
+    this.timelinePosition = this.requireElement('transformTimelinePosition');
     this.statusChip = document.getElementById('transformStatusChip');
     this.statusText = document.getElementById('transformStatusText');
     this.progressText = this.requireElement('transformProgressText');
@@ -154,6 +159,8 @@ class UtilitiesApp {
       this.resetAll();
     });
     this.playButton.addEventListener('click', () => this.handlePlaybackButton());
+    this.timeline.addEventListener('pointerdown', () => this.pauseAnimation());
+    this.timeline.addEventListener('input', () => this.seekAnimation(Number(this.timeline.value) / 1000));
     this.presetSelect.addEventListener('change', () => {
       const preset = getPreset(this.selectedPreset);
       if (this.activeTransform) {
@@ -179,6 +186,23 @@ class UtilitiesApp {
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.state === 'animating') {
         this.pauseAnimation();
+      }
+    });
+    this.root.addEventListener('utility-deactivate', () => {
+      this.pauseAnimation();
+      if (this.state === 'processing') {
+        this.discardActiveRequest();
+        this.invalidateComputedState('Computation stopped.');
+      }
+    });
+    window.addEventListener('pagehide', (event) => {
+      this.pauseAnimation();
+      if (this.state === 'processing') {
+        this.discardActiveRequest();
+        this.invalidateComputedState('Computation stopped.');
+      }
+      if (!event.persisted) {
+        Object.values(this.previewUrls).forEach((url) => URL.revokeObjectURL(url));
       }
     });
 
@@ -319,13 +343,18 @@ class UtilitiesApp {
   }
 
   private clearActiveDemo() {
-    this.demoButtons.forEach((button) => button.classList.remove('active'));
+    this.demoButtons.forEach((button) => {
+      button.classList.remove('active');
+      button.setAttribute('aria-pressed', 'false');
+    });
   }
 
   private syncActiveDemo() {
     const activeDemoKey = this.resolveActiveDemoKey();
     this.demoButtons.forEach((button) => {
-      button.classList.toggle('active', Boolean(activeDemoKey) && button.dataset.demoKey === activeDemoKey);
+      const active = Boolean(activeDemoKey) && button.dataset.demoKey === activeDemoKey;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
     });
   }
 
@@ -351,7 +380,24 @@ class UtilitiesApp {
   private syncSelectionLabels() {
     this.sourceSelectionLabel.textContent = this.sourceSelection ? this.sourceSelection.label : 'No source selected';
     this.targetSelectionLabel.textContent = this.targetSelection ? this.targetSelection.label : 'No target selected';
+    this.syncPreview('source', this.sourceSelection);
+    this.syncPreview('target', this.targetSelection);
     this.syncButtons();
+  }
+
+  private syncPreview(kind: SelectionKind, selection: ImageSelection | null) {
+    const preview = document.getElementById(kind === 'source' ? 'transformSourcePreview' : 'transformTargetPreview');
+    if (!(preview instanceof HTMLImageElement)) return;
+    const previousUrl = this.previewUrls[kind];
+    if (previousUrl) URL.revokeObjectURL(previousUrl);
+    delete this.previewUrls[kind];
+    const source = selection?.file?.type.startsWith('image/')
+      ? (this.previewUrls[kind] = URL.createObjectURL(selection.file))
+      : selection?.url;
+    preview.hidden = !source;
+    if (source) preview.src = source;
+    else preview.removeAttribute('src');
+    preview.onerror = () => { preview.hidden = true; };
   }
 
   private syncButtons() {
@@ -363,19 +409,19 @@ class UtilitiesApp {
     const isComplete = this.state === 'complete';
 
     if (isComplete) {
-      this.playButton.textContent = '↻';
+      this.playButton.textContent = 'Replay';
       this.playButton.disabled = false;
       this.playButton.setAttribute('aria-label', 'Replay animation');
     } else if (isAnimating) {
-      this.playButton.textContent = '⏸';
+      this.playButton.textContent = 'Pause';
       this.playButton.disabled = false;
       this.playButton.setAttribute('aria-label', 'Pause playback');
     } else if (isPaused) {
-      this.playButton.textContent = '▶';
+      this.playButton.textContent = 'Resume';
       this.playButton.disabled = false;
       this.playButton.setAttribute('aria-label', 'Resume playback');
     } else {
-      this.playButton.textContent = '▶';
+      this.playButton.textContent = 'Play';
       this.playButton.disabled = !hasResult || isProcessing;
       this.playButton.setAttribute('aria-label', 'Play animation');
     }
@@ -384,6 +430,16 @@ class UtilitiesApp {
     this.generateButton.disabled = !hasBothSelections || isProcessing;
     this.swapButton.disabled = !hasBothSelections || isProcessing;
     this.resetButton.disabled = isProcessing && !hasResult;
+    this.timeline.disabled = !hasResult || isProcessing;
+    if (this.timeline.disabled) this.syncTimeline(0);
+  }
+
+  private syncTimeline(phase: number) {
+    const value = Math.round(clamp(phase, 0, 1) * 1000);
+    const percent = `${Math.round(value / 10)}%`;
+    this.timeline.value = String(value);
+    this.timeline.setAttribute('aria-valuetext', percent);
+    this.timelinePosition.value = percent;
   }
 
   private setState(state: StateKind, text: string) {
@@ -495,7 +551,7 @@ class UtilitiesApp {
     this.setProgress(
       0,
       this.sourceSelection && this.targetSelection
-        ? 'Selections are ready. Generate a new transform to continue.'
+        ? 'Ready.'
         : 'Ready for input.',
       `${preset.label} preset · up to ${preset.maxDimension}px working size`
     );
@@ -706,12 +762,14 @@ class UtilitiesApp {
 
         try {
           const precomputedBuiltInTransform = await this.restorePrecomputedBuiltInTransform(requestId, preset.id);
-          if (precomputedBuiltInTransform && requestId === this.activeRequestId) {
+          if (!this.isCurrentRequest(requestId)) return;
+          if (precomputedBuiltInTransform) {
             this.setProgress(0.98, 'Restoring precomputed built-in transform…', `${preset.label} preset · shipped demo cache`);
             this.applyTransformSuccess(precomputedBuiltInTransform.message, precomputedBuiltInTransform.renderPlan);
             return;
           }
         } catch (error) {
+          if (!this.isCurrentRequest(requestId)) return;
           this.setProgress(
             0.12,
             error instanceof Error
@@ -1156,6 +1214,9 @@ class UtilitiesApp {
 
     this.resultContext.putImageData(this.finalResultImageData, 0, 0);
     this.overlayContext.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
+    this.animationElapsedMs = this.getAnimationDurationMs();
+    this.animationStartedAt = 0;
+    this.syncTimeline(1);
   }
 
   private renderAnimationFrame(phase: number) {
@@ -1181,6 +1242,20 @@ class UtilitiesApp {
     );
 
     this.overlayContext.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
+    this.syncTimeline(phase);
+  }
+
+  private seekAnimation(phase: number) {
+    if (!this.activeTransform || !this.animationState || this.state === 'processing') return;
+
+    this.pauseAnimation();
+    const selectedPhase = clamp(phase, 0, 1);
+    this.animationElapsedMs = selectedPhase * this.getAnimationDurationMs();
+    this.animationStartedAt = 0;
+    this.lastAnimationFrameTimestamp = 0;
+    this.renderAnimationFrame(selectedPhase);
+    this.setState(selectedPhase === 1 ? 'complete' : 'paused', selectedPhase === 1 ? 'Animation complete.' : 'Animation paused.');
+    this.setProgress(selectedPhase, `${selectedPhase === 1 ? 'Complete' : 'Paused'} · ${Math.round(selectedPhase * 100)}%`);
   }
 
   private handlePlaybackButton() {
@@ -1203,7 +1278,7 @@ class UtilitiesApp {
   }
 
   private playAnimation() {
-    if (!this.activeTransform || this.reducedMotion) {
+    if (!this.activeTransform) {
       return;
     }
 
@@ -1244,6 +1319,7 @@ class UtilitiesApp {
         this.lastAnimationFrameTimestamp = 0;
         this.renderCompleteResult();
         this.setState('complete', 'Animation complete.');
+        this.setProgress(1, 'Complete.');
         this.syncButtons();
         return;
       }
@@ -1263,10 +1339,15 @@ class UtilitiesApp {
     if (this.state === 'animating') {
       if (this.animationStartedAt) {
         this.animationElapsedMs += performance.now() - this.animationStartedAt;
-        this.animationStartedAt = 0;
       }
+      const durationMs = this.getAnimationDurationMs();
+      this.animationElapsedMs = clamp(this.animationElapsedMs, 0, durationMs);
+      this.animationStartedAt = 0;
       this.lastAnimationFrameTimestamp = 0;
-      this.setState('paused', 'Animation paused.');
+      const phase = this.animationElapsedMs / durationMs;
+      this.renderAnimationFrame(phase);
+      this.setState(phase === 1 ? 'complete' : 'paused', phase === 1 ? 'Animation complete.' : 'Animation paused.');
+      this.setProgress(phase, `${phase === 1 ? 'Complete' : 'Paused'} · ${Math.round(phase * 100)}%`);
     }
   }
 
@@ -1284,7 +1365,7 @@ class UtilitiesApp {
   }
 
   private replayAnimation() {
-    if (!this.activeTransform || this.reducedMotion) {
+    if (!this.activeTransform) {
       return;
     }
 

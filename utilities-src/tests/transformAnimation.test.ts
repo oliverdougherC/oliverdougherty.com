@@ -194,7 +194,7 @@ describe('transform animation', () => {
     }
   });
 
-  it('requires callers to reuse the destination frame buffer', () => {
+  it('renders reversibly through a reused destination frame buffer', () => {
     const source = imageFromRgbTriples(
       [
         [255, 0, 0],
@@ -231,10 +231,16 @@ describe('transform animation', () => {
 
     const frameBuffer = new Uint8ClampedArray(renderPlan.finalPixels.length);
     const firstFrame = renderTransformAnimationPixels(state, 0.25, frameBuffer);
+    const earlyPixels = firstFrame.slice();
     const secondFrame = renderTransformAnimationPixels(state, 0.7, frameBuffer);
+    const laterPixels = secondFrame.slice();
 
     expect(firstFrame).toBe(frameBuffer);
     expect(secondFrame).toBe(frameBuffer);
+    expect(renderTransformAnimationPixels(state, 1, frameBuffer)).toEqual(renderPlan.finalPixels);
+    expect(renderTransformAnimationPixels(state, 0.25, frameBuffer)).toEqual(earlyPixels);
+    expect(renderTransformAnimationPixels(state, 0, frameBuffer)).toEqual(source.pixels);
+    expect(renderTransformAnimationPixels(state, 0.7, frameBuffer)).toEqual(laterPixels);
     expect(() => renderTransformAnimationPixels(state, 0.5, new Uint8ClampedArray(1))).toThrow(
       'Animation destination buffer'
     );

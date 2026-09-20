@@ -9,11 +9,14 @@ import {
 } from '@utilities/stressTestCore';
 
 describe('stress test core helpers', () => {
-  it('resolves CPU worker count from hardware concurrency with a safety cap', () => {
+  it('resolves CPU worker count from hardware concurrency without a production cap', () => {
     expect(resolveCpuWorkerCount({ hardwareConcurrency: 8 })).toBe(8);
     expect(resolveCpuWorkerCount({ hardwareConcurrency: 0 })).toBe(1);
-    expect(resolveCpuWorkerCount({ hardwareConcurrency: 128 })).toBe(64);
+    expect(resolveCpuWorkerCount({ hardwareConcurrency: 128 })).toBe(128);
     expect(resolveCpuWorkerCount({ hardwareConcurrency: 16, maxWorkers: 2 })).toBe(2);
+    expect(resolveCpuWorkerCount({ hardwareConcurrency: NaN })).toBe(4);
+    expect(resolveCpuWorkerCount({ hardwareConcurrency: Infinity })).toBe(4);
+    expect(resolveCpuWorkerCount({ hardwareConcurrency: Number.MAX_SAFE_INTEGER })).toBe(4);
   });
 
   it('maps modes to the correct workload lanes', () => {

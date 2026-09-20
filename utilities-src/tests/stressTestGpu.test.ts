@@ -48,3 +48,55 @@ describe('adaptive GPU stress scaling', () => {
     ]);
   });
 });
+
+import { resolveGpuComputeWorkload } from '@utilities/stressTestGpu';
+
+describe('GPU compute workload allocation', () => {
+  it('never dispatches more independent lanes than its storage capacity', () => {
+    for (const level of [1, 64, 4096, 1000000, Number.MAX_SAFE_INTEGER]) {
+      const plan = resolveGpuComputeWorkload(level);
+      expect(plan.groups * 64 * 16).toBeLessThanOrEqual(plan.storageBytes);
+      expect(plan.storageBytes).toBeLessThanOrEqual(16 * 1024 * 1024);
+      expect(plan.iterations).toBeLessThanOrEqual(1024);
+      expect(plan.passes).toBeLessThanOrEqual(8);
+    }
+  });
+
+  it('respects reported storage and workgroup limits even below defaults', () => {
+    const plan = resolveGpuComputeWorkload(100000, {
+      maxBufferSize: 128 * 1024, maxStorageBufferBindingSize: 64 * 1024,
+      maxComputeWorkgroupsPerDimension: 32
+    });
+    expect(plan.storageBytes).toBe(64 * 1024);
+    expect(plan.groups).toBe(32);
+    expect(plan.iterations).toBe(1024);
+    expect(plan.passes).toBe(8);
+  });
+
+  it('scales beyond the old tiny storage workload with bounded sequential passes', () => {
+    const plan = resolveGpuComputeWorkload(1000000);
+    expect(plan.groups * 64).toBe(1048576);
+    expect(plan.iterations).toBe(1024);
+    expect(plan.passes).toBeGreaterThan(1);
+    expect(plan.effectiveLevel).toBeGreaterThanOrEqual(1000000);
+  });
+
+  it('normalizes invalid requested workloads', () => {
+    for (const level of [NaN, Infinity, -20, 0]) {
+      expect(resolveGpuComputeWorkload(level).groups).toBe(1);
+    }
+  });
+});
+
+
+describe('invalid GPU limits', () => {
+  it('rejects limits too small or malformed rather than exceeding them', () => {
+    for (const limits of [
+      { maxBufferSize: 1000 }, { maxStorageBufferBindingSize: 0 },
+      { maxComputeWorkgroupsPerDimension: 0 }, { maxBufferSize: NaN },
+      { maxComputeWorkgroupsPerDimension: Infinity }
+    ]) {
+      expect(() => resolveGpuComputeWorkload(1024, limits)).toThrow('GPU limits');
+    }
+  });
+});

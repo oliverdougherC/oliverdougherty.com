@@ -45,7 +45,7 @@ These write to `output/`, which is intentionally ignored.
 
 ## Utilities build workflow
 
-The utilities page also has a strict source/build split:
+The desktop utilities workbench has a strict source/build split:
 
 - Editable source: `utilities-src/`
 - Shipped build output: `pages/utilities/assets/`
@@ -66,6 +66,12 @@ npm run smoke
 ```
 
 Do not hand-edit the generated utilities bundle or the hashed worker chunks in `pages/utilities/assets/assets/`.
+
+For a new tool, follow [Adding a utility](utilities/adding-a-utility.md). Reuse the
+workbench shell and shared controls; design only the tool-specific interaction and
+output. Keep the numbered index name-only, without descriptions or tooltips. Mobile
+utilities are outside the current scope. The existing three tools remain active,
+Virtual Machine code and assets are retained but hidden, and Local Assistant is retired.
 
 ## Deploy build workflow
 

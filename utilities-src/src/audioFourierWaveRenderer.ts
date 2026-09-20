@@ -1,16 +1,16 @@
 import { clamp } from './math';
 
-const WAVE_COLOR_ORIGINAL_FILL = 'rgba(255, 255, 255, 0.28)';
-const WAVE_COLOR_ORIGINAL_STROKE = 'rgba(255, 255, 255, 0.4)';
-const WAVE_COLOR_RECONSTRUCTED_FILL = 'rgba(128, 153, 204, 0.22)';   // #8099cc
-const WAVE_COLOR_RECONSTRUCTED_STROKE = 'rgba(166, 187, 232, 0.95)'; // #a6bbe8
-const WAVE_COLOR_PLAYHEAD = 'rgba(255, 255, 255, 0.95)';
-const WAVE_COLOR_PLAYHEAD_GLOW = 'rgba(255, 255, 255, 0.6)';
-const WAVE_GL_ORIGINAL: [number, number, number, number] = [1, 1, 1, 0.3];
-const WAVE_GL_RECONSTRUCTED_UNDERLAY: [number, number, number, number] = [0.5, 0.6, 0.8, 0.14];
-const WAVE_GL_RECONSTRUCTED: [number, number, number, number] = [0.65, 0.73, 0.91, 0.85];
-const WAVE_GL_PLAYHEAD_LIVE: [number, number, number, number] = [1, 1, 1, 0.9];
-const WAVE_GL_PLAYHEAD: [number, number, number, number] = [1, 1, 1, 1];
+const WAVE_COLOR_ORIGINAL_FILL = 'rgba(17, 17, 17, 0.08)';
+const WAVE_COLOR_ORIGINAL_STROKE = 'rgba(17, 17, 17, 0.25)';
+const WAVE_COLOR_RECONSTRUCTED_FILL = 'rgba(112, 80, 192, 0.15)';
+const WAVE_COLOR_RECONSTRUCTED_STROKE = 'rgba(112, 80, 192, 0.95)';
+const WAVE_COLOR_PLAYHEAD = 'rgba(17, 17, 17, 0.95)';
+const WAVE_COLOR_PLAYHEAD_GLOW = 'rgba(17, 17, 17, 0)';
+const WAVE_GL_ORIGINAL: [number, number, number, number] = [0.07, 0.07, 0.07, 0.18];
+const WAVE_GL_RECONSTRUCTED_UNDERLAY: [number, number, number, number] = [0.44, 0.31, 0.75, 0.12];
+const WAVE_GL_RECONSTRUCTED: [number, number, number, number] = [0.44, 0.31, 0.75, 0.85];
+const WAVE_GL_PLAYHEAD_LIVE: [number, number, number, number] = [0.07, 0.07, 0.07, 0.9];
+const WAVE_GL_PLAYHEAD: [number, number, number, number] = [0.07, 0.07, 0.07, 1];
 
 export interface AudioWaveEnvelopeData {
   originalAmplitudes: Float32Array;
@@ -201,7 +201,7 @@ class Canvas2dAudioWaveRenderer implements AudioWaveRenderer {
   drawEmptyState(label: string) {
     this.clear();
     this.context.save();
-    this.context.fillStyle = 'rgba(235, 244, 239, 0.55)';
+    this.context.fillStyle = '#646464';
     this.context.font = '16px Inter, sans-serif';
     this.context.textAlign = 'center';
     this.context.textBaseline = 'middle';
@@ -615,7 +615,7 @@ class WebGlAudioWaveRenderer implements AudioWaveRenderer {
     if (!context) {
       return null;
     }
-    context.fillStyle = 'rgba(235, 244, 239, 0.55)';
+    context.fillStyle = '#646464';
     context.font = '16px Inter, sans-serif';
     context.textAlign = 'center';
     context.textBaseline = 'middle';

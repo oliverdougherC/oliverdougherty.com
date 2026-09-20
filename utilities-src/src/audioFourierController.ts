@@ -168,6 +168,7 @@ export class AudioFourierController {
   private activeMasterGain: GainNode | null = null;
   private masterGainControlReadyAt = 0;
   private playbackStartedAt = 0;
+  private playbackAttempt = 0;
   private playbackAudioStartsAt = 0;
   private playbackElapsedSeconds = 0;
   private visualPlaybackElapsedSeconds = 0;
@@ -248,13 +249,17 @@ export class AudioFourierController {
     this.componentSlider.addEventListener('input', () => this.handleSliderInput(), { signal });
     this.bindDropzone();
 
-    this.root.addEventListener('utility-deactivate', () => this.pausePlayback(), { signal });
+    const suspend = () => {
+      this.pausePlayback();
+      if (this.state === 'processing') this.invalidateComputedState('Analysis stopped.');
+    };
+    this.root.addEventListener('utility-deactivate', suspend, { signal });
     window.addEventListener('hashchange', () => {
       if (window.location.hash !== '#audio-fourier') {
         this.pausePlayback();
       }
     }, { signal });
-    window.addEventListener('pagehide', () => this.pausePlayback(), { signal });
+    window.addEventListener('pagehide', suspend, { signal });
     document.addEventListener('utility-activate', (event) => {
       const stage = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-utility-id]') : null;
       if (stage?.dataset.utilityId && stage.dataset.utilityId !== 'audio-fourier') {
@@ -440,16 +445,18 @@ export class AudioFourierController {
   }
 
   private clearActivePresetButton() {
-    this.presetButtons.forEach((button) => button.classList.remove('active'));
+    this.presetButtons.forEach((button) => {
+      button.classList.remove('active');
+      button.setAttribute('aria-pressed', 'false');
+    });
   }
 
   private syncSelection() {
     this.selectionLabel.textContent = this.selection.label;
     this.presetButtons.forEach((button) => {
-      button.classList.toggle(
-        'active',
-        this.selection.kind === 'preset' && button.dataset.audioPreset === this.selection.presetId
-      );
+      const active = this.selection.kind === 'preset' && button.dataset.audioPreset === this.selection.presetId;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
     });
     this.syncButtons();
   }
@@ -468,9 +475,8 @@ export class AudioFourierController {
       isPlaying,
       isComplete: this.state === 'complete'
     });
-    this.playPauseButton.textContent = playbackButton.icon;
+    this.playPauseButton.textContent = playbackButton.label;
     this.playPauseButton.setAttribute('aria-label', playbackButton.label);
-    this.playPauseButton.title = playbackButton.label;
   }
 
   private onReducedMotionChange() {
@@ -558,6 +564,8 @@ export class AudioFourierController {
   }
 
   private abandonActiveComputation() {
+    // Also invalidate asynchronous fetch/decode work that has not reached the worker yet.
+    this.activeRequestId += 1;
     if (this.worker) {
       this.worker.terminate();
       this.worker = null;
@@ -588,7 +596,6 @@ export class AudioFourierController {
       // Some browsers still require a second explicit Play click after async analysis.
       console.warn('[AudioFourier] AudioContext resume was blocked before analysis started.', error);
       logAudioFourierWarning('AudioContext resume was blocked before analysis started.', error);
-      this.playPauseButton.title = 'Audio blocked by browser — click to unlock';
       this.setProgress(
         0.02,
         'Loading audio samples...',
@@ -1006,8 +1013,15 @@ export class AudioFourierController {
     }
 
     const activeResult = this.activeResult;
+    const attempt = ++this.playbackAttempt;
     const context = this.getAudioContext();
-    await context.resume();
+    try {
+      await context.resume();
+    } catch (error) {
+      if (attempt !== this.playbackAttempt) return;
+      throw error;
+    }
+    if (attempt !== this.playbackAttempt || this.destroyed || this.activeResult !== activeResult || this.root.closest('[hidden]')) return;
     this.ensureBandBuffers();
     const offset = clamp(this.playbackElapsedSeconds, 0, activeResult.metadata.proxyDurationSeconds);
     const startedAt = context.currentTime + PLAYBACK_START_DELAY_SECONDS;
@@ -1063,6 +1077,7 @@ export class AudioFourierController {
   }
 
   private pausePlayback() {
+    this.playbackAttempt += 1;
     if (!this.activeResult || this.state !== 'animating') {
       return;
     }
@@ -1093,6 +1108,7 @@ export class AudioFourierController {
   }
 
   private stopPlayback(resetElapsed: boolean) {
+    this.playbackAttempt += 1;
     this.stopAnimationFrame();
     this.clearDeferredWaveRender();
     for (const node of this.activeBandNodes) {
@@ -1206,7 +1222,7 @@ export class AudioFourierController {
 
   private drawEmptyState() {
     this.waveRenderer.setEnvelopeData(null);
-    this.waveRenderer.drawEmptyState('Waveform will appear here');
+    this.waveRenderer.drawEmptyState('—');
     this.clearCanvas(this.spectrumCanvas, this.spectrumContext);
     this.clearCanvas(this.componentCanvas, this.componentContext);
     this.drawCenteredLabel(this.spectrumCanvas, this.spectrumContext, 'Energy bands will appear here');
