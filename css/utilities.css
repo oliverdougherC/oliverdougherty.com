@@ -37,7 +37,7 @@ body.page-utilities { color: var(--workbench-ink); background: #fff; min-height:
 .utilities-buttons { border-top: 1px solid #111; }
 .utilities-buttons a { display: grid; grid-template-columns: 80px 1fr 52px; align-items: baseline; gap: 24px; padding: 30px 0 34px; border-bottom: 1px solid var(--workbench-rule); color: #111; text-decoration: none; transition: color 140ms ease; }
 .utilities-buttons a:hover, .utilities-buttons a:focus-visible { color: var(--workbench-accent); }
-.utility-index-number { font-size: 12px; color: var(--workbench-muted); }
+.utility-index-number { align-self: center; font: 200 clamp(16px, 1.6vw, 24px)/1 'JetBrains Mono', monospace; white-space: nowrap; color: var(--workbench-muted); }
 .utility-index-name { font-size: clamp(26px, 3.35vw, 52px); font-weight: 800; letter-spacing: -.055em; line-height: 1.25; }
 .utility-index-action { justify-self: end; font: 400 34px/1 'Inter', sans-serif; color: var(--workbench-accent); transition: transform 140ms ease; }
 .utilities-buttons a:hover .utility-index-action { transform: translate(3px,-3px); }
@@ -54,8 +54,8 @@ html[data-active-utility] .page-utilities { height: 100dvh; min-height: 0; displ
 .workbench-toolbar { display: grid; grid-template-columns: 80px minmax(0,1fr) auto; align-items: center; gap: 14px; border-top: 1px solid var(--workbench-rule); }
 .nav-back-btn { justify-self: start; padding: 7px 0; border: 0; background: none; font: 500 12px/1.4 var(--workbench-ui) !important; }
 .nav-back-btn:hover { color: var(--workbench-accent); }
-.workbench-heading { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
-.workbench-heading .workbench-label { color: var(--workbench-accent); font-size: 10px; }
+.workbench-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.workbench-heading .workbench-label { color: var(--workbench-accent); font-size: 13px; line-height: 1; }
 .workbench-heading .workbench-label::after { content: ' //'; }
 .workbench-heading h1 { margin: 0; font: 600 17px/1.25 var(--workbench-ui); letter-spacing: -.025em; white-space: nowrap; }
 .workbench-heading h1:focus { outline: none; }
