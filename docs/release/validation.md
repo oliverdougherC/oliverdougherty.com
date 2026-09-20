@@ -8,7 +8,7 @@ Install the pinned browsers with `npx playwright install --with-deps chromium fi
 
 Chromium runs the existing home, navigation, mobile, gallery, utilities and stress checks. Firefox and WebKit run navigation, gallery lifecycle and packaged route/utility checks. The two-release cache check rebuilds actual worker/controller/entry graphs, preserves a returning visitor's old cache, removes old origin files and tests explicit reload recovery. Forced resource failures are isolated from ordinary acceptance, where unexpected console errors, page exceptions and missing responses fail the check.
 
-Stress browser tests override reported hardware concurrency to two without changing the product's all-reported-core policy. Bundled Chromium uses SwiftShader for deterministic WebGL checks; those results are not physical GPU validation. `STRESS_BROWSER_CHANNEL=chrome` selects an installed Chrome for an optional hardware run. Device loss, startup races and delayed GPU completion are covered deterministically in unit/integration tests. Report unavailable WebGPU or unavailable browser engines explicitly; never count them as successful hardware/browser checks.
+Stress browser tests override reported hardware concurrency to two without changing the product's all-reported-core policy. Bundled Chromium uses SwiftShader for deterministic WebGL checks. Detected software adapters have a 512-pixel/one-pass budget so they cannot starve the compositor; hardware keeps its full adaptive policy. These results are not physical GPU validation. `STRESS_BROWSER_CHANNEL=chrome` selects an installed Chrome for an optional hardware run. Device loss, startup races and delayed GPU completion are covered deterministically in unit/integration tests. Report unavailable WebGPU or unavailable browser engines explicitly; never count them as successful hardware/browser checks.
 
 CI uploads the validated Pages artifact only after release acceptance succeeds. The main-only deployment job consumes that artifact without rebuilding it. Production settings remain unchanged.
 
@@ -22,3 +22,5 @@ Project animation HTML/CSS/JS and old generators remain authoring references as 
 2. Review screenshots and any explicitly unverified physical GPU/browser cases. Merge PR #30 when satisfied.
 3. Confirm the main workflow's validated artifact deploys successfully. Check Home, mobile Gallery, Resume and each public utility; verify a returning browser session can recover from an old lazy asset.
 4. If regression occurs, revert the release merge through a new PR and let the same validation/deployment gate rebuild the last working sources. Do not force-reset shared history or bypass the artifact gate.
+
+Audio analysis is independent of playback-device unlock. A pending `AudioContext.resume()` cannot block decoding/worker analysis; playback still requires the browser to make audio output available. A deterministic pending-resume regression covers headless/browser-policy behavior.

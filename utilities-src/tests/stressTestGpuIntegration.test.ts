@@ -75,7 +75,7 @@ function webGpuFixture() {
   return { completions, lost, context, device, adapter };
 }
 
-function webGl2Fixture() {
+function webGl2Fixture(renderer = 'Fixture hardware') {
   let sequence = 0;
   const completed = new Set<WebGLSync>();
   const fences: WebGLSync[] = [];
@@ -90,8 +90,8 @@ function webGl2Fixture() {
     createProgram: vi.fn(() => ({})), attachShader: vi.fn(), linkProgram: vi.fn(),
     getProgramParameter: () => true, createBuffer: () => ({}), bindBuffer: vi.fn(), bufferData: vi.fn(),
     getAttribLocation: () => 0, getUniformLocation: () => ({}),
-    getParameter: (parameter: number) => parameter === 5 ? new Int32Array([4096, 4096]) : 4096,
-    getExtension: () => null, viewport: vi.fn(), useProgram: vi.fn(), enableVertexAttribArray: vi.fn(),
+    getParameter: (parameter: number) => parameter === 5 ? new Int32Array([4096, 4096]) : parameter === 99 ? renderer : 4096,
+    getExtension: (name: string) => name === 'WEBGL_debug_renderer_info' ? { UNMASKED_RENDERER_WEBGL: 99 } : null, viewport: vi.fn(), useProgram: vi.fn(), enableVertexAttribArray: vi.fn(),
     vertexAttribPointer: vi.fn(), uniform2f: vi.fn(), uniform4f: vi.fn(), enable: vi.fn(), blendFunc: vi.fn(),
     clearColor: vi.fn(), clear: vi.fn(), drawArrays: vi.fn(), isContextLost: () => false,
     fenceSync: vi.fn(() => {
@@ -296,6 +296,26 @@ describe('stress controller + backend composition', () => {
     expect(canvasEl().width).toBe(800);
     expect(canvasEl().height).toBe(600);
     expect(gl2.fences).toHaveLength(4);
+  });
+
+  it('bounds software rendering so real GL work leaves the browser compositor responsive', async () => {
+    Reflect.deleteProperty(navigator, 'gpu');
+    gl2 = webGl2Fixture('ANGLE (Google, SwiftShader Device)');
+    rectState = { width: 1600, height: 900 };
+    setDpr(3);
+    await startStress('gpu');
+    expect(root.dataset.stressGpuBackend).toBe('webgl2-fragment');
+    expect(canvasEl().width).toBeLessThanOrEqual(512);
+    expect(canvasEl().height).toBeLessThanOrEqual(512);
+    for (let i = 0; i < 5; i++) {
+      gl2.fences.forEach(fence => gl2!.completed.add(fence));
+      await vi.advanceTimersByTimeAsync(5);
+    }
+    drainFrames();
+    expect(canvasEl().width * canvasEl().height).toBeLessThanOrEqual(512 * 512);
+    expect(root.dataset.stressGpuWorkloadLevel).toBe('1');
+    click('stressStopBtn');
+    expect(root.dataset.stressState).toBe('idle');
   });
 
   it('sizes the surface itself with a DPR cap of 3 when no GPU backend exists', async () => {

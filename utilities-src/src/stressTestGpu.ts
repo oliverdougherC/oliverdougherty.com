@@ -489,10 +489,17 @@ function startWebGlStress(canvas: HTMLCanvasElement, callbacks: StressGpuStressC
     const pointer = gl.getUniformLocation(program, 'u_pointer');
     const sample = gl.getUniformLocation(program, 'u_sample');
     const viewport = gl.getParameter(gl.MAX_VIEWPORT_DIMS) as Int32Array;
-    const maxDimension = Math.max(1, Math.min(viewport[0], viewport[1], gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number));
+    const deviceMaxDimension = Math.max(1, Math.min(viewport[0], viewport[1], gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number));
     const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
     const adapterName = (debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string : '') || (webgl2 ? 'WebGL 2 adapter' : 'WebGL 1 adapter');
-    const scaler = new AdaptiveGpuWorkScaler({ initialLevel: webgl2 ? 4 : 1, growAfterSamples: 1,
+    // A software GL device shares CPU/compositor resources with the UI. Large
+    // supersampled batches can otherwise block Stop and even browser capture.
+    // Keep real shader work sustained but bounded; hardware keeps full scaling.
+    const software = /swiftshader|llvmpipe|softpipe|software rasterizer|microsoft basic render/i.test(adapterName);
+    const maxDimension = Math.min(deviceMaxDimension, software ? 512 : deviceMaxDimension);
+    const maxBackingPixels = software ? 512 * 512 : webgl2 ? 16000000 : 4000000;
+    const maxWorkloadLevel = software ? 1 : 128;
+    const scaler = new AdaptiveGpuWorkScaler({ initialLevel: webgl2 && !software ? 4 : 1, growAfterSamples: 1,
       fastMs: 8, slowMs: 24, aggressiveGrowthMultiplier: 2, steadyGrowthMultiplier: 1.1 });
     const started = readNow();
     let baseScale = 1;
@@ -506,7 +513,7 @@ function startWebGlStress(canvas: HTMLCanvasElement, callbacks: StressGpuStressC
       const level = scaler.recordCompletion(elapsed);
       // Supersampling and repeated geometry/lighting passes are bounded by
       // viewport/memory limits and eight passes per batch.
-      if (level > 128) scaler.reset(128);
+      if (level > maxWorkloadLevel) scaler.reset(maxWorkloadLevel);
       callbacks.onWorkloadLevel(scaler.getLevel());
       callbacks.onCanvasActive(true);
       callbacks.onFrame();
@@ -516,7 +523,7 @@ function startWebGlStress(canvas: HTMLCanvasElement, callbacks: StressGpuStressC
       const level = scaler.getLevel();
       const scale = baseScale * Math.min(4, Math.sqrt(level));
       const passes = Math.min(8, Math.ceil(level / 16));
-      const size = drawingSize(canvas, scale, maxDimension, webgl2 ? 16000000 : 4000000, false);
+      const size = drawingSize(canvas, scale, maxDimension, maxBackingPixels, false);
       // Resizing invalidates the drawing buffer; let existing fenced batches
       // finish first. Never block JavaScript waiting on a WebGL 2 fence.
       if (canvas.width !== size.width || canvas.height !== size.height) {

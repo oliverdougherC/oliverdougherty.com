@@ -29,6 +29,27 @@ describe('production audio canvas lifecycle', () => {
   });
   afterEach(() => { controller?.destroy(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
+  it('analyzes audio even when playback-device resume remains pending', async () => {
+    controller = new AudioFourierController(document.getElementById('audioFourierApp')!);
+    controller.init();
+    const api = controller as unknown as {
+      getAudioContext(): { resume(): Promise<void> };
+      resolveAudioSource(): Promise<{ sampleRate: number; channelBuffers: ArrayBuffer[]; label: string; sourceKind: 'file' }>;
+      getWorker(): { postMessage: ReturnType<typeof vi.fn> };
+      generate(): Promise<void>;
+    };
+    const resume = vi.fn(() => new Promise<void>(() => {}));
+    const postMessage = vi.fn();
+    vi.spyOn(api, 'getAudioContext').mockReturnValue({ resume });
+    vi.spyOn(api, 'resolveAudioSource').mockResolvedValue({ sampleRate: 22050, channelBuffers: [new Float32Array(8).buffer], label: 'fixture', sourceKind: 'file' });
+    vi.spyOn(api, 'getWorker').mockReturnValue({ postMessage });
+    const generation = api.generate();
+    for (let turn = 0; turn < 5; turn++) await Promise.resolve();
+    expect(resume).toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'analyze-audio-fourier' }), expect.any(Array));
+    await generation;
+  });
+
   it.each([1, 2, 3])('keeps hidden initialization, resize callbacks, and return bounded at DPR %i', (dpr) => {
     vi.stubGlobal('devicePixelRatio', dpr);
     controller = new AudioFourierController(document.getElementById('audioFourierApp')!);

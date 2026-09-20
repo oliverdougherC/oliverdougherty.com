@@ -8,6 +8,24 @@ const name = process.env.BROWSER || 'chromium';
 const output = path.resolve(__dirname, '../output/release');
 const requiredRoutes = ['/', '/mobile/', '/pages/resume/', '/mobile/resume/', '/pages/gallery/', '/mobile/gallery/', '/pages/utilities/'];
 
+async function waitForAudioAnalysis(page) {
+  try {
+    await page.waitForFunction(() => document.getElementById('audioFourierApp').dataset.audioState === 'error'
+      || !document.getElementById('audioFourierPlayBtn').disabled, null, { timeout: 60000 });
+    const state = await page.locator('#audioFourierApp').getAttribute('data-audio-state');
+    assert.notEqual(state, 'error', await page.locator('#audioFourierStatusText').textContent());
+  } catch (error) {
+    const state = await page.evaluate(() => ({
+      state: document.getElementById('audioFourierApp')?.dataset.audioState,
+      status: document.getElementById('audioFourierStatusText')?.textContent,
+      progress: document.getElementById('audioFourierProgressText')?.textContent,
+      details: document.getElementById('audioFourierProgressMeta')?.textContent
+    }));
+    fs.writeFileSync(path.join(output, `${name}-audio-failure.json`), JSON.stringify(state, null, 2));
+    throw new Error(`${error.message}; audio state: ${JSON.stringify(state)}`, { cause: error });
+  }
+}
+
 async function main() {
   assert(base, 'BASE_URL must point to the packaged site');
   fs.mkdirSync(output, { recursive: true });
@@ -46,7 +64,7 @@ async function main() {
         await page.waitForFunction(() => document.getElementById('utilitiesApp').dataset.transformHasResult === 'true', null, { timeout: 45000 });
       } else if (utility === 'audio-fourier') {
         await page.click('#audioFourierGenerateBtn');
-        await page.waitForFunction(() => !document.getElementById('audioFourierPlayBtn').disabled, null, { timeout: 60000 });
+        await waitForAudioAnalysis(page);
       } else {
         await page.click('[data-stress-mode-option="cpu"]');
         await page.click('#stressStartBtn');

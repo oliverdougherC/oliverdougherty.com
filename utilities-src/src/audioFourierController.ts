@@ -594,17 +594,17 @@ export class AudioFourierController {
     this.setState('processing', 'Preparing full-song proxy for Fourier analysis...');
     this.setProgress(0.02, 'Loading audio samples...', `${preset.label} · ${preset.proxySampleRate} Hz proxy`);
 
+    // Unlock output during the gesture, but analysis must not wait for a sound
+    // device or autoplay permission. Some browsers leave resume() pending.
+    const noteUnlockFailure = (error: unknown) => {
+      if (requestId !== this.activeRequestId || this.destroyed) return;
+      console.warn('[AudioFourier] Audio output could not be unlocked before analysis.', error);
+      logAudioFourierWarning('Audio output could not be unlocked before analysis.', error);
+    };
     try {
-      await this.getAudioContext().resume();
+      void this.getAudioContext().resume().catch(noteUnlockFailure);
     } catch (error) {
-      // Some browsers still require a second explicit Play click after async analysis.
-      console.warn('[AudioFourier] AudioContext resume was blocked before analysis started.', error);
-      logAudioFourierWarning('AudioContext resume was blocked before analysis started.', error);
-      this.setProgress(
-        0.02,
-        'Loading audio samples...',
-        'Browser blocked audio unlock. Press Play after generation if autoplay is unavailable.'
-      );
+      noteUnlockFailure(error);
     }
 
     try {

@@ -9,17 +9,41 @@ const ROOT = path.resolve(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
 const OUTPUT = path.join(ROOT, 'output/release');
 
-async function run(name, file, env, timeout = 600000) {
+async function run(name, file, env, timeout = 300000) {
+  fs.mkdirSync(OUTPUT, { recursive: true });
   const log = fs.createWriteStream(path.join(OUTPUT, `${name}.log`));
   const started = Date.now();
   return new Promise(resolve => {
-    const child = spawn(process.execPath, [path.join(ROOT, 'scripts', file)], { cwd: ROOT, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
+    const child = spawn(process.execPath, [path.resolve(ROOT, 'scripts', file)], { cwd: ROOT, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
     child.stdout.pipe(log, { end: false }); child.stderr.pipe(log, { end: false });
+    console.log(`RUN: ${name}`);
+    child.stdout.pipe(process.stdout, { end: false });
+    child.stderr.pipe(process.stderr, { end: false });
     let timedOut = false;
+    let ownedPids = [child.pid];
     const stop = signal => {
       try {
-        if (process.platform === 'win32') child.kill(signal);
-        else process.kill(-child.pid, signal);
+        if (process.platform === 'win32') {
+          execFileSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' });
+          return;
+        }
+        if (signal === 'SIGTERM') {
+          // Browsers can detach into their own process groups. Capture their
+          // ancestry before terminating the script, so they cannot be orphaned.
+          const table = execFileSync('ps', ['-eo', 'pid=,ppid='], { encoding: 'utf8', timeout: 2000 })
+            .trim().split('\n').map(line => line.trim().split(/\s+/).map(Number));
+          const owned = new Set([child.pid]);
+          let previous = 0;
+          while (owned.size !== previous) {
+            previous = owned.size;
+            for (const [pid, parent] of table) if (owned.has(parent)) owned.add(pid);
+          }
+          ownedPids = [...owned];
+        }
+        for (const pid of [...ownedPids].reverse()) {
+          try { process.kill(pid, signal); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+        }
+        try { process.kill(-child.pid, signal); } catch (error) { if (error.code !== 'ESRCH') throw error; }
       } catch (error) { if (error.code !== 'ESRCH') log.write(String(error)); }
     };
     const timer = setTimeout(() => { timedOut = true; stop('SIGTERM'); }, timeout);
@@ -27,7 +51,9 @@ async function run(name, file, env, timeout = 600000) {
     child.once('spawn', () => { killTimer = setTimeout(() => stop('SIGKILL'), timeout + 5000); });
     child.once('error', error => log.write(String(error)));
     child.once('close', (code, signal) => {
-      clearTimeout(timer); clearTimeout(killTimer); log.end();
+      clearTimeout(timer); clearTimeout(killTimer);
+      if (timedOut) stop('SIGKILL');
+      log.end();
       const result = { name, code, signal, timedOut, seconds: (Date.now() - started) / 1000, status: code === 0 && !timedOut ? 'pass' : 'fail' };
       console.log(`${result.status.toUpperCase()}: ${name} (${result.seconds.toFixed(1)}s)`);
       resolve(result);
@@ -80,4 +106,5 @@ async function main() {
   }
   assert(results.length > 0 && results.every(result => result.status === 'pass'), 'Release browser checks failed; see output/release/*.log');
 }
-main().catch(error => { console.error(error); process.exitCode = 1; });
+module.exports = { run };
+if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });
