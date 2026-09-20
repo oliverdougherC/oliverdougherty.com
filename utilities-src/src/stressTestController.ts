@@ -77,6 +77,18 @@ function getStressTestMaxWorkersOverride() {
   return Number.isFinite(globalValue) ? globalValue : null;
 }
 
+// The GPU backend — or a startup that has not yet handed back its handle —
+// owns the canvas element end to end: context type, backing store, and DOM
+// identity. While the claim matches the live request generation, no
+// controller-side idle/CPU path may bind a 2D context, clear, resize, or
+// replace that surface. Legitimate transfers release the claim through
+// stopGpuStress first or replace the element from the backend's own
+// onCanvasReplace callback. Generation ids start at 1 (requestId increments
+// before any start), so a zero claim always means "unowned".
+function gpuOwnsCanvasSurface(gpu: StressGpuStressHandle | null, claim: number, requestId: number) {
+  return gpu !== null || (claim !== 0 && claim === requestId);
+}
+
 export class StressTestController {
   private readonly root: HTMLElement;
   private readonly modeButtons: HTMLButtonElement[];
@@ -138,6 +150,14 @@ export class StressTestController {
   private gpuWorkloadLevel = 0;
   private lastError = '';
   private gpuCanvasActive = false;
+  // The initial idle paint queued by init() and the request generation it was
+  // scheduled in. start() and dispose() cancel the frame; a callback that
+  // still lands late must observe the generation, disposal, and idle state.
+  private idleRenderFrameId = 0;
+  private idleRenderGeneration = 0;
+  // Disposal is terminal: no queued frame may mutate the controller's DOM
+  // afterwards.
+  private disposed = false;
 
   private cpuVisualFrameId = 0;
   private controlPanelFitFrameId = 0;
@@ -258,10 +278,31 @@ export class StressTestController {
     this.setState('idle', 'Ready. Starting this will make your browser hot, loud, slow, and power hungry.');
     this.syncMetrics(true);
     this.queueControlPanelFitSync();
-    window.requestAnimationFrame(() => this.drawIdleCanvas());
+    this.idleRenderGeneration = this.requestId;
+    this.idleRenderFrameId = window.requestAnimationFrame(() => this.renderQueuedIdleFrame());
+  }
+
+  // The initial idle paint is valid only while nothing has happened since
+  // init(): starting/stopping a run advances its generation, and disposal
+  // is terminal even when no run started. Cancellation alone is not enough.
+  private renderQueuedIdleFrame() {
+    this.idleRenderFrameId = 0;
+    if (this.disposed || this.idleRenderGeneration !== this.requestId || this.state !== 'idle') {
+      return;
+    }
+    this.drawIdleCanvas();
+  }
+
+  private cancelIdleRenderFrame() {
+    if (this.idleRenderFrameId) {
+      window.cancelAnimationFrame(this.idleRenderFrameId);
+      this.idleRenderFrameId = 0;
+    }
   }
 
   dispose() {
+    this.disposed = true;
+    this.cancelIdleRenderFrame();
     this.stop();
     this.stopCpuVisuals();
     this.stopMetricLoop();
@@ -296,6 +337,7 @@ export class StressTestController {
 
     this.requestId += 1;
     const requestId = this.requestId;
+    this.cancelIdleRenderFrame();
     this.totalIterations = 0;
     this.latestPrime = 0;
     this.primesFound = 0;
@@ -673,7 +715,11 @@ export class StressTestController {
   }
 
   private startCpuVisuals() {
-    if (this.cpuVisualFrameId) return;
+    // A starting or installed GPU backend owns the canvas; binding a 2D
+    // context here would poison the surface for its adapter request.
+    if (this.cpuVisualFrameId || gpuOwnsCanvasSurface(this.gpu, this.gpuSurfaceClaim, this.requestId)) {
+      return;
+    }
     this.resetRenderCadence();
     if (this.reducedMotion) return;
 
@@ -743,6 +789,9 @@ export class StressTestController {
   private startMetricLoop() {
     this.stopMetricLoop();
     const tick = () => {
+      if (this.disposed) {
+        return;
+      }
       this.syncMetrics();
       if (this.state === 'running' || this.state === 'starting') {
         this.metricFrameId = window.requestAnimationFrame(tick);
@@ -853,11 +902,14 @@ export class StressTestController {
 
 
   private queueControlPanelFitSync() {
-    if (this.controlPanelFitFrameId) {
+    if (this.disposed || this.controlPanelFitFrameId) {
       return;
     }
     this.controlPanelFitFrameId = window.requestAnimationFrame(() => {
       this.controlPanelFitFrameId = 0;
+      if (this.disposed) {
+        return;
+      }
       this.syncControlPanelFit();
     });
   }
@@ -916,12 +968,15 @@ export class StressTestController {
   }
 
   private queueCanvasResizeSync() {
-    if (this.canvasResizeFrameId) {
+    if (this.disposed || this.canvasResizeFrameId) {
       return;
     }
 
     this.canvasResizeFrameId = window.requestAnimationFrame(() => {
       this.canvasResizeFrameId = 0;
+      if (this.disposed) {
+        return;
+      }
       this.syncCanvasSize();
     });
   }
@@ -931,9 +986,7 @@ export class StressTestController {
     // store: it compares CSS size against its own limits and only resizes after
     // in-flight batches complete. A controller-side observer or resize write
     // would swap the drawing buffer under queued work, so observation stops here.
-    // Generation ids start at 1 (requestId increments before any start), so a
-    // zero claim always means "unowned".
-    if (this.gpu || (this.gpuSurfaceClaim !== 0 && this.gpuSurfaceClaim === this.requestId)) {
+    if (gpuOwnsCanvasSurface(this.gpu, this.gpuSurfaceClaim, this.requestId)) {
       return;
     }
     const rect = this.canvas.getBoundingClientRect();
@@ -947,6 +1000,11 @@ export class StressTestController {
   }
 
   private replaceCanvasElement() {
+    // Element identity belongs to the backend while it owns the surface;
+    // only the backend's own onCanvasReplace path may swap the element.
+    if (gpuOwnsCanvasSurface(this.gpu, this.gpuSurfaceClaim, this.requestId)) {
+      return;
+    }
     const parent = this.canvas.parentElement;
     if (!parent) {
       return;
@@ -973,6 +1031,11 @@ export class StressTestController {
   }
 
   private clearCanvasSurface() {
+    // Clearing acquires a 2D context; on a GPU-owned canvas that request
+    // returns null and the fallback would detach the live surface.
+    if (gpuOwnsCanvasSurface(this.gpu, this.gpuSurfaceClaim, this.requestId)) {
+      return;
+    }
     let ctx = this.canvas.getContext('2d', { alpha: true });
     if (!ctx) {
       this.replaceCanvasElement();
@@ -986,6 +1049,9 @@ export class StressTestController {
   }
 
   private drawIdleCanvas() {
+    if (gpuOwnsCanvasSurface(this.gpu, this.gpuSurfaceClaim, this.requestId)) {
+      return;
+    }
     this.syncCanvasSize();
     this.clearCanvasSurface();
     this.canvas.dataset.stressIdle = 'true';

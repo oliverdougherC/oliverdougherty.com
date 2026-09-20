@@ -106,106 +106,123 @@ function webGl2Fixture(renderer = 'Fixture hardware') {
   return { gl, completed, fences };
 }
 
+let controller: StressTestController;
+let root: HTMLElement;
+let frames: Map<number, FrameRequestCallback>;
+let frameId: number;
+let rectState: { width: number; height: number };
+let context2d: { clearRect: () => void; fillRect: () => void; fillStyle: string };
+let gpu: ReturnType<typeof webGpuFixture> | null;
+let gl2: ReturnType<typeof webGl2Fixture> | null;
+let contextRequests: { canvas: HTMLCanvasElement; type: string }[];
+let motionQuery: EventTarget & { matches: boolean };
+
+const canvasEl = () => document.getElementById('stressCanvas') as HTMLCanvasElement;
+const click = (id: string) => (document.getElementById(id) as HTMLButtonElement).click();
+
+function drainFrames() {
+  const pending = [...frames.values()];
+  frames.clear();
+  for (const callback of pending) callback(performance.now());
+}
+
+function setDpr(value: number) {
+  Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value });
+}
+
+function fireResize() {
+  ResizeObserverStub.instances.forEach(observer => observer.fire());
+  window.dispatchEvent(new Event('resize'));
+  drainFrames();
+}
+
+async function settle() {
+  await vi.advanceTimersByTimeAsync(200);
+  drainFrames();
+}
+
+async function startStress(mode: 'cpu' | 'gpu' | 'both') {
+  root.querySelector<HTMLButtonElement>(`[data-stress-mode-option="${mode}"]`)!.click();
+  click('stressStartBtn');
+  await settle();
+}
+
+// Shared jsdom harness: production markup, controllable animation frames, and a
+// one-context-type-per-canvas mock that records which canvas each request
+// touched. installHarness() leaves every animation frame queued by init()
+// pending; each describe chooses whether to drain them immediately or race them
+// against later lifecycle transitions.
+function installHarness() {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'] });
+  MockWorker.instances = [];
+  ResizeObserverStub.instances = [];
+  frames = new Map();
+  frameId = 0;
+  rectState = { width: 400, height: 300 };
+  gpu = null;
+  gl2 = null;
+  contextRequests = [];
+  motionQuery = Object.assign(new EventTarget(), { matches: false });
+  context2d = { clearRect: vi.fn(), fillRect: vi.fn(), fillStyle: '' };
+
+  document.body.innerHTML = new DOMParser().parseFromString(productionHtml, 'text/html')
+    .getElementById('stressTestApp')!.outerHTML;
+  root = document.getElementById('stressTestApp')!;
+  window.history.replaceState(null, '', '#stress-test');
+
+  setDpr(1);
+  vi.stubGlobal('Worker', MockWorker);
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+  vi.stubGlobal('URL', class extends URL {
+    static createObjectURL = vi.fn(() => 'blob:module-worker-probe');
+    static revokeObjectURL = vi.fn();
+  });
+  vi.stubGlobal('matchMedia', () => motionQuery);
+  vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(2);
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+    frames.set(++frameId, callback);
+    return frameId;
+  });
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => { frames.delete(id); });
+  vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect')
+    .mockImplementation(() => ({ ...rectState }) as DOMRect);
+
+  // Browsers bind one context type per canvas; the mock keeps that contract so
+  // the controller's replace-on-mismatch path stays exercised. Every request
+  // is recorded so ownership tests can name the exact canvas a context touched.
+  const contextTypes = new WeakMap<HTMLCanvasElement, string>();
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement, type: string) {
+    contextRequests.push({ canvas: this, type });
+    const owned = contextTypes.get(this);
+    if (owned && owned !== type) return null;
+    let context: unknown = null;
+    if (type === '2d') context = context2d;
+    else if (type === 'webgpu' && gpu) context = gpu.context;
+    else if (type === 'webgl2' && gl2) context = gl2.gl;
+    if (context) contextTypes.set(this, type);
+    return context as ReturnType<HTMLCanvasElement['getContext']>;
+  } as HTMLCanvasElement['getContext']);
+
+  controller = new StressTestController(root);
+  controller.init();
+}
+
+function disposeHarness() {
+  controller?.dispose();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  Reflect.deleteProperty(navigator, 'gpu');
+  document.body.innerHTML = '';
+}
+
 describe('stress controller + backend composition', () => {
-  let controller: StressTestController;
-  let root: HTMLElement;
-  let frames: Map<number, FrameRequestCallback>;
-  let frameId: number;
-  let rectState: { width: number; height: number };
-  let context2d: { clearRect: () => void; fillRect: () => void; fillStyle: string };
-  let gpu: ReturnType<typeof webGpuFixture> | null;
-  let gl2: ReturnType<typeof webGl2Fixture> | null;
-
-  const canvasEl = () => document.getElementById('stressCanvas') as HTMLCanvasElement;
-  const click = (id: string) => (document.getElementById(id) as HTMLButtonElement).click();
-
-  function drainFrames() {
-    const pending = [...frames.values()];
-    frames.clear();
-    for (const callback of pending) callback(performance.now());
-  }
-
-  function setDpr(value: number) {
-    Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value });
-  }
-
-  function fireResize() {
-    ResizeObserverStub.instances.forEach(observer => observer.fire());
-    window.dispatchEvent(new Event('resize'));
-    drainFrames();
-  }
-
-  async function settle() {
-    await vi.advanceTimersByTimeAsync(200);
-    drainFrames();
-  }
-
-  async function startStress(mode: 'cpu' | 'gpu' | 'both') {
-    root.querySelector<HTMLButtonElement>(`[data-stress-mode-option="${mode}"]`)!.click();
-    click('stressStartBtn');
-    await settle();
-  }
-
   beforeEach(() => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'performance'] });
-    MockWorker.instances = [];
-    ResizeObserverStub.instances = [];
-    frames = new Map();
-    frameId = 0;
-    rectState = { width: 400, height: 300 };
-    gpu = null;
-    gl2 = null;
-    context2d = { clearRect: vi.fn(), fillRect: vi.fn(), fillStyle: '' };
-
-    document.body.innerHTML = new DOMParser().parseFromString(productionHtml, 'text/html')
-      .getElementById('stressTestApp')!.outerHTML;
-    root = document.getElementById('stressTestApp')!;
-    window.history.replaceState(null, '', '#stress-test');
-
-    setDpr(1);
-    vi.stubGlobal('Worker', MockWorker);
-    vi.stubGlobal('ResizeObserver', ResizeObserverStub);
-    vi.stubGlobal('URL', class extends URL {
-      static createObjectURL = vi.fn(() => 'blob:module-worker-probe');
-      static revokeObjectURL = vi.fn();
-    });
-    vi.stubGlobal('matchMedia', () => Object.assign(new EventTarget(), { matches: false }));
-    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(2);
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
-      frames.set(++frameId, callback);
-      return frameId;
-    });
-    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => { frames.delete(id); });
-    vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect')
-      .mockImplementation(() => ({ ...rectState }) as DOMRect);
-
-    // Browsers bind one context type per canvas; the mock keeps that contract so
-    // the controller's replace-on-mismatch path stays exercised.
-    const contextTypes = new WeakMap<HTMLCanvasElement, string>();
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement, type: string) {
-      const owned = contextTypes.get(this);
-      if (owned && owned !== type) return null;
-      let context: unknown = null;
-      if (type === '2d') context = context2d;
-      else if (type === 'webgpu' && gpu) context = gpu.context;
-      else if (type === 'webgl2' && gl2) context = gl2.gl;
-      if (context) contextTypes.set(this, type);
-      return context as ReturnType<HTMLCanvasElement['getContext']>;
-    } as HTMLCanvasElement['getContext']);
-
-    controller = new StressTestController(root);
-    controller.init();
+    installHarness();
     drainFrames();
   });
 
-  afterEach(() => {
-    controller?.dispose();
-    vi.useRealTimers();
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-    Reflect.deleteProperty(navigator, 'gpu');
-    document.body.innerHTML = '';
-  });
+  afterEach(disposeHarness);
 
   it('keeps the backing store frozen while a WebGPU backend drains, then resizes at DPR 2', async () => {
     gpu = webGpuFixture();
@@ -380,4 +397,306 @@ describe('stress controller + backend composition', () => {
     expect(root.dataset.stressState).toBe('error');
     expect(gpu.device.destroy).toHaveBeenCalledTimes(2);
   });
+});
+
+// init() queues the control-panel fit sync and the initial idle paint before
+// any run exists. These harnesses capture both queued callbacks by reference so
+// tests can execute them after start, stop, or dispose transitions — even
+// after the controller has cancelled the frames — the way a late animation
+// frame can land against newer lifecycle state. The last callback init() queues
+// is the initial idle paint.
+describe('queued initial idle paint vs GPU surface ownership', () => {
+  let startupCallbacks: FrameRequestCallback[];
+
+  beforeEach(() => {
+    installHarness();
+    startupCallbacks = [...frames.values()];
+  });
+
+  afterEach(disposeHarness);
+
+  const canvasBoundTo = (type: string): HTMLCanvasElement =>
+    contextRequests.filter(request => request.type === type).at(-1)!.canvas;
+  const twoDRequestsOn = (canvas: HTMLCanvasElement) =>
+    contextRequests.filter(request => request.canvas === canvas && request.type === '2d');
+
+  function flushStartupCallbacks() {
+    for (const callback of startupCallbacks) callback(performance.now());
+  }
+
+  // Timers and microtasks only: draining frames would consume the queued
+  // initial callbacks before a test can race them against startup.
+  async function startWithStartupCallbacksQueued(mode: 'cpu' | 'gpu' | 'both') {
+    root.querySelector<HTMLButtonElement>(`[data-stress-mode-option="${mode}"]`)!.click();
+    click('stressStartBtn');
+    await vi.advanceTimersByTimeAsync(200);
+  }
+
+  it('still paints the idle surface when nothing ever started', () => {
+    const original = canvasEl();
+
+    flushStartupCallbacks();
+
+    expect(canvasEl()).toBe(original);
+    expect(original.dataset.stressIdle).toBe('true');
+    expect([original.width, original.height]).toEqual([400, 300]);
+  });
+
+  it('leaves the live WebGPU canvas alone when the queued initial idle paint lands after startup', async () => {
+    gpu = webGpuFixture();
+    await startWithStartupCallbacksQueued('gpu');
+
+    expect(root.dataset.stressState).toBe('running');
+    // The backend label dataset only updates on a metric frame, which these
+    // harnesses keep queued; a controller canvas bound to WebGPU with two
+    // submitted batches is the frame-independent proof of the live backend.
+    const gpuCanvas = canvasBoundTo('webgpu');
+    expect(gpuCanvas).toBe(canvasEl());
+    expect(gpu.device.queue.submit).toHaveBeenCalledTimes(2);
+
+    rectState.width = 700;
+    flushStartupCallbacks();
+
+    expect(canvasEl()).toBe(gpuCanvas);
+    expect(gpuCanvas.isConnected).toBe(true);
+    expect(gpuCanvas.dataset.stressIdle).not.toBe('true');
+    expect(twoDRequestsOn(gpuCanvas)).toHaveLength(0);
+    expect([gpuCanvas.width, gpuCanvas.height]).toEqual([400, 300]);
+
+    click('stressStopBtn');
+    expect(root.dataset.stressState).toBe('idle');
+    expect(gpu.device.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a 2D context off the startup-claimed canvas when idle paint lands mid-adapter-startup', async () => {
+    gpu = webGpuFixture();
+    const device = gpu.device;
+    const deviceStartup = deferred<typeof device>();
+    gpu.adapter.requestDevice.mockImplementation(() => deviceStartup.promise);
+
+    await startWithStartupCallbacksQueued('gpu');
+    expect(root.dataset.stressState).toBe('starting');
+
+    const startupCanvas = canvasEl();
+    flushStartupCallbacks();
+
+    expect(twoDRequestsOn(startupCanvas)).toHaveLength(0);
+    expect(startupCanvas.dataset.stressIdle).not.toBe('true');
+    expect(canvasEl()).toBe(startupCanvas);
+
+    deviceStartup.resolve(gpu.device);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(root.dataset.stressState).toBe('running');
+    expect(canvasEl()).toBe(startupCanvas);
+    expect(canvasBoundTo('webgpu')).toBe(startupCanvas);
+
+    click('stressStopBtn');
+    expect(root.dataset.stressState).toBe('idle');
+    expect(gpu.device.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('causes no DOM mutation or new render work when queued startup callbacks are flushed after dispose', () => {
+    controller.dispose();
+    const domSnapshot = document.body.innerHTML;
+    expect(frames.size).toBe(0);
+    const pendingFrames = frames.size;
+    const pendingContextRequests = contextRequests.length;
+
+    flushStartupCallbacks();
+
+    expect(document.body.innerHTML).toBe(domSnapshot);
+    expect(frames.size).toBe(pendingFrames);
+    expect(contextRequests).toHaveLength(pendingContextRequests);
+    expect(canvasEl().dataset.stressIdle).toBeUndefined();
+  });
+
+  it('keeps a stale initial idle callback from touching a restarted GPU run', async () => {
+    gpu = webGpuFixture();
+    await startWithStartupCallbacksQueued('gpu');
+    expect(root.dataset.stressState).toBe('running');
+
+    click('stressStopBtn');
+    expect(root.dataset.stressState).toBe('idle');
+
+    click('stressStartBtn');
+    await vi.advanceTimersByTimeAsync(200);
+    expect(root.dataset.stressState).toBe('running');
+    const gpuCanvas = canvasBoundTo('webgpu');
+    expect(canvasEl()).toBe(gpuCanvas);
+    expect(gpu.device.queue.submit).toHaveBeenCalledTimes(4);
+
+    flushStartupCallbacks();
+
+    expect(canvasEl()).toBe(gpuCanvas);
+    expect(gpuCanvas.isConnected).toBe(true);
+    expect(gpuCanvas.dataset.stressIdle).not.toBe('true');
+    expect(twoDRequestsOn(gpuCanvas)).toHaveLength(0);
+
+    click('stressStopBtn');
+    expect(root.dataset.stressState).toBe('idle');
+  });
+
+  it('keeps the WebGL2 startup-claimed canvas out of the idle path before the handle resolves', async () => {
+    Reflect.deleteProperty(navigator, 'gpu');
+    gl2 = webGl2Fixture();
+    root.querySelector<HTMLButtonElement>('[data-stress-mode-option="gpu"]')!.click();
+    click('stressStartBtn');
+
+    // The factory built the WebGL2 backend synchronously; only the handle's
+    // promise handoff back to the controller is still pending.
+    const startupCanvas = canvasBoundTo('webgl2');
+    expect(canvasEl()).toBe(startupCanvas);
+    flushStartupCallbacks();
+
+    expect(twoDRequestsOn(startupCanvas)).toHaveLength(0);
+    expect(canvasEl()).toBe(startupCanvas);
+
+    await vi.advanceTimersByTimeAsync(200);
+    expect(root.dataset.stressState).toBe('running');
+    expect(canvasBoundTo('webgl2')).toBe(canvasEl());
+    expect(canvasEl()).toBe(startupCanvas);
+    expect(startupCanvas.isConnected).toBe(true);
+    expect(startupCanvas.dataset.stressIdle).not.toBe('true');
+    expect(gl2.fences).toHaveLength(2);
+
+    click('stressStopBtn');
+    expect(root.dataset.stressState).toBe('idle');
+  });
+
+  it('keeps reduced-motion handling off the startup-claimed canvas and still installs the backend', async () => {
+    gpu = webGpuFixture();
+    const device = gpu.device;
+    const deviceStartup = deferred<typeof device>();
+    gpu.adapter.requestDevice.mockImplementation(() => deviceStartup.promise);
+
+    await startWithStartupCallbacksQueued('both');
+    expect(root.dataset.stressState).toBe('starting');
+
+    motionQuery.matches = true;
+    motionQuery.dispatchEvent(new Event('change'));
+
+    const startupCanvas = canvasEl();
+    expect(twoDRequestsOn(startupCanvas)).toHaveLength(0);
+    expect(startupCanvas.dataset.stressIdle).not.toBe('true');
+    expect(canvasEl()).toBe(startupCanvas);
+
+    deviceStartup.resolve(gpu.device);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(root.dataset.stressState).toBe('running');
+    expect(canvasBoundTo('webgpu')).toBe(startupCanvas);
+    expect(canvasEl()).toBe(startupCanvas);
+
+    motionQuery.matches = false;
+    motionQuery.dispatchEvent(new Event('change'));
+    expect(canvasEl()).toBe(startupCanvas);
+
+    click('stressStopBtn');
+    expect(root.dataset.stressState).toBe('idle');
+    expect(gpu.device.destroy).toHaveBeenCalledTimes(1);
+  });
+  it('keeps CPU-only rendering active when an initial idle callback arrives late', async () => {
+    await startWithStartupCallbacksQueued('cpu');
+    const cpuCanvas = canvasEl();
+    flushStartupCallbacks();
+    drainFrames();
+    expect(root.dataset.stressState).toBe('running');
+    expect(canvasEl()).toBe(cpuCanvas);
+    expect(cpuCanvas.dataset.stressIdle).toBe('false');
+    expect(context2d.fillRect).toHaveBeenCalled();
+    click('stressStopBtn');
+    expect(canvasEl().dataset.stressIdle).toBe('true');
+  });
+
+  it('permits backend canvas replacement after a reduced-motion change during WebGPU validation', async () => {
+    gpu = webGpuFixture();
+    gl2 = webGl2Fixture();
+    const validation = deferred<{ message: string } | null>();
+    gpu.device.popErrorScope.mockReturnValue(validation.promise);
+    await startWithStartupCallbacksQueued('gpu');
+    const webGpuCanvas = canvasEl();
+    expect(canvasBoundTo('webgpu')).toBe(webGpuCanvas);
+
+    motionQuery.matches = true;
+    motionQuery.dispatchEvent(new Event('change'));
+    flushStartupCallbacks();
+    expect(canvasEl()).toBe(webGpuCanvas);
+    expect(twoDRequestsOn(webGpuCanvas)).toHaveLength(0);
+
+    validation.resolve({ message: 'Fixture pipeline rejected' });
+    await vi.advanceTimersByTimeAsync(200);
+    const webGlCanvas = canvasEl();
+    expect(root.dataset.stressState).toBe('running');
+    expect(webGlCanvas).toBe(canvasBoundTo('webgl2'));
+    expect(webGlCanvas).not.toBe(webGpuCanvas);
+    expect(webGlCanvas.isConnected).toBe(true);
+    expect(gpu.device.destroy).toHaveBeenCalledTimes(1);
+    expect(gpu.context.unconfigure).toHaveBeenCalledTimes(1);
+    expect(gl2.fences).toHaveLength(2);
+
+    // The same retained callback is also harmless after WebGL installation.
+    flushStartupCallbacks();
+    expect(canvasEl()).toBe(webGlCanvas);
+    expect(twoDRequestsOn(webGlCanvas)).toHaveLength(0);
+    expect(webGlCanvas.dataset.stressIdle).toBe('false');
+    click('stressStopBtn');
+    expect(root.dataset.stressState).toBe('idle');
+    expect(gl2.gl.deleteProgram).toHaveBeenCalled();
+    expect(canvasEl().dataset.stressIdle).toBe('true');
+  });
+
+  it('resumes CPU visuals after reduced-motion startup loses its GPU backend', async () => {
+    gpu = webGpuFixture();
+    const validation = deferred<{ message: string } | null>();
+    gpu.device.popErrorScope.mockReturnValue(validation.promise);
+    await startWithStartupCallbacksQueued('both');
+    const gpuCanvas = canvasEl();
+    motionQuery.matches = true;
+    motionQuery.dispatchEvent(new Event('change'));
+    flushStartupCallbacks();
+    expect(twoDRequestsOn(gpuCanvas)).toHaveLength(0);
+    expect(canvasEl()).toBe(gpuCanvas);
+
+    gpu.lost.resolve({ reason: 'unknown', message: 'Fixture device lost' });
+    validation.resolve(null);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(root.dataset.stressState).toBe('running');
+    expect(gpu.device.destroy).toHaveBeenCalledTimes(1);
+    expect(gpu.device.queue.submit).not.toHaveBeenCalled();
+    expect(context2d.fillRect).not.toHaveBeenCalled();
+
+    motionQuery.matches = false;
+    motionQuery.dispatchEvent(new Event('change'));
+    drainFrames();
+    expect(root.dataset.stressGpuBackend).toBe('none');
+    expect(canvasEl()).not.toBe(gpuCanvas);
+    expect(canvasEl().isConnected).toBe(true);
+    expect(context2d.fillRect).toHaveBeenCalled();
+    click('stressStopBtn');
+    expect(root.dataset.stressState).toBe('idle');
+    expect(canvasEl().dataset.stressIdle).toBe('true');
+  });
+
+  it('stops pending startup after a reduced-motion change without letting its late device touch the idle canvas', async () => {
+    gpu = webGpuFixture();
+    const deviceStartup = deferred<typeof gpu.device>();
+    gpu.adapter.requestDevice.mockImplementation(() => deviceStartup.promise);
+    await startWithStartupCallbacksQueued('gpu');
+    const startupCanvas = canvasEl();
+    motionQuery.matches = true;
+    motionQuery.dispatchEvent(new Event('change'));
+    expect(twoDRequestsOn(startupCanvas)).toHaveLength(0);
+    click('stressStopBtn');
+    const idleCanvas = canvasEl();
+    expect(idleCanvas.dataset.stressIdle).toBe('true');
+    const contextCount = contextRequests.length;
+    deviceStartup.resolve(gpu.device);
+    await vi.advanceTimersByTimeAsync(200);
+    flushStartupCallbacks();
+    expect(root.dataset.stressState).toBe('idle');
+    expect(canvasEl()).toBe(idleCanvas);
+    expect(contextRequests).toHaveLength(contextCount);
+    expect(gpu.device.queue.submit).not.toHaveBeenCalled();
+    expect(gpu.device.destroy).toHaveBeenCalledTimes(1);
+  });
+
 });
