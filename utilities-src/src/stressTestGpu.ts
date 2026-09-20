@@ -436,7 +436,6 @@ function startWebGlStress(canvas: HTMLCanvasElement, callbacks: StressGpuStressC
   let buffer: WebGLBuffer | null = null;
   const pending: { fence: WebGLSync; began: number; depth: number }[] = [];
   let timer = 0;
-  let continuation: MessageChannel | undefined;
   let active = true;
   let reducedMotion = Boolean(options.reducedMotion);
   let pointerX = 0;
@@ -446,8 +445,6 @@ function startWebGlStress(canvas: HTMLCanvasElement, callbacks: StressGpuStressC
     if (!active) return;
     active = false;
     window.clearTimeout(timer);
-    continuation?.port1.close();
-    continuation?.port2.close();
     canvas.removeEventListener('webglcontextlost', lost);
     for (const batch of pending) gl2?.deleteSync(batch.fence);
     pending.length = 0;
@@ -582,19 +579,15 @@ function startWebGlStress(canvas: HTMLCanvasElement, callbacks: StressGpuStressC
             completed((readNow() - batch.began) / batch.depth);
           }
           while (active && pending.length < 2 && draw()) { /* bounded queue refill */ }
-          if (active) timer = window.setTimeout(pump, 1);
+          if (active) timer = window.setTimeout(pump, software ? 16 : 1);
         } else {
           draw();
-          if (active) continuation!.port2.postMessage(null);
+          // A self-posting MessageChannel can starve compositor/input work,
+          // particularly with synchronous software GL. Timers give it a turn.
+          if (active) timer = window.setTimeout(pump, software ? 16 : 0);
         }
       } catch (error) { fail(error); }
     };
-    if (!gl2) {
-      // A MessageChannel yields without nested setTimeout's 4 ms floor or a
-      // display-refresh cap. Its handler always checks the stopped state.
-      continuation = new MessageChannel();
-      continuation.port1.onmessage = pump;
-    }
     callbacks.onWorkloadLevel(scaler.getLevel());
     timer = window.setTimeout(pump, 0);
     return {

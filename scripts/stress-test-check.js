@@ -205,6 +205,8 @@ async function main() {
   const cpuRuns = [];
   try {
     for (const backend of ['auto', 'webgl2', 'webgl1', 'none']) {
+      const backendStarted = Date.now();
+      console.log(`Stress backend: ${backend}`);
       const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
@@ -302,6 +304,7 @@ async function main() {
       assert.equal(await page.locator('#stressTestApp').getAttribute('data-stress-worker-count'), '0');
       assert.deepEqual(errors, [], `${backend} browser errors`);
       await page.close();
+      console.log(`Stress backend passed: ${backend} (${Date.now() - backendStarted}ms)`);
     }
     console.log(JSON.stringify({ passed: true, cpuPipeline: cpuRuns, backends: results,
       renderer: process.env.STRESS_BROWSER_CHANNEL ? 'installed-browser' : 'SwiftShader software rendering',

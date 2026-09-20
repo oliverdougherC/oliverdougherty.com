@@ -47,7 +47,7 @@ function gpuFixture() {
 
 beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => {
-  vi.useRealTimers(); vi.restoreAllMocks();
+  vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals();
   Reflect.deleteProperty(navigator, 'gpu'); document.body.innerHTML = '';
 });
 
@@ -192,7 +192,7 @@ describe('GPU completion and lifecycle', () => {
   });
 });
 
-function webGlFixture() {
+function webGlFixture(webgl2 = true, renderer = 'Fixture hardware') {
   Reflect.deleteProperty(navigator, 'gpu');
   let sequence = 0;
   const completed = new Set<WebGLSync>();
@@ -208,8 +208,8 @@ function webGlFixture() {
     createProgram: vi.fn(() => ({})), attachShader: vi.fn(), linkProgram: vi.fn(),
     getProgramParameter: () => true, createBuffer: () => ({}), bindBuffer: vi.fn(), bufferData: vi.fn(),
     getAttribLocation: () => 0, getUniformLocation: () => ({}),
-    getParameter: (parameter: number) => parameter === 5 ? new Int32Array([128, 128]) : 128,
-    getExtension: () => null, viewport: vi.fn(), useProgram: vi.fn(), enableVertexAttribArray: vi.fn(),
+    getParameter: (parameter: number) => parameter === 5 ? new Int32Array([128, 128]) : parameter === 99 ? renderer : 128,
+    getExtension: (name: string) => name === 'WEBGL_debug_renderer_info' ? { UNMASKED_RENDERER_WEBGL: 99 } : null, viewport: vi.fn(), useProgram: vi.fn(), enableVertexAttribArray: vi.fn(),
     vertexAttribPointer: vi.fn(), uniform2f: vi.fn(), uniform4f: vi.fn(), enable: vi.fn(), blendFunc: vi.fn(),
     clearColor: vi.fn(), clear: vi.fn(), drawArrays: vi.fn(), isContextLost: () => false,
     fenceSync: vi.fn(() => {
@@ -222,7 +222,7 @@ function webGlFixture() {
     deleteProgram: vi.fn(), deleteBuffer: vi.fn()
   };
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((type: string) =>
-    type === 'webgl2' ? gl : null) as HTMLCanvasElement['getContext']);
+    type === (webgl2 ? 'webgl2' : 'webgl') ? gl : null) as HTMLCanvasElement['getContext']);
   const callbacks = { onFrame: vi.fn(), onWorkloadLevel: vi.fn(), onCanvasActive: vi.fn(), onAsyncError: vi.fn() };
   const canvas = document.createElement('canvas');
   vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ width: 128, height: 128 } as DOMRect);
@@ -273,6 +273,30 @@ describe('WebGL 2 bounded completion pipeline', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(test.callbacks.onAsyncError).toHaveBeenCalledWith('GPU completion tracking failed.');
     expect(test.gl.deleteSync).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+
+describe('WebGL 1 browser scheduling', () => {
+  it('gives software rendering a 16ms timer yield and cancels the next batch on Stop', async () => {
+    // Do not run a real unbounded message-port loop in a unit test.
+    vi.stubGlobal('MessageChannel', class {
+      port1 = { onmessage: null, close() {} };
+      port2 = { postMessage() {}, close() {} };
+    });
+    const test = webGlFixture(false, 'SwiftShader software renderer');
+    const handle = await startAdaptiveGpuStress(test.canvas, test.callbacks);
+    expect(handle!.backend).toBe('webgl1-fragment');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(test.gl.finish).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(15);
+    expect(test.gl.finish).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(test.gl.finish).toHaveBeenCalledTimes(2);
+    handle!.stop();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(test.gl.finish).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(0);
   });
 });

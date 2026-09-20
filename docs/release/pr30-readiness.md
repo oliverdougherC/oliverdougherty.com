@@ -35,7 +35,7 @@ Numbering follows the fourteen findings in the supplied review, in order.
 
 ## Validation evidence
 
-The local integrated suite passes 277 tests in 32 files with the original ES2022 type contract. Exact browser command outcomes, commit identity and explicitly unverified capabilities are recorded in `output/release/results.json`; required GitHub CI must be green before merging.
+The local integrated suite passes 278 tests in 32 files with the original ES2022 type contract. Exact browser command outcomes, commit identity and explicitly unverified capabilities are recorded in `output/release/results.json`; required GitHub CI must be green before merging.
 
 - Node `v22.23.0`, npm `10.9.8`, repository-pinned Playwright `1.58.2`.
 - Dependencies installed with `npm ci`; Chromium, Firefox and WebKit installed explicitly.
@@ -54,7 +54,7 @@ The local integrated suite passes 277 tests in 32 files with the original ES2022
 | `npm run lint` | Passed. |
 | `npm run format:check` | Passed. |
 | `npm run check-links` | Passed, including current navigation/asset references. |
-| `npm run utilities:check` | Passed: TypeScript and 277 tests across 32 files. |
+| `npm run utilities:check` | Passed: TypeScript and 278 tests across 32 files. |
 | `npm run utilities:build` | Passed; committed output regenerated through Vite. |
 | `npm run build:deploy` | Passed; artifact size is printed in bytes and MiB. |
 | `npm run smoke` | Passed against source and required deployment output. |
@@ -68,7 +68,7 @@ The local integrated suite passes 277 tests in 32 files with the original ES2022
 | WebKit BFCache control and site trips | Reloaded instead of restoring, including a minimal cacheable control; cached restoration is unverified. Other WebKit gallery and utility behavior passed. |
 | Physical WebGPU/physical GPU benchmark | Not performed; deterministic WebGPU lifecycle integration and software WebGL acceptance are separate evidence. |
 
-The first Linux CI run also exposed software-renderer saturation, a pending audio-unlock dependency, and a timeout cleanup gap for detached browser processes. New regressions reproduce these cases. Software GL now has a conservative render budget while hardware retains full scaling; analysis no longer waits for audio-device unlock; the runner terminates detached descendants and streams diagnostic output. These checks were kept and rerun.
+The first Linux CI run also exposed software-renderer saturation, a pending audio-unlock dependency, and a timeout cleanup gap for detached browser processes. New regressions reproduce these cases. Software GL now has a conservative render budget while hardware retains full scaling; analysis no longer waits for audio-device unlock; the runner terminates detached descendants and streams diagnostic output. The second Linux run passed Firefox but isolated a remaining WebGL 1 input/compositor starvation path. The self-posting MessageChannel was replaced with a yielding timer, with a scheduling/Stop regression. These checks were kept and rerun.
 
 The first regression runs deliberately exposed failures before correction (canvas initial ownership, startup await gap, telemetry source mixing, gallery mid-fade suspension and pre-existing inert state). Initial stale navigation/hidden-plot assertions and browser-harness assumptions were corrected rather than counted as passes. Browser reports include engine versions and console/resource failures. The final candidate handoff links required CI separately; a CI failure remains a blocker regardless of these local results.
 
