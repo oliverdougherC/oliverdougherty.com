@@ -8,6 +8,7 @@
   },
   "scripts": {
     "setup": "bash scripts/setup.sh",
+    "serve": "node scripts/serve.js",
     "optimize-images": "node scripts/optimize-images.js",
     "build:deploy": "node scripts/build-deploy.js",
     "utilities:build": "vite build --config config/vite.utilities.mts",
