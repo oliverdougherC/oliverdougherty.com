@@ -157,7 +157,9 @@ body.schematic-mode .gallery-hero-layout {
 }
 
 .hero-feature-media.schematic-border {
-  border-radius: 0;
+  /* Fillet the hero to match the archive photos (.photo-media); the schematic
+     mode keeps its hairline border but no longer squares the corners. */
+  border-radius: var(--radius-lg);
   border: 1px solid #000000 !important;
   box-shadow: none;
 }
@@ -191,16 +193,13 @@ body.schematic-mode .gallery-hero-layout {
 }
 
 @supports not (aspect-ratio: 1) {
-  .hero-feature-media,
-  .photo-media {
+  .hero-feature-media {
     height: 0;
     padding-top: 75%;
   }
 
   .hero-feature-media picture,
-  .hero-feature-media img,
-  .photo-media picture,
-  .photo-media img {
+  .hero-feature-media img {
     position: absolute;
     inset: 0;
   }
@@ -366,18 +365,22 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
   margin: 0 auto var(--space-16);
 }
 
+/*
+ * Archive mosaic
+ * .archive-grid is a positioned plane; the JS solver (js/gallery.js)
+ * computes absolute pixel boxes for every tile and sets explicit card
+ * positions, widths, media heights, and the grid height inline. There
+ * are no row containers — tiles hug on all sides by construction.
+ */
 .archive-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4rem 2.5rem;
-  gap: clamp(3.5rem, 5.5vw, 5.5rem) clamp(2rem, 3vw, 3rem);
-  align-items: start;
+  position: relative;
+  display: block;
   max-width: 1220px;
   margin: 0 auto;
 }
 
 .photo-card {
-  position: relative;
+  position: absolute;
   display: flex;
   flex-direction: column;
   background: transparent;
@@ -421,7 +424,6 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
 .photo-media {
   position: relative;
   aspect-ratio: 4 / 3;
-  max-height: 85vh;
   overflow: hidden;
   border-radius: var(--radius-lg);
   background: #F5F5F5;
@@ -471,13 +473,7 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
 }
 
 .photo-card--prominent {
-  grid-column: 1 / -1;
-  margin-top: var(--space-4);
-  margin-bottom: var(--space-4);
-}
-
-.photo-card--prominent .photo-media {
-  max-height: 70vh;
+  max-width: 100%;
 }
 
 .photo-placard {
@@ -508,6 +504,11 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Narrow mosaic tiles: drop the index number so the title still fits. */
+.photo-card--placard-compact .photo-placard-number {
+  display: none;
 }
 
 .lightbox {
@@ -951,10 +952,6 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
     max-width: none;
   }
 
-  .archive-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .lightbox-shell {
     flex-direction: column;
     height: 100%;
@@ -1036,10 +1033,6 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
   .hero-title {
     font-size: 4rem;
     font-size: clamp(3.2rem, 16vw, 5.2rem);
-  }
-
-  .archive-grid {
-    grid-template-columns: 1fr;
   }
 
   .page-gallery .photo-card {
