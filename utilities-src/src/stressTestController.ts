@@ -386,6 +386,10 @@ export class StressTestController {
           this.gpuSurfaceClaim = 0;
           this.gpuCanvasActive = false;
         }
+        // The preference can change while the factory awaits an adapter or
+        // device; it only received the pre-await snapshot, so sync the value
+        // the controller caches now onto the handle being installed.
+        gpu?.setReducedMotion?.(this.reducedMotion);
         this.gpu = gpu;
         this.gpuBackend = gpu?.backend ?? 'none';
         if (!gpu && this.gpuStartupError) {

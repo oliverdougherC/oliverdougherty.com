@@ -69,10 +69,11 @@ function webGpuFixture() {
     lost: lost.promise, destroy: vi.fn()
   };
   const adapter = { info: { description: 'Integration adapter' }, requestDevice: vi.fn(async () => device) };
-  Object.defineProperty(navigator, 'gpu', { configurable: true, value: {
+  const gpuInterface = {
     requestAdapter: vi.fn(async () => adapter), getPreferredCanvasFormat: () => 'bgra8unorm'
-  } });
-  return { completions, lost, context, device, adapter };
+  };
+  Object.defineProperty(navigator, 'gpu', { configurable: true, value: gpuInterface });
+  return { completions, lost, context, device, adapter, gpuInterface };
 }
 
 function webGl2Fixture(renderer = 'Fixture hardware') {
@@ -396,6 +397,69 @@ describe('stress controller + backend composition', () => {
     await settle();
     expect(root.dataset.stressState).toBe('error');
     expect(gpu.device.destroy).toHaveBeenCalledTimes(2);
+  });
+
+  // The factory only sees the reduced-motion preference snapshotted before it
+  // awaits an adapter/device. A toggle while startup is pending must reach the
+  // handle at the controller's installation boundary; uniform payload[0] is
+  // the backend's animation clock — 0 while reduced motion is active, and
+  // non-zero elapsed time otherwise — so the assertion reads actual submitted
+  // work instead of trusting a setter call.
+  async function submittedAnimationClocksAfterDeferredStartup(startReduced: boolean) {
+    const fixture = webGpuFixture();
+    gpu = fixture;
+    // writeBuffer receives one reused Float32Array per backend, so copy each
+    // payload as submitted; spy call references would all alias the last write.
+    const submitted: number[][] = [];
+    fixture.device.queue.writeBuffer.mockImplementation((_buffer: unknown, _offset: number, data: Float32Array) => {
+      submitted.push(Array.from(data));
+    });
+    const startup = deferred<void>();
+    fixture.gpuInterface.requestAdapter.mockImplementation(async () => {
+      await startup.promise;
+      return fixture.adapter;
+    });
+    if (startReduced) {
+      motionQuery.matches = true;
+      motionQuery.dispatchEvent(new Event('change'));
+    }
+
+    root.querySelector<HTMLButtonElement>('[data-stress-mode-option="gpu"]')!.click();
+    click('stressStartBtn');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(root.dataset.stressState).toBe('starting');
+    expect(submitted).toHaveLength(0);
+
+    // The preference flips while the adapter request is still pending, so no
+    // installed handle exists to receive the change listener's update.
+    motionQuery.matches = !startReduced;
+    motionQuery.dispatchEvent(new Event('change'));
+
+    startup.resolve();
+    // Settle past the metric throttle so the installed backend is published,
+    // and so controlled time moves well past installation.
+    await settle();
+    expect(root.dataset.stressState).toBe('running');
+    expect(root.dataset.stressGpuBackend).toBe('webgpu-compute');
+
+    // Retire the queued batches so the backend submits fresh work whose
+    // animation clock is observably ahead of installation.
+    const preRefill = submitted.length;
+    [...fixture.completions].forEach(completion => completion.resolve());
+    await vi.advanceTimersByTimeAsync(0);
+    const animationClocks = submitted.slice(preRefill).map(payload => payload[0]);
+    expect(animationClocks.length).toBeGreaterThan(0);
+    return animationClocks;
+  }
+
+  it('keeps submitted animation time frozen when reduced motion turns on during GPU startup', async () => {
+    const animationClocks = await submittedAnimationClocksAfterDeferredStartup(false);
+    expect(animationClocks.every(time => time === 0)).toBe(true);
+  });
+
+  it('resumes the submitted animation clock when reduced motion turns off during GPU startup', async () => {
+    const animationClocks = await submittedAnimationClocksAfterDeferredStartup(true);
+    expect(animationClocks.every(time => time > 0)).toBe(true);
   });
 });
 
