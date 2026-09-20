@@ -215,8 +215,24 @@ export async function startAdaptiveGpuStress(
     ? ['webgpu-compute', 'webgl2-fragment', 'webgl1-fragment'] as const
     : ['webgl2-fragment', 'webgl1-fragment'] as const;
   let target = canvas;
+  // Device loss can resolve while startup is still awaiting an adapter, device,
+  // or pipeline validation. A failure that arrives before the caller receives a
+  // handle invalidates the whole startup: the failed handle is released and the
+  // factory resolves null instead of installing dead work.
+  let installed = false;
+  let failedDuringStartup = false;
+  const startupCallbacks: StressGpuStressCallbacks = Object.assign({}, callbacks, {
+    onAsyncError: (message: string) => {
+      if (installed) {
+        callbacks.onAsyncError(message);
+        return;
+      }
+      failedDuringStartup = true;
+      callbacks.onAsyncError(message);
+    }
+  });
   for (let index = 0; index < backends.length; index++) {
-    if (options.signal?.aborted) return null;
+    if (options.signal?.aborted || failedDuringStartup) return null;
     // A canvas cannot change context type, including after a failed pipeline.
     if (index > 0) {
       const replacement = target.cloneNode(false) as HTMLCanvasElement;
@@ -227,8 +243,12 @@ export async function startAdaptiveGpuStress(
     try {
       const backend = backends[index];
       const handle = backend === 'webgpu-compute'
-        ? await startWebGpuStress(target, callbacks, options)
-        : startWebGlStress(target, callbacks, backend, options);
+        ? await startWebGpuStress(target, startupCallbacks, options)
+        : startWebGlStress(target, startupCallbacks, backend, options);
+      if (failedDuringStartup) {
+        handle.stop({ loseContext: true });
+        return null;
+      }
       if (options.signal?.aborted) { handle.stop(); return null; }
       const stop = handle.stop;
       const abort = () => handle.stop();
@@ -237,6 +257,7 @@ export async function startAdaptiveGpuStress(
         options.signal?.removeEventListener('abort', abort);
         stop(stopOptions);
       };
+      installed = true;
       return handle;
     } catch {
       callbacks.onCanvasActive(false);

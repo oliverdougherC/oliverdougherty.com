@@ -233,9 +233,11 @@ function bindStaticEvents() {
     element.addEventListener('click', () => closeLightbox());
   });
 
-  document.addEventListener('keydown', handleGlobalKeydown);
-  window.addEventListener('hashchange', handleHashChange);
-  window.addEventListener('pagehide', cleanupGalleryEvents, { once: true });
+  bindRuntimeListeners();
+  // Suspension/restore pair: pagehide only detaches what resume re-arms, so a
+  // page restored from the BFCache (no DOMContentLoaded) relives the runtime.
+  window.addEventListener('pagehide', suspendGalleryRuntime);
+  window.addEventListener('pageshow', resumeGalleryRuntime);
 
   if (gallery.elements.lightboxMedia) {
     let touchStartX = 0;
@@ -252,6 +254,16 @@ function bindStaticEvents() {
       navigateLightbox(diff > 0 ? 1 : -1);
     }, { passive: true });
   }
+}
+
+// Dynamic listeners that a BFCache restore must re-establish. Remove-before-add
+// keeps this idempotent across repeated trips. The click/touch bindings above
+// live on the persisted DOM itself and are never removed.
+function bindRuntimeListeners() {
+  document.removeEventListener('keydown', handleGlobalKeydown);
+  document.addEventListener('keydown', handleGlobalKeydown);
+  window.removeEventListener('hashchange', handleHashChange);
+  window.addEventListener('hashchange', handleHashChange);
 }
 
 async function initGallery() {
@@ -740,9 +752,12 @@ function computeArchiveMetrics(containerWidth) {
     ARCHIVE_LAYOUT.minGap,
     ARCHIVE_LAYOUT.maxGap
   );
-  const usable = containerWidth - gapX;
   const columns = containerWidth >= 900 ? 3 : (containerWidth >= 560 ? 2 : 1);
-  const columnWidth = (usable - gapX * (columns - 1)) / columns;
+  // Full-bleed edge treatment: justified courses span the entire container
+  // width (see measureJustifiedCourse), so columns only subtract the interior
+  // gutters. The former extra `- gapX` removed one gutter too many, leaving a
+  // spare right gutter unmirrored and doubling the interior gap when mirrored.
+  const columnWidth = (containerWidth - gapX * (columns - 1)) / columns;
 
   return {
     width: containerWidth,
@@ -915,6 +930,50 @@ function solveArchiveCourses(items, metrics) {
   return courses;
 }
 
+// Guaranteed-feasible fallback for inputs the DP cannot partition (for
+// example two panoramas whose only shared course would fall under the
+// readability floor while a lone course is illegal at index 0). Rows keep
+// the mosaic's justified, aspect-preserving grammar: shrink the row until
+// it clears the floor, then accept a short full-width single. Extreme
+// portraits cap at one container width of height and center instead of
+// producing a ten-thousand-pixel media box.
+function buildFallbackCourses(items, metrics) {
+  const courses = [];
+  const maxRow = Math.max(1, metrics.columns);
+  const maxHeight = Math.max(metrics.minMediaHeight, metrics.width);
+
+  for (let start = 0; start < items.length;) {
+    let row = items.slice(start, start + maxRow);
+    let mediaHeight = 0;
+    for (;;) {
+      let sumAspect = 0;
+      row.forEach((item) => { sumAspect += item.aspect; });
+      mediaHeight = (metrics.width - metrics.gapX * (row.length - 1)) / sumAspect;
+      if (row.length <= 1 || mediaHeight >= metrics.minMediaHeight) break;
+      row = row.slice(0, row.length - 1);
+    }
+
+    let x0 = 0;
+    if (mediaHeight > maxHeight) {
+      mediaHeight = maxHeight;
+      let rowWidth = metrics.gapX * (row.length - 1);
+      row.forEach((item) => { rowWidth += item.aspect * mediaHeight; });
+      x0 = Math.max(0, (metrics.width - rowWidth) / 2);
+    }
+
+    courses.push({
+      kind: 'justified',
+      items: row,
+      mediaHeight,
+      boxHeight: mediaHeight + metrics.placardHeight,
+      x0
+    });
+    start += row.length;
+  }
+
+  return courses;
+}
+
 // Resolve courses into absolute pixel boxes. The spanner side flips on
 // every other span course so vertical seams wander instead of stacking.
 function buildMosaicBoxes(courses, metrics) {
@@ -925,7 +984,7 @@ function buildMosaicBoxes(courses, metrics) {
 
   courses.forEach((course) => {
     if (course.kind === 'justified') {
-      let x = 0;
+      let x = course.x0 || 0;
       course.items.forEach((item) => {
         const width = Math.round(item.aspect * course.mediaHeight);
         boxes.push({
@@ -998,11 +1057,20 @@ function applyArchiveLayout() {
   if (width < 120) return;
 
   const metrics = computeArchiveMetrics(width);
-  const courses = solveArchiveCourses(gallery.archiveItems, metrics);
-  if (!courses) return;
+  // The DP can legitimately have no legal partition (e.g. two panoramas whose
+  // only shared row drops under the readability floor). Fall back to a
+  // guaranteed-feasible stack instead of leaving an empty/stale archive.
+  const courses = solveArchiveCourses(gallery.archiveItems, metrics)
+    || buildFallbackCourses(gallery.archiveItems, metrics);
 
   const mosaic = buildMosaicBoxes(courses, metrics);
   grid.style.height = `${Math.round(mosaic.height)}px`;
+
+  // F05: Moving cards through a detached fragment blurs any focused descendant.
+  // Remember a focus that was inside the grid and give it back after reinsert,
+  // without scrolling. A focus outside the grid (modal, nav) is never touched.
+  const focusedBefore = document.activeElement;
+  const preserveFocus = focusedBefore && grid.contains(focusedBefore) ? focusedBefore : null;
 
   const fragment = document.createDocumentFragment();
 
@@ -1016,6 +1084,10 @@ function applyArchiveLayout() {
     });
 
   replaceChildrenCompat(grid, fragment);
+
+  if (preserveFocus && preserveFocus.isConnected) {
+    preserveFocus.focus({ preventScroll: true });
+  }
 
   if (!gallery.archiveLayout.placardRetuned) {
     const placard = grid.querySelector('.photo-placard');
@@ -1583,10 +1655,15 @@ function syncGalleryFromUrl() {
   }
 }
 
-function cleanupGalleryEvents() {
+// F04: Suspension detaches only the dynamic listeners/observers/timers that
+// resumeGalleryRuntime re-arms. It is idempotent and safe both for real unload
+// (document is discarded) and for BFCache suspension (document may return).
+function suspendGalleryRuntime() {
+  cleanupLightboxImageOpacity();
   document.removeEventListener('keydown', handleGlobalKeydown);
   window.removeEventListener('hashchange', handleHashChange);
   gallery.scrollRevealObserver?.disconnect();
+  gallery.scrollRevealObserver = null;
   if (gallery.archiveLayout.frame) {
     window.cancelAnimationFrame(gallery.archiveLayout.frame);
     gallery.archiveLayout.frame = 0;
@@ -1599,15 +1676,39 @@ function cleanupGalleryEvents() {
   }
   if (gallery.lightboxNavigationTimer) {
     window.clearTimeout(gallery.lightboxNavigationTimer);
+    gallery.lightboxNavigationTimer = 0;
   }
   if (gallery.hashChangeTimer) {
     window.clearTimeout(gallery.hashChangeTimer);
+    gallery.hashChangeTimer = 0;
   }
   gallery.heroRevealTimers.forEach((t) => window.clearTimeout(t));
   gallery.heroRevealTimers = [];
   if (gallery.heroRevealScrollHandler) {
     window.removeEventListener('scroll', gallery.heroRevealScrollHandler, { passive: true });
     gallery.heroRevealScrollHandler = null;
+  }
+}
+
+// A fresh load already bound everything in bindStaticEvents; only a persisted
+// restore needs to re-arm the runtime. Scroll, lightbox, and selection state
+// are untouched — the restored DOM never lost them.
+function resumeGalleryRuntime(event) {
+  if (event && !event.persisted) return;
+
+  bindRuntimeListeners();
+
+  // Scroll-reveal observation re-arms either way; when the hero sequence was
+  // interrupted mid-trip, its timers/scroll-skip are re-armed as well.
+  initScrollReveal();
+  if (!gallery.heroRevealComplete) {
+    initGalleryHeroReveal();
+  }
+
+  if (gallery.entries.length) {
+    initArchiveLayout();
+    scheduleArchiveLayout({ force: true });
+    syncGalleryFromUrl();
   }
 }
 

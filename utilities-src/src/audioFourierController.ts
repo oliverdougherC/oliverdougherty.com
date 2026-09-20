@@ -359,8 +359,12 @@ export class AudioFourierController {
   private resizeCanvasToDisplaySize(canvas: HTMLCanvasElement, background: HTMLCanvasElement) {
     const rect = canvas.getBoundingClientRect();
     const dpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1));
-    const width = Math.max(1, Math.round((rect.width || canvas.clientWidth || canvas.width) * dpr));
-    const height = Math.max(1, Math.round((rect.height || canvas.clientHeight || canvas.height) * dpr));
+    // Backing pixels are never a substitute for CSS layout dimensions.
+    if (!(rect.width > 0 && rect.height > 0) || !Number.isFinite(rect.width + rect.height)) return false;
+    const scale = Math.min(dpr, 4096 / rect.width, 4096 / rect.height,
+      Math.sqrt(1_000_000 / (rect.width * rect.height)));
+    const width = Math.max(1, Math.floor(rect.width * scale));
+    const height = Math.max(1, Math.floor(rect.height * scale));
     if (canvas.width === width && canvas.height === height) {
       return false;
     }
@@ -738,8 +742,9 @@ export class AudioFourierController {
       this.worker = null;
       this.workerVersion += 1;
     }
-    this.setState('error', 'Audio worker unavailable. Press Generate to retry.');
-    this.setProgress(0, 'Worker failure stopped the audio analysis.', 'Retry starts a fresh worker without reloading the page.');
+    this.setState('error', 'Audio worker unavailable. Retry or reload for the latest version.');
+    this.setProgress(0, 'Worker failure stopped the audio analysis.', 'Reload tools if a retry cannot start the worker.');
+    window.dispatchEvent(new Event('utility-load-error'));
   }
 
   private handleWorkerMessage(message: AudioFourierWorkerResponse) {
@@ -1229,7 +1234,13 @@ export class AudioFourierController {
     this.drawCenteredLabel(this.componentCanvas, this.componentContext, 'Active signal-energy readout');
   }
 
+  private isCanvasVisible(canvas: HTMLCanvasElement) {
+    const rect = canvas.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
   private clearCanvas(canvas: HTMLCanvasElement, context: CanvasRenderingContext2D) {
+    if (!this.isCanvasVisible(canvas)) return;
     const background =
       canvas === this.spectrumCanvas ? this.spectrumBackgroundCanvas :
       canvas === this.componentCanvas ? this.componentBackgroundCanvas :
@@ -1242,6 +1253,7 @@ export class AudioFourierController {
   }
 
   private drawCenteredLabel(canvas: HTMLCanvasElement, context: CanvasRenderingContext2D, label: string) {
+    if (!this.isCanvasVisible(canvas)) return;
     context.save();
     context.fillStyle = 'rgba(235, 244, 239, 0.55)';
     context.font = '16px Inter, sans-serif';
@@ -1351,9 +1363,7 @@ export class AudioFourierController {
   }
 
   private drawSpectrumFrame() {
-    if (!this.activeResult) {
-      return;
-    }
+    if (!this.activeResult || !this.isCanvasVisible(this.spectrumCanvas)) return;
 
     const context = this.spectrumContext;
     const canvas = this.spectrumCanvas;
@@ -1375,9 +1385,7 @@ export class AudioFourierController {
   }
 
   private drawComponentFrame() {
-    if (!this.activeResult) {
-      return;
-    }
+    if (!this.activeResult || !this.isCanvasVisible(this.componentCanvas)) return;
 
     const context = this.componentContext;
     const canvas = this.componentCanvas;

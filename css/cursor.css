@@ -175,3 +175,8 @@ html.is-musical .musical-cursor {
   outline-offset: var(--utilities-focus-offset);
   box-shadow: var(--utilities-focus-shadow);
 }
+
+@media (prefers-reduced-motion: reduce) {
+  html.is-musical, html.is-musical * { cursor: auto !important; }
+  html.is-musical .musical-cursor { display: none; }
+}

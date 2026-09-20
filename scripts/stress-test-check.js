@@ -189,8 +189,16 @@ async function assertDesktopSizes(page, label) {
 
 async function main() {
   const root = path.resolve(__dirname, '..');
-  const server = await startLocalStaticServer({ url: 'http://127.0.0.1:4186', cwd: root });
-  const browser = await chromium.launch({ headless: true, channel: process.env.STRESS_BROWSER_CHANNEL || 'chrome' });
+  const baseUrl = process.env.STRESS_CHECK_URL || 'http://127.0.0.1:4186';
+  const server = await startLocalStaticServer({ url: baseUrl, cwd: root, skip: Boolean(process.env.STRESS_CHECK_URL) });
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true, channel: process.env.STRESS_BROWSER_CHANNEL || undefined,
+      args: process.env.STRESS_BROWSER_CHANNEL ? undefined : ['--enable-webgl', '--ignore-gpu-blocklist', '--use-angle=swiftshader'] });
+  } catch (error) {
+    server?.kill();
+    throw error;
+  }
   const output = path.join(root, 'output/playwright');
   fs.mkdirSync(output, { recursive: true });
   const results = [];
@@ -210,7 +218,7 @@ async function main() {
           return original.call(this, type, ...args);
         };
       }, backend);
-      await page.goto(`${server.url}/pages/utilities/index.html#stress-test`);
+      await page.goto(`${server?.url || baseUrl}/pages/utilities/index.html#stress-test`);
       await page.waitForSelector('#stressStartBtn');
       await page.waitForSelector('#stressTestApp[data-stress-state="idle"]');
       assert.equal((await page.locator('#stressLatestPrime').textContent()).trim(), '1', 'Idle display should start at 1.');
@@ -295,10 +303,14 @@ async function main() {
       assert.deepEqual(errors, [], `${backend} browser errors`);
       await page.close();
     }
-    console.log(JSON.stringify({ passed: true, cpuPipeline: cpuRuns, backends: results }, null, 2));
+    console.log(JSON.stringify({ passed: true, cpuPipeline: cpuRuns, backends: results,
+      renderer: process.env.STRESS_BROWSER_CHANNEL ? 'installed-browser' : 'SwiftShader software rendering',
+      webgpu: results.some(result => result.selected.startsWith('webgpu')) ? 'executed' : 'unavailable in this run',
+      physicalGpuValidation: 'not performed'
+    }, null, 2));
   } finally {
     await browser.close();
-    server.kill();
+    server?.kill();
   }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

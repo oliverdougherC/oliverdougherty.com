@@ -214,7 +214,7 @@
                   </div>
                   <div class="stress-scene-footer"><div class="stress-worker-display"><span id="stressWorkerSummary">CPU ready</span><div id="stressWorkerActivity" class="stress-worker-activity" aria-label="CPU worker activity"></div></div><div class="stress-gpu-display"><span id="stressGpuDetail">GPU ready</span><button type="button" id="stressOrbit" aria-label="Orbit GPU scene with arrow keys; Home to reset">Orbit</button></div></div>
                 </div></div>
-            <dl class="stress-metrics" id="stressMetrics"><div data-stress-metric="elapsed"><dt>Elapsed</dt><dd id="stressElapsed">0:00</dd></div><div data-stress-metric="workers"><dt>Workers</dt><dd id="stressWorkerCount">0</dd></div><div data-stress-metric="gpu"><dt>GPU</dt><dd id="stressGpuBackend">none</dd></div><div data-stress-metric="cadence"><dt id="stressRenderRateLabel">Visual callbacks/s</dt><dd id="stressRenderRate">0.0</dd></div><div data-stress-metric="stalls"><dt>Gaps &gt;34 ms<span class="sr-only"> between callbacks, not dropped display frames</span></dt><dd id="stressCallbackStalls">0</dd></div><div data-stress-metric="iterations"><dt>Candidates tested</dt><dd id="stressIterations">0</dd></div></dl><p class="stress-warning workbench-status" id="stressStatusText" aria-live="polite">Ready. Starting this will make your browser hot, loud, slow, and power hungry.</p></div>
+            <dl class="stress-metrics" id="stressMetrics"><div data-stress-metric="elapsed"><dt>Elapsed</dt><dd id="stressElapsed">0:00</dd></div><div data-stress-metric="workers"><dt>Workers</dt><dd id="stressWorkerCount">0</dd></div><div data-stress-metric="gpu"><dt>GPU</dt><dd id="stressGpuBackend">none</dd></div><div data-stress-metric="fps"><dt>FPS</dt><dd id="stressFrameRate">0.0</dd></div><div data-stress-metric="dropped"><dt>Dropped</dt><dd id="stressDroppedFrames">0</dd></div><div data-stress-metric="iterations"><dt>Candidates tested</dt><dd id="stressIterations">0</dd></div></dl><p class="stress-warning workbench-status" id="stressStatusText" aria-live="polite">Ready. Starting this will make your browser hot, loud, slow, and power hungry.</p></div>
           </section>
         </div>
       </div>
@@ -224,11 +224,7 @@
   <footer class="utilities-footer"><span>© <span data-current-year="">2026</span> Oliver Dougherty</span></footer>
   <script src="../../js/year.js" defer=""></script>
   <script src="../../js/utilities-shell.js?v=workbench-1" defer=""></script>
-  <div id="utilityEntryError" class="utility-load-recovery" role="alert" hidden>
-    <p>The tools could not load. Check your connection or reload for the latest version.</p>
-    <button type="button" onclick="window.location.reload()">Reload tools</button>
-  </div>
-  <script type="module" src="./assets/utilities-app.js?v=workbench-1" onerror="document.getElementById('utilityEntryError').hidden = false"></script>
+  <script type="module" src="./assets/utilities-app.js?v=workbench-1"></script>
 
 
 </body></html>

@@ -53,10 +53,12 @@ jobs:
       - run: npm ci
       - run: npm run utilities:test
 
+  # Keep the existing check name for branch-protection compatibility.
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [typecheck, test]
+    timeout-minutes: 45
+    needs: [lint, typecheck, test]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -64,8 +66,28 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run utilities:build
-      - run: npm run smoke
+      - run: npm run smoke:source
+      - run: npm run check-links
+      - run: npm run build:deploy
+      - run: npm run smoke:deploy
+      - run: npm run check-links
+        env:
+          CHECK_LINKS_ROOT: dist
+      - run: npm run release:check
+        timeout-minutes: 35
+        env:
+          RELEASE_BROWSERS: chromium,firefox,webkit
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-validation-evidence
+          path: output/
+          retention-days: 14
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
 
   deploy-pages:
     name: Deploy GitHub Pages
@@ -76,17 +98,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run utilities:build
-      - run: npm run build:deploy
       - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
       - id: deployment
         uses: actions/deploy-pages@v4

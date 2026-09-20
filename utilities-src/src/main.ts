@@ -1,3 +1,23 @@
+// An open page may outlive its release's lazy chunks. Offer explicit recovery;
+// never loop automatic reloads or leave an invisible initialization failure.
+function showUtilityLoadRecovery() {
+  if (document.getElementById('utilityLoadRecovery')) return;
+  const notice = document.createElement('div');
+  notice.id = 'utilityLoadRecovery';
+  notice.className = 'utility-load-recovery';
+  notice.setAttribute('role', 'alert');
+  const message = document.createElement('p');
+  message.textContent = 'This tool could not load. Check your connection or reload for the latest version.';
+  const reload = document.createElement('button');
+  reload.type = 'button';
+  reload.textContent = 'Reload tools';
+  reload.addEventListener('click', () => window.location.reload());
+  notice.append(message, reload);
+  document.body.append(notice);
+}
+window.addEventListener('vite:preloadError', showUtilityLoadRecovery);
+window.addEventListener('utility-load-error', showUtilityLoadRecovery);
+
 import { getPreset, isTransformPresetId } from './presets';
 import { PRECOMPUTED_BUILT_IN_TRANSFORM_ASSETS } from './builtInTransformAssets';
 import { buildTransformRenderPlan } from './transformRenderPlan';

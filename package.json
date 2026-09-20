@@ -28,9 +28,12 @@
     "nav:check": "node scripts/nav-overlay-check.js",
     "home:check": "node scripts/home-check.js",
     "smoke": "node scripts/smoke.js",
-    "quality": "npm run lint && npm run format:check && npm run check-links && npm run smoke",
+    "quality": "npm run lint && npm run format:check && npm run check-links && npm run smoke:source",
     "quality:full": "npm run quality && npm run utilities:check",
-    "build:art": "node scripts/build-nighthawks-art.js"
+    "build:art": "node scripts/build-nighthawks-art.js",
+    "release:check": "node scripts/release-check.js",
+    "smoke:source": "node scripts/smoke.js --source-only",
+    "smoke:deploy": "node scripts/smoke.js --deploy-only"
   },
   "devDependencies": {
     "@types/jsdom": "28.0.3",

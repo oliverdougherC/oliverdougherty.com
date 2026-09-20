@@ -287,3 +287,7 @@ html[data-active-utility] .page-utilities { height: 100dvh; min-height: 0; displ
     grid-template-rows: minmax(0, 1fr) auto;
   }
 }
+
+.utility-load-recovery { position: fixed; top: 48px; right: 20px; z-index: 100; max-width: min(360px, calc(100vw - 40px)); padding: 16px; border: 1px solid var(--workbench-accent); background: #fff; color: #111; font: 14px/1.5 var(--workbench-ui); }
+.utility-load-recovery p { margin: 0 0 12px; }
+.utility-load-recovery button { padding: 8px 12px; border: 1px solid #7050c0; background: #7050c0; color: #fff; }

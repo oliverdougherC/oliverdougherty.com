@@ -123,6 +123,28 @@ describe('GPU completion and lifecycle', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('resolves null without a handle when device loss lands during initialization', async () => {
+    const test = gpuFixture();
+    const validation = deferred<{ message: string } | null>();
+    test.device.popErrorScope.mockReturnValue(validation.promise);
+    const startup = startAdaptiveGpuStress(test.canvas, test.callbacks);
+    await vi.advanceTimersByTimeAsync(0);
+    test.lost.resolve({ reason: 'unknown', message: 'Adapter disconnected' });
+    validation.resolve(null);
+
+    expect(await startup).toBeNull();
+    expect(test.callbacks.onAsyncError).toHaveBeenCalledWith('WebGPU device lost: Adapter disconnected');
+    expect(test.device.destroy).toHaveBeenCalledTimes(1);
+    expect(test.context.unconfigure).toHaveBeenCalledTimes(1);
+    expect(test.device.queue.submit).not.toHaveBeenCalled();
+    expect(test.callbacks.onCanvasReplace).not.toHaveBeenCalled();
+    expect(new Set(test.contexts).size).toBe(1);
+    expect(test.canvas.isConnected).toBe(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(test.device.queue.submit).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('falls through validation failures using a fresh canvas for each backend', async () => {
     const test = gpuFixture();
     test.device.popErrorScope.mockResolvedValue({ message: 'invalid pipeline' });

@@ -28,15 +28,18 @@ interface StressWorkerRecord {
   errorListener: (event: ErrorEvent) => void;
 }
 
-type StressMetricId = 'elapsed' | 'workers' | 'gpu' | 'fps' | 'dropped' | 'iterations';
+type StressMetricId = 'elapsed' | 'workers' | 'gpu' | 'cadence' | 'stalls' | 'iterations';
 
 const DEFAULT_MODE: StressMode = 'both';
 const METRIC_INTERVAL_MS = 120;
+// Count gaps over an explicit duration, independent of display refresh rate.
+// GPU callbacks report batch completions; CPU visuals report animation callbacks.
+const RENDER_STALL_GAP_MS = 34;
 const STRESS_METRIC_HIDE_ORDER: Record<StressMode, StressMetricId[]> = {
   // Hide least relevant metrics first when the control panel is height-limited.
-  cpu: ['dropped', 'gpu', 'fps', 'iterations', 'elapsed', 'workers'],
-  gpu: ['dropped', 'iterations', 'workers', 'fps', 'gpu', 'elapsed'],
-  both: ['dropped', 'iterations', 'fps', 'gpu', 'workers', 'elapsed']
+  cpu: ['stalls', 'gpu', 'cadence', 'iterations', 'elapsed', 'workers'],
+  gpu: ['stalls', 'iterations', 'workers', 'cadence', 'gpu', 'elapsed'],
+  both: ['stalls', 'iterations', 'cadence', 'gpu', 'workers', 'elapsed']
 };
 
 let moduleWorkerSupport: boolean | null = null;
@@ -83,8 +86,9 @@ export class StressTestController {
   private readonly elapsedLabel: HTMLElement;
   private readonly workerCountLabel: HTMLElement;
   private readonly backendLabel: HTMLElement;
-  private readonly fpsLabel: HTMLElement;
-  private readonly droppedFrameLabel: HTMLElement;
+  private readonly renderRateLabel: HTMLElement;
+  private readonly stallLabel: HTMLElement;
+  private readonly renderRateHeading: HTMLElement;
   private readonly iterationLabel: HTMLElement;
   private readonly metricsPanel: HTMLElement;
   private readonly metricCards: HTMLElement[];
@@ -102,13 +106,20 @@ export class StressTestController {
   private cpuRefills = 0;
   private gpu: StressGpuStressHandle | null = null;
   private gpuAbort: AbortController | null = null;
+  // requestId of the start generation whose GPU backend owns the canvas backing
+  // store. While it matches, controller-side resize observation must not write
+  // canvas dimensions; the backend drains in-flight batches before resizing.
+  private gpuSurfaceClaim = 0;
+  private gpuStartupError = '';
   private startedAt = 0;
   private metricFrameId = 0;
-  private lastFrameAt = 0;
+  private lastFrameAt = -1;
+  private cadenceStartedAt = 0;
+  private cadenceStartFrameCount = 0;
   private lastMetricAt = 0;
   private frameCount = 0;
-  private droppedFrames = 0;
-  private lastFps = 0;
+  private callbackStalls = 0;
+  private lastRenderRate = 0;
   private totalIterations = 0;
   private latestPrime = 0;
   private primesFound = 0;
@@ -158,8 +169,9 @@ export class StressTestController {
     this.elapsedLabel = this.requireElement('stressElapsed') as HTMLElement;
     this.workerCountLabel = this.requireElement('stressWorkerCount') as HTMLElement;
     this.backendLabel = this.requireElement('stressGpuBackend') as HTMLElement;
-    this.fpsLabel = this.requireElement('stressFrameRate') as HTMLElement;
-    this.droppedFrameLabel = this.requireElement('stressDroppedFrames') as HTMLElement;
+    this.renderRateLabel = this.requireElement('stressRenderRate') as HTMLElement;
+    this.stallLabel = this.requireElement('stressCallbackStalls') as HTMLElement;
+    this.renderRateHeading = this.requireElement('stressRenderRateLabel') as HTMLElement;
     this.iterationLabel = this.requireElement('stressIterations') as HTMLElement;
     this.metricsPanel = this.requireElement('stressMetrics') as HTMLElement;
     this.metricCards = Array.from(this.metricsPanel.querySelectorAll<HTMLElement>('[data-stress-metric]'));
@@ -170,7 +182,7 @@ export class StressTestController {
     this.canvas = canvasEl;
     this.metricCards.forEach((card) => {
       const metricId = card.dataset.stressMetric;
-      if (metricId === 'elapsed' || metricId === 'workers' || metricId === 'gpu' || metricId === 'fps' || metricId === 'dropped' || metricId === 'iterations') {
+      if (metricId === 'elapsed' || metricId === 'workers' || metricId === 'gpu' || metricId === 'cadence' || metricId === 'stalls' || metricId === 'iterations') {
         this.metricCardById.set(metricId, card);
       }
     });
@@ -290,14 +302,15 @@ export class StressTestController {
     this.previousIterations = 0;
     this.candidatesPerSecond = 0;
     this.frameCount = 0;
-    this.droppedFrames = 0;
-    this.lastFps = 0;
-    this.lastFrameAt = 0;
+    this.callbackStalls = 0;
+    this.lastRenderRate = 0;
+    this.lastFrameAt = -1;
     this.lastMetricAt = 0;
     this.startedAt = readNow();
     this.gpuBackend = 'none';
     this.gpuWorkloadLevel = 0;
     this.lastError = '';
+    this.gpuStartupError = '';
     this.gpuCanvasActive = false;
     this.clearCanvasSurface();
     this.canvas.dataset.stressIdle = 'false';
@@ -318,22 +331,40 @@ export class StressTestController {
       }
 
       if (shouldStressGpu(this.mode)) {
-        const gpu = await this.startGpuStress();
+        let gpu = await this.startGpuStress();
         if (requestId !== this.requestId) {
           gpu?.stop({ loseContext: true });
           return;
         }
+        // Validate at the actual installation boundary, after both awaits.
+        // A device-loss microtask can land after startGpuStress has returned.
+        if (this.gpuStartupError) {
+          gpu?.stop({ loseContext: true });
+          gpu = null;
+          this.gpuSurfaceClaim = 0;
+          this.gpuCanvasActive = false;
+        }
         this.gpu = gpu;
         this.gpuBackend = gpu?.backend ?? 'none';
+        if (!gpu && this.gpuStartupError) {
+          this.lastError = this.gpuStartupError;
+        }
       }
 
       if (requestId !== this.requestId) {
         return;
       }
 
+      // A GPU failure that landed before installation aborts startup: GPU-only
+      // mode reports the honest error, combined mode keeps the documented CPU
+      // fallback. Never install an already-failed handle.
       if (this.mode === 'gpu' && !this.gpu) {
         this.stopCpuStress();
-        this.setState('unsupported', 'GPU stress needs WebGPU, WebGL2, or WebGL in this browser.');
+        if (this.gpuStartupError) {
+          this.setState('error', this.lastError);
+        } else {
+          this.setState('unsupported', 'GPU stress needs WebGPU, WebGL2, or WebGL in this browser.');
+        }
         this.syncMetrics(true);
         return;
       }
@@ -342,12 +373,14 @@ export class StressTestController {
         this.lastError = cpuStartError;
         this.setState(transitionStressState(this.state, 'running'), 'GPU stress is running. CPU stress is unavailable in this browser.');
       } else if (this.mode === 'both' && !this.gpu && !this.workers.length) {
-        this.lastError = cpuStartError || 'No stress backend was available.';
+        this.lastError = cpuStartError || this.lastError || 'No stress backend was available.';
         this.setState(transitionStressState(this.state, 'error'), this.lastError);
         this.syncMetrics(true);
         return;
       } else if (this.mode === 'both' && !this.gpu) {
-        this.setState(transitionStressState(this.state, 'running'), 'CPU stress is running. GPU stress is unavailable in this browser.');
+        this.setState(transitionStressState(this.state, 'running'), this.gpuStartupError
+          ? `CPU stress is running. GPU stress failed: ${this.gpuStartupError}`
+          : 'CPU stress is running. GPU stress is unavailable in this browser.');
       } else {
         this.setState(transitionStressState(this.state, 'running'), 'Running until stopped or hidden. CPU utilization and GPU watts depend on your hardware and browser.');
       }
@@ -392,8 +425,8 @@ export class StressTestController {
     this.stopMetricLoop();
     this.candidatesPerSecond = 0;
     this.frameCount = 0;
-    this.droppedFrames = 0;
-    this.lastFps = 0;
+    this.callbackStalls = 0;
+    this.lastRenderRate = 0;
     this.gpuBackend = 'none';
     this.gpuWorkloadLevel = 0;
     this.gpuCanvasActive = false;
@@ -435,6 +468,7 @@ export class StressTestController {
         console.error('[StressTest] CPU worker error', event.message, event.filename, event.lineno);
         const details = [event.message, event.filename, event.lineno ? `line ${event.lineno}` : ''].filter(Boolean).join(' ');
         this.handleCpuStressFailure(details ? `CPU stress worker failed: ${details}` : 'A CPU stress worker failed.');
+        window.dispatchEvent(new Event('utility-load-error'));
       };
       const record: StressWorkerRecord = {
         worker,
@@ -564,7 +598,9 @@ export class StressTestController {
 
   private async startGpuStress() {
     const requestId = this.requestId;
+    this.resetRenderCadence();
     this.prepareGpuCanvas();
+    this.gpuSurfaceClaim = requestId;
     this.gpuAbort = new AbortController();
     const gpu = await startAdaptiveGpuStress(this.canvas, {
       onFrame: () => {
@@ -580,7 +616,16 @@ export class StressTestController {
         this.gpuCanvasActive = active;
       },
       onAsyncError: (message) => {
-        if (requestId === this.requestId) this.handleGpuStressFailure(message);
+        if (requestId !== this.requestId) return;
+        if (this.gpu) {
+          this.handleGpuStressFailure(message);
+          return;
+        }
+        // Device loss or an async failure can resolve before the factory hands
+        // back its handle. Remember it and abort the pending startup so the
+        // failed handle is never installed or reported as running.
+        this.gpuStartupError = message;
+        this.gpuAbort?.abort();
       },
       onCanvasReplace: (canvas) => {
         if (requestId !== this.requestId) return;
@@ -589,6 +634,9 @@ export class StressTestController {
       }
     }, { reducedMotion: this.reducedMotion, signal: this.gpuAbort.signal });
 
+    if (!gpu && requestId === this.requestId) {
+      this.gpuSurfaceClaim = 0;
+    }
     return gpu;
   }
 
@@ -610,6 +658,7 @@ export class StressTestController {
       this.stopCpuStress();
       this.stopMetricLoop();
       this.stopCpuVisuals();
+      this.resetRenderCadence();
       this.setState('error', message);
     }
     this.syncMetrics(true);
@@ -620,12 +669,13 @@ export class StressTestController {
     this.gpu = null;
     this.gpuAbort?.abort();
     this.gpuAbort = null;
+    this.gpuSurfaceClaim = 0;
   }
 
   private startCpuVisuals() {
-    if (this.cpuVisualFrameId || this.reducedMotion) {
-      return;
-    }
+    if (this.cpuVisualFrameId) return;
+    this.resetRenderCadence();
+    if (this.reducedMotion) return;
 
     let ctx = this.canvas.getContext('2d', { alpha: true });
     if (!ctx) {
@@ -671,13 +721,20 @@ export class StressTestController {
     }
   }
 
+  private resetRenderCadence() {
+    this.cadenceStartedAt = readNow();
+    this.cadenceStartFrameCount = this.frameCount;
+    this.lastFrameAt = -1;
+    this.callbackStalls = 0;
+    this.lastRenderRate = 0;
+  }
+
   private recordRenderFrame() {
     const now = readNow();
-    if (this.lastFrameAt > 0) {
-      const delta = now - this.lastFrameAt;
-      if (delta > 34) {
-        this.droppedFrames += Math.max(1, Math.floor(delta / 16.7) - 1);
-      }
+    if (this.lastFrameAt >= 0 && now - this.lastFrameAt > RENDER_STALL_GAP_MS) {
+      // One qualified stall per oversized gap between render callbacks; not a
+      // count of dropped display presentations.
+      this.callbackStalls += 1;
     }
     this.lastFrameAt = now;
     this.frameCount += 1;
@@ -711,7 +768,8 @@ export class StressTestController {
       ? now - this.startedAt
       : 0;
     if (elapsed > 0) {
-      this.lastFps = this.frameCount / Math.max(1, elapsed / 1000);
+      this.lastRenderRate = (this.frameCount - this.cadenceStartFrameCount)
+        / Math.max(1, (now - this.cadenceStartedAt) / 1000);
     }
 
     const sampleMs = now - this.lastMetricAt;
@@ -746,8 +804,11 @@ export class StressTestController {
     this.elapsedLabel.textContent = formatStressElapsed(elapsed);
     this.workerCountLabel.textContent = String(this.workers.length);
     this.backendLabel.textContent = this.gpuBackend;
-    this.fpsLabel.textContent = (this.gpu || this.cpuVisualFrameId) ? this.lastFps.toFixed(1) : '0.0';
-    this.droppedFrameLabel.textContent = String(this.droppedFrames);
+    const renderRateActive = Boolean(this.gpu) || this.cpuVisualFrameId > 0;
+    const renderRate = renderRateActive ? this.lastRenderRate.toFixed(1) : '0.0';
+    this.renderRateHeading.textContent = this.gpu ? 'GPU batches/s' : 'Visual callbacks/s';
+    this.renderRateLabel.textContent = renderRate;
+    this.stallLabel.textContent = String(this.callbackStalls);
     this.iterationLabel.textContent = this.totalIterations > 0 ? this.totalIterations.toLocaleString() : '0';
     this.iterationLabel.style.setProperty('--readout-chars', String(this.iterationLabel.textContent.length));
     this.root.dataset.stressWorkerCount = String(this.workers.length);
@@ -758,8 +819,8 @@ export class StressTestController {
     this.root.dataset.stressCanvasActive = (this.gpuCanvasActive || this.cpuVisualFrameId > 0) ? 'true' : 'false';
     this.root.dataset.stressGpuLastError = this.lastError;
     this.root.dataset.stressIterations = String(this.totalIterations);
-    this.root.dataset.stressDroppedFrames = String(this.droppedFrames);
-    this.root.dataset.stressFrameRate = (this.gpu || this.cpuVisualFrameId) ? this.lastFps.toFixed(1) : '0.0';
+    this.root.dataset.stressCallbackStalls = String(this.callbackStalls);
+    this.root.dataset.stressRenderRate = renderRate;
     this.lastMetricAt = now;
     this.queueControlPanelFitSync();
   }
@@ -866,6 +927,15 @@ export class StressTestController {
   }
 
   private syncCanvasSize() {
+    // While a GPU backend is starting or rendering it owns the canvas backing
+    // store: it compares CSS size against its own limits and only resizes after
+    // in-flight batches complete. A controller-side observer or resize write
+    // would swap the drawing buffer under queued work, so observation stops here.
+    // Generation ids start at 1 (requestId increments before any start), so a
+    // zero claim always means "unowned".
+    if (this.gpu || (this.gpuSurfaceClaim !== 0 && this.gpuSurfaceClaim === this.requestId)) {
+      return;
+    }
     const rect = this.canvas.getBoundingClientRect();
     const scale = Math.min(window.devicePixelRatio || 1, 3);
     const width = Math.max(1, Math.floor(rect.width * scale));

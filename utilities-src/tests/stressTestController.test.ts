@@ -4,13 +4,19 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StressTestController } from '../src/stressTestController';
-import { startAdaptiveGpuStress, type StressGpuStressHandle } from '../src/stressTestGpu';
+import { startAdaptiveGpuStress, type StressGpuStressCallbacks, type StressGpuStressHandle } from '../src/stressTestGpu';
 import type { StartCpuStressRequest, StressTestWorkerResponse } from '../src/stressTestWorkerTypes';
 
 vi.mock('../src/stressTestGpu', () => ({ startAdaptiveGpuStress: vi.fn() }));
 
 const productionHtml = readFileSync(resolve(process.cwd(), 'pages/utilities/index.html'), 'utf8');
 const gpuStart = vi.mocked(startAdaptiveGpuStress);
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
 
 class MockWorker {
   static instances: MockWorker[] = [];
@@ -44,12 +50,23 @@ class MockWorker {
   }
 }
 
+class FakeResizeObserver {
+  static instances: FakeResizeObserver[] = [];
+  private disconnected = false;
+  constructor(private readonly callback: ResizeObserverCallback) { FakeResizeObserver.instances.push(this); }
+  observe() {}
+  unobserve() {}
+  disconnect() { this.disconnected = true; }
+  fire() { if (!this.disconnected) this.callback([], this as unknown as ResizeObserver); }
+}
+
 describe('stress test controller lifecycle', () => {
   let controller: StressTestController;
   let root: HTMLElement;
   let now: number;
   let frameId: number;
   let frames: Map<number, FrameRequestCallback>;
+  let capturedGpuCallbacks: StressGpuStressCallbacks | null;
 
   const workloadWorkers = () => MockWorker.instances.filter(worker => worker.postMessage.mock.calls.length > 0);
   const click = (id: string) => (document.getElementById(id) as HTMLButtonElement).click();
@@ -77,6 +94,7 @@ describe('stress test controller lifecycle', () => {
       setReducedMotion: vi.fn()
     };
     gpuStart.mockImplementation(async (_canvas, callbacks) => {
+      capturedGpuCallbacks = callbacks;
       callbacks.onCanvasActive(true);
       return handle;
     });
@@ -85,15 +103,18 @@ describe('stress test controller lifecycle', () => {
 
   beforeEach(() => {
     MockWorker.instances = [];
+    FakeResizeObserver.instances = [];
     now = 1000;
     frameId = 0;
     frames = new Map();
+    capturedGpuCallbacks = null;
+    Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 1 });
     gpuStart.mockReset().mockResolvedValue(null);
     document.body.innerHTML = new DOMParser().parseFromString(productionHtml, 'text/html').getElementById('stressTestApp')!.outerHTML;
     root = document.getElementById('stressTestApp')!;
     window.history.replaceState(null, '', '#stress-test');
     vi.stubGlobal('Worker', MockWorker);
-    vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
     vi.spyOn(performance, 'now').mockImplementation(() => now);
     vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(2);
     vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
@@ -296,5 +317,191 @@ describe('stress test controller lifecycle', () => {
     expect(root.dataset.stressState).toBe('error');
     expect(lateGpu.stop).toHaveBeenCalledWith({ loseContext: true });
     for (const worker of workloadWorkers()) expect(worker.terminate).toHaveBeenCalledOnce();
+  });
+
+  it('never installs a GPU handle whose failure callback resolves before the factory does', async () => {
+    const handle: StressGpuStressHandle = {
+      backend: 'webgpu-compute', getWorkloadLevel: () => 1, stop: vi.fn()
+    };
+    gpuStart.mockImplementation(async (_canvas, callbacks) => {
+      callbacks.onAsyncError('WebGPU device lost: Adapter disconnected');
+      return handle;
+    });
+    await start('gpu');
+    expect(root.dataset.stressState).toBe('error');
+    expect(root.dataset.stressGpuBackend).toBe('none');
+    expect(root.dataset.stressGpuLastError).toBe('WebGPU device lost: Adapter disconnected');
+    expect((document.getElementById('stressStatusText') as HTMLElement).textContent)
+      .toContain('WebGPU device lost: Adapter disconnected');
+    expect(handle.stop).toHaveBeenCalledWith({ loseContext: true });
+  });
+
+  it('keeps CPU stress running when GPU startup fails in combined mode', async () => {
+    gpuStart.mockImplementation(async (_canvas, callbacks) => {
+      callbacks.onAsyncError('GPU stopped responding.');
+      return null;
+    });
+    await start('both');
+    expect(root.dataset.stressState).toBe('running');
+    expect(root.dataset.stressWorkerCount).toBe('2');
+    expect(root.dataset.stressGpuBackend).toBe('none');
+    expect(root.dataset.stressGpuLastError).toBe('GPU stopped responding.');
+    expect((document.getElementById('stressStatusText') as HTMLElement).textContent)
+      .toBe('CPU stress is running. GPU stress failed: GPU stopped responding.');
+    advanceFrame();
+    expect(root.dataset.stressCanvasActive).toBe('true');
+  });
+
+  it('drops GPU callbacks that arrive after stop superseded their startup', async () => {
+    const staleHandle: StressGpuStressHandle = {
+      backend: 'webgpu-compute', getWorkloadLevel: () => 1, stop: vi.fn()
+    };
+    const startup = deferred<StressGpuStressHandle | null>();
+    let staleCallbacks: StressGpuStressCallbacks | null = null;
+    gpuStart.mockImplementationOnce((_canvas, callbacks) => {
+      staleCallbacks = callbacks;
+      return startup.promise;
+    });
+    click('stressStartBtn');
+    for (let turn = 0; turn < 4; turn += 1) await Promise.resolve();
+    click('stressStopBtn');
+    startup.resolve(staleHandle);
+    for (let turn = 0; turn < 4; turn += 1) await Promise.resolve();
+    expect(staleHandle.stop).toHaveBeenCalledWith({ loseContext: true });
+    staleCallbacks!.onFrame();
+    staleCallbacks!.onAsyncError('late device loss');
+    staleCallbacks!.onCanvasActive(true);
+    advanceFrame();
+    expect(root.dataset.stressState).toBe('idle');
+    expect(root.dataset.stressGpuLastError).toBe('');
+    expect(root.dataset.stressGpuCanvasActive).toBe('false');
+    expect(root.dataset.stressTotalRenderedFrames).toBe('0');
+  });
+
+  it('counts one stall per oversized render-callback gap and no stall for bursts or the exact threshold', async () => {
+    availableGpu();
+    await start('gpu');
+    const callbacks = capturedGpuCallbacks!;
+    const stalls = document.getElementById('stressCallbackStalls') as HTMLElement;
+    expect((document.getElementById('stressRenderRateLabel') as HTMLElement).textContent).toBe('GPU batches/s');
+
+    callbacks.onFrame();
+    callbacks.onFrame();
+    callbacks.onFrame();
+    advanceFrame();
+    expect(stalls.textContent).toBe('0');
+
+    now += 40;
+    callbacks.onFrame();
+    now += 34;
+    callbacks.onFrame();
+    now += 34.5;
+    callbacks.onFrame();
+    advanceFrame();
+    expect(stalls.textContent).toBe('2');
+    expect(root.dataset.stressCallbackStalls).toBe('2');
+    expect(root.dataset.stressTotalRenderedFrames).toBe('6');
+    expect(root.dataset.stressRenderRate).not.toBe('0.0');
+  });
+
+  it.each(['gpu', 'both'] as const)('rejects device loss between installation awaits in %s mode', async (mode) => {
+    const handle = availableGpu();
+    gpuStart.mockImplementation(async (_canvas, callbacks) => {
+      callbacks.onCanvasActive(true);
+      queueMicrotask(() => queueMicrotask(() => callbacks.onAsyncError('Lost between awaits')));
+      return handle;
+    });
+    await start(mode);
+    expect(root.dataset.stressState).toBe(mode === 'gpu' ? 'error' : 'running');
+    expect(root.dataset.stressGpuBackend).toBe('none');
+    expect(root.dataset.stressGpuCanvasActive).toBe('false');
+    expect(root.dataset.stressWorkerCount).toBe(mode === 'gpu' ? '0' : '2');
+    expect(document.getElementById('stressStatusText')!.textContent).toContain('Lost between awaits');
+    expect(handle.stop).toHaveBeenCalled();
+  });
+
+  it('starts a fresh cadence sample when GPU completions give way to CPU callbacks', async () => {
+    availableGpu();
+    await start('both');
+    for (let i = 0; i < 40; i++) capturedGpuCallbacks!.onFrame();
+    now += 50;
+    capturedGpuCallbacks!.onFrame();
+    advanceFrame();
+    expect(Number(root.dataset.stressRenderRate)).toBeGreaterThan(20);
+    expect(root.dataset.stressCallbackStalls).toBe('1');
+    capturedGpuCallbacks!.onAsyncError('Device disconnected');
+    expect(root.dataset.stressRenderRate).toBe('0.0');
+    expect(root.dataset.stressCallbackStalls).toBe('0');
+    expect(root.dataset.stressTotalRenderedFrames).toBe('41');
+    advanceFrame();
+    advanceFrame();
+    expect(Number(root.dataset.stressRenderRate)).toBeGreaterThan(0);
+    expect(Number(root.dataset.stressRenderRate)).toBeLessThanOrEqual(2);
+  });
+
+  it('relabels the cadence metric when a GPU failure falls back to CPU visual frames', async () => {
+    availableGpu();
+    await start('both');
+    const heading = document.getElementById('stressRenderRateLabel') as HTMLElement;
+    expect(heading.textContent).toBe('GPU batches/s');
+    capturedGpuCallbacks!.onAsyncError('WebGPU device lost: graphics device was reset');
+    expect(root.dataset.stressState).toBe('running');
+    expect(heading.textContent).toBe('Visual callbacks/s');
+    advanceFrame();
+    advanceFrame();
+    expect(root.dataset.stressRenderRate).not.toBe('0.0');
+  });
+
+  it('keeps zero render telemetry when reduced motion suppresses CPU visuals without a GPU', async () => {
+    controller.dispose();
+    vi.stubGlobal('matchMedia', () => Object.assign(new EventTarget(), { matches: true }));
+    controller = new StressTestController(root);
+    controller.init();
+    advanceFrame();
+    await start('both');
+    expect(root.dataset.stressState).toBe('running');
+    expect((document.getElementById('stressRenderRate') as HTMLElement).textContent).toBe('0.0');
+    expect((document.getElementById('stressCallbackStalls') as HTMLElement).textContent).toBe('0');
+    expect(root.dataset.stressCanvasActive).toBe('false');
+  });
+
+  it('leaves backing-store sizing to the installed GPU backend across resize and DPR changes', async () => {
+    availableGpu();
+    await start('gpu');
+    const canvas = document.getElementById('stressCanvas') as HTMLCanvasElement;
+    canvas.width = 400;
+    canvas.height = 300;
+    Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 2 });
+    canvas.getBoundingClientRect = () => ({ width: 600, height: 300 }) as DOMRect;
+
+    FakeResizeObserver.instances.forEach(observer => observer.fire());
+    window.dispatchEvent(new Event('resize'));
+    advanceFrame();
+    expect(canvas.width).toBe(400);
+
+    click('stressStopBtn');
+    expect(canvas.width).toBe(1200);
+    expect(canvas.height).toBe(600);
+  });
+
+  it('claims the canvas while a GPU backend is still starting so observers cannot resize it', async () => {
+    const startup = deferred<StressGpuStressHandle | null>();
+    gpuStart.mockImplementationOnce(() => startup.promise);
+    click('stressStartBtn');
+    for (let turn = 0; turn < 4; turn += 1) await Promise.resolve();
+    const canvas = document.getElementById('stressCanvas') as HTMLCanvasElement;
+    canvas.width = 1;
+    canvas.height = 1;
+    Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 2 });
+    canvas.getBoundingClientRect = () => ({ width: 600, height: 300 }) as DOMRect;
+    FakeResizeObserver.instances.forEach(observer => observer.fire());
+    advanceFrame();
+    expect(canvas.width).toBe(1);
+
+    startup.resolve(null);
+    for (let turn = 0; turn < 4; turn += 1) await Promise.resolve();
+    click('stressStopBtn');
+    expect(root.dataset.stressState).toBe('idle');
+    expect(canvas.width).toBe(1200);
   });
 });

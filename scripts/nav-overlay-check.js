@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { chromium } = require('playwright');
+const { chromium, firefox, webkit } = require('playwright');
 const path = require('node:path');
 const { startLocalStaticServer, waitForServer } = require('./lib/playwright-static');
 
@@ -54,21 +54,22 @@ async function run() {
   let browser;
   try {
     await waitForServer(baseUrl);
-    browser = await chromium.launch({ headless: true });
+    browser = await ({ chromium, firefox, webkit }[process.env.BROWSER || 'chromium']).launch({ headless: true });
     const desktop = await browser.newContext({ viewport: { width: 1440, height: 1080 } });
     const page = await desktop.newPage();
+    page.setDefaultTimeout(15000);
     await checkNavigation(page, DESKTOP_PAGES, '.nav-inline-link', ['HOME', 'RÉSUMÉ', 'GALLERY', 'UTILITIES']);
     await page.goto(`${baseUrl}/index.html`, { waitUntil: 'networkidle' });
     assert((await page.locator('.home-header .text-flare').textContent()).trim() === '#FF6700', 'Homepage navigation should retain the original orange label');
     await page.locator('.home-header .nav-inline-link--home').click();
     await page.waitForURL((url) => url.pathname === '/index.html' || url.pathname === '/');
     await page.goto(`${baseUrl}/pages/utilities/index.html`, { waitUntil: 'networkidle' });
-    await page.locator('.nav-home-btn').click();
+    await page.locator('.nav-inline-link--home').click();
     await page.waitForURL((url) => url.pathname === '/index.html');
     console.log('Verified desktop inline navigation and Utilities Home link.');
     await desktop.close();
 
-    const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: process.env.BROWSER !== 'firefox', hasTouch: true });
     await checkNavigation(await mobile.newPage(), MOBILE_PAGES, '.mobile-nav-link', ['Home', 'Résumé', 'Gallery']);
     console.log('Verified mobile Home, Resume, and Gallery navigation.');
     await mobile.close();

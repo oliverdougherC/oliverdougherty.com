@@ -127,8 +127,12 @@
     let playing = false;
     let volume = 0;
     let fadeToken = 0;
+    let fadeRaf = 0;
+    let playbackStarted = false;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
     const setSinging = (on) => {
+      on = on && !reducedMotion.matches && !document.hidden;
       if (on) {
         if (!musicalRaf) {
           // Cursors render at one image pixel per device pixel, so match
@@ -147,26 +151,39 @@
         window.cancelAnimationFrame(musicalRaf);
         musicalRaf = 0;
       }
+      if (!on) musicalOverlay.style.visibility = 'hidden';
       document.documentElement.classList.toggle('is-musical', on);
       excursionTrigger.classList.toggle('is-singing', on);
+    };
+
+    // Hidden pages must stop synchronously: animation frames may never run.
+    const stopImmediately = () => {
+      fadeToken += 1;
+      window.cancelAnimationFrame(fadeRaf);
+      fadeRaf = 0;
+      playing = false;
+      playbackStarted = false;
+      volume = 0;
+      if (audio) {
+        audio.pause();
+        audio.currentTime = 0;
+        audio.volume = 0;
+      }
+      setSinging(false);
     };
 
     const ensureAudio = () => {
       if (!audio) {
         audio = new Audio(excursionTrigger.dataset.audio);
         audio.preload = 'auto';
-        audio.addEventListener('ended', () => {
-          fadeToken += 1;
-          playing = false;
-          volume = 0;
-          audio.volume = 0;
-          setSinging(false);
-        });
+        audio.addEventListener('ended', stopImmediately);
       }
       return audio;
     };
 
     const start = () => {
+      stopImmediately();
+      if (document.hidden) return;
       const source = ensureAudio();
       fadeToken += 1;
       const token = fadeToken;
@@ -193,26 +210,34 @@
         }
         volume = target;
         source.volume = volume;
-        window.requestAnimationFrame(tick);
+        fadeRaf = window.requestAnimationFrame(tick);
       };
       source
         .play()
         .then(() => {
-          if (token === fadeToken && playing) {
+          if (token === fadeToken && playing && !document.hidden) {
+            playbackStarted = true;
             setSinging(true);
-            window.requestAnimationFrame(tick);
+            fadeRaf = window.requestAnimationFrame(tick);
+          } else if (!playing || document.hidden) {
+            stopImmediately();
           }
         })
         .catch(() => {
-          // Autoplay blocked or playback failed: the excerpt stays silent.
+          if (token === fadeToken) stopImmediately();
         });
     };
 
     const stop = () => {
+      if (!playbackStarted || document.hidden) {
+        stopImmediately();
+        return;
+      }
       if (!playing) {
         return;
       }
       playing = false;
+      window.cancelAnimationFrame(fadeRaf);
       const source = ensureAudio();
       fadeToken += 1;
       const token = fadeToken;
@@ -227,18 +252,19 @@
         volume = startVolume * fade * fade;
         source.volume = volume;
         if (progress < 1) {
-          window.requestAnimationFrame(fadeDown);
+          fadeRaf = window.requestAnimationFrame(fadeDown);
         } else {
-          source.pause();
-          source.currentTime = 0;
-          volume = 0;
-          source.volume = 0;
-          setSinging(false);
+          stopImmediately();
         }
       };
-      window.requestAnimationFrame(fadeDown);
+      fadeRaf = window.requestAnimationFrame(fadeDown);
     };
 
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) stopImmediately();
+    });
+    window.addEventListener('pagehide', stopImmediately);
+    reducedMotion.addEventListener('change', () => setSinging(playing && playbackStarted));
     excursionTrigger.addEventListener('mouseenter', start);
     excursionTrigger.addEventListener('mouseleave', stop);
   }

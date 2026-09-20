@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
-const { chromium, firefox } = require('playwright');
+const { chromium, firefox, webkit } = require('playwright');
 const sharp = require('sharp');
 const {
   startLocalStaticServer,
@@ -13,7 +13,7 @@ const {
 const ROOT = path.resolve(__dirname, '..');
 const DEFAULT_BASE_URL = 'http://127.0.0.1:4175';
 const BASE_URL = process.env.UTILITIES_CHECK_URL || DEFAULT_BASE_URL;
-const BROWSER_NAME = process.env.UTILITIES_BROWSER === 'firefox' ? 'firefox' : 'chromium';
+const BROWSER_NAME = process.env.UTILITIES_BROWSER || 'chromium';
 const CHROMIUM_WEBGL_ARGS = ['--enable-webgl', '--ignore-gpu-blocklist', '--use-angle=swiftshader'];
 
 function assert(condition, message) {
@@ -426,8 +426,8 @@ async function assertControlPanelGeometry(page, utilityId, label) {
       ],
       'stress-test': [
         '[data-stress-mode-option]', '#stressStartBtn', '#stressStopBtn', '#stressStatusText',
-        '#stressElapsed', '#stressWorkerCount', '#stressGpuBackend', '#stressFrameRate',
-        '#stressDroppedFrames', '#stressIterations', '#stressSceneTitle'
+        '#stressElapsed', '#stressWorkerCount', '#stressGpuBackend', '#stressRenderRate',
+        '#stressCallbackStalls', '#stressIterations', '#stressSceneTitle'
       ]
     };
     if (id === 'stress-test') {
@@ -1149,18 +1149,20 @@ async function assertStressLayout(page, label, options = {}) {
 async function main() {
   const server = await startLocalStaticServer({
     url: BASE_URL,
-    cwd: ROOT
+    cwd: ROOT,
+    skip: Boolean(process.env.UTILITIES_CHECK_URL)
   });
   const baseUrl = server?.url || BASE_URL;
 
-  const browserType = BROWSER_NAME === 'firefox' ? firefox : chromium;
-  const browser = await browserType.launch({
-    headless: true,
-    args: BROWSER_NAME === 'chromium' ? CHROMIUM_WEBGL_ARGS : undefined
-  });
+  const browserType = { chromium, firefox, webkit }[BROWSER_NAME];
+  let browser;
   const utilitySectionFailures = [];
 
   try {
+    browser = await browserType.launch({
+      headless: true,
+      args: BROWSER_NAME === 'chromium' ? CHROMIUM_WEBGL_ARGS : undefined
+    });
     await waitForServer(`${baseUrl}/pages/utilities/index.html`);
     await runUtilitySection(utilitySectionFailures, 'Public and Hidden Routes', async () => {
       await assertPublicUtilityRoutes(browser, baseUrl);
@@ -1175,15 +1177,13 @@ async function main() {
     });
     await page.addInitScript(() => {
       window.__OD_RETRO_VM_TEST_MODE__ = true;
-      window.__OD_STRESS_TEST_MAX_WORKERS__ = 2;
+      Object.defineProperty(navigator, 'hardwareConcurrency', { value: 2, configurable: true });
     });
 
     const precomputedTransformRequests = [];
     page.on('request', (request) => {
       if (
-        request.url().includes('pattern-face-balanced.json') ||
-        request.url().includes('source-target-balanced.json') ||
-        request.url().includes('face-pattern-balanced.json')
+        /(?:pattern-face|source-target|face-pattern)-balanced(?:-[\w-]+)?\.json/.test(request.url())
       ) {
         precomputedTransformRequests.push(request.url());
       }
@@ -1613,8 +1613,8 @@ async function main() {
     const generatedComponentPixels = await readCanvasPixels(page, 'audioFourierComponentCanvas');
     assert(countActiveCanvasPixels(generatedWavePixels) > 100, 'Audio Fourier waveform canvas should be visibly nonblank.');
     assert(totalAbsoluteDifference(generatedWavePixels, fullSignalWavePixels) > 0, 'Dragging the Audio Fourier slider should visibly change the waveform.');
-    assert(countActiveCanvasPixels(generatedSpectrumPixels) > 100, 'Audio Fourier spectrum canvas should be visibly nonblank.');
-    assert(countActiveCanvasPixels(generatedComponentPixels) > 100, 'Audio Fourier component canvas should be visibly nonblank.');
+    assert(countActiveCanvasPixels(generatedSpectrumPixels) === 0, 'Hidden spectrum plot should not render expensive unused output.');
+    assert(countActiveCanvasPixels(generatedComponentPixels) === 0, 'Hidden component plot should not render expensive unused output.');
     await assertUtilityIsolationLayout(page, 'audio-preset:desktop');
 
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -1712,7 +1712,7 @@ async function main() {
       let cacheDelivered;
       const cacheDelivery = new Promise(resolve => { cacheDelivered = resolve; });
       try {
-        await navigationPage.route('**/pattern-face-balanced.json', async route => {
+        await navigationPage.route('**/pattern-face-balanced*.json', async route => {
           const response = await route.fetch();
           cacheRequested();
           await cacheRelease;
@@ -1939,7 +1939,7 @@ async function main() {
       viewport: { width: 1440, height: 1100 }
     });
     await webGl1Page.addInitScript(() => {
-      window.__OD_STRESS_TEST_MAX_WORKERS__ = 1;
+      Object.defineProperty(navigator, 'hardwareConcurrency', { value: 1, configurable: true });
       Object.defineProperty(navigator, 'gpu', {
         configurable: true,
         value: undefined
@@ -1981,7 +1981,7 @@ async function main() {
       viewport: { width: 1440, height: 1100 }
     });
     await noGpuPage.addInitScript(() => {
-      window.__OD_STRESS_TEST_MAX_WORKERS__ = 1;
+      Object.defineProperty(navigator, 'hardwareConcurrency', { value: 1, configurable: true });
       Object.defineProperty(navigator, 'gpu', {
         configurable: true,
         value: undefined
@@ -2094,7 +2094,7 @@ async function main() {
     throwIfUtilitySectionFailures(utilitySectionFailures);
     console.log('Utilities Playwright check passed.');
   } finally {
-    await browser.close();
+    await browser?.close();
     if (server) {
       server.kill('SIGTERM');
     }

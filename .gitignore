@@ -43,6 +43,7 @@ old-todos/
 pages/utilities/assets/source-target-balanced.json
 pages/utilities/assets/face-pattern-balanced.json
 pages/utilities/assets/pattern-face-balanced.json
+pages/utilities/assets/*-balanced-*.json
 
 # Backups and drafts
 *_old.html

@@ -93,11 +93,17 @@ export function resolveAudioWaveBucketX(
 
 function resizeCanvasToDisplaySize(canvas: HTMLCanvasElement, maxBackingPixels: number, minScale: number) {
   const rect = canvas.getBoundingClientRect();
-  const cssWidth = rect.width || canvas.clientWidth || canvas.width;
-  const cssHeight = rect.height || canvas.clientHeight || canvas.height;
-  const scale = resolveAudioWaveCanvasScale(cssWidth, cssHeight, window.devicePixelRatio || 1, maxBackingPixels, minScale);
-  const width = Math.max(1, Math.round(cssWidth * scale));
-  const height = Math.max(1, Math.round(cssHeight * scale));
+  const cssWidth = rect.width;
+  const cssHeight = rect.height;
+  if (!(cssWidth > 0 && cssHeight > 0) || !Number.isFinite(cssWidth + cssHeight)) return false;
+  // Preserve the renderer's quality policy, with hard resource limits taking
+  // precedence over its minimum scale for unusually large layout surfaces.
+  const scale = Math.min(
+    resolveAudioWaveCanvasScale(cssWidth, cssHeight, window.devicePixelRatio || 1, maxBackingPixels, minScale),
+    8192 / cssWidth, 8192 / cssHeight, Math.sqrt(maxBackingPixels / (cssWidth * cssHeight))
+  );
+  const width = Math.max(1, Math.floor(cssWidth * scale));
+  const height = Math.max(1, Math.floor(cssHeight * scale));
   if (canvas.width === width && canvas.height === height) {
     return false;
   }

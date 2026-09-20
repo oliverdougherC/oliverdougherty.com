@@ -13,6 +13,7 @@ const SEQUENCE_PATH = path.join(PHOTOS_DIR, 'gallery-sequence.json');
 
 const REQUIRED_PAGES = [
   'index.html',
+  '404.html',
   'pages/resume/index.html',
   'pages/gallery/index.html',
   'mobile/index.html',
@@ -217,13 +218,14 @@ function validatePhotos() {
 
 function validateDeployOutput() {
   const distDir = path.join(ROOT, 'dist');
-  if (!fs.existsSync(distDir)) return false;
+  assert(fs.existsSync(distDir), 'Deploy output missing: run npm run build:deploy');
 
   const cnamePath = path.join(distDir, 'CNAME');
-  if (!fs.existsSync(cnamePath)) return false;
+  assert(fs.existsSync(cnamePath), 'Deploy output missing CNAME');
 
   assert(fs.readFileSync(cnamePath, 'utf8').trim() === 'oliverdougherty.com', 'Deploy output CNAME has unexpected contents');
   assert(fs.existsSync(path.join(distDir, '.nojekyll')), 'Deploy output missing .nojekyll');
+  for (const page of REQUIRED_PAGES) assert(fs.existsSync(path.join(distDir, page)), `Deploy output missing page: ${page}`);
   assert(
     fs.existsSync(path.join(distDir, 'assets', 'utilities', 'fourier-decompose', 'Best Friends.flac')),
     'Deploy output missing Fourier built-in audio asset'
@@ -235,6 +237,11 @@ function validateDeployOutput() {
     'assets/utilities/vm/flwm_topside.tcz',
     'assets/utilities/vm/flwm_topside.tcz.md5.txt',
     'assets/photos/descriptions.md',
+    'assets/project-motion',
+    'css/project-motion',
+    'css/project-motion.css',
+    'js/project-motion.js',
+    'js/keiri-motion.js',
     'blogs',
     'pages/archive',
     'css/darkroom',
@@ -249,9 +256,11 @@ function main() {
   console.log('Smoke Script');
   console.log('='.repeat(60));
 
-  validatePages();
-  const photoCount = validatePhotos();
-  const deployOutputChecked = validateDeployOutput();
+  const deployOnly = process.argv.includes('--deploy-only');
+  const sourceOnly = process.argv.includes('--source-only');
+  if (!deployOnly) validatePages();
+  const photoCount = deployOnly ? 0 : validatePhotos();
+  const deployOutputChecked = sourceOnly ? false : validateDeployOutput();
   const verifiedPages = REQUIRED_PAGES.length;
 
   console.log(`Verified ${verifiedPages} critical pages.`);

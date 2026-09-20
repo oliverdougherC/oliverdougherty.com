@@ -68,16 +68,24 @@ in flight, replenishing directly from actual queue-completion callbacks without 
 refresh-rate or completion-to-timer gap. Batch sizing adapts from completed queue
 latency to keep work continuous and bounded. This is scheduling feedback, not a GPU
 utilization measurement. Memory, dispatch sizes and work in flight remain bounded
-by device limits and workload limits; canvas resize drains queued work first.
+by device limits and workload limits. While a GPU backend is starting or rendering,
+it owns the canvas backing store exclusively: the controller's resize observer and
+window-resize handler never write its dimensions, and the backend only resizes after
+its queued batches drain. Ownership returns to the controller on stop, fallback, or
+failure.
 
 WebGL2 similarly keeps up to two asynchronously fenced batches in flight. WebGL1
 has no asynchronous fence: it completes a batch with `finish()` and schedules the
 next through MessageChannel, avoiding a refresh-rate cap or nested-timer delay.
 Reduced motion freezes the sculpture's movement without reducing the compute load.
 Stopping, hiding, navigating away, loss, errors and cancellation release resources
-and prevent further submissions. No CPU busy loop supplements GPU-only mode.
+and prevent further submissions. Device loss or an async error that arrives before
+the factory hands back its handle aborts that startup instead of being installed
+and reported as running: GPU-only mode ends in an honest error state with the
+failure message, and combined mode keeps the CPU workers running with the failure
+reported in the status line. No CPU busy loop supplements GPU-only mode.
 
-Adapter and workload information appears in the scene footer. The six readings below it show elapsed time, active CPU workers, GPU backend, displayed frame rate, dropped frames, and tested CPU candidates. Displayed FPS is not a GPU benchmark or utilization measurement.
+Adapter and workload information appears in the scene footer. The six readings below it report elapsed time, active CPU workers, GPU backend, render-callback rate, callback gaps, and tested CPU candidates. The rate card is labeled by its actual source: `GPU batches/s` while a GPU backend is installed, `Visual callbacks/s` for the CPU visual frames. The `Gaps >34 ms` card counts callback gaps over that explicit threshold, independently of display refresh rate. Rate and gap samples restart when the source switches between GPU and CPU visuals; rates use callbacks per second since that source began, with a one-second minimum sampling window. These are not measurements of dropped display presentations, and neither rate nor gaps is a GPU benchmark, utilization, or power measurement. Worker bars, primes, and candidate counts remain tied to actual worker messages.
 
 ## Limits
 
@@ -100,3 +108,5 @@ A browser cannot guarantee 100% CPU utilization, select every installed GPU, or 
 Run `npm run utilities:check`, `npm run utilities:build`, and `node scripts/stress-test-check.js` (Chrome by default; override with `STRESS_BROWSER_CHANNEL`) after changing these files. Test shader compilation and stop/restart on actual browser GPU backends; mocks alone cannot validate shaders or hardware load.
 
 Browser capability references: [reported logical processors](https://developer.mozilla.org/en-US/docs/Web/API/Navigator/hardwareConcurrency) and [GPU adapter selection](https://developer.mozilla.org/en-US/docs/Web/API/GPU/requestAdapter).
+
+The legacy `data-stress-total-rendered-frames` diagnostic counts all render callbacks in a run, including GPU batch completions. It is not a count of displayed frames. The visible rate and gap counters use only the current source phase.
