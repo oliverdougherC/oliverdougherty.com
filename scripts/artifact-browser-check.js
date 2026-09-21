@@ -32,10 +32,10 @@ async function main() {
   const browser = await browsers[name].launch({ headless: true });
   const results = [{ browser: name, version: browser.version() }];
   try {
-    for (const retired of ['/blogs/', '/pages/archive/', '/pages/does-not-exist/']) {
-      const response = await fetch(base + retired);
-      assert.equal(response.status, 404, `${retired}: must remain deliberately unavailable`);
-      assert((await response.text()).includes('retired'), `${retired}: custom retirement explanation missing`);
+    for (const gone of ['/blogs/', '/pages/archive/', '/pages/does-not-exist/']) {
+      const response = await fetch(base + gone);
+      assert.equal(response.status, 404, `${gone}: must remain deliberately unavailable`);
+      assert((await response.text()).includes('not-found-number'), `${gone}: must serve the custom 404 page`);
     }
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
     await context.addInitScript(() => Object.defineProperty(navigator, 'hardwareConcurrency', { value: 2, configurable: true }));

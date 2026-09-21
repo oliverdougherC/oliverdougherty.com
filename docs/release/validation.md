@@ -14,7 +14,7 @@ CI uploads the validated Pages artifact only after release acceptance succeeds. 
 
 ## Retained and retired assets
 
-Project animation HTML/CSS/JS and old generators remain authoring references as documented in `docs/home-projects.md`; the deploy copier excludes their assets and runtimes. Gallery originals/variants/metadata, Nighthawks credits, font licenses and retained VM assets remain available. Blog/archive applications remain retired. `404.html` explains retirement and offers explicit navigation; it does not silently redirect unknown URLs to Home.
+Project animation HTML/CSS/JS and old generators remain authoring references as documented in `docs/home-projects.md`; the deploy copier excludes their assets and runtimes. Gallery originals/variants/metadata, Nighthawks credits, font licenses and retained VM assets remain available. Blog/archive applications remain retired. `404.html` serves the custom error page with explicit navigation; it does not silently redirect unknown URLs to Home.
 
 ## Human release and rollback
 
