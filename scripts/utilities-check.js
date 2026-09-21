@@ -425,7 +425,7 @@ async function assertControlPanelGeometry(page, utilityId, label) {
         '#audioFourierSampleRate', '#audioFourierComponentCount', '#audioFourierSourceDuration', '#audioFourierDuration'
       ],
       'stress-test': [
-        '[data-stress-mode-option]', '#stressStartBtn', '#stressStopBtn', '#stressStatusText',
+        '[data-stress-mode-option]', '#stressStartBtn', '#stressStopBtn',
         '#stressElapsed', '#stressWorkerCount', '#stressGpuBackend', '#stressRenderRate',
         '#stressCallbackStalls', '#stressIterations', '#stressSceneTitle'
       ]
@@ -434,7 +434,7 @@ async function assertControlPanelGeometry(page, utilityId, label) {
       const root = document.getElementById('stressTestApp');
       if (root.dataset.stressMode !== 'gpu') requiredByTool[id].push('#stressPrimeDisplay', '#stressLatestPrime', '#stressWorkerSummary');
       if (Number(root.dataset.stressWorkerCount) > 0) requiredByTool[id].push('#stressWorkerActivity', '#stressWorkerActivity > span');
-      if (root.dataset.stressMode !== 'cpu' && root.dataset.stressGpuCanvasActive === 'true') requiredByTool[id].push('#stressOrbit', '#stressGpuDetail');
+      if (root.dataset.stressMode !== 'cpu' && root.dataset.stressGpuCanvasActive === 'true') requiredByTool[id].push('#stressGpuDetail');
     }
     const canvasByTool = {
       'image-transform': '#transformResultCanvas',
@@ -1799,7 +1799,7 @@ async function main() {
       backend: document.getElementById('stressTestApp')?.dataset.stressGpuBackend ?? '',
       startDisabled: document.getElementById('stressStartBtn')?.hasAttribute('disabled') ?? true,
       stopDisabled: document.getElementById('stressStopBtn')?.hasAttribute('disabled') ?? false,
-      status: document.getElementById('stressStatusText')?.textContent?.trim() ?? ''
+      hasStatusText: Boolean(document.getElementById('stressStatusText'))
     }));
 
     assert(stressInitialState.state === 'idle', 'Stress Test should start idle.');
@@ -1811,7 +1811,7 @@ async function main() {
     assert(stressInitialState.backend === 'none', 'Stress Test should not start GPU work on activation.');
     assert(stressInitialState.startDisabled === false, 'Stress Test start should be available when idle.');
     assert(stressInitialState.stopDisabled === true, 'Stress Test stop should stay disabled when idle.');
-    assert(stressInitialState.status.length > 0, 'Stress Test should show its initial status.');
+    assert(stressInitialState.hasStatusText === false, 'Stress Test should not render the retired status line.');
     await runUtilitySection(utilitySectionFailures, 'Stress Idle Geometry', async () => {
       await assertControlPanelSizes(page, 'stress-test', 'stress:idle');
     });
@@ -2010,13 +2010,11 @@ async function main() {
       state: document.getElementById('stressTestApp')?.dataset.stressState ?? '',
       workers: document.getElementById('stressTestApp')?.dataset.stressWorkerCount ?? '',
       backend: document.getElementById('stressTestApp')?.dataset.stressGpuBackend ?? '',
-      status: document.getElementById('stressStatusText')?.textContent?.trim() ?? ''
     }));
 
     assert(noGpuStressState.state === 'unsupported', 'GPU-only Stress Test should report unsupported without WebGPU/WebGL.');
     assert(noGpuStressState.workers === '0', 'Unsupported GPU Stress Test should not start CPU workers.');
     assert(noGpuStressState.backend === 'none', 'Unsupported GPU Stress Test should keep GPU backend none.');
-    assert(/webgpu|webgl|gpu/i.test(noGpuStressState.status), 'Unsupported GPU Stress Test should surface readable fallback copy.');
     await noGpuPage.close();
 
     });

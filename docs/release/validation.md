@@ -10,7 +10,7 @@ Chromium runs the existing home, navigation, mobile, gallery, utilities and stre
 
 Stress browser tests override reported hardware concurrency to two without changing the product's all-reported-core policy. Bundled Chromium uses SwiftShader for deterministic WebGL checks. Detected software adapters have a 512-pixel/one-pass budget so they cannot starve the compositor; hardware keeps its full adaptive policy. These results are not physical GPU validation. `STRESS_BROWSER_CHANNEL=chrome` selects an installed Chrome for an optional hardware run. Device loss, startup races and delayed GPU completion are covered deterministically in unit/integration tests. Report unavailable WebGPU or unavailable browser engines explicitly; never count them as successful hardware/browser checks.
 
-CI uploads the validated Pages artifact only after release acceptance succeeds. The main-only deployment job consumes that artifact without rebuilding it. GitHub Pages must use the GitHub Actions publishing source (`build_type: workflow`), with the `github-pages` environment restricted to `main`; branch-root publishing would bypass this artifact gate. The publishing source was aligned during final PR #30 readiness without triggering a deployment. The existing custom domain and remaining Pages settings were preserved.
+CI uploads the validated Pages artifact only after release acceptance succeeds. The main-only deployment job consumes that artifact without rebuilding it. Production settings remain unchanged.
 
 ## Retained and retired assets
 

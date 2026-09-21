@@ -55,7 +55,7 @@ than decorative light trails. No explanatory tooltips are added.
 
 ## GPU scene and workload
 
-The GPU renders a lit, raymarched lattice in violet and graphite on a light background. The scene geometry, raymarching, adaptive load and compute workload are preserved across the WGSL and GLSL palette changes. Move the pointer over the scene to orbit it, or focus the orbit button and use arrow keys; Home resets the view. Reduced-motion preferences freeze automatic motion while the workload continues.
+The GPU renders a lit, raymarched lattice in violet and graphite on a light background. The scene geometry, raymarching, adaptive load and compute workload are preserved across the WGSL and GLSL palette changes. Move the pointer over the scene to orbit it. Reduced-motion preferences freeze automatic motion while the workload continues.
 
 There is no intensity selector. Start always runs the sustained-load pipeline.
 The engine requests a high-performance adapter and tries WebGPU, WebGL2, then WebGL1.

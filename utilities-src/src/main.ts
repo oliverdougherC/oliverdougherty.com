@@ -1575,10 +1575,6 @@ document.addEventListener('DOMContentLoaded', () => {
           initializedUtilities.add(utilityId);
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Stress Test failed to initialize.';
-          const statusText = document.getElementById('stressStatusText');
-          if (statusText) {
-            statusText.textContent = message;
-          }
           stressRoot.dataset.stressStatusMessage = message;
           stressRoot.dataset.stressState = 'error';
         }
