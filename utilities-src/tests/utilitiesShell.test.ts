@@ -54,7 +54,7 @@ describe('utilities shell', () => {
     expect(query('#utilityTitle').textContent).toBe('Fourier Reconstruction');
     expect(query('#utilityNumber').textContent).toBe('02');
     expect(query<HTMLSelectElement>('#utilitySwitcher').value).toBe('audio-fourier');
-    expect(window.document.title).toBe('Fourier Reconstruction — Utilities — Oliver Dougherty');
+    expect(window.document.title).toBe('Fourier Reconstruction');
     expect(window.document.activeElement).toBe(query('#utilityTitle'));
     expect(events).toEqual(['utility-activate:audio-fourier']);
   });
