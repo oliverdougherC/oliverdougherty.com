@@ -42,6 +42,83 @@ export function resolveCpuWorkerCount(input: CpuWorkerResolutionInput = {}) {
   return Math.min(requested, configuredMax);
 }
 
+export const SMT_PROBE_WARMUP_MS = 300;
+export const SMT_PROBE_SAMPLE_WINDOW_MS = 600;
+export const SMT_PROBE_SPAWN_WARMUP_MS = 700;
+export const SMT_PROBE_KEEP_RATIO = 1.1;
+export const SMT_PROBE_MAX_TOTAL_WORKERS = 128;
+
+export type CpuSmtProbeAction = 'none' | 'spawn' | 'keep' | 'revert';
+
+/**
+ * Extra workers for one throughput-probe wave. Browsers may under-report logical
+ * processors — rounding to physical cores or capping the count — so the reported
+ * count can leave simultaneous-multithreading siblings idle. The probe wave is
+ * sized to double the reported worker count, bounded by a total cap.
+ */
+export function resolveSmtProbeExtraWorkers(reportedWorkers: number) {
+  if (!Number.isSafeInteger(reportedWorkers) || reportedWorkers < 1) return 0;
+  return Math.max(0, Math.min(reportedWorkers, SMT_PROBE_MAX_TOTAL_WORKERS - reportedWorkers));
+}
+
+/**
+ * Closed-loop SMT probe driven by worker heartbeat arrivals, never by timers.
+ * Measures aggregate iteration throughput for the reported worker count, spawns
+ * one extra wave, and reports whether measured throughput grew enough to keep
+ * the extra workers. A second wave on an honest report yields no aggregate gain
+ * and is reverted; a second wave on SMT siblings adds real throughput.
+ */
+export class CpuSmtProbe {
+  private phase: 'baseline' | 'spawned' | 'candidate' | 'done' = 'baseline';
+  private windowStartAt = 0;
+  private windowStartIterations = 0;
+  private spawnAt = 0;
+  private baselineRate = 0;
+
+  constructor(private readonly startedAt: number) {
+    if (!Number.isFinite(startedAt)) throw new Error('Invalid SMT probe start time.');
+  }
+
+  observe(now: number, totalIterations: number): CpuSmtProbeAction {
+    if (this.phase === 'baseline') {
+      if (now - this.startedAt < SMT_PROBE_WARMUP_MS) return 'none';
+      if (this.windowStartAt === 0) {
+        this.windowStartAt = now;
+        this.windowStartIterations = totalIterations;
+        return 'none';
+      }
+      const elapsed = now - this.windowStartAt;
+      if (elapsed < SMT_PROBE_SAMPLE_WINDOW_MS) return 'none';
+      const gained = totalIterations - this.windowStartIterations;
+      this.windowStartAt = 0;
+      if (gained <= 0) {
+        // An idle or stalled baseline gives no trustworthy comparison; stay conservative.
+        this.phase = 'done';
+        return 'none';
+      }
+      this.baselineRate = gained / elapsed;
+      this.spawnAt = now;
+      this.phase = 'spawned';
+      return 'spawn';
+    }
+    if (this.phase === 'spawned') {
+      if (now - this.spawnAt < SMT_PROBE_SPAWN_WARMUP_MS) return 'none';
+      this.windowStartAt = now;
+      this.windowStartIterations = totalIterations;
+      this.phase = 'candidate';
+      return 'none';
+    }
+    if (this.phase === 'candidate') {
+      const elapsed = now - this.windowStartAt;
+      if (elapsed < SMT_PROBE_SAMPLE_WINDOW_MS) return 'none';
+      const rate = (totalIterations - this.windowStartIterations) / elapsed;
+      this.phase = 'done';
+      return rate >= this.baselineRate * SMT_PROBE_KEEP_RATIO ? 'keep' : 'revert';
+    }
+    return 'none';
+  }
+}
+
 export function resolveGpuBackend(input: GpuBackendSupportInput): StressGpuBackend {
   return resolveGpuBackendFallbacks(input)[0] ?? 'none';
 }

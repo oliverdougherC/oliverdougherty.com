@@ -1,10 +1,13 @@
 import {
+  CpuSmtProbe,
   formatStressElapsed,
   isStressMode,
   resolveCpuWorkerCount,
+  resolveSmtProbeExtraWorkers,
   shouldStressCpu,
   shouldStressGpu,
   transitionStressState,
+  type CpuSmtProbeAction,
   type StressGpuBackend,
   type StressMode,
   type StressState
@@ -103,6 +106,9 @@ export class StressTestController {
   private primeAllocator = new PrimeBlockAllocator();
   private blocksAssigned = 0;
   private cpuRefills = 0;
+  private smtProbe: CpuSmtProbe | null = null;
+  private smtProbeExtra = 0;
+  private smtProbeSpawned = 0;
   private gpu: StressGpuStressHandle | null = null;
   private gpuAbort: AbortController | null = null;
   // requestId of the start generation whose GPU backend owns the canvas backing
@@ -435,14 +441,33 @@ export class StressTestController {
     this.root.dataset.stressCpuAlgorithm = 'segmented-sieve';
     this.root.dataset.stressCpuBlocksAssigned = '0';
     this.root.dataset.stressCpuRefills = '0';
-    this.workerActivity.style.setProperty('--stress-workers', String(workerCount));
+    this.workerActivity.replaceChildren();
+    this.spawnWorkerWave(requestId, workerCount, 0);
+    this.root.dataset.stressCpuBlocksAssigned = String(this.blocksAssigned);
 
-    this.workerActivity.replaceChildren(...Array.from({ length: workerCount }, (_, index) => {
+    // Browsers may report fewer logical processors than the machine actually
+    // has — rounding to physical cores or capping the count — leaving SMT
+    // siblings idle on high-core multithreaded CPUs. A throughput probe doubles
+    // the workers and keeps the extra wave only when aggregate measured work
+    // actually grows. The explicit worker cap pins the count and skips the probe.
+    this.smtProbeSpawned = 0;
+    this.smtProbeExtra = getStressTestMaxWorkersOverride() === null
+      ? resolveSmtProbeExtraWorkers(workerCount)
+      : 0;
+    if (this.smtProbeExtra > 0) {
+      this.smtProbe = new CpuSmtProbe(readNow());
+      this.root.dataset.stressCpuSmtProbe = 'probing';
+    } else {
+      this.smtProbe = null;
+    }
+  }
+
+  private spawnWorkerWave(requestId: number, count: number, firstIndex: number) {
+    for (let index = firstIndex; index < firstIndex + count; index += 1) {
       const bar = document.createElement('span');
       bar.setAttribute('aria-label', `Worker ${index + 1}: starting`);
-      return bar;
-    }));
-    for (let index = 0; index < workerCount; index += 1) {
+      this.workerActivity.append(bar);
+      this.workerActivity.style.setProperty('--stress-workers', String(this.workerActivity.children.length));
       const worker = new Worker(new URL('./stressTest.worker.ts', import.meta.url), { type: 'module' });
       const messageListener = (event: MessageEvent<StressTestWorkerResponse>) => {
         this.handleWorkerMessage(record, event.data);
@@ -464,7 +489,7 @@ export class StressTestController {
         supplyId: 0,
         blocksAssigned: 0,
         refills: 0,
-        activityElement: this.workerActivity.children[index] as HTMLElement,
+        activityElement: bar,
         messageListener,
         errorListener
       };
@@ -485,10 +510,50 @@ export class StressTestController {
       };
       worker.postMessage(request);
     }
-    this.root.dataset.stressCpuBlocksAssigned = String(this.blocksAssigned);
+  }
+
+  private applySmtProbeAction(action: CpuSmtProbeAction) {
+    if (action === 'none' || !this.smtProbe) return;
+    if (action === 'spawn') {
+      const firstIndex = this.workers.length;
+      try {
+        this.spawnWorkerWave(this.requestId, this.smtProbeExtra, firstIndex);
+      } catch (error) {
+        // The probe wave is optional capacity; the reported-worker run stays valid.
+        console.error('[StressTest] CPU probe worker wave failed to start', error);
+      }
+      this.smtProbeSpawned = this.workers.length - firstIndex;
+      if (this.smtProbeSpawned === 0) {
+        this.smtProbe = null;
+        this.root.dataset.stressCpuSmtProbe = 'reverted';
+      }
+      return;
+    }
+    if (action === 'keep') {
+      this.smtProbe = null;
+      this.root.dataset.stressCpuSmtProbe = 'kept';
+      return;
+    }
+    for (let index = this.workers.length - 1; index >= this.workers.length - this.smtProbeSpawned; index -= 1) {
+      const record = this.workers[index];
+      record.worker.removeEventListener('message', record.messageListener);
+      record.worker.removeEventListener('error', record.errorListener);
+      record.worker.terminate();
+      record.stopped = true;
+      record.activityElement.remove();
+    }
+    this.workers.length -= this.smtProbeSpawned;
+    this.smtProbeSpawned = 0;
+    this.smtProbe = null;
+    this.workerActivity.style.setProperty('--stress-workers', String(this.workers.length));
+    this.root.dataset.stressCpuSmtProbe = 'reverted';
   }
 
   private stopCpuStress() {
+    this.smtProbe = null;
+    this.smtProbeExtra = 0;
+    this.smtProbeSpawned = 0;
+    delete this.root.dataset.stressCpuSmtProbe;
     for (const record of this.workers) {
       record.worker.removeEventListener('message', record.messageListener);
       record.worker.removeEventListener('error', record.errorListener);
@@ -530,6 +595,7 @@ export class StressTestController {
       this.primesFound += Math.max(0, message.primesFound - record.primesFound);
       record.primesFound = Math.max(record.primesFound, message.primesFound);
       this.root.dataset.stressLastChecksum = String(message.checksum);
+      if (this.smtProbe) this.applySmtProbeAction(this.smtProbe.observe(readNow(), this.totalIterations));
       return;
     }
 

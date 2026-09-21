@@ -499,4 +499,103 @@ describe('stress test controller lifecycle', () => {
     expect(root.dataset.stressState).toBe('idle');
     expect(canvas.width).toBe(1200);
   });
+
+  it('grows CPU workers through the SMT probe and keeps them when throughput grows', async () => {
+    await start('cpu');
+    const [first, second] = workloadWorkers();
+    first.heartbeat(7, 1, 100);
+    second.heartbeat(7, 1, 100);
+    advanceFrame();
+    first.heartbeat(7, 2, 150);
+    advanceFrame();
+    second.heartbeat(7, 2, 150);
+    advanceFrame();
+    advanceFrame();
+    advanceFrame();
+    first.heartbeat(7, 3, 450);
+
+    expect(workloadWorkers()).toHaveLength(4);
+    const [, , third, fourth] = workloadWorkers();
+    expect(third.request.workerIndex).toBe(2);
+    expect(fourth.request.workerIndex).toBe(3);
+    expect(third.request.blocks).toHaveLength(4);
+    expect(third.request.blocks[0].id).toBe(8);
+    expect(third.request.blocks[0].low).toBe(second.request.blocks.at(-1)!.high + 1);
+    expect(root.dataset.stressCpuSmtProbe).toBe('probing');
+    expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(4);
+
+    advanceFrame();
+    second.heartbeat(7, 3, 500);
+    advanceFrame();
+    first.heartbeat(7, 4, 600);
+    advanceFrame();
+    third.heartbeat(7, 1, 1000);
+    fourth.heartbeat(7, 1, 1000);
+    advanceFrame();
+    first.heartbeat(7, 4, 1100);
+    advanceFrame();
+    advanceFrame();
+    advanceFrame();
+    for (const worker of workloadWorkers()) worker.heartbeat(7, 5, 2000);
+
+    expect(root.dataset.stressCpuSmtProbe).toBe('kept');
+    expect(workloadWorkers()).toHaveLength(4);
+    for (const worker of [third, fourth]) expect(worker.terminate).not.toHaveBeenCalled();
+    advanceFrame();
+    expect(root.dataset.stressWorkerCount).toBe('4');
+    expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(4);
+  });
+
+  it('terminates the SMT probe wave when measured throughput does not grow', async () => {
+    await start('cpu');
+    const [first, second] = workloadWorkers();
+    first.heartbeat(7, 1, 100);
+    second.heartbeat(7, 1, 100);
+    advanceFrame();
+    first.heartbeat(7, 2, 150);
+    advanceFrame();
+    second.heartbeat(7, 2, 150);
+    advanceFrame();
+    advanceFrame();
+    advanceFrame();
+    first.heartbeat(7, 3, 450);
+    const [, , third, fourth] = workloadWorkers();
+    expect(workloadWorkers()).toHaveLength(4);
+
+    advanceFrame();
+    advanceFrame();
+    advanceFrame();
+    advanceFrame();
+    first.heartbeat(7, 3, 500);
+    advanceFrame();
+    advanceFrame();
+    advanceFrame();
+    first.heartbeat(7, 4, 560);
+
+    expect(root.dataset.stressCpuSmtProbe).toBe('reverted');
+    expect(third.terminate).toHaveBeenCalledOnce();
+    expect(fourth.terminate).toHaveBeenCalledOnce();
+    expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(2);
+    advanceFrame();
+    expect(root.dataset.stressWorkerCount).toBe('2');
+  });
+
+  it('skips the SMT probe entirely when the explicit worker cap is set', async () => {
+    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(128);
+    Object.assign(window, { __OD_STRESS_TEST_MAX_WORKERS__: 2 });
+    await start('cpu');
+    expect(workloadWorkers()).toHaveLength(2);
+    const [first, second] = workloadWorkers();
+
+    first.heartbeat(7, 1, 1000);
+    second.heartbeat(7, 1, 1000);
+    for (let step = 0; step < 12; step += 1) {
+      advanceFrame();
+      first.heartbeat(7, step + 2, 1000 + step * 5000);
+      second.heartbeat(7, step + 2, 1000 + step * 5000);
+    }
+
+    expect(workloadWorkers()).toHaveLength(2);
+    expect(root.dataset.stressCpuSmtProbe).toBeUndefined();
+  });
 });

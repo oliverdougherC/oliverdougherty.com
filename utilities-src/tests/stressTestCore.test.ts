@@ -1,8 +1,10 @@
 import {
+  CpuSmtProbe,
   formatStressElapsed,
   resolveCpuWorkerCount,
   resolveGpuBackend,
   resolveGpuBackendFallbacks,
+  resolveSmtProbeExtraWorkers,
   shouldStressCpu,
   shouldStressGpu,
   transitionStressState
@@ -62,5 +64,44 @@ describe('stress test core helpers', () => {
     expect(formatStressElapsed(65_000)).toBe('1:05');
     expect(formatStressElapsed(3_661_000)).toBe('1:01:01');
     expect(formatStressElapsed(100 * 60 * 60 * 1000)).toBe('4d 4:00:00');
+  });
+
+  it('sizes the SMT probe wave to double the reported workers under a total cap', () => {
+    expect(resolveSmtProbeExtraWorkers(2)).toBe(2);
+    expect(resolveSmtProbeExtraWorkers(64)).toBe(64);
+    expect(resolveSmtProbeExtraWorkers(100)).toBe(28);
+    expect(resolveSmtProbeExtraWorkers(128)).toBe(0);
+    expect(resolveSmtProbeExtraWorkers(200)).toBe(0);
+    expect(resolveSmtProbeExtraWorkers(0)).toBe(0);
+    expect(resolveSmtProbeExtraWorkers(1.5)).toBe(0);
+    expect(resolveSmtProbeExtraWorkers(Number.NaN)).toBe(0);
+  });
+
+  it('keeps the probe wave only when measured aggregate throughput grows', () => {
+    const probe = new CpuSmtProbe(0);
+    expect(probe.observe(100, 0)).toBe('none');
+    expect(probe.observe(400, 50)).toBe('none');
+    expect(probe.observe(1100, 110)).toBe('spawn');
+    expect(probe.observe(1500, 140)).toBe('none');
+    expect(probe.observe(2900, 300)).toBe('none');
+    expect(probe.observe(3500, 500)).toBe('keep');
+    expect(probe.observe(4200, 900)).toBe('none');
+  });
+
+  it('reverts the probe wave when throughput does not grow', () => {
+    const probe = new CpuSmtProbe(0);
+    expect(probe.observe(400, 50)).toBe('none');
+    expect(probe.observe(1100, 110)).toBe('spawn');
+    expect(probe.observe(2900, 300)).toBe('none');
+    expect(probe.observe(3500, 330)).toBe('revert');
+    expect(probe.observe(9999, 9e9)).toBe('none');
+  });
+
+  it('never spawns when the baseline window reports no progress', () => {
+    const probe = new CpuSmtProbe(0);
+    expect(probe.observe(400, 7)).toBe('none');
+    expect(probe.observe(1100, 7)).toBe('none');
+    expect(probe.observe(2900, 5000)).toBe('none');
+    expect(probe.observe(3500, 9000)).toBe('none');
   });
 });

@@ -5,9 +5,17 @@ The utility runs sustained CPU prime searches and an interactive GPU sculpture, 
 ## CPU prime search
 
 One module worker is created per browser-reported logical processor, with no fixed
-64-worker production cap. The browser may report fewer logical processors than the
-machine has. The explicit `window.__OD_STRESS_TEST_MAX_WORKERS__` override is reserved
-for bounded browser tests.
+64-worker production cap. Browsers may report fewer logical processors than the
+machine has: some round `hardwareConcurrency` down to physical cores and others cap
+the reported count, which on high-core multithreaded CPUs leaves simultaneous-
+multithreading siblings idle. A closed-loop throughput probe closes that gap: after
+a warmed-up baseline sample of aggregate candidates/s it spawns one extra wave
+(doubling workers, capped at 128 total), and keeps it only when measured aggregate
+throughput grows by at least 10%; otherwise it terminates the extra workers. The
+probe advances on worker heartbeats, never on timers, and `data-stress-smt-probe`
+reports `probing`, `kept`, or `reverted`. The explicit
+`window.__OD_STRESS_TEST_MAX_WORKERS__` override pins the count and disables the
+probe, keeping the bounded browser checks deterministic.
 
 Each worker runs an odd-only segmented sieve of Eratosthenes using a reused 32 KiB
 marking buffer. Base primes are cached and extended geometrically with a separate

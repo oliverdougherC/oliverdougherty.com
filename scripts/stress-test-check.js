@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Focused browser coverage: real GPU backends and two reported CPU cores for the test runner.
+// Focused browser coverage: real GPU backends and two pinned CPU workers, so the
+// SMT throughput probe never changes worker counts while this check asserts them.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -213,6 +214,7 @@ async function main() {
       page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
       await page.addInitScript((force) => {
         Object.defineProperty(navigator, 'hardwareConcurrency', { value: 2, configurable: true });
+        window.__OD_STRESS_TEST_MAX_WORKERS__ = 2;
         if (force !== 'auto') Object.defineProperty(navigator, 'gpu', { value: undefined, configurable: true });
         const original = HTMLCanvasElement.prototype.getContext;
         HTMLCanvasElement.prototype.getContext = function (type, ...args) {
