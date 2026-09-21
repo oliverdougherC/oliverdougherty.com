@@ -77,31 +77,69 @@ describe('stress test core helpers', () => {
     expect(resolveSmtProbeExtraWorkers(Number.NaN)).toBe(0);
   });
 
-  it('keeps the probe wave only when measured aggregate throughput grows', () => {
-    const probe = new CpuSmtProbe(0);
-    expect(probe.observe(100, 0)).toBe('none');
-    expect(probe.observe(400, 50)).toBe('none');
-    expect(probe.observe(1100, 110)).toBe('spawn');
-    expect(probe.observe(1500, 140)).toBe('none');
-    expect(probe.observe(2900, 300)).toBe('none');
-    expect(probe.observe(3500, 500)).toBe('keep');
-    expect(probe.observe(4200, 900)).toBe('none');
+  it('keeps the probe wave only when a candidate window beats the peak baseline', () => {
+    const probe = new CpuSmtProbe();
+    expect(probe.observe(400, 50)).toBe('none'); // baseline window opens
+    expect(probe.observe(1200, 720)).toBe('none'); // w1 .8375: base-extension burst
+    expect(probe.observe(2000, 790)).toBe('none'); // w2 .0875
+    expect(probe.observe(2800, 860)).toBe('spawn'); // w3 .0875 → spawn on peak .8375
+    expect(probe.observe(3200, 930)).toBe('none'); // spawn warmup
+    expect(probe.observe(3600, 1000)).toBe('none'); // candidate window opens
+    expect(probe.observe(4400, 1790)).toBe('keep'); // .9875 ≥ .8375×1.1 despite the bursty baseline
+    expect(probe.observe(5200, 9e9)).toBe('none'); // decided
   });
 
-  it('reverts the probe wave when throughput does not grow', () => {
-    const probe = new CpuSmtProbe(0);
+  it('reverts the probe wave when no candidate window grows work throughput', () => {
+    const probe = new CpuSmtProbe();
     expect(probe.observe(400, 50)).toBe('none');
-    expect(probe.observe(1100, 110)).toBe('spawn');
-    expect(probe.observe(2900, 300)).toBe('none');
-    expect(probe.observe(3500, 330)).toBe('revert');
+    expect(probe.observe(1200, 610)).toBe('none'); // w1 .7
+    expect(probe.observe(2000, 680)).toBe('none'); // w2 .0875
+    expect(probe.observe(2800, 750)).toBe('spawn'); // w3 .0875 → spawn on peak .7
+    expect(probe.observe(3200, 790)).toBe('none'); // spawn warmup
+    expect(probe.observe(3600, 830)).toBe('none'); // candidate window opens
+    expect(probe.observe(4400, 870)).toBe('none'); // .05: first miss
+    expect(probe.observe(5200, 910)).toBe('revert'); // .05: second miss
     expect(probe.observe(9999, 9e9)).toBe('none');
   });
 
-  it('never spawns when the baseline window reports no progress', () => {
-    const probe = new CpuSmtProbe(0);
+  it('re-baselines after a keep and spawns another wave, ending at the first stalled one', () => {
+    const probe = new CpuSmtProbe();
+    expect(probe.observe(400, 50)).toBe('none');
+    expect(probe.observe(1200, 610)).toBe('none'); // peak .7
+    expect(probe.observe(2000, 680)).toBe('none');
+    expect(probe.observe(2800, 750)).toBe('spawn');
+    expect(probe.observe(3200, 790)).toBe('none');
+    expect(probe.observe(3600, 830)).toBe('none');
+    expect(probe.observe(4400, 1600)).toBe('keep'); // .9625 ≥ .77
+    probe.registerKeep(4500);
+    expect(probe.observe(4900, 1700)).toBe('none'); // replacement-worker warmup
+    expect(probe.observe(5300, 1800)).toBe('none'); // fresh baseline window opens
+    expect(probe.observe(6100, 2360)).toBe('none'); // w1 .7
+    expect(probe.observe(6900, 2430)).toBe('none');
+    expect(probe.observe(7700, 2500)).toBe('spawn'); // w3 → spawn #2
+    expect(probe.observe(8100, 2560)).toBe('none');
+    expect(probe.observe(8500, 2620)).toBe('none'); // candidate window opens
+    expect(probe.observe(9300, 2680)).toBe('none'); // .075: miss
+    expect(probe.observe(10100, 2740)).toBe('revert'); // no marginal gain
+    expect(probe.observe(10900, 9e9)).toBe('none');
+  });
+
+  it('rejects a keep recorded outside a keep decision', () => {
+    const probe = new CpuSmtProbe();
+    expect(() => probe.registerKeep(500)).toThrow('outside a keep decision');
+    probe.observe(400, 50);
+    probe.observe(1200, 610);
+    probe.observe(2000, 680);
+    expect(probe.observe(2800, 750)).toBe('spawn');
+    expect(() => probe.registerKeep(2900)).toThrow('outside a keep decision');
+  });
+
+  it('reverts without spawning when every baseline window reports no progress', () => {
+    const probe = new CpuSmtProbe();
     expect(probe.observe(400, 7)).toBe('none');
-    expect(probe.observe(1100, 7)).toBe('none');
-    expect(probe.observe(2900, 5000)).toBe('none');
-    expect(probe.observe(3500, 9000)).toBe('none');
+    expect(probe.observe(1200, 7)).toBe('none');
+    expect(probe.observe(2000, 7)).toBe('none');
+    expect(probe.observe(2800, 7)).toBe('revert');
+    expect(probe.observe(3600, 5000)).toBe('none');
   });
 });

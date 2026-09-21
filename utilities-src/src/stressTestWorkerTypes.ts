@@ -33,6 +33,8 @@ export interface CpuStressHeartbeatResponse {
   checksum: number;
   latestPrime: number;
   primesFound: number;
+  // Cumulative executed base-prime scans: frontier-invariant work counter.
+  scans: number;
 }
 
 export interface CpuStressWorkRequestResponse {

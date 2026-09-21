@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Focused browser coverage: real GPU backends and two pinned CPU workers, so the
-// SMT throughput probe never changes worker counts while this check asserts them.
+// SMT throughput probe never changes worker counts while this check asserts them,
+// plus a dedicated probe-mode page where the closed loop runs against real cores.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -188,6 +189,52 @@ async function assertDesktopSizes(page, label) {
   }
 }
 
+// Probe-mode coverage: with a simulated 1-thread under-report and no worker cap,
+// the SMT probe runs its real spawn→(keep|revert) chain against real cores.
+// Which decision each wave makes is machine-dependent; what is pinned is that
+// the closed loop resolves, tears every disposable worker down, and leaves a
+// healthy, advancing production workload with matching records and bars.
+async function assertSmtProbeMode(browser, url) {
+  const startedAt = Date.now();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'hardwareConcurrency', { value: 1, configurable: true });
+  });
+  await page.goto(`${url}/pages/utilities/index.html#stress-test`);
+  await page.waitForSelector('#stressTestApp[data-stress-state="idle"]');
+  await page.click('[data-stress-mode-option="cpu"]');
+  await page.click('#stressStartBtn');
+  await page.waitForFunction(() => ['kept', 'reverted'].includes(document.querySelector('#stressTestApp').dataset.stressCpuSmtProbe),
+    null, { timeout: 60000 });
+  const settled = await page.evaluate(() => {
+    const data = document.querySelector('#stressTestApp').dataset;
+    return {
+      outcome: data.stressCpuSmtProbe,
+      state: data.stressState,
+      workers: Number(data.stressWorkerCount),
+      bars: document.querySelectorAll('#stressWorkerActivity > span').length,
+      assigned: Number(data.stressCpuBlocksAssigned),
+      iterations: Number(data.stressIterations)
+    };
+  });
+  assert.equal(settled.state, 'running', `Probe mode must survive wave churn: ${JSON.stringify(settled)}`);
+  assert(settled.workers >= 1, `Probe mode must keep the reported worker: ${JSON.stringify(settled)}`);
+  assert.equal(settled.bars, settled.workers, 'Every surviving worker record must own exactly one activity bar');
+  assert(settled.assigned >= settled.workers * 4, 'Permanent workers must each hold their prefetch fill');
+  await page.waitForFunction(previous => Number(document.querySelector('#stressTestApp').dataset.stressIterations) > previous.iterations,
+    settled, { timeout: 20000 });
+  await page.click('#stressStopBtn');
+  await page.waitForSelector('#stressTestApp[data-stress-state="idle"]');
+  assert.equal(await page.locator('#stressWorkerActivity > span').count(), 0);
+  assert.deepEqual(errors, [], 'SMT probe-mode browser errors');
+  await page.close();
+  console.log(`SMT probe mode resolved (${settled.outcome}, ${settled.workers} workers) in ${Date.now() - startedAt}ms`);
+  return settled;
+}
+
 async function main() {
   const root = path.resolve(__dirname, '..');
   const baseUrl = process.env.STRESS_CHECK_URL || 'http://127.0.0.1:4186';
@@ -305,7 +352,8 @@ async function main() {
       await page.close();
       console.log(`Stress backend passed: ${backend} (${Date.now() - backendStarted}ms)`);
     }
-    console.log(JSON.stringify({ passed: true, cpuPipeline: cpuRuns, backends: results,
+    const smtProbe = await assertSmtProbeMode(browser, server?.url || baseUrl);
+    console.log(JSON.stringify({ passed: true, cpuPipeline: cpuRuns, backends: results, smtProbe,
       renderer: process.env.STRESS_BROWSER_CHANNEL ? 'installed-browser' : 'SwiftShader software rendering',
       webgpu: results.some(result => result.selected.startsWith('webgpu')) ? 'executed' : 'unavailable in this run',
       physicalGpuValidation: 'not performed'

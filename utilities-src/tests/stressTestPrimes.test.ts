@@ -63,6 +63,26 @@ describe('segmented prime sieve', () => {
     }
   });
 
+  it('matches trial division across the 2^31 SMI boundary and deep frontiers', () => {
+    // Barrett reduction replaces `low % prime` past SMI range; verify exact
+    // segment results where that path starts mattering and far beyond it.
+    const isPrime = (n: number) => {
+      if (n < 2 || (n > 2 && n % 2 === 0)) return false;
+      for (let d = 3; d * d <= n; d += 2) if (n % d === 0) return false;
+      return true;
+    };
+    const sieve = new SegmentedPrimeSieve();
+    for (const anchor of [2 ** 31 - 15, 2 ** 31 + 1, 2 ** 34 + 1, 2 ** 46 + 1]) {
+      const low = anchor % 2 ? anchor : anchor + 1;
+      const high = low + 41;
+      const expected: number[] = [];
+      for (let value = low; value <= high; value += 2) if (isPrime(value)) expected.push(value);
+      const result = sieve.sieve(low, high);
+      expect(result.primesFound, String(low)).toBe(expected.length);
+      expect(result.latestPrime).toBe(expected.at(-1) ?? 0);
+    }
+  });
+
   it('rejects unsafe and oversized intervals', () => {
     const sieve = new SegmentedPrimeSieve();
     for (const [low, high] of [[0, 10], [3, 2], [1, PRIME_SEGMENT_ODDS * 2 + 1], [1, Infinity], [1, Number.MAX_SAFE_INTEGER + 1]]) {
@@ -182,6 +202,8 @@ describe('CPU prime worker queue lifecycle', () => {
     expect(last).toMatchObject({ iterations: 501, primesFound: 168, latestPrime: 997 });
     expect(last.checksum).toBeGreaterThanOrEqual(0);
     expect(last.checksum).toBeLessThan(1);
+    expect(Number.isSafeInteger(last.scans)).toBe(true);
+    expect(last.scans).toBeGreaterThan(0);
     expect(messages.filter(message => message.type === 'cpu-stress-exhausted')).toHaveLength(1);
     expect(messages.some(message => message.type === 'cpu-stress-error')).toBe(false);
   });

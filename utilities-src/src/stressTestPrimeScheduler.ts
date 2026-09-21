@@ -42,3 +42,15 @@ export class PrimeBlockAllocator {
     return blocks;
   }
 }
+
+/**
+ * Disposable benchmark range for SMT throughput waves. Probe workers sieve from
+ * their own start through a private allocator so a keep/revert decision can
+ * never consume, skip, or reclaim production blocks: the production allocator's
+ * disjoint, consecutive coverage invariant survives every probe outcome.
+ */
+export const BENCHMARK_PRIME_SEARCH_START = 1_000_000_001;
+
+export function createBenchmarkPrimeAllocator() {
+  return new PrimeBlockAllocator(PRIME_BLOCK_ODDS, Number.MAX_SAFE_INTEGER, BENCHMARK_PRIME_SEARCH_START);
+}

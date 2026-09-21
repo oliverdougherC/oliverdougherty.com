@@ -16,7 +16,9 @@ export class SegmentedPrimeSieve {
   private readonly composite: Uint8Array;
   private readonly baseComposite: Uint8Array;
   private readonly basePrimes: number[] = [];
+  private readonly baseInvs: number[] = [];
   private baseLimit = 2;
+  private units = 0;
 
   constructor(readonly segmentOdds = PRIME_SEGMENT_ODDS) {
     if (!Number.isSafeInteger(segmentOdds) || segmentOdds < 1 || segmentOdds > PRIME_SEGMENT_ODDS) {
@@ -26,7 +28,9 @@ export class SegmentedPrimeSieve {
     this.baseComposite = new Uint8Array(PRIME_SEGMENT_ODDS);
   }
 
-  /** Inclusive interval, at most 2 * segmentOdds integers; counts 2 exactly when included. */
+  /** Cumulative executed base-prime scans: sieve work actually performed. */
+  get scanUnits(): number { return this.units; }
+
   sieve(low: number, high: number): PrimeSegmentResult {
     if (!Number.isSafeInteger(low) || !Number.isSafeInteger(high) || low < 1 || high < low
       || high - low >= this.segmentOdds * 2) {
@@ -63,7 +67,11 @@ export class SegmentedPrimeSieve {
       const length = Math.floor((high - low) / 2) + 1;
       this.markComposites(low, high, this.baseComposite, length);
       for (let index = 0; index < length; index += 1) {
-        if (this.baseComposite[index] === 0) this.basePrimes.push(low + index * 2);
+        if (this.baseComposite[index] === 0) {
+          const prime = low + index * 2;
+          this.basePrimes.push(prime);
+          this.baseInvs.push(1 / prime);
+        }
       }
       low += length * 2;
     }
@@ -72,21 +80,32 @@ export class SegmentedPrimeSieve {
 
   private markComposites(low: number, high: number, buffer: Uint8Array, length: number) {
     buffer.fill(0, 0, length);
-    for (const prime of this.basePrimes) {
+    for (let index = 0; index < this.basePrimes.length; index += 1) {
+      const prime = this.basePrimes[index];
       const square = prime * prime;
       if (square > high) break;
-      // Subtracting the remainder avoids rounding a quotient near MAX_SAFE_INTEGER.
-      const remainder = low % prime;
+      // One executed scan: the dominant, frontier-growing work per segment.
+      // Counting scans yields a work measure whose per-odd cost stays flat as
+      // the search range advances, unlike candidates/s.
+      this.units += 1;
+      // `low % prime` on a value past the SMI range drops V8 into the slow
+      // floating fmod path, a 5× throughput cliff at the 2^31 frontier. Barrett
+      // reduction with the cached reciprocal keeps it exact integer arithmetic:
+      // the floor estimate is within two quotients for every safe-integer low,
+      // and the corrections normalize the remainder exactly.
+      let remainder = low - Math.floor(low * this.baseInvs[index]) * prime;
+      while (remainder < 0) remainder += prime;
+      while (remainder >= prime) remainder -= prime;
       let offset = remainder === 0 ? 0 : prime - remainder;
       if (offset > high - low) continue;
       let first = low + offset;
       if (first < square) first = square;
-      if (first % 2 === 0) {
+      if (first - Math.floor(first / 2) * 2 === 0) {
         if (first > high - prime) continue;
         first += prime;
       }
       offset = (first - low) / 2;
-      for (let index = offset; index < length; index += prime) buffer[index] = 1;
+      for (let mark = offset; mark < length; mark += prime) buffer[mark] = 1;
     }
   }
 }
