@@ -39,6 +39,13 @@
       color: #000000;
     }
 
+    .not-found-copy {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
     .not-found-note {
       margin: 0;
       font-family: var(--font-body-text);
@@ -46,6 +53,15 @@
       font-size: 0.95rem;
       letter-spacing: 0.05em;
       color: #000000;
+    }
+
+    .not-found-sub {
+      margin: 0;
+      font-family: var(--font-body-text);
+      font-weight: 200;
+      font-size: 0.8rem;
+      letter-spacing: 0.05em;
+      color: rgba(0, 0, 0, 0.6);
     }
   </style>
 </head>
@@ -55,7 +71,10 @@
 
   <main class="not-found-main">
     <h1 class="not-found-number">404</h1>
-    <p class="not-found-note">I grieve for the page you are looking for.</p>
+    <div class="not-found-copy">
+      <p class="not-found-note">I grieve for the page you are looking for.</p>
+      <p class="not-found-sub">The blog and archive have been retired.</p>
+    </div>
   </main>
 
 </body>
