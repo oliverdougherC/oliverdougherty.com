@@ -13,7 +13,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;800&amp;display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../../css/design-system.css?v=20260315">
   <link rel="stylesheet" href="../../css/schematic.css">
-  <link rel="stylesheet" href="../../css/utilities.css?v=workbench-4">
+  <link rel="stylesheet" href="../../css/utilities.css?v=workbench-6">
   <link rel="stylesheet" href="../../css/cursor.css?v=20260315">
 </head>
 <body class="page-utilities schematic-mode">
@@ -206,15 +206,15 @@
               <span class="stress-run-state">RUNNING</span></div>
               <div class="utility-view"><div class="stress-visual-panel" id="stressVisualPanel">
                   <canvas id="stressCanvas" role="img" aria-label="Live stress workload visualization"></canvas>
-                  <div class="stress-scene-heading"><span id="stressSceneTitle">CPU + GPU</span><span id="stressSceneState">STANDBY</span></div>
+                  <div class="stress-scene-heading"><span id="stressSceneTitle">CPU + GPU</span><span id="stressSceneState"></span></div>
                   <div class="stress-prime-display" id="stressPrimeDisplay">
                     <span class="stress-eyebrow" id="stressPrimeCaption">Search from 1</span>
                     <strong id="stressLatestPrime" aria-live="off">1</strong>
                     <span class="stress-prime-summary" id="stressPrimeSummary">0 primes found</span>
                   </div>
-                  <div class="stress-scene-footer"><div class="stress-worker-display"><span id="stressWorkerSummary">CPU ready</span><div id="stressWorkerActivity" class="stress-worker-activity" aria-label="CPU worker activity"></div></div><div class="stress-gpu-display"><span id="stressGpuDetail">GPU ready</span><button type="button" id="stressOrbit" aria-label="Orbit GPU scene with arrow keys; Home to reset">Orbit</button></div></div>
+                  <div class="stress-scene-footer"><div class="stress-worker-display"><span id="stressWorkerSummary">CPU ready</span><div id="stressWorkerActivity" class="stress-worker-activity" aria-label="CPU worker activity"></div></div><div class="stress-gpu-display"><span id="stressGpuDetail">GPU ready</span></div></div>
                 </div></div>
-            <dl class="stress-metrics" id="stressMetrics"><div data-stress-metric="elapsed"><dt>Elapsed</dt><dd id="stressElapsed">0:00</dd></div><div data-stress-metric="workers"><dt>Workers</dt><dd id="stressWorkerCount">0</dd></div><div data-stress-metric="gpu"><dt>GPU</dt><dd id="stressGpuBackend">none</dd></div><div data-stress-metric="cadence"><dt id="stressRenderRateLabel">Visual callbacks/s</dt><dd id="stressRenderRate">0.0</dd></div><div data-stress-metric="stalls"><dt>Gaps &gt;34 ms<span class="sr-only"> between callbacks, not dropped display frames</span></dt><dd id="stressCallbackStalls">0</dd></div><div data-stress-metric="iterations"><dt>Candidates tested</dt><dd id="stressIterations">0</dd></div></dl><p class="stress-warning workbench-status" id="stressStatusText" aria-live="polite">Ready. Starting this will make your browser hot, loud, slow, and power hungry.</p></div>
+            <dl class="stress-metrics" id="stressMetrics"><div data-stress-metric="elapsed"><dt>Elapsed</dt><dd id="stressElapsed">0:00</dd></div><div data-stress-metric="workers"><dt>Workers</dt><dd id="stressWorkerCount">0</dd></div><div data-stress-metric="gpu"><dt>GPU</dt><dd id="stressGpuBackend">none</dd></div><div data-stress-metric="cadence"><dt id="stressRenderRateLabel">Visual callbacks/s</dt><dd id="stressRenderRate">0.0</dd></div><div data-stress-metric="stalls"><dt>Gaps &gt;34 ms<span class="sr-only"> between callbacks, not dropped display frames</span></dt><dd id="stressCallbackStalls">0</dd></div><div data-stress-metric="iterations"><dt>Candidates tested</dt><dd id="stressIterations">0</dd></div></dl></div>
           </section>
         </div>
       </div>

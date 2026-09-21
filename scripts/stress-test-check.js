@@ -137,11 +137,11 @@ async function assertStressGeometry(page, label) {
     const visible = element => element.getClientRects().length > 0 && !element.closest('[hidden], .sr-only') && getComputedStyle(element).visibility !== 'hidden';
     const inside = (inner, outer) => inner.left >= outer.left - 1 && inner.right <= outer.right + 1 && inner.top >= outer.top - 1 && inner.bottom <= outer.bottom + 1;
     const viewport = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
-    const required = ['#stressStartBtn', '#stressStopBtn', '#stressStatusText', '#stressCanvas', '[data-stress-mode-option]', '.stress-metrics > div'];
+    const required = ['#stressStartBtn', '#stressStopBtn', '#stressCanvas', '[data-stress-mode-option]', '.stress-metrics > div'];
     if (root.querySelector('#stressIntensity, .stress-intensity')) problems.push('retired GPU intensity control is present');
     if (root.dataset.stressMode !== 'gpu') required.push('#stressPrimeDisplay', '#stressLatestPrime', '#stressWorkerSummary');
     if (Number(root.dataset.stressWorkerCount) > 0) required.push('#stressWorkerActivity', '#stressWorkerActivity > span');
-    if (root.dataset.stressMode !== 'cpu' && root.dataset.stressGpuCanvasActive === 'true') required.push('#stressOrbit', '#stressGpuDetail');
+    if (root.dataset.stressMode !== 'cpu' && root.dataset.stressGpuCanvasActive === 'true') required.push('#stressGpuDetail');
     if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 || document.documentElement.scrollHeight > document.documentElement.clientHeight + 1) problems.push('document overflows');
     for (const selector of required) {
       const elements = document.querySelectorAll(selector);
@@ -257,14 +257,11 @@ async function main() {
         assert.equal(await page.locator('#stressTestApp').getAttribute('data-stress-gpu-backend'), 'none');
       } else {
         await page.waitForFunction(() => { const data = document.querySelector('#stressTestApp').dataset; return Number(data.stressTotalRenderedFrames) >= 3 || data.stressState === 'error' || data.stressState === 'unsupported'; }, null, { timeout: 45000 });
-        assert.equal(await page.locator('#stressTestApp').getAttribute('data-stress-state'), 'running', await page.locator('#stressStatusText').textContent());
+        assert.equal(await page.locator('#stressTestApp').getAttribute('data-stress-state'), 'running', await page.locator('#stressTestApp').getAttribute('data-stress-gpu-last-error'));
         const selected = await page.locator('#stressTestApp').getAttribute('data-stress-gpu-backend');
         assert.notEqual(selected, 'none');
         if (backend !== 'auto') assert.equal(selected, `${backend}-fragment`);
         await page.screenshot({ path: path.join(output, `stress-${backend}.png`) });
-        await page.locator('#stressOrbit').focus();
-        await page.keyboard.press('ArrowRight');
-        await page.keyboard.press('ArrowUp');
         assert.equal(await page.locator('#stressTestApp select').count(), 0, 'GPU mode should run without an intensity selector.');
         await page.waitForFunction(() => Number(document.querySelector('#stressTestApp').dataset.stressTotalRenderedFrames) >= 5);
         results.push({ requested: backend, selected, detail: await page.locator('#stressGpuDetail').textContent() });

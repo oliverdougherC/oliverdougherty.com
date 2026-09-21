@@ -77,24 +77,11 @@ function getStressTestMaxWorkersOverride() {
   return Number.isFinite(globalValue) ? globalValue : null;
 }
 
-// The GPU backend — or a startup that has not yet handed back its handle —
-// owns the canvas element end to end: context type, backing store, and DOM
-// identity. While the claim matches the live request generation, no
-// controller-side idle/CPU path may bind a 2D context, clear, resize, or
-// replace that surface. Legitimate transfers release the claim through
-// stopGpuStress first or replace the element from the backend's own
-// onCanvasReplace callback. Generation ids start at 1 (requestId increments
-// before any start), so a zero claim always means "unowned".
-function gpuOwnsCanvasSurface(gpu: StressGpuStressHandle | null, claim: number, requestId: number) {
-  return gpu !== null || (claim !== 0 && claim === requestId);
-}
-
 export class StressTestController {
   private readonly root: HTMLElement;
   private readonly modeButtons: HTMLButtonElement[];
   private readonly startButton: HTMLButtonElement;
   private readonly stopButton: HTMLButtonElement;
-  private readonly statusText: HTMLElement;
   private readonly elapsedLabel: HTMLElement;
   private readonly workerCountLabel: HTMLElement;
   private readonly backendLabel: HTMLElement;
@@ -150,14 +137,6 @@ export class StressTestController {
   private gpuWorkloadLevel = 0;
   private lastError = '';
   private gpuCanvasActive = false;
-  // The initial idle paint queued by init() and the request generation it was
-  // scheduled in. start() and dispose() cancel the frame; a callback that
-  // still lands late must observe the generation, disposal, and idle state.
-  private idleRenderFrameId = 0;
-  private idleRenderGeneration = 0;
-  // Disposal is terminal: no queued frame may mutate the controller's DOM
-  // afterwards.
-  private disposed = false;
 
   private cpuVisualFrameId = 0;
   private controlPanelFitFrameId = 0;
@@ -185,7 +164,6 @@ export class StressTestController {
       throw new Error('Element #stressStopBtn is not an HTMLButtonElement.');
     }
     this.stopButton = stopEl;
-    this.statusText = this.requireElement('stressStatusText') as HTMLElement;
     this.elapsedLabel = this.requireElement('stressElapsed') as HTMLElement;
     this.workerCountLabel = this.requireElement('stressWorkerCount') as HTMLElement;
     this.backendLabel = this.requireElement('stressGpuBackend') as HTMLElement;
@@ -232,18 +210,6 @@ export class StressTestController {
       this.pointerY = Math.max(-1, Math.min(1, (event.clientY - rect.top) / rect.height * 2 - 1));
       this.gpu.setPointer?.(this.pointerX, this.pointerY);
     });
-    this.listen(this.requireElement('stressOrbit'), 'keydown', (event) => {
-      if (!(event instanceof KeyboardEvent)) return;
-      const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home'];
-      if (!keys.includes(event.key)) return;
-      event.preventDefault();
-      if (event.key === 'Home') { this.pointerX = 0; this.pointerY = 0; }
-      else {
-        this.pointerX = Math.max(-1, Math.min(1, this.pointerX + (event.key === 'ArrowRight' ? .15 : event.key === 'ArrowLeft' ? -.15 : 0)));
-        this.pointerY = Math.max(-1, Math.min(1, this.pointerY + (event.key === 'ArrowDown' ? .15 : event.key === 'ArrowUp' ? -.15 : 0)));
-      }
-      this.gpu?.setPointer?.(this.pointerX, this.pointerY);
-    });
     this.listen(this.root, 'utility-deactivate', () => this.stop());
     this.listen(window, 'hashchange', () => {
       if (window.location.hash !== '#stress-test') {
@@ -275,34 +241,13 @@ export class StressTestController {
 
     this.setMode(DEFAULT_MODE);
     this.bindCanvasResizeObserver();
-    this.setState('idle', 'Ready. Starting this will make your browser hot, loud, slow, and power hungry.');
+    this.setState('idle');
     this.syncMetrics(true);
     this.queueControlPanelFitSync();
-    this.idleRenderGeneration = this.requestId;
-    this.idleRenderFrameId = window.requestAnimationFrame(() => this.renderQueuedIdleFrame());
-  }
-
-  // The initial idle paint is valid only while nothing has happened since
-  // init(): starting/stopping a run advances its generation, and disposal
-  // is terminal even when no run started. Cancellation alone is not enough.
-  private renderQueuedIdleFrame() {
-    this.idleRenderFrameId = 0;
-    if (this.disposed || this.idleRenderGeneration !== this.requestId || this.state !== 'idle') {
-      return;
-    }
-    this.drawIdleCanvas();
-  }
-
-  private cancelIdleRenderFrame() {
-    if (this.idleRenderFrameId) {
-      window.cancelAnimationFrame(this.idleRenderFrameId);
-      this.idleRenderFrameId = 0;
-    }
+    window.requestAnimationFrame(() => this.drawIdleCanvas());
   }
 
   dispose() {
-    this.disposed = true;
-    this.cancelIdleRenderFrame();
     this.stop();
     this.stopCpuVisuals();
     this.stopMetricLoop();
@@ -337,7 +282,6 @@ export class StressTestController {
 
     this.requestId += 1;
     const requestId = this.requestId;
-    this.cancelIdleRenderFrame();
     this.totalIterations = 0;
     this.latestPrime = 0;
     this.primesFound = 0;
@@ -356,7 +300,7 @@ export class StressTestController {
     this.gpuCanvasActive = false;
     this.clearCanvasSurface();
     this.canvas.dataset.stressIdle = 'false';
-    this.setState(transitionStressState(this.state, 'start'), 'Starting stress workload...');
+    this.setState(transitionStressState(this.state, 'start'));
 
     let cpuStartError = '';
     try {
@@ -386,10 +330,6 @@ export class StressTestController {
           this.gpuSurfaceClaim = 0;
           this.gpuCanvasActive = false;
         }
-        // The preference can change while the factory awaits an adapter or
-        // device; it only received the pre-await snapshot, so sync the value
-        // the controller caches now onto the handle being installed.
-        gpu?.setReducedMotion?.(this.reducedMotion);
         this.gpu = gpu;
         this.gpuBackend = gpu?.backend ?? 'none';
         if (!gpu && this.gpuStartupError) {
@@ -407,9 +347,9 @@ export class StressTestController {
       if (this.mode === 'gpu' && !this.gpu) {
         this.stopCpuStress();
         if (this.gpuStartupError) {
-          this.setState('error', this.lastError);
+          this.setState('error');
         } else {
-          this.setState('unsupported', 'GPU stress needs WebGPU, WebGL2, or WebGL in this browser.');
+          this.setState('unsupported');
         }
         this.syncMetrics(true);
         return;
@@ -417,18 +357,16 @@ export class StressTestController {
 
       if (this.mode === 'both' && this.gpu && cpuStartError) {
         this.lastError = cpuStartError;
-        this.setState(transitionStressState(this.state, 'running'), 'GPU stress is running. CPU stress is unavailable in this browser.');
+        this.setState(transitionStressState(this.state, 'running'));
       } else if (this.mode === 'both' && !this.gpu && !this.workers.length) {
         this.lastError = cpuStartError || this.lastError || 'No stress backend was available.';
-        this.setState(transitionStressState(this.state, 'error'), this.lastError);
+        this.setState(transitionStressState(this.state, 'error'));
         this.syncMetrics(true);
         return;
       } else if (this.mode === 'both' && !this.gpu) {
-        this.setState(transitionStressState(this.state, 'running'), this.gpuStartupError
-          ? `CPU stress is running. GPU stress failed: ${this.gpuStartupError}`
-          : 'CPU stress is running. GPU stress is unavailable in this browser.');
+        this.setState(transitionStressState(this.state, 'running'));
       } else {
-        this.setState(transitionStressState(this.state, 'running'), 'Running until stopped or hidden. CPU utilization and GPU watts depend on your hardware and browser.');
+        this.setState(transitionStressState(this.state, 'running'));
       }
 
       if (!this.gpu && this.workers.length > 0) {
@@ -441,7 +379,7 @@ export class StressTestController {
       this.stopGpuStress({ loseContext: true });
       this.gpuBackend = 'none';
       this.lastError = error instanceof Error ? error.message : 'Stress test failed to start.';
-      this.setState('error', this.lastError);
+      this.setState('error');
       this.syncMetrics(true);
     }
   }
@@ -453,7 +391,7 @@ export class StressTestController {
     const message = error instanceof Error ? error.message : 'Stress test failed to start.';
     this.gpuBackend = 'none';
     this.lastError = message;
-    this.setState('error', message);
+    this.setState('error');
     this.syncMetrics(true);
   }
 
@@ -464,7 +402,7 @@ export class StressTestController {
 
     this.requestId += 1;
     const stoppingState = transitionStressState(this.state, 'stop');
-    this.setState(stoppingState, 'Stopping stress workload...');
+    this.setState(stoppingState);
     this.stopCpuStress();
     this.stopGpuStress();
     this.stopCpuVisuals();
@@ -476,7 +414,7 @@ export class StressTestController {
     this.gpuBackend = 'none';
     this.gpuWorkloadLevel = 0;
     this.gpuCanvasActive = false;
-    this.setState(transitionStressState(stoppingState, 'stopped'), 'Stopped. Ready to run another stress test.');
+    this.setState(transitionStressState(stoppingState, 'stopped'));
     this.syncMetrics(true);
     this.drawIdleCanvas();
   }
@@ -607,7 +545,7 @@ export class StressTestController {
         this.stopCpuVisuals();
         if (!this.gpu) {
           this.stopMetricLoop();
-          this.setState('idle', 'Prime search reached the safe integer limit.');
+          this.setState('idle');
         }
         this.syncMetrics(true);
       }
@@ -629,7 +567,7 @@ export class StressTestController {
     this.lastError = message;
 
     if (this.mode === 'both' && this.gpu) {
-      this.setState(transitionStressState(this.state, 'running'), 'GPU stress is still running. CPU stress worker failed.');
+      this.setState(transitionStressState(this.state, 'running'));
       this.syncMetrics(true);
       return;
     }
@@ -638,7 +576,7 @@ export class StressTestController {
     this.requestId += 1;
     this.stopGpuStress({ loseContext: true });
     this.stopMetricLoop();
-    this.setState(transitionStressState(this.state, 'error'), message);
+    this.setState(transitionStressState(this.state, 'error'));
     this.syncMetrics(true);
   }
 
@@ -698,14 +636,14 @@ export class StressTestController {
     this.lastError = message;
 
     if (this.mode === 'both' && this.workers.length > 0) {
-      this.setState(transitionStressState(this.state, 'running'), 'GPU stress stopped; CPU stress is still running.');
+      this.setState(transitionStressState(this.state, 'running'));
       this.startCpuVisuals();
     } else {
       this.stopCpuStress();
       this.stopMetricLoop();
       this.stopCpuVisuals();
       this.resetRenderCadence();
-      this.setState('error', message);
+      this.setState('error');
     }
     this.syncMetrics(true);
   }
@@ -719,11 +657,7 @@ export class StressTestController {
   }
 
   private startCpuVisuals() {
-    // A starting or installed GPU backend owns the canvas; binding a 2D
-    // context here would poison the surface for its adapter request.
-    if (this.cpuVisualFrameId || gpuOwnsCanvasSurface(this.gpu, this.gpuSurfaceClaim, this.requestId)) {
-      return;
-    }
+    if (this.cpuVisualFrameId) return;
     this.resetRenderCadence();
     if (this.reducedMotion) return;
 
@@ -793,9 +727,6 @@ export class StressTestController {
   private startMetricLoop() {
     this.stopMetricLoop();
     const tick = () => {
-      if (this.disposed) {
-        return;
-      }
       this.syncMetrics();
       if (this.state === 'running' || this.state === 'starting') {
         this.metricFrameId = window.requestAnimationFrame(tick);
@@ -890,11 +821,10 @@ export class StressTestController {
     this.queueControlPanelFitSync();
   }
 
-  private setState(state: StressState, message: string) {
+  private setState(state: StressState) {
     this.state = state;
-    (this.requireElement('stressSceneState') as HTMLElement).textContent = state === 'running' ? 'LIVE' : state === 'starting' ? 'WARMING UP' : state === 'error' || state === 'unsupported' ? 'UNAVAILABLE' : 'STANDBY';
+    (this.requireElement('stressSceneState') as HTMLElement).textContent = state === 'starting' ? 'WARMING UP' : state === 'error' || state === 'unsupported' ? 'UNAVAILABLE' : '';
     this.root.dataset.stressState = state;
-    this.statusText.textContent = message;
     const active = state === 'running' || state === 'starting';
     this.startButton.disabled = active;
     this.stopButton.disabled = !active;
@@ -906,14 +836,11 @@ export class StressTestController {
 
 
   private queueControlPanelFitSync() {
-    if (this.disposed || this.controlPanelFitFrameId) {
+    if (this.controlPanelFitFrameId) {
       return;
     }
     this.controlPanelFitFrameId = window.requestAnimationFrame(() => {
       this.controlPanelFitFrameId = 0;
-      if (this.disposed) {
-        return;
-      }
       this.syncControlPanelFit();
     });
   }
@@ -972,15 +899,12 @@ export class StressTestController {
   }
 
   private queueCanvasResizeSync() {
-    if (this.disposed || this.canvasResizeFrameId) {
+    if (this.canvasResizeFrameId) {
       return;
     }
 
     this.canvasResizeFrameId = window.requestAnimationFrame(() => {
       this.canvasResizeFrameId = 0;
-      if (this.disposed) {
-        return;
-      }
       this.syncCanvasSize();
     });
   }
@@ -990,7 +914,9 @@ export class StressTestController {
     // store: it compares CSS size against its own limits and only resizes after
     // in-flight batches complete. A controller-side observer or resize write
     // would swap the drawing buffer under queued work, so observation stops here.
-    if (gpuOwnsCanvasSurface(this.gpu, this.gpuSurfaceClaim, this.requestId)) {
+    // Generation ids start at 1 (requestId increments before any start), so a
+    // zero claim always means "unowned".
+    if (this.gpu || (this.gpuSurfaceClaim !== 0 && this.gpuSurfaceClaim === this.requestId)) {
       return;
     }
     const rect = this.canvas.getBoundingClientRect();
@@ -1004,11 +930,6 @@ export class StressTestController {
   }
 
   private replaceCanvasElement() {
-    // Element identity belongs to the backend while it owns the surface;
-    // only the backend's own onCanvasReplace path may swap the element.
-    if (gpuOwnsCanvasSurface(this.gpu, this.gpuSurfaceClaim, this.requestId)) {
-      return;
-    }
     const parent = this.canvas.parentElement;
     if (!parent) {
       return;
@@ -1035,11 +956,6 @@ export class StressTestController {
   }
 
   private clearCanvasSurface() {
-    // Clearing acquires a 2D context; on a GPU-owned canvas that request
-    // returns null and the fallback would detach the live surface.
-    if (gpuOwnsCanvasSurface(this.gpu, this.gpuSurfaceClaim, this.requestId)) {
-      return;
-    }
     let ctx = this.canvas.getContext('2d', { alpha: true });
     if (!ctx) {
       this.replaceCanvasElement();
@@ -1053,9 +969,6 @@ export class StressTestController {
   }
 
   private drawIdleCanvas() {
-    if (gpuOwnsCanvasSurface(this.gpu, this.gpuSurfaceClaim, this.requestId)) {
-      return;
-    }
     this.syncCanvasSize();
     this.clearCanvasSurface();
     this.canvas.dataset.stressIdle = 'true';

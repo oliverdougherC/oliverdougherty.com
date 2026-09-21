@@ -287,7 +287,6 @@ describe('stress test controller lifecycle', () => {
     expect(root.dataset.stressGpuBackend).toBe('none');
     expect(root.dataset.stressGpuCanvasActive).toBe('false');
     expect(root.dataset.stressCanvasActive).toBe('true');
-    expect(document.getElementById('stressStatusText')!.textContent).toContain('GPU stress is unavailable');
   });
 
   it('releases a GPU backend that finishes initializing after stop', async () => {
@@ -331,8 +330,6 @@ describe('stress test controller lifecycle', () => {
     expect(root.dataset.stressState).toBe('error');
     expect(root.dataset.stressGpuBackend).toBe('none');
     expect(root.dataset.stressGpuLastError).toBe('WebGPU device lost: Adapter disconnected');
-    expect((document.getElementById('stressStatusText') as HTMLElement).textContent)
-      .toContain('WebGPU device lost: Adapter disconnected');
     expect(handle.stop).toHaveBeenCalledWith({ loseContext: true });
   });
 
@@ -346,8 +343,6 @@ describe('stress test controller lifecycle', () => {
     expect(root.dataset.stressWorkerCount).toBe('2');
     expect(root.dataset.stressGpuBackend).toBe('none');
     expect(root.dataset.stressGpuLastError).toBe('GPU stopped responding.');
-    expect((document.getElementById('stressStatusText') as HTMLElement).textContent)
-      .toBe('CPU stress is running. GPU stress failed: GPU stopped responding.');
     advanceFrame();
     expect(root.dataset.stressCanvasActive).toBe('true');
   });
@@ -416,7 +411,7 @@ describe('stress test controller lifecycle', () => {
     expect(root.dataset.stressGpuBackend).toBe('none');
     expect(root.dataset.stressGpuCanvasActive).toBe('false');
     expect(root.dataset.stressWorkerCount).toBe(mode === 'gpu' ? '0' : '2');
-    expect(document.getElementById('stressStatusText')!.textContent).toContain('Lost between awaits');
+    expect(root.dataset.stressGpuLastError).toContain('Lost between awaits');
     expect(handle.stop).toHaveBeenCalled();
   });
 
