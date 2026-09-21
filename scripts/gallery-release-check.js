@@ -18,9 +18,10 @@
  * - Mobile scenario verifies semantic photo buttons, dialog focus entry/
  *   containment/return, Escape/arrows, touch swipe, rapid-swipe coalescing, and
  *   close-during-delayed-navigation cancellation.
- * - Screenshots, console/pageerror logs, and a result summary land in
- *   output/release/. Uncaught page exceptions and failed local assets fail
- *   the run.
+* - Screenshots, console/pageerror logs, and a result summary land in
+*   output/release/. Uncaught page exceptions and failed local assets fail
+*   the run. Same-origin image loads abandoned by a navigate-away are
+*   re-verified intact by fetch and recorded as interruptions, not failures.
  */
 
 const fs = require('node:fs');
@@ -46,7 +47,8 @@ const results = {
   screenshots: [],
   consoleErrors: [],
   pageErrors: [],
-  resourceErrors: []
+  resourceErrors: [],
+  abortedImageLoads: []
 };
 
 function assert(condition, message) {
@@ -59,10 +61,42 @@ function log(message) {
   results.logLines = (results.logLines || []).concat(line);
 }
 
+// Firefox reports an image fetch abandoned at navigate-away as
+// "Image corrupt or truncated." A genuinely broken artifact cannot pass the
+// same verification fetch below, so only fully served same-origin images are
+// reclassified as interruptions.
+const pendingImageVerifications = [];
+
+async function servedImageIsIntact(url) {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!response.ok) return false;
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (!bytes.byteLength) return false;
+    if (/\.jpe?g$/i.test(new URL(url).pathname)) {
+      // A complete JPEG ends with the EOI marker; an interrupted one cannot.
+      return bytes.at(-2) === 0xff && bytes.at(-1) === 0xd9;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function attachErrorWatch(page, origin, label) {
   page.on('pageerror', error => results.pageErrors.push({ scenario: label, message: error.message }));
   page.on('console', msg => {
-    if (msg.type() === 'error') results.consoleErrors.push({ scenario: label, message: msg.text(), url: msg.location().url });
+    if (msg.type() !== 'error') return;
+    const message = msg.text();
+    const { url } = msg.location();
+    if (/image corrupt or truncated/i.test(message) && url && url.startsWith(origin)) {
+      const entry = { scenario: label, message, url };
+      pendingImageVerifications.push(servedImageIsIntact(url).then(intact => {
+        (intact ? results.abortedImageLoads : results.consoleErrors).push(entry);
+      }));
+      return;
+    }
+    results.consoleErrors.push({ scenario: label, message, url });
   });
   page.on('response', response => {
     if (response.status() >= 400) results.resourceErrors.push({ scenario: label, status: response.status(), url: response.url() });
@@ -85,6 +119,19 @@ async function waitForVisiblePhotos(page) {
       return rect.width > 0 && rect.height > 0 && img.complete && img.naturalWidth > 0 && Number(getComputedStyle(img).opacity) >= 0.99;
     });
   });
+}
+
+// Abandoned image loads poison the Firefox console as truncation errors and
+// keep the departing document out of BFCache. Lazy images that never entered
+// the viewport never start, and their `complete` stays false forever, so they
+// are the only exempted ones.
+function waitForStartedImageLoads(page) {
+  return page.waitForFunction(() => [...document.querySelectorAll('img')].every(img => {
+    if (img.complete) return true;
+    if (img.loading !== 'lazy') return false;
+    const rect = img.getBoundingClientRect();
+    return !(rect.bottom > 0 && rect.top < innerHeight && rect.right > 0 && rect.left < innerWidth);
+  }));
 }
 
 async function screenshot(page, name) {
@@ -218,7 +265,10 @@ async function runDesktopBfcacheScenario(browser, baseUrl) {
     assert(initialLog.length >= 1, 'no pageshow recorded on the first load');
     assert(initialLog[0].persisted === false, 'first pageshow must not report persisted');
 
-    // Real navigate-away and back.
+    // Real navigate-away and back, only once every started image load has
+    // finished: abandoning one poisons the Firefox console and would keep the
+    // departing document out of BFCache.
+    await waitForStartedImageLoads(page);
     await page.goto(`${baseUrl}/pages/resume/index.html`, { waitUntil: 'networkidle' });
     await page.evaluate(() => history.back());
     await page.waitForFunction(() => location.pathname.endsWith('/pages/gallery/index.html') && document.readyState === 'complete' && window.__pageshowLog?.length > 0);
@@ -606,6 +656,7 @@ async function main() {
     await browser?.close();
     serving.server?.kill();
     results.finishedAt = new Date().toISOString();
+    await Promise.all(pendingImageVerifications);
     results.failed = Boolean(results.fatalError) || results.scenarios.some(scenario => scenario.status === 'fail')
       || results.pageErrors.length > 0 || results.consoleErrors.length > 0 || results.resourceErrors.length > 0;
     fs.writeFileSync(path.join(OUTPUT_DIR, `gallery-release-check-${BROWSER}.json`), `${JSON.stringify(results, null, 2)}\n`);
