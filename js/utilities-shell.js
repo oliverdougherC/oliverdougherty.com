@@ -87,7 +87,7 @@
       if (heading) heading.textContent = label;
       if (number) number.textContent = stage.dataset.utilityNumber || '';
       if (switcher) switcher.value = nextId;
-      document.title = label + ' — ' + indexTitle;
+      document.title = label;
       document.documentElement.dataset.activeUtility = nextId;
       notify(stage, 'utility-activate');
       focus(heading);
