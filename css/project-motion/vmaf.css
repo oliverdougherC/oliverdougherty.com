@@ -1,0 +1,11 @@
+/* Inspection of one continuous drawing, before and after spatial detail loss. */
+.project-art[data-motion='vmaf'] { background: #090909; }
+.vmaf-scene { display: block; width: 500px; height: 320px; }
+.vmaf-plate text { font: 400 8.5px 'JetBrains Mono',monospace; fill: #e7c39c; }
+.vmaf-fine { clip-path: inset(0 50% 0 0); }
+.vmaf-boundary { transform: translateX(250px); stroke: #ff6700; stroke-width: .7; opacity: .72; }
+.vmaf-stars { fill: #af865f; stroke: #af865f; stroke-width: .7; opacity: .5; }
+[data-motion='vmaf'][data-running] .vmaf-fine { animation: vmaf-reveal 16s cubic-bezier(.77,0,.175,1) infinite; }
+[data-motion='vmaf'][data-running] .vmaf-boundary { animation: vmaf-inspect 16s cubic-bezier(.77,0,.175,1) infinite; }
+@keyframes vmaf-reveal { 0%,12%,100% { clip-path: inset(0 90% 0 0); } 43%,57% { clip-path: inset(0 10% 0 0); } 88% { clip-path: inset(0 90% 0 0); } }
+@keyframes vmaf-inspect { 0%,12%,88%,100% { transform: translateX(50px); } 43%,57% { transform: translateX(450px); } }

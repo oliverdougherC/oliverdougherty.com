@@ -67,25 +67,6 @@ input[type='radio'] {
   cursor: var(--cursor-link), pointer !important;
 }
 
-/* Use system cursors in fullscreen nav overlay to avoid cursor glyph artifacts. */
-.nav-overlay,
-.nav-overlay *,
-.nav-overlay *::before,
-.nav-overlay *::after {
-  cursor: default !important;
-}
-
-.nav-overlay a,
-.nav-overlay a *,
-.nav-overlay button,
-.nav-overlay button *,
-.nav-overlay [role='button'],
-.nav-overlay [role='button'] *,
-.nav-overlay [role='link'],
-.nav-overlay [role='link'] * {
-  cursor: pointer !important;
-}
-
 input[type='text'],
 input[type='search'],
 input[type='email'],
@@ -113,12 +94,36 @@ textarea,
   cursor: var(--cursor-busy), wait !important;
 }
 
-[draggable='true'] {
-  cursor: var(--cursor-move), move !important;
+/* The excursions easter egg: while the excerpt is playing the system cursor
+   hides and home-interactions.js paints the eleven baked-in .ani frames on a
+   small overlay that follows the pointer. (Browsers can't animate a cursor
+   image, and swapping the cursor URL per frame is unreliable — the OS cursor
+   only refreshes lazily and re-decodes the frames through a cache, so repeat
+   plays land frames late or out of order and the spin visibly jumps.) */
+html.is-musical,
+html.is-musical * {
+  cursor: none !important;
 }
 
-.cursor-fox {
-  cursor: var(--cursor-move), grab !important;
+.musical-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2147483647;
+  width: 32px;
+  height: 32px;
+  display: none;
+  pointer-events: none;
+  image-rendering: pixelated;
+  will-change: transform;
+}
+
+html.is-musical .musical-cursor {
+  display: block;
+}
+
+[draggable='true'] {
+  cursor: var(--cursor-move), move !important;
 }
 
 [title^='Help'],
@@ -169,4 +174,9 @@ textarea,
   outline: var(--utilities-focus-outline);
   outline-offset: var(--utilities-focus-offset);
   box-shadow: var(--utilities-focus-shadow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.is-musical, html.is-musical * { cursor: auto !important; }
+  html.is-musical .musical-cursor { display: none; }
 }

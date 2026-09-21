@@ -100,17 +100,6 @@ export interface MatchingSearchContext extends BucketState, GroupState, TargetSt
   analysis?: TransformImageAnalysis;
 }
 
-export interface RankedCandidate {
-  sourceIndex: number;
-  distance: number;
-}
-
-export interface TargetSearchState {
-  nextRadius: number;
-  rankedCandidates: RankedCandidate[];
-  initialCandidateCount: number;
-}
-
 interface FreeListState {
   head: number;
   nextFree: Int32Array;
@@ -620,82 +609,6 @@ export function resolveTargetOrder(targetLength: number, analysis?: TransformIma
   return Uint32Array.from(order);
 }
 
-function collectShellCandidates(
-  context: MatchingSearchContext,
-  targetIndex: number,
-  radius: number
-) {
-  const targetRgb = context.targetPacked[targetIndex];
-  const centerRed = ((targetRgb >> 16) & 0xff) >> context.shift;
-  const centerGreen = ((targetRgb >> 8) & 0xff) >> context.shift;
-  const centerBlue = (targetRgb & 0xff) >> context.shift;
-  const shellCandidates: RankedCandidate[] = [];
-
-  forEachShellBucket(centerRed, centerGreen, centerBlue, radius, context.bucketCount, (key) => {
-    const bucketIndex = context.bucketEntryIndexByKey.get(key);
-    if (bucketIndex === undefined) {
-      return;
-    }
-
-    for (
-      let sourceIndex = context.bucketFirstSourceByBucket[bucketIndex];
-      sourceIndex !== -1;
-      sourceIndex = context.bucketNextSourceBySource[sourceIndex]
-    ) {
-      shellCandidates.push({
-        sourceIndex,
-        distance: scoreCandidateDistance(context, sourceIndex, targetIndex)
-      });
-    }
-  });
-
-  shellCandidates.sort((left, right) =>
-    left.distance === right.distance ? left.sourceIndex - right.sourceIndex : left.distance - right.distance
-  );
-
-  return shellCandidates;
-}
-
-function populateCandidateQueue(
-  context: MatchingSearchContext,
-  targetIndex: number,
-  state: TargetSearchState,
-  minimumCandidateCount: number
-) {
-  while (
-    state.rankedCandidates.length < minimumCandidateCount &&
-    state.nextRadius < context.bucketCount
-  ) {
-    state.rankedCandidates.push(
-      ...collectShellCandidates(context, targetIndex, state.nextRadius)
-    );
-    state.nextRadius += 1;
-  }
-}
-
-function createTargetSearchState(
-  context: MatchingSearchContext,
-  targetIndex: number,
-  minimumCandidateCount: number
-) {
-  const state: TargetSearchState = {
-    nextRadius: 0,
-    rankedCandidates: [],
-    initialCandidateCount: 0
-  };
-  populateCandidateQueue(context, targetIndex, state, minimumCandidateCount);
-  state.initialCandidateCount = state.rankedCandidates.length;
-  return state;
-}
-
-export function collectRankedCandidatesForTarget(
-  context: MatchingSearchContext,
-  targetIndex: number,
-  minimumCandidateCount: number
-) {
-  return createTargetSearchState(context, targetIndex, minimumCandidateCount).rankedCandidates;
-}
-
 export function findBestAvailableSourceIndex(
   context: MatchingSearchContext,
   targetIndex: number,
@@ -1090,75 +1003,6 @@ function computePackedPixelAssignment(
       averageGroupsPerTarget: targetOrder.length > 0 ? evaluatedGroupCount / targetOrder.length : 0
     },
     assignMs
-  };
-}
-
-export function mergeRankedCandidatesIntoAssignment(
-  context: MatchingSearchContext | { sourceLength: number; targetLength: number },
-  targetOrder: Uint32Array,
-  rankedCandidatesByTarget: Array<RankedCandidate[] | undefined>,
-  hooks?: TransformHooks
-) {
-  const sourceLength = 'sourcePacked' in context ? context.sourcePacked.length : context.sourceLength;
-  const targetLength = 'targetPacked' in context ? context.targetPacked.length : context.targetLength;
-  const assignment = new Uint32Array(targetLength);
-  const used = new Uint8Array(sourceLength);
-  const freeList = createFreeList(sourceLength);
-  let shortlistHitCount = 0;
-  let fallbackCount = 0;
-
-  for (let orderedIndex = 0; orderedIndex < targetOrder.length; orderedIndex += 1) {
-    const targetIndex = targetOrder[orderedIndex];
-
-    if (hooks?.isCancelled?.()) {
-      throw new TransformError('Transform cancelled.');
-    }
-
-    let sourceIndex = -1;
-    const rankedCandidates = rankedCandidatesByTarget[targetIndex];
-    if (rankedCandidates) {
-      for (let candidateIndex = 0; candidateIndex < rankedCandidates.length; candidateIndex += 1) {
-        const candidateSourceIndex = rankedCandidates[candidateIndex].sourceIndex;
-        if (!used[candidateSourceIndex]) {
-          sourceIndex = candidateSourceIndex;
-          shortlistHitCount += 1;
-          break;
-        }
-      }
-    }
-
-    if (sourceIndex === -1) {
-      sourceIndex = freeList.head;
-      fallbackCount += 1;
-    }
-
-    if (sourceIndex === -1) {
-      throw new TransformError('No unused pixels remained during matching.');
-    }
-
-    used[sourceIndex] = 1;
-    removeFromFreeList(freeList, sourceIndex);
-    assignment[targetIndex] = sourceIndex;
-
-    if (
-      hooks?.onProgress &&
-      (orderedIndex + 1 === targetOrder.length || (orderedIndex + 1) % PROGRESS_REPORT_INTERVAL === 0)
-    ) {
-      hooks.onProgress(orderedIndex + 1, targetOrder.length);
-    }
-  }
-
-  return {
-    assignment,
-    matcherStats: {
-      fallbackCount,
-      shortlistHitRate: targetOrder.length > 0 ? shortlistHitCount / targetOrder.length : 1,
-      shortlistHitCount,
-      shortlistRequestCount: targetOrder.length,
-      evaluatedCandidateCount: shortlistHitCount,
-      evaluatedGroupCount: shortlistHitCount,
-      averageGroupsPerTarget: targetOrder.length > 0 ? shortlistHitCount / targetOrder.length : 0
-    }
   };
 }
 

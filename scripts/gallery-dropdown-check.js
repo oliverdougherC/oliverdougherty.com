@@ -42,22 +42,20 @@ async function assertSharedChrome(page, label) {
     theme: document.documentElement.getAttribute('data-theme'),
     colorMode: document.documentElement.getAttribute('data-color-mode'),
     hasSharedNav: Boolean(document.getElementById('nav')),
-    hasNavToggle: Boolean(document.getElementById('navToggle')),
-    hasNavOverlay: Boolean(document.getElementById('navOverlay')),
+    inlineNavCount: document.querySelectorAll('.nav-inline-link').length,
     hasNoise: Boolean(document.querySelector('.noise-overlay')),
     hasHeroFeature: Boolean(document.getElementById('galleryHeroFeature')),
     hasHeroStrip: Boolean(document.getElementById('galleryHeroStrip')),
     hasToolbar: Boolean(document.querySelector('.gallery-toolbar-section')),
     hasSearch: Boolean(document.getElementById('gallerySearch')),
     hasHeroTheme: Boolean(document.getElementById('galleryHeroTheme')),
-    hasFooter: Boolean(document.querySelector('.nav-menu-footer'))
+    hasCurrentLink: Boolean(document.querySelector('.nav-inline-link--gallery[aria-current="page"]'))
   }));
 
   assert(state.theme === 'gallery', `[${label}] gallery theme attr missing`);
-  assert(state.hasNavToggle, `[${label}] nav toggle missing`);
-  assert(state.hasNavOverlay, `[${label}] nav overlay missing`);
+  assert(state.inlineNavCount === 4, `[${label}] inline navigation missing`);
+  assert(state.hasCurrentLink, `[${label}] current gallery navigation link missing`);
   assert(state.hasNoise, `[${label}] noise overlay missing`);
-  assert(state.hasFooter, `[${label}] gallery footer missing`);
   assert(state.hasHeroFeature, `[${label}] hero feature missing`);
   assert(!state.hasHeroStrip, `[${label}] legacy hero strip should not be present`);
   assert(!state.hasToolbar, `[${label}] category toolbar should not be present`);
@@ -230,7 +228,7 @@ async function runScenario({ viewport, isMobile = false, hasTouch = false, label
     const context = await browser.newContext({ viewport, isMobile, hasTouch });
     await clearStoredTheme(context);
     const page = await context.newPage();
-    await page.goto(`${baseUrl}/pages/gallery/index.html`, { waitUntil: 'networkidle' });
+    await page.goto(`${baseUrl}/pages/gallery/index.html${isMobile ? '?full=1' : ''}`, { waitUntil: 'networkidle' });
     await waitForGalleryReady(page);
     await assertSharedChrome(page, label);
 
@@ -257,7 +255,7 @@ async function main() {
       viewport: { width: 1440, height: 1080 }
     });
     await runScenario({
-      label: 'mobile',
+      label: 'narrow-full-site',
       viewport: { width: 390, height: 844 },
       isMobile: true,
       hasTouch: true

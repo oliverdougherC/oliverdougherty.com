@@ -13,9 +13,12 @@ const SEQUENCE_PATH = path.join(PHOTOS_DIR, 'gallery-sequence.json');
 
 const REQUIRED_PAGES = [
   'index.html',
+  '404.html',
   'pages/resume/index.html',
   'pages/gallery/index.html',
-  'pages/archive/index.html',
+  'mobile/index.html',
+  'mobile/resume/index.html',
+  'mobile/gallery/index.html',
   'pages/utilities/index.html'
 ];
 
@@ -39,23 +42,6 @@ function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
-function collectHtmlFiles(dirPath, output = []) {
-  for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
-    const fullPath = path.join(dirPath, entry.name);
-
-    if (entry.isDirectory()) {
-      collectHtmlFiles(fullPath, output);
-      continue;
-    }
-
-    if (entry.name.endsWith('.html')) {
-      output.push(fullPath);
-    }
-  }
-
-  return output;
-}
-
 function validatePages() {
   for (const page of REQUIRED_PAGES) {
     const pagePath = path.join(ROOT, page);
@@ -63,21 +49,8 @@ function validatePages() {
 
     const html = fs.readFileSync(pagePath, 'utf8');
     assert(html.includes('<title>'), `Missing <title> tag in ${page}`);
-    if (
-      page !== 'index.html' &&
-      page !== 'pages/resume/index.html' &&
-      page !== 'pages/gallery/index.html'
-    ) {
+    if (page.startsWith('mobile/') || page === 'pages/utilities/index.html') {
       assert(html.includes('data-current-year'), `Missing dynamic year placeholder in ${page}`);
-    }
-
-    if (
-      page !== 'index.html' &&
-      page !== 'pages/resume/index.html' &&
-      page !== 'pages/gallery/index.html' &&
-      page !== 'pages/utilities/index.html'
-    ) {
-      assert(html.includes('id="navToggle"'), `Missing shared nav toggle in ${page}`);
     }
   }
 
@@ -97,7 +70,7 @@ function validatePages() {
   assert(!galleryHtml.includes('id="galleryHeroStrip"'), 'Gallery hero strip should not ship');
   assert(!galleryHtml.includes('id="galleryWebglCanvas"'), 'Gallery should not ship the non-default WebGL canvas');
   assert(!galleryHtml.includes('id="galleryModeSwitch"'), 'Gallery should not include legacy WebGL mode switch');
-  assert(!galleryHtml.includes('data-disable-color-mode="true"'), 'Gallery should participate in shared color mode');
+  assert(galleryHtml.includes('data-disable-color-mode'), 'Gallery fixed color scheme missing');
 
   const dashboardHtml = fs.readFileSync(path.join(ROOT, 'pages/utilities/index.html'), 'utf8');
   assert(dashboardHtml.includes('Utilities'), 'Utilities page title missing');
@@ -117,21 +90,50 @@ function validatePages() {
 
   const utilitiesBundlePath = path.join(ROOT, 'pages', 'utilities', 'assets', 'utilities-app.js');
   assert(fs.existsSync(utilitiesBundlePath), 'Utilities bundle missing: pages/utilities/assets/utilities-app.js');
-  const utilitiesWorkerDir = path.join(ROOT, 'pages', 'utilities', 'assets', 'assets');
-  assert(fs.existsSync(utilitiesWorkerDir), 'Utilities worker asset directory missing: pages/utilities/assets/assets');
-  const utilitiesWorkerEntries = fs.readdirSync(utilitiesWorkerDir);
-  assert(
-    utilitiesWorkerEntries.some((name) => /^audioFourier\.worker-.*\.js$/.test(name)),
-    'Audio Fourier worker chunk missing from pages/utilities/assets/assets'
-  );
-  assert(
-    utilitiesWorkerEntries.some((name) => /^transform\.worker-.*\.js$/.test(name)),
-    'Image Transform worker chunk missing from pages/utilities/assets/assets'
-  );
   assert(
     fs.existsSync(path.join(ROOT, 'assets', 'utilities', 'fourier-decompose', 'Best Friends.flac')),
     'Fourier built-in audio asset missing: assets/utilities/fourier-decompose/Best Friends.flac'
   );
+
+  validateRetainedUtilityAssets(ROOT);
+
+  for (const page of ['index.html', 'mobile/index.html']) {
+    const html = fs.readFileSync(path.join(ROOT, page), 'utf8');
+    assert(html.includes('id="nighthawksArtwork"'), `${page}: Nighthawks artwork missing`);
+    assert(html.includes('id="home-intro-title"'), `${page}: introduction missing`);
+    assert(html.includes('home-header'), `${page}: shared homepage header missing`);
+    assert(!/class="[^"]*(?:about-stats|mobile-stat-grid)/.test(html), `${page}: retired profile facts remain`);
+    const projects = [...html.matchAll(/data-project="([^"]+)"/g)].map((match) => match[1]);
+    assert(projects.join('|') === 'Encoding_Database|BetterVMAF|Keiri|Lyra', `${page}: pinned project order incomplete`);
+    for (const project of html.matchAll(/<article\b[^>]*data-project="([^"]+)"[^>]*>([\s\S]*?)<\/article>/g)) {
+      const [, name, content] = project;
+      assert((content.match(/<h3\b/g) || []).length === 1, `${page}: ${name} title missing`);
+      for (const marker of ['project-copy', 'project-hook', 'project-link']) {
+        assert((content.match(new RegExp(`class="[^"]*\\b${marker}\\b`, 'g')) || []).length === 1, `${page}: ${name} should contain one ${marker}`);
+      }
+      assert(/class="project-blurb"/.test(content), `${page}: ${name} prose missing`);
+      assert(!/<details\b|<img\b|<button\b|<input\b|<label\b|tabindex=|project-art|motion-stage|<svg\b|<canvas\b/.test(content), `${page}: ${name} retains project controls or screenshots`);
+    }
+    assert(!/project-motion|keiri-motion|data-motion=/.test(html), `${page}: retired animation runtime remains`);
+    for (const marker of ['data-copy-email', 'data-copy-status', 'js/home-interactions.js']) {
+      assert(html.includes(marker), `${page}: homepage interaction missing: ${marker}`);
+    }
+    assert(!html.includes('data-binary-hello'), `${page}: retired binary greeting remains`);
+    assert(html.includes('nighthawks-credited.png') && html.includes('<noscript>'), `${page}: credited no-JavaScript fallback missing`);
+    assert(html.includes('js/nighthawks.js'), `${page}: character renderer missing`);
+    const characters = html.match(/<pre\b[^>]*id="nighthawksCharacters"[^>]*>([\s\S]*?)<\/pre>/);
+    assert(characters, `${page}: character grid missing`);
+    const source = fs.readFileSync(path.join(ROOT, 'assets/art/nighthawks-binary.txt'), 'utf8');
+    const normalise = (text) => text.replace(/\r\n/g, '\n').replace(/\n$/, '');
+    assert(normalise(characters[1]) === normalise(source), `${page}: character grid differs from credited text source`);
+    assert(html.includes('role="img"') && html.includes('aria-hidden="true"'), `${page}: artwork accessibility markup missing`);
+    assert(!/blueprint-title|particle-canvas|diamond-divider/.test(html), `${page}: retired homepage hero remains`);
+  }
+  for (const file of ['nighthawks-binary.png', 'nighthawks-binary.txt', 'nighthawks-credited.png', 'nighthawks-colors.png']) {
+    assert(fs.existsSync(path.join(ROOT, 'assets/art', file)), `Missing homepage artwork: ${file}`);
+  }
+
+  assert(fs.existsSync(path.join(ROOT, 'js/nighthawks.js')), 'Character artwork renderer missing');
 
   const homeHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   assert(!homeHtml.includes('href="pages/archive/index.html"'), 'Homepage should not expose the archive route');
@@ -147,12 +149,25 @@ function validatePages() {
     const html = fs.readFileSync(path.join(ROOT, page), 'utf8');
     assert(!html.includes('../archive/index.html'), `${page} should not expose the archive route`);
   }
+}
 
-  const archiveHtmlFiles = collectHtmlFiles(path.join(ROOT, 'pages', 'archive'));
-  for (const archiveFilePath of archiveHtmlFiles) {
-    const archiveFileHtml = fs.readFileSync(archiveFilePath, 'utf8');
-    assert(!archiveFileHtml.includes('Neurophasia'), `Stale archive name present in ${rel(archiveFilePath)}`);
+function validateRetainedUtilityAssets(root) {
+  const retained = [
+    'assets/utilities/vm/tinycore-retro-vm.iso',
+    'assets/utilities/vm/seabios.bin',
+    'assets/utilities/vm/vgabios.bin'
+  ];
+  for (const file of retained) {
+    assert(fs.existsSync(path.join(root, file)), `Retained utility asset missing: ${path.relative(ROOT, root)}/${file}`);
   }
+  assert(fs.existsSync(path.join(root, 'pages/utilities/assets/v86.wasm')), 'Retained v86 runtime missing');
+  const workerDir = path.join(root, 'pages/utilities/assets/assets');
+  assert(fs.existsSync(workerDir), `Utility worker directory missing: ${rel(workerDir)}`);
+  const entries = fs.readdirSync(workerDir);
+  for (const pattern of [/^audioFourier\.worker-.*\.js$/, /^transform\.worker-.*\.js$/]) {
+    assert(entries.some((name) => pattern.test(name)), `Utility build asset missing: ${pattern}`);
+  }
+  assert(!entries.some((name) => /^matching\.worker-/.test(name)), 'Retired matching worker should not ship');
 }
 
 function validatePhotoVariantFile(variantKey, photo, format) {
@@ -203,25 +218,37 @@ function validatePhotos() {
 
 function validateDeployOutput() {
   const distDir = path.join(ROOT, 'dist');
-  if (!fs.existsSync(distDir)) return false;
+  assert(fs.existsSync(distDir), 'Deploy output missing: run npm run build:deploy');
 
   const cnamePath = path.join(distDir, 'CNAME');
-  if (!fs.existsSync(cnamePath)) return false;
+  assert(fs.existsSync(cnamePath), 'Deploy output missing CNAME');
 
   assert(fs.readFileSync(cnamePath, 'utf8').trim() === 'oliverdougherty.com', 'Deploy output CNAME has unexpected contents');
   assert(fs.existsSync(path.join(distDir, '.nojekyll')), 'Deploy output missing .nojekyll');
+  for (const page of REQUIRED_PAGES) assert(fs.existsSync(path.join(distDir, page)), `Deploy output missing page: ${page}`);
   assert(
     fs.existsSync(path.join(distDir, 'assets', 'utilities', 'fourier-decompose', 'Best Friends.flac')),
     'Deploy output missing Fourier built-in audio asset'
   );
 
-  const distUtilitiesWorkerDir = path.join(distDir, 'pages', 'utilities', 'assets', 'assets');
-  assert(fs.existsSync(distUtilitiesWorkerDir), 'Deploy output missing utilities worker asset directory');
-  const workerEntries = fs.readdirSync(distUtilitiesWorkerDir);
-  assert(
-    workerEntries.some((name) => /^audioFourier\.worker-.*\.js$/.test(name)),
-    'Deploy output missing Audio Fourier worker chunk'
-  );
+  validateRetainedUtilityAssets(distDir);
+  for (const excluded of [
+    'assets/utilities/vm/TinyCore-11.0.iso',
+    'assets/utilities/vm/flwm_topside.tcz',
+    'assets/utilities/vm/flwm_topside.tcz.md5.txt',
+    'assets/photos/descriptions.md',
+    'assets/project-motion',
+    'css/project-motion',
+    'css/project-motion.css',
+    'js/project-motion.js',
+    'js/keiri-motion.js',
+    'blogs',
+    'pages/archive',
+    'css/darkroom',
+    'js/darkroom'
+  ]) {
+    assert(!fs.existsSync(path.join(distDir, excluded)), `Deploy output contains retired or authoring-only path: ${excluded}`);
+  }
   return true;
 }
 
@@ -229,9 +256,11 @@ function main() {
   console.log('Smoke Script');
   console.log('='.repeat(60));
 
-  validatePages();
-  const photoCount = validatePhotos();
-  const deployOutputChecked = validateDeployOutput();
+  const deployOnly = process.argv.includes('--deploy-only');
+  const sourceOnly = process.argv.includes('--source-only');
+  if (!deployOnly) validatePages();
+  const photoCount = deployOnly ? 0 : validatePhotos();
+  const deployOutputChecked = sourceOnly ? false : validateDeployOutput();
   const verifiedPages = REQUIRED_PAGES.length;
 
   console.log(`Verified ${verifiedPages} critical pages.`);

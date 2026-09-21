@@ -50,21 +50,25 @@ function listen(server, port, host) {
   });
 }
 
-async function startLocalStaticServer({ url, cwd, skip = false, bindHost = '127.0.0.1' }) {
+async function startLocalStaticServer({ url, cwd, skip = false, bindHost = '127.0.0.1', cacheControl = 'no-cache' }) {
   if (skip || !isLocalBaseUrl(url)) {
     return null;
   }
 
   const requestedUrl = new URL(url);
   const listenHost = bindHost ?? requestedUrl.hostname;
-  const root = path.resolve(cwd);
+  const root = path.resolve(process.env.STATIC_ROOT || cwd);
+  if (process.env.REQUIRE_DEPLOY_ARTIFACT) {
+    const marker = JSON.parse(fs.readFileSync(path.join(root, 'release-artifact.json'), 'utf8'));
+    if (marker.kind !== 'oliverdougherty-deploy') throw new Error('Not a deploy artifact');
+  }
   const server = http.createServer((request, response) => {
     const requestUrl = new URL(request.url || '/', requestedUrl.origin);
     const decodedPath = decodeURIComponent(requestUrl.pathname);
     const normalizedPath = path.normalize(decodedPath).replace(/^[/\\]+/, '');
     let filePath = path.join(root, normalizedPath);
 
-    if (!filePath.startsWith(root)) {
+    if (filePath !== root && !filePath.startsWith(root + path.sep)) {
       response.writeHead(403);
       response.end('Forbidden');
       return;
@@ -77,14 +81,16 @@ async function startLocalStaticServer({ url, cwd, skip = false, bindHost = '127.
       }
 
       if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-        response.writeHead(404);
-        response.end('Not found');
+        const notFoundPage = path.join(root, '404.html');
+        response.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+        if (fs.existsSync(notFoundPage)) fs.createReadStream(notFoundPage).pipe(response);
+        else response.end('Not found');
         return;
       }
 
       response.writeHead(200, {
         'Content-Type': CONTENT_TYPES.get(path.extname(filePath).toLowerCase()) || 'application/octet-stream',
-        'Cache-Control': 'no-store'
+        'Cache-Control': cacheControl
       });
       fs.createReadStream(filePath).pipe(response);
     } catch (_error) {
@@ -115,6 +121,7 @@ async function startLocalStaticServer({ url, cwd, skip = false, bindHost = '127.
   return {
     url: requestedUrl.toString().replace(/\/$/, ''),
     kill() {
+      server.closeAllConnections();
       server.close();
     }
   };

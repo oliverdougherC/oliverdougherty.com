@@ -1,6 +1,5 @@
 import { getPreset } from './presets';
 import { transformPreparedImages } from './transformCore';
-import type { MatchingWorkerLike } from './parallelMatcher';
 import type { PreparedImageData, PreparedImageTransfer, TransformMetadata } from './types';
 import type { WorkerRequest, WorkerResponse } from './workerTypes';
 import { arrayBufferLikeToArrayBuffer, sliceArrayBufferView } from './bufferUtils';
@@ -53,10 +52,6 @@ export function createWorkerRequestHandler(options: {
     maxDimension: number
   ) => Promise<PreparedBitmapResult>;
   postMessage: (message: WorkerResponse, transfer?: Transferable[]) => void;
-  createMatchingWorker?: () => MatchingWorkerLike;
-  hardwareConcurrency?: number;
-  supportsNestedWorkers?: boolean;
-  experimentalParallelEnabled?: boolean;
 }) {
   const cancelled = new Set<number>();
 

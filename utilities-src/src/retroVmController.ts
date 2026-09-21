@@ -7,7 +7,7 @@ import {
 } from './retroVmConfig';
 import { detectRetroVmSupport, resolveRetroVmStatusView, transitionRetroVmState } from './retroVmSupport';
 import type { RetroVmConfig, RetroVmDatasetConfig, RetroVmProgress, RetroVmState } from './retroVmTypes';
-import type { V86, V86DownloadProgress } from 'v86';
+import type { V86DownloadProgress } from 'v86';
 import v86WasmUrl from 'v86/build/v86.wasm?url';
 
 // The second key press lands after SeaBIOS hands off to the Tiny Core boot prompt.

@@ -55,15 +55,13 @@ async function captureMobile(browser) {
   await clearStoredTheme(context);
   const page = await context.newPage();
 
-  await page.goto(targetUrl, { waitUntil: 'networkidle' });
-  await waitForGalleryReady(page);
-
+  const mobileUrl = new URL('../../mobile/gallery/', targetUrl);
+  await page.goto(mobileUrl.href, { waitUntil: 'networkidle' });
+  await page.waitForSelector('#mobileGalleryGrid img[data-entry-index]');
   await page.screenshot({ path: path.join(OUTPUT_DIR, 'gallery-mobile-full.png'), fullPage: true });
 
-  await page.locator('#galleryArchiveGrid .photo-card .photo-card-button').first().click();
-  await page.waitForTimeout(220);
-  await page.click('#lightboxInfoToggle');
-  await page.waitForTimeout(180);
+  await page.locator('#mobileGalleryGrid img[data-entry-index]').first().click();
+  await page.locator('#mobileLightbox').waitFor({ state: 'visible' });
   await page.screenshot({ path: path.join(OUTPUT_DIR, 'gallery-mobile-lightbox.png') });
 
   await context.close();

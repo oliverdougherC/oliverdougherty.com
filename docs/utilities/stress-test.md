@@ -1,178 +1,116 @@
 # Stress Test
 
-## Overview
+The utility runs sustained CPU prime searches and an interactive GPU sculpture, separately or together. Start explicitly begins the workload; Stop, leaving the utility, hiding the page, or disposing the controller ends it.
 
-The Stress Test utility saturates the browser's CPU and/or GPU to measure thermal and performance behavior. It runs continuous computational workloads in Web Workers (CPU) and GPU shaders (GPU), reporting real-time metrics like FPS, dropped frames, worker count, and iteration counts.
+## CPU prime search
 
-Users can select CPU-only, GPU-only, or combined stress modes.
+One module worker is created per browser-reported logical processor, with no fixed
+64-worker production cap. The browser may report fewer logical processors than the
+machine has. The explicit `window.__OD_STRESS_TEST_MAX_WORKERS__` override is reserved
+for bounded browser tests.
 
-## Architecture
+Each worker runs an odd-only segmented sieve of Eratosthenes using a reused 32 KiB
+marking buffer. Base primes are cached and extended geometrically with a separate
+segmented sieve. There is no repeated trial division or artificial CPU busy work.
+The search starts at 1 (rejected); prime 2 is included exactly once. A main-thread
+allocator issues disjoint, consecutive blocks of 64 segments. Workers prefetch four
+blocks and request a refill with two or fewer left, so fast cores receive more useful
+work without exhausting their queues during the communication round trip. No
+SharedArrayBuffer or cross-origin isolation is required by this static site.
 
-```
-Main thread (StressTestController)
-  |
-  +-- stressTest.worker.ts (Web Workers, xN for CPU)
-  |
-  +-- WebGPU / WebGL2 / WebGL1 (GPU canvas rendering)
-```
+Workers yield through MessageChannel after approximately 8ms of useful computation;
+there is no timer sleep between chunks. Cumulative heartbeats are throttled to about
+140ms. Supply IDs, run IDs, worker IDs and block bounds reject duplicate, stale and
+out-of-order messages. Main-thread work is bounded by worker/refill counts, not by
+searched integers; diagnostic DOM updates occur in the throttled metric loop.
 
-- **Controller** (`stressTestController.ts`): `StressTestController` manages start/stop, mode selection, worker lifecycle, GPU stress coordination, and metric reporting.
-- **CPU workers** (`stressTest.worker.ts`): Each worker runs a tight loop of math operations, sending heartbeats with iteration counts.
-- **GPU stress** (`stressTestGpu.ts`): Adaptive GPU workload that scales based on frame timing. Supports WebGPU compute shaders, WebGL2 fragment shaders, and WebGL1 fragment shaders.
+The large display is the largest actual prime reported. It is not a claim that every
+smaller block has completed yet. Candidates tested counts odd sieve candidates plus
+2, while the found count reports actual primes; there are no fabricated/interpolated
+results. Stop preserves the result, and a new run resets it. Allocation stops at the
+safe-integer boundary. Worker bars report relative completed candidate throughput,
+not OS utilization.
 
-## CPU Stress
+### Local performance check
 
-### Worker workload
+Run `node scripts/stress-prime-bench.js` from the repository root. This compares the
+previous production trial-division algorithm with the current sieve over 1–10,000,000
+in the same Node/V8 realm. Both must produce 664,579 primes and largest prime 9,999,991.
+Each sieve sample starts with an empty base-prime cache. Three warmed samples are
+recorded in `output/stress-bench/prime-comparison.json`. The measured local medians
+were approximately 419ms versus 10.5ms (40×), single-thread algorithm time only; worker
+startup, browser messaging and whole-machine utilization are excluded.
 
-Each CPU worker (`stressTest.worker.ts`) runs a continuous loop:
+The algorithm follows the standard [cache-sized segmented sieve approach](https://github.com/kimwalisch/primesieve/blob/master/doc/ALGORITHMS.md), without adding a dependency.
 
-```javascript
-checksum = Math.sin(checksum + iterations) * Math.cos(checksum * 1.000001) + Math.sqrt(Math.abs(checksum) + 1);
-checksum = ((checksum % 1) + 1) % 1;
-iterations += 1;
-```
+## Presentation
 
-Workers run in **90ms chunks** to avoid fully blocking the event loop. After each chunk, they yield via a `MessageChannel` post (cooperative scheduling), then resume.
+The output uses the same white/paper surface and violet accents as the workbench.
+The CPU result is right-aligned, black, weight-800 JetBrains Mono. Its right edge
+stays fixed as digits change; container dimensions and digit count determine a
+large font size that still fits short windows. CPU-only mode gives it the output
+width. Combined mode puts the GPU scene on the left and the prime result on the
+right, separated by a fine rule. Worker bars are actual activity readings rather
+than decorative light trails. No explanatory tooltips are added.
 
-### Heartbeat protocol
+## GPU scene and workload
 
-Every 250ms, workers send a `cpu-stress-heartbeat` message with:
-- `iterations`: cumulative iteration count
-- `checksum`: current checksum value (prevents compiler optimization)
-- `requestId`: matches the active stress session
-- `workerIndex`: identifies which worker
+The GPU renders a lit, raymarched lattice in violet and graphite on a light background. The scene geometry, raymarching, adaptive load and compute workload are preserved across the WGSL and GLSL palette changes. Move the pointer over the scene to orbit it, or focus the orbit button and use arrow keys; Home resets the view. Reduced-motion preferences freeze automatic motion while the workload continues.
 
-The controller aggregates iterations across all workers and displays the total.
+There is no intensity selector. Start always runs the sustained-load pipeline.
+The engine requests a high-performance adapter and tries WebGPU, WebGL2, then WebGL1.
+A browser chooses the adapter; this does not enumerate or load every installed GPU.
+Backend setup failures use a fresh canvas before attempting another context type.
 
-### Worker count
+WebGPU combines rendering with storage-buffer compute, with distinct invocations
+owning distinct entries. It starts at 1,024 workgroups and maintains up to two batches
+in flight, replenishing directly from actual queue-completion callbacks without a
+refresh-rate or completion-to-timer gap. Batch sizing adapts from completed queue
+latency to keep work continuous and bounded. This is scheduling feedback, not a GPU
+utilization measurement. Memory, dispatch sizes and work in flight remain bounded
+by device limits and workload limits. While a GPU backend is starting or rendering,
+it owns the canvas backing store exclusively: the controller's resize observer and
+window-resize handler never write its dimensions, and the backend only resizes after
+its queued batches drain. Ownership returns to the controller on stop, fallback, or
+failure.
 
-`resolveCpuWorkerCount()` in `stressTestCore.ts`:
-- Uses `navigator.hardwareConcurrency` as the base
-- Capped at `MAX_CPU_WORKERS = 64`
-- Can be overridden via `window.__OD_STRESS_TEST_MAX_WORKERS__` (debug hook)
+WebGL2 similarly keeps up to two asynchronously fenced batches in flight. WebGL1
+has no asynchronous fence: it completes a batch with `finish()` and schedules the
+next through MessageChannel, avoiding a refresh-rate cap or nested-timer delay.
+Reduced motion freezes the sculpture's movement without reducing the compute load.
+Stopping, hiding, navigating away, loss, errors and cancellation release resources
+and prevent further submissions. Device loss or an async error that arrives before
+the factory hands back its handle aborts that startup instead of being installed
+and reported as running: GPU-only mode ends in an honest error state with the
+failure message, and combined mode keeps the CPU workers running with the failure
+reported in the status line. No CPU busy loop supplements GPU-only mode.
 
-## GPU Stress
+Adapter and workload information appears in the scene footer. The six readings below it report elapsed time, active CPU workers, GPU backend, render-callback rate, callback gaps, and tested CPU candidates. The rate card is labeled by its actual source: `GPU batches/s` while a GPU backend is installed, `Visual callbacks/s` for the CPU visual frames. The `Gaps >34 ms` card counts callback gaps over that explicit threshold, independently of display refresh rate. Rate and gap samples restart when the source switches between GPU and CPU visuals; rates use callbacks per second since that source began, with a one-second minimum sampling window. These are not measurements of dropped display presentations, and neither rate nor gaps is a GPU benchmark, utilization, or power measurement. Worker bars, primes, and candidate counts remain tied to actual worker messages.
 
-### Backend selection
+## Limits
 
-`startAdaptiveGpuStress()` tries backends in priority order:
+A browser cannot guarantee 100% CPU utilization, select every installed GPU, or set/read GPU board power. A 600 W draw on a particular card must be verified with external hardware monitoring on that machine. Thermal throttling, browser scheduling, power settings, and competing applications affect results. This tool does not change GPU power limits or overclock settings.
 
-| Backend | Type | Description |
-|---------|------|-------------|
-| `webgpu-compute` | WebGPU | Compute shader + fragment shader rendering |
-| `webgl2-fragment` | WebGL2 | Fragment shader with main-thread compute bursts |
-| `webgl1-fragment` | WebGL1 | Fragment shader fallback |
+## Implementation
 
-If no backend is available, GPU stress fails gracefully.
+| File | Responsibility |
+|------|----------------|
+| `utilities-src/src/stressTestController.ts` | Session lifecycle, UI, counters, worker aggregation, interaction |
+| `utilities-src/src/stressTest.worker.ts` | Sustained CPU work and heartbeat scheduling |
+| `utilities-src/src/stressTestPrimes.ts` | Reusable segmented sieve and cached base primes |
+| `utilities-src/src/stressTestPrimeScheduler.ts` | Consecutive block allocation and bounded prefetch |
+| `utilities-src/src/stressTestWorkerTypes.ts` | Worker messages |
+| `utilities-src/src/stressTestGpu.ts` | GPU backends, adaptive scaling, resource lifecycle |
+| `utilities-src/src/stressTestGpuShaders.ts` | Shared scene design in WGSL and GLSL; compute shader |
+| `utilities-src/src/stressTestCore.ts` | Mode/state helpers and worker count |
+| `pages/utilities/index.html`, `css/utilities.css` | Workbench display and responsive layout |
 
-### WebGPU compute shader
+Run `npm run utilities:check`, `npm run utilities:build`, and `node scripts/stress-test-check.js` (Chrome by default; override with `STRESS_BROWSER_CHANNEL`) after changing these files. Test shader compilation and stop/restart on actual browser GPU backends; mocks alone cannot validate shaders or hardware load.
 
-The compute shader (`stressTestGpu.ts`) runs 256-workgroup-size threads that:
-1. Read from a 262,144-element f32 storage buffer
-2. Perform 256 iterations of `sin * cos + sqrt` operations per thread
-3. Write results back as `fract(value)`
+Browser capability references: [reported logical processors](https://developer.mozilla.org/en-US/docs/Web/API/Navigator/hardwareConcurrency) and [GPU adapter selection](https://developer.mozilla.org/en-US/docs/Web/API/GPU/requestAdapter).
 
-A separate render pipeline draws a shader-generated fractal visualization using a fragment shader with 128 iterations of trigonometric operations.
+The legacy `data-stress-total-rendered-frames` diagnostic counts all render callbacks in a run, including GPU batch completions. It is not a count of displayed frames. The visible rate and gap counters use only the current source phase.
 
-### WebGL fragment shaders
+Detected software GL adapters (including SwiftShader) use a 512-pixel dimension ceiling and one shader pass per batch. This keeps sustained real shader work from starving the shared CPU/compositor and Stop control. Hardware adapters retain the existing adaptive supersampling and pass limits.
 
-For WebGL1/WebGL2, the GPU stress uses a fragment shader that renders a fullscreen triangle with compute-heavy pixel operations. The main thread performs additional JavaScript compute bursts (capped at 18ms) to supplement the GPU workload.
-
-### Adaptive scaling
-
-`AdaptiveGpuWorkScaler` dynamically adjusts the workload level:
-
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| `initialLevel` | 2048 | Starting workload level |
-| `fastMs` | 12ms | Threshold for "fast" completion |
-| `slowMs` | 120ms | Threshold for "slow" completion |
-| `aggressiveGrowthMultiplier` | 1.75x | Growth when consistently fast |
-| `steadyGrowthMultiplier` | 1.3x | Growth for normal completion |
-| `slowBackoffMultiplier` | 0.78x | Reduction when slow |
-| `errorBackoffMultiplier` | 0.35x | Reduction on errors |
-
-The scaler tracks completion times:
-- If a frame completes in < 12ms, it counts as "fast". After enough fast samples, the level grows aggressively.
-- If a frame takes > 120ms, the level is reduced by the slow backoff multiplier.
-- Normal completions get steady growth.
-- GPU errors trigger aggressive backoff.
-
-## Stress Modes
-
-| Mode | CPU workers | GPU stress |
-|------|-----------|------------|
-| `cpu` | Yes | No |
-| `gpu` | No | Yes |
-| `both` | Yes | Yes |
-
-Mode can only be changed when the stress test is idle (not running or starting).
-
-## State Machine
-
-From `transitionStressState()` in `stressTestCore.ts`:
-
-```
-idle --start--> starting --running--> running
-running --stop--> stopping --stopped--> idle
-starting/running --error--> error
-starting/running --unsupported--> unsupported
-error/unsupported --retry--> starting
-```
-
-## Metrics
-
-The controller reports these metrics every 250ms:
-
-| Metric | Source |
-|--------|--------|
-| Elapsed | Time since start |
-| Workers | Active CPU worker count |
-| GPU | Active GPU backend (or "none") |
-| FPS | Frames per second from GPU render loop |
-| Dropped | Frames dropped by the GPU |
-| CPU iterations | Aggregated iteration count from all workers |
-
-Metric visibility adapts to viewport height — less relevant metrics are hidden first when space is constrained. The hide order differs per mode:
-- CPU mode: hides GPU-related metrics first
-- GPU mode: hides CPU-related metrics first
-- Both mode: hides dropped frames first
-
-## Visual feedback
-
-### CPU-only mode
-
-When only CPU stress is active (no GPU backend), the controller draws a **thermal node visualization** on the canvas — 42 animated circles that pulse based on CPU load.
-
-### GPU mode
-
-The GPU stress shader renders its own visualization (fractal patterns for WebGPU, shader patterns for WebGL).
-
-### Idle state
-
-A simple idle screen is drawn when no stress is active.
-
-## Cleanup and safety
-
-- Stress automatically stops when the utility tab is deactivated
-- Stress stops on page hide
-- `prefers-reduced-motion` stops CPU visuals but not the workload itself
-- Workers are terminated (not gracefully stopped) on shutdown
-- GPU contexts are lost on shutdown with `loseContext: true`
-- All animation frames and timers are cancelled on dispose
-
-## File Reference
-
-| File | Purpose |
-|------|---------|
-| `stressTestController.ts` | Main controller: start/stop, mode, workers, GPU coordination, metrics |
-| `stressTestCore.ts` | State machine, worker count resolution, GPU backend detection, time formatting |
-| `stressTestGpu.ts` | GPU stress backends (WebGPU/WebGL2/WebGL1), adaptive workload scaler |
-| `stressTest.worker.ts` | CPU stress worker: math loop, heartbeat protocol |
-| `stressTestWorkerTypes.ts` | Worker message type definitions |
-
-## Requirements
-
-- **Web Workers**: Required for CPU stress (module workers specifically)
-- **WebGPU / WebGL2 / WebGL1**: At least one required for GPU stress
-- **GPU memory**: WebGPU compute uses a 1MB storage buffer + render pipeline resources
+WebGL 1 yields through a timer between completed batches instead of a self-posting MessageChannel. Software GL gets a 16ms scheduling gap so compositor/input tasks can run; hardware WebGL 2 retains its fenced queue and 1ms completion polling. Stop cancels scheduled work.

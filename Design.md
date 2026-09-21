@@ -1,53 +1,80 @@
-# Design System
+# Site design
 
-This document outlines the design principles, color palette, and typography for the site. Whether you are a human contributor or an AI agent, please adhere to these guidelines to maintain a consistent aesthetic.
+This document describes the current site. Future visual changes are agreed page by page;
+there is no pending site-wide redesign mandate.
 
-## Philosophy
-The site follows a **dark, refined aesthetic** with per-page theme variations. Design is functional and structured, with color used for emphasis and identity per section. A global light mode toggle is supported across most pages (utilities page forces dark mode).
+## Current direction
 
-## Color Palette
+The homepage opens with a binary rendition of Edward Hopper’s Nighthawks on black,
+followed by a casual “hi.” introduction. The art is a complete composition: keep its
+aspect ratio, preserve the black backdrop, and cap its size so it remains deliberate
+on wide screens. The painting is actual text, colored through its glyphs; its title
+and artist are white characters within the same grid. Keep that quiet integration
+instead of adding a caption strip. A raster fallback preserves the composition when
+JavaScript or the required font/color map is unavailable. The same art and introduction
+are present on the dedicated mobile homepage.
 
-The site is built on a dark base with warm parchment tones for text. Each page has its own accent color and theme variations.
+Below the art, Home retains the white schematic vocabulary shared with Gallery and
+Resume: black type, thin rules, generous spacing, and small per-page accents.
+JetBrains Mono supplies the main voice, with Inter for supporting interface text.
+The blackout flashlight, OSU surprise, and gallery photo presentation remain intentional
+interactions. A sticky black header anchors both homepage routes, with a text-based
+dark-mode action in the desktop navigation. The introduction puts personal facts in
+prose, including an accessible OSU cheer button and a hidden easter egg on the desktop home: hovering the word “excursions” plays a short, non-looping audio excerpt with a smooth fade in and out. Four selected projects introduce Oliver’s interests through a name, hook, personal prose, and descriptive repository link. Each entry spans a full row, with a narrower title column and a wider reading column; on phones the title sits above the writing. Thin rules and generous spacing provide rhythm. Project artwork and animations are retired.
+The closing returns to black with
+“say hi back.”, a prominent email address, and copy feedback.
+The former oversized name, particle wordmark, diamond divider, and profile-stat boxes
+are retired.
 
-### Base Colors (Dark Mode Default)
-| Role | Hex |
-| :--- | :--- |
-| Background Primary | `#0a0c0a` |
-| Background Secondary | `#10130f` |
-| Surface | `#141812` |
-| Text Primary | `#f5f0e8` |
-| Text Secondary | `#a8a090` |
-| Accent (default) | `#173B34` (forest green) |
+| Page | Accent | Main stylesheet |
+| --- | --- | --- |
+| Home | Orange `#FF6700` | `css/home.css`, `css/schematic.css` |
+| Gallery | Blue `#004BA8` | `css/gallery.css` |
+| Resume | Green `#2BA84A` | `css/resume.css` |
+| Utilities | Violet `#7050C0` | `css/utilities.css` |
 
-### Per-Page Themes
+Utilities is a desktop-only curiosity-driven workbench. It shares white surfaces, black
+type, thin rules, and deliberate alignment with the other pages. The index retains
+the bold JetBrains Mono identity. Inside each utility, compact Inter typography serves
+controls and labels; monospace is reserved for numerical readouts. Every active utility
+is a viewport-sized control panel with no page or internal scrolling. Use a compact
+header and adapt each tool’s arrangement to fit: image input rail, horizontal audio
+rack, stress control strip and bottom telemetry. Output expands to the remaining space.
+Use double slashes for numbered labels (`01 // Name`). Image Transform’s sidebar
+allocates spare height to source/target frames while settings stay anchored below.
+Thumbnail images always fill their own frame width and remain vertically centered;
+height changes crop them, while narrower side-by-side frames reduce image size.
+The image animation has a playback-linked scrubber that stays paused after seeking.
+Violet marks active controls and selections. The numbered, name-only index opens
+individual workspaces with a consistent heading, switcher, and return to the index.
+No descriptions, tutorials, or tooltips advertise or explain each experiment; clear
+control labels, visible state changes, and reset actions support discovery by doing.
+Real outputs and useful measurements supply the engineering character. Avoid fake
+telemetry, decorative equations, blanket blueprint grids, glass, and ambient backgrounds.
 
-| Page | Theme Accent | Hex |
-| :--- | :--- | :--- |
-| **Landing** | Pumpkin Spice | `#FF6700` |
-| **Gallery** | Blue | `#004BA8` |
-| **Resume** | Green | `#2BA84A` |
-| **Utilities** | Pure White | `#ffffff` |
+Image Transform, Fourier Reconstruction, and Stress Test retain their existing engines.
+Reuse shared controls and lifecycle behavior while allowing each tool to arrange its
+own workspace. Stress Test presents the largest actual prime in oversized, right-anchored black
+JetBrains Mono, beginning its search at 1. The GPU sculpture uses violet/graphite
+on the light workbench surface; combined mode separates sculpture and number.
+Start uses all browser-reported CPU threads and sustained GPU loading. There is no
+GPU intensity selector; do not present unmeasured utilization or power percentages.
+The Virtual Machine implementation and assets remain preserved but
+hidden. The old Local Assistant implementation is removed; any return starts fresh.
+See `docs/utilities/adding-a-utility.md` for the implementation contract.
 
-### Light Mode
-A global light mode (`[data-color-mode="light"]`) overrides most themes with warm parchment backgrounds (`#f3f0e7`) and darker accent tones. The utilities page forces dark mode via CSS-only: its theme block provides no light-mode overrides, so switching to light mode has no visual effect on the utilities page.
+The mobile site has separate Home, Resume, and Gallery pages styled by `css/mobile.css`
+and `css/mobile-gallery.css`. Maintain these until a responsive consolidation is explicitly
+agreed.
 
-## Typography
+## Working rules
 
-We utilize a serif/mono/sans-serif hierarchy.
-
-### Font Stack
-* **Display:** `Instrument Serif`, Georgia, serif
-    * *Usage:* Primary display headings, hero text.
-* **Body / Interface:** `Inter`, system sans-serif
-    * *Usage:* Navigation labels, body text, UI labels, headings.
-* **Mono:** `JetBrains Mono`, Fira Code, monospace
-    * *Usage:* Code, technical content, utilities page display font.
-
-### Font Sizes
-Fluid typography using `clamp()` from `--text-xs` (0.75rem) to `--text-6xl` (4–6.5rem), plus agency-scale `--text-hero` and `--text-hero-lg`.
-
-### Font Weights
-Light (300), Normal (400), Medium (500), Semibold (600), Bold (700).
-
----
-*Note: This design system is currently under active development. If you are modifying CSS or UI components, ensure your changes respect the hierarchy and constraints outlined above. The canonical tokens live in `css/design-system.css`.*
+- Start from each page's actual markup and stylesheet. `css/design-system.css` provides
+  shared defaults, some of which are overridden by page styles; it is not a redesign brief.
+- Preserve existing appearance and behavior during cleanup. Agree visible changes as part
+  of the page being reviewed.
+- Reuse existing styles and assets before adding new patterns or dependencies.
+- Keep text readable, controls keyboard-accessible, and motion compatible with reduced-motion
+  preferences. Check both desktop and the dedicated mobile pages when shared styles change.
+- Keep photo originals, generated variants, metadata, and attribution files. They support
+  the gallery's build and runtime behavior.

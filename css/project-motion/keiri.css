@@ -1,0 +1,68 @@
+/* Thirty-six equally possible pairs become one observed roll. */
+.keiri-rosette { display: block; width: 500px; height: 320px; }
+.keiri-ground { fill: #111511; }
+.keiri-field, .keiri-ring { transform-origin: 250px 160px; }
+.keiri-pair { fill: #eeebdd; opacity: .78; }
+.keiri-core { fill: #eeebdd; }
+.keiri-observed { fill: #ff7426; opacity: 0; transform: translate(310px,160px) scale(2); }
+.keiri-orbit { fill: none; stroke: #ff7426; stroke-width: 1; stroke-dasharray: 19 660; stroke-linecap: round; opacity: .85; }
+.keiri-current { transform-origin: 250px 160px; transform: rotate(-84deg); }
+[data-motion='keiri'][data-running] .keiri-clock { animation: keiri-rosette-clock 18s linear infinite; }
+[data-motion='keiri'][data-running] .keiri-field { animation: keiri-rosette-field 18s cubic-bezier(.77,0,.175,1) infinite; }
+[data-motion='keiri'][data-running] .keiri-ring-0 { animation: keiri-rosette-outer 18s cubic-bezier(.77,0,.175,1) infinite; }
+[data-motion='keiri'][data-running] .keiri-ring-1 { animation: keiri-rosette-inner 18s cubic-bezier(.77,0,.175,1) infinite, keiri-rosette-recede 18s cubic-bezier(.77,0,.175,1) infinite; }
+[data-motion='keiri'][data-running] .keiri-current { animation: keiri-rosette-current 18s cubic-bezier(.77,0,.175,1) infinite; }
+[data-motion='keiri'][data-running] .keiri-core { animation: keiri-rosette-core 18s cubic-bezier(.77,0,.175,1) infinite; }
+[data-motion='keiri'][data-running] .keiri-observed { animation: keiri-rosette-observed 18s cubic-bezier(.77,0,.175,1) infinite; }
+[data-motion='keiri'][data-running] .keiri-observed-a { animation: keiri-rosette-pair-a 18s cubic-bezier(.77,0,.175,1) infinite; }
+[data-motion='keiri'][data-running] .keiri-observed-b { animation: keiri-rosette-pair-b 18s cubic-bezier(.77,0,.175,1) infinite; }
+@keyframes keiri-rosette-clock { 0%,100% { opacity: 0; } }
+@keyframes keiri-rosette-current {
+  0%,4% { opacity: 0; transform: rotate(-84deg); }
+  9% { opacity: 1; }
+  32% { opacity: 1; transform: rotate(456deg); }
+  38%,100% { opacity: 0; transform: rotate(636deg); }
+}
+@keyframes keiri-rosette-field {
+  0%,32% { opacity: 1; transform: scale(1) rotate(0deg); }
+  40% { opacity: .75; transform: scale(1) rotate(0deg); }
+  53%,73% { opacity: .35; transform: scale(1.035) rotate(0deg); }
+  89%,100% { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+@keyframes keiri-rosette-core {
+  0% { opacity: 0; transform: translateX(0); }
+  6%,39% { opacity: 1; transform: translateX(0); }
+  54%,73% { opacity: 1; transform: translateX(-40px); }
+  82% { opacity: 0; transform: translateX(-40px); }
+  91%,100% { opacity: 0; transform: translateX(0); }
+}
+@keyframes keiri-rosette-observed {
+  0%,31% { opacity: 0; transform: translate(var(--observed-x),var(--observed-y)) rotate(var(--observed-angle)) scale(1); }
+  35%,40% { opacity: 1; transform: translate(var(--observed-x),var(--observed-y)) rotate(var(--observed-angle)) scale(1); }
+  54%,73% { opacity: 1; transform: translate(310px,160px) rotate(0deg) scale(2); }
+  82%,100% { opacity: 0; transform: translate(310px,160px) rotate(0deg) scale(2); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-motion='keiri'] .keiri-rosette * { animation: none !important; }
+}
+
+@keyframes keiri-rosette-outer {
+  0%,6%,94%,100% { transform: rotate(0deg); }
+  31%,76% { transform: rotate(20deg); }
+}
+@keyframes keiri-rosette-inner {
+  0%,6%,94%,100% { transform: rotate(0deg); }
+  31%,76% { transform: rotate(-20deg); }
+}
+
+@keyframes keiri-rosette-pair-a {
+  0%,40% { transform: translateX(-7.5px); }
+  54%,100% { transform: translateX(-10px); }
+}
+@keyframes keiri-rosette-pair-b {
+  0%,40% { transform: translateX(7.5px); }
+  54%,100% { transform: translateX(10px); }
+}
+
+/* Clear the space behind the resolved hand; preserve the outer possibility field. */
+@keyframes keiri-rosette-recede { 0%,40%,94%,100% { opacity: 1; } 54%,73% { opacity: .08; } }

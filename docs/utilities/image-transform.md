@@ -12,13 +12,10 @@ The result is a fluid reconstruction animation where the source image dissolves 
 Main thread (UtilitiesApp)
   |
   +-- transform.worker.ts (Web Worker)
-        |
-        +-- matching.worker.ts (nested Web Worker, experimental)
 ```
 
 - **Main thread** (`main.ts`): `UtilitiesApp` class handles all UI interactions, file selection, demo loading, progress reporting, and canvas rendering.
 - **Transform worker** (`transform.worker.ts`): Receives `ImageBitmap` objects, decodes and scales them, then runs the full matching pipeline. Communicates via structured clone / transferable ArrayBuffers.
-- **Matching worker** (`matching.worker.ts`): Nested worker for parallel ranking (experimental, currently disabled).
 
 ## Pipeline
 
@@ -100,6 +97,26 @@ distance = ((512 + redMean) * deltaR^2) / 256 + 4 * deltaG^2 + ((767 - redMean) 
 - **Final pixels** are computed by mixing source and target colors using the tint strength.
 - **Cheated target pixels** flag which target positions received a tint > 0.08 (i.e., needed color correction).
 
+## Control panel and playback
+
+The source and target frames share the sidebar height left after settings and presets.
+Settings stay anchored at the bottom. At very short desktop heights (560px and below),
+the two inputs sit side by side. Each image fills its own frame's width and remains square and vertically centered.
+A shorter frame crops vertically without changing image scale; switching to the
+side-by-side layout reduces image size to match the narrower frame. Labels and Choose controls remain visible and unclipped.
+
+After generation, playback starts automatically and advances `#transformTimeline`.
+The native range uses 0–1000 to select animation phase, with a percentage readout.
+Pointer-down pauses immediately; dragging or keyboard changes render the selected
+frame in either direction. Releasing the input never resumes automatically. Resume
+continues from that position; at 100%, Replay starts again. Reset or invalidating a
+result disables and resets the range. Reduced-motion generation shows the final frame
+immediately; manual seeking and an explicit Play action remain available.
+
+The same deterministic renderer is used for automatic playback and seeking. Each
+render resets its scratch buffers, so visiting a phase produces the same pixels
+regardless of the order in which frames were visited.
+
 ## Animation System
 
 The animation (`transformAnimation.ts`) interpolates each source pixel from its original position to its assigned target position:
@@ -147,17 +164,6 @@ Precomputed transform data is stored as base64-encoded JSON files in `src/data/p
 
 When a demo pair is selected and generated, the system first checks the cache. If a precomputed transform exists for that preset/demo combination, it loads instantly. Otherwise it computes and caches the result.
 
-## Parallel Matcher (Experimental)
-
-`parallelMatcher.ts` implements a parallel ranking system that splits target pixels across multiple nested Web Workers. Currently **disabled** (`EXPERIMENTAL_PARALLEL_MATCHER_ENABLED = false`).
-
-Requirements for activation:
-- Pixel count >= 160,000 (512x512 qualifies)
-- At least 4 workers available (`hardwareConcurrency - 1`, max 8)
-- Browser supports nested Web Workers
-
-When active, it splits the target order into chunks, ranks candidates in parallel workers, then merges results on the main worker.
-
 ## File Reference
 
 | File | Purpose |
@@ -169,9 +175,6 @@ When active, it splits the target order into chunks, ranks candidates in paralle
 | `transformRenderPlan.ts` | Final pixel computation, tint strength calculation |
 | `transformCache.ts` | Serialization/deserialization of precomputed transforms, in-memory cache |
 | `transform.worker.ts` | Web Worker entry — bitmap decoding, pipeline orchestration |
-| `matching.worker.ts` | Nested worker for parallel candidate ranking |
-| `matchingWorkerLogic.ts` | Ranking logic extracted for worker reuse |
-| `parallelMatcher.ts` | Parallel matching orchestration (experimental) |
 | `workerRuntime.ts` | Shared worker request handler with bitmap preparation and cancellation |
 | `workerTypes.ts` | Worker message type definitions |
 | `presets.ts` | Fast/Balanced/Detailed preset definitions |

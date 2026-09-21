@@ -1,5 +1,17 @@
 import { clamp } from './math';
 
+const WAVE_COLOR_ORIGINAL_FILL = 'rgba(17, 17, 17, 0.08)';
+const WAVE_COLOR_ORIGINAL_STROKE = 'rgba(17, 17, 17, 0.25)';
+const WAVE_COLOR_RECONSTRUCTED_FILL = 'rgba(112, 80, 192, 0.15)';
+const WAVE_COLOR_RECONSTRUCTED_STROKE = 'rgba(112, 80, 192, 0.95)';
+const WAVE_COLOR_PLAYHEAD = 'rgba(17, 17, 17, 0.95)';
+const WAVE_COLOR_PLAYHEAD_GLOW = 'rgba(17, 17, 17, 0)';
+const WAVE_GL_ORIGINAL: [number, number, number, number] = [0.07, 0.07, 0.07, 0.18];
+const WAVE_GL_RECONSTRUCTED_UNDERLAY: [number, number, number, number] = [0.44, 0.31, 0.75, 0.12];
+const WAVE_GL_RECONSTRUCTED: [number, number, number, number] = [0.44, 0.31, 0.75, 0.85];
+const WAVE_GL_PLAYHEAD_LIVE: [number, number, number, number] = [0.07, 0.07, 0.07, 0.9];
+const WAVE_GL_PLAYHEAD: [number, number, number, number] = [0.07, 0.07, 0.07, 1];
+
 export interface AudioWaveEnvelopeData {
   originalAmplitudes: Float32Array;
   reconstructedAmplitudes: Float32Array;
@@ -81,11 +93,17 @@ export function resolveAudioWaveBucketX(
 
 function resizeCanvasToDisplaySize(canvas: HTMLCanvasElement, maxBackingPixels: number, minScale: number) {
   const rect = canvas.getBoundingClientRect();
-  const cssWidth = rect.width || canvas.clientWidth || canvas.width;
-  const cssHeight = rect.height || canvas.clientHeight || canvas.height;
-  const scale = resolveAudioWaveCanvasScale(cssWidth, cssHeight, window.devicePixelRatio || 1, maxBackingPixels, minScale);
-  const width = Math.max(1, Math.round(cssWidth * scale));
-  const height = Math.max(1, Math.round(cssHeight * scale));
+  const cssWidth = rect.width;
+  const cssHeight = rect.height;
+  if (!(cssWidth > 0 && cssHeight > 0) || !Number.isFinite(cssWidth + cssHeight)) return false;
+  // Preserve the renderer's quality policy, with hard resource limits taking
+  // precedence over its minimum scale for unusually large layout surfaces.
+  const scale = Math.min(
+    resolveAudioWaveCanvasScale(cssWidth, cssHeight, window.devicePixelRatio || 1, maxBackingPixels, minScale),
+    8192 / cssWidth, 8192 / cssHeight, Math.sqrt(maxBackingPixels / (cssWidth * cssHeight))
+  );
+  const width = Math.max(1, Math.floor(cssWidth * scale));
+  const height = Math.max(1, Math.floor(cssHeight * scale));
   if (canvas.width === width && canvas.height === height) {
     return false;
   }
@@ -167,8 +185,8 @@ class Canvas2dAudioWaveRenderer implements AudioWaveRenderer {
       this.drawEnvelope(
         this.data.originalAmplitudes,
         resolvedFrame,
-        'rgba(255, 255, 255, 0.35)',
-        'rgba(255, 255, 255, 0.45)',
+        WAVE_COLOR_ORIGINAL_FILL,
+        WAVE_COLOR_ORIGINAL_STROKE,
         1.5,
         false
       );
@@ -176,8 +194,8 @@ class Canvas2dAudioWaveRenderer implements AudioWaveRenderer {
     this.drawEnvelope(
       this.data.reconstructedAmplitudes,
       resolvedFrame,
-      'rgba(255, 255, 255, 0.18)',
-      'rgba(255, 255, 255, 0.92)',
+      WAVE_COLOR_RECONSTRUCTED_FILL,
+      WAVE_COLOR_RECONSTRUCTED_STROKE,
       resolvedFrame.livePlayback ? 1.5 : 2.5,
       !resolvedFrame.livePlayback
     );
@@ -189,7 +207,7 @@ class Canvas2dAudioWaveRenderer implements AudioWaveRenderer {
   drawEmptyState(label: string) {
     this.clear();
     this.context.save();
-    this.context.fillStyle = 'rgba(235, 244, 239, 0.55)';
+    this.context.fillStyle = '#646464';
     this.context.font = '16px Inter, sans-serif';
     this.context.textAlign = 'center';
     this.context.textBaseline = 'middle';
@@ -199,8 +217,6 @@ class Canvas2dAudioWaveRenderer implements AudioWaveRenderer {
 
   clear() {
     this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    this.context.fillStyle = '#000000';
-    this.context.fillRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
   dispose() {
@@ -281,9 +297,9 @@ class Canvas2dAudioWaveRenderer implements AudioWaveRenderer {
   private drawPlayhead(x: number, livePlayback: boolean) {
     const clampedX = clamp(x, 0, this.canvas.width);
     this.context.save();
-    this.context.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    this.context.strokeStyle = WAVE_COLOR_PLAYHEAD;
     this.context.lineWidth = livePlayback ? 1.5 : 2;
-    this.context.shadowColor = livePlayback ? 'transparent' : 'rgba(255, 255, 255, 0.6)';
+    this.context.shadowColor = livePlayback ? 'transparent' : WAVE_COLOR_PLAYHEAD_GLOW;
     this.context.shadowBlur = livePlayback ? 0 : 8;
     this.context.beginPath();
     this.context.moveTo(clampedX, 0);
@@ -315,7 +331,7 @@ class WebGlAudioWaveRenderer implements AudioWaveRenderer {
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const gl = getAudioWaveGlContext(canvas, {
-      alpha: false,
+      alpha: true,
       antialias: true,
       depth: false,
       stencil: false,
@@ -380,7 +396,7 @@ class WebGlAudioWaveRenderer implements AudioWaveRenderer {
         this.originalBuffer,
         resolvedFrame.firstBucketIndex,
         resolvedFrame.pointCount,
-        [1, 1, 1, 0.32]
+        WAVE_GL_ORIGINAL
       );
     }
     if (!resolvedFrame.livePlayback) {
@@ -388,14 +404,14 @@ class WebGlAudioWaveRenderer implements AudioWaveRenderer {
         this.reconstructedBuffer,
         resolvedFrame.firstBucketIndex,
         resolvedFrame.pointCount,
-        [1, 1, 1, 0.12]
+        WAVE_GL_RECONSTRUCTED_UNDERLAY
       );
     }
     this.drawEnvelopeBuffer(
       this.reconstructedBuffer,
       resolvedFrame.firstBucketIndex,
       resolvedFrame.pointCount,
-      [1, 1, 1, 0.72]
+      WAVE_GL_RECONSTRUCTED
     );
     if (resolvedFrame.playheadX !== null) {
       this.drawPlayhead(resolvedFrame.playheadX, resolvedFrame.livePlayback);
@@ -437,7 +453,7 @@ class WebGlAudioWaveRenderer implements AudioWaveRenderer {
       return;
     }
     this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    this.gl.clearColor(0, 0, 0, 1);
+    this.gl.clearColor(0, 0, 0, 0);
     this.gl.clear(this.gl.COLOR_BUFFER_BIT);
   }
 
@@ -522,7 +538,7 @@ class WebGlAudioWaveRenderer implements AudioWaveRenderer {
     this.gl.vertexAttribPointer(positionLocation, 2, this.gl.FLOAT, false, 0, 0);
     this.gl.uniform4fv(
       this.requireUniform(this.solidProgram, 'u_color'),
-      livePlayback ? [1, 1, 1, 0.9] : [1, 1, 1, 1]
+      livePlayback ? WAVE_GL_PLAYHEAD_LIVE : WAVE_GL_PLAYHEAD
     );
     this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
   }
@@ -605,7 +621,7 @@ class WebGlAudioWaveRenderer implements AudioWaveRenderer {
     if (!context) {
       return null;
     }
-    context.fillStyle = 'rgba(235, 244, 239, 0.55)';
+    context.fillStyle = '#646464';
     context.font = '16px Inter, sans-serif';
     context.textAlign = 'center';
     context.textBaseline = 'middle';

@@ -1,101 +1,75 @@
-import { resolveGpuBackendFallbacks, type StressGpuBackend } from './stressTestCore';
+import { type StressGpuBackend } from './stressTestCore';
+import { gpuComputeWgsl, gpuSceneGlsl, gpuSceneWgsl } from './stressTestGpuShaders';
 
-interface WebGpuAdapterLike {
-  limits?: {
-    maxComputeWorkgroupsPerDimension?: number;
-  };
-  requestDevice(): Promise<WebGpuDeviceLike>;
+interface GpuLimits {
+  maxComputeWorkgroupsPerDimension?: number;
+  maxStorageBufferBindingSize?: number;
+  maxBufferSize?: number;
+  maxTextureDimension2D?: number;
 }
-
-interface WebGpuLike {
-  requestAdapter(options?: { powerPreference?: 'high-performance' | 'low-power' }): Promise<WebGpuAdapterLike | null>;
-  getPreferredCanvasFormat?: () => string;
+interface GpuBuffer { destroy(): void }
+interface GpuPipeline { getBindGroupLayout(index: number): unknown }
+interface GpuPass {
+  setPipeline(pipeline: GpuPipeline): void;
+  setBindGroup(index: number, bindGroup: unknown): void;
+  dispatchWorkgroups(count: number): void;
+  draw(count: number): void;
+  end(): void;
 }
-
-interface WebGpuDeviceLike {
+interface GpuDevice {
+  limits: GpuLimits;
   queue: {
     submit(commands: unknown[]): void;
-    writeBuffer(buffer: unknown, offset: number, data: ArrayBufferView): void;
-    onSubmittedWorkDone?: () => Promise<void>;
+    writeBuffer(buffer: GpuBuffer, offset: number, data: Float32Array): void;
+    onSubmittedWorkDone(): Promise<void>;
   };
-  limits?: {
-    maxComputeWorkgroupsPerDimension?: number;
+  createShaderModule(options: object): unknown;
+  createComputePipeline(options: object): GpuPipeline;
+  createRenderPipeline(options: object): GpuPipeline;
+  createBuffer(options: object): GpuBuffer;
+  createBindGroup(options: object): unknown;
+  createCommandEncoder(): {
+    beginComputePass(): GpuPass;
+    beginRenderPass(options: object): GpuPass;
+    finish(): unknown;
   };
-  createShaderModule(descriptor: object): WebGpuShaderModuleLike;
-  createBuffer(descriptor: object): WebGpuBufferLike;
-  createBindGroupLayout(descriptor: object): WebGpuBindGroupLayoutLike;
-  createPipelineLayout(descriptor: object): WebGpuPipelineLayoutLike;
-  createComputePipeline(descriptor: object): WebGpuComputePipelineLike;
-  createRenderPipeline(descriptor: object): WebGpuRenderPipelineLike;
-  createBindGroup(descriptor: object): WebGpuBindGroupLike;
-  createCommandEncoder(): WebGpuCommandEncoderLike;
-  destroy?: () => void;
-  lost: Promise<{ reason: 'destroyed' | 'unknown'; message: string }>;
+  pushErrorScope(filter: string): void;
+  popErrorScope(): Promise<{ message: string } | null>;
+  lost: Promise<{ reason: string; message: string }>;
+  destroy(): void;
 }
-
-interface WebGpuShaderModuleLike {}
-
-interface WebGpuBindGroupLayoutLike {}
-
-interface WebGpuPipelineLayoutLike {}
-
-interface WebGpuComputePipelineLike {}
-
-interface WebGpuRenderPipelineLike {
-  getBindGroupLayout(index: number): unknown;
+interface GpuContext {
+  configure(options: object): void;
+  unconfigure(): void;
+  getCurrentTexture(): { createView(): unknown };
 }
-
-interface WebGpuBindGroupLike {}
-
-interface WebGpuBufferLike {
-  destroy?: () => void;
-}
-
-interface WebGpuCommandEncoderLike {
-  beginComputePass(): {
-    setPipeline(pipeline: WebGpuComputePipelineLike): void;
-    setBindGroup(index: number, bindGroup: WebGpuBindGroupLike): void;
-    dispatchWorkgroups(x: number, y?: number, z?: number): void;
-    end(): void;
-  };
-  beginRenderPass(descriptor: object): {
-    setPipeline(pipeline: WebGpuRenderPipelineLike): void;
-    setBindGroup(index: number, bindGroup: WebGpuBindGroupLike): void;
-    draw(vertexCount: number): void;
-    end(): void;
-  };
-  finish(): unknown;
-}
-
-interface WebGpuCanvasContextLike {
-  configure(descriptor: object): void;
-  getCurrentTexture(): {
-    createView(): unknown;
-  };
-}
-
-declare global {
-  const GPUBufferUsage: Record<string, number> | undefined;
-  const GPUTextureUsage: Record<string, number> | undefined;
-
-  interface HTMLCanvasElement {
-    getContext(contextId: 'webgpu'): WebGpuCanvasContextLike | null;
-  }
+interface NavigatorGpu {
+  requestAdapter(options: object): Promise<{
+    info?: { description?: string; vendor?: string; architecture?: string; device?: string };
+    requestDevice(): Promise<GpuDevice>;
+  } | null>;
+  getPreferredCanvasFormat(): string;
 }
 
 export interface StressGpuStressHandle {
   backend: Exclude<StressGpuBackend, 'none'>;
   getWorkloadLevel(): number;
+  getDiagnostics?(): { adapter: string; detail: string };
+  setReducedMotion?(value: boolean): void;
+  setPointer?(x: number, y: number): void;
   stop(options?: { loseContext?: boolean }): void;
 }
-
 export interface StressGpuStressCallbacks {
   onFrame(): void;
   onWorkloadLevel(level: number): void;
   onCanvasActive(active: boolean): void;
   onAsyncError(message: string): void;
+  onCanvasReplace?(canvas: HTMLCanvasElement): void;
 }
-
+export interface StressGpuStressOptions {
+  reducedMotion?: boolean;
+  signal?: AbortSignal;
+}
 interface AdaptiveGpuWorkScalerOptions {
   initialLevel?: number;
   growAfterSamples?: number;
@@ -107,125 +81,63 @@ interface AdaptiveGpuWorkScalerOptions {
   slowMs?: number;
 }
 
-const WEBGPU_STORAGE_ITEMS = 262144;
-const WEBGPU_MIN_WORKGROUPS = 256;
-const WEBGPU_DEFAULT_MAX_WORKGROUPS_PER_DISPATCH = 65535;
-const WEBGPU_VISUAL_INTERVAL_MS = 1000 / 30;
-const WEBGPU_PUMP_DELAY_MS = 0;
-const WEBGPU_MAX_PUMP_MS = 10;
-const WEBGPU_MAX_SUBMISSIONS_PER_PUMP = 8;
-const WEBGPU_COMPLETION_SAMPLE_INTERVAL_MS = 300;
-const WEBGPU_COMPLETION_STALL_MS = 1200;
-const WEBGL_FRAGMENT_LOOP_BOUND = 1024;
-const WEBGL_PUMP_DELAY_MS = 0;
-const WEBGL_MAX_MAIN_THREAD_BURST_MS = 18;
-const WEBGL_MAX_DRAWS_PER_PUMP = 64;
-const WEBGL_COMPLETION_SAMPLE_INTERVAL_MS = 300;
-const WEBGL_FENCE_STALL_MS = 900;
-const WEBGL_CONTEXT_ATTRIBUTES = {
-  antialias: false,
-  depth: false,
-  stencil: false,
-  powerPreference: 'high-performance' as const,
-  preserveDrawingBuffer: true
+const WORKGROUP_SIZE = 64;
+const STORAGE_BUDGET = 16 * 1024 * 1024;
+const MAX_COMPUTE_PASSES = 8;
+const GL_ATTRIBUTES: WebGLContextAttributes = {
+  antialias: false, depth: false, stencil: false,
+  powerPreference: 'high-performance', preserveDrawingBuffer: false
 };
+const readNow = () => performance.now();
+const getNavigatorGpu = () => (navigator as Navigator & { gpu?: NavigatorGpu }).gpu;
 
-function readNow() {
-  return typeof performance !== 'undefined' && typeof performance.now === 'function'
-    ? performance.now()
-    : Date.now();
+// Level is measured in workgroups at 64 iterations each. Increase independent
+// invocations first, then iterations and sequential passes within bounded memory.
+export function resolveGpuComputeWorkload(level: number, limits: GpuLimits = {}) {
+  const bytes = Math.min(STORAGE_BUDGET, limits.maxStorageBufferBindingSize ?? STORAGE_BUDGET,
+    limits.maxBufferSize ?? STORAGE_BUDGET);
+  const groupLimit = limits.maxComputeWorkgroupsPerDimension ?? 65535;
+  if (!Number.isFinite(bytes) || bytes < 16 * WORKGROUP_SIZE ||
+      !Number.isFinite(groupLimit) || groupLimit < 1) {
+    throw new Error('GPU limits cannot support a compute workgroup.');
+  }
+  const capacity = Math.floor(bytes / (16 * WORKGROUP_SIZE));
+  const maxGroups = Math.min(capacity, Math.floor(groupLimit));
+  const requested = Math.max(1, Number.isFinite(level) ? Math.floor(level) : 1);
+  const groups = Math.max(1, Math.min(maxGroups, requested));
+  const iterations = Math.max(64, Math.min(1024, Math.ceil(requested / groups) * 64));
+  const passes = Math.max(1, Math.min(MAX_COMPUTE_PASSES, Math.ceil(requested / (groups * iterations / 64))));
+  return { groups, iterations, passes, storageBytes: capacity * WORKGROUP_SIZE * 16,
+    effectiveLevel: groups * iterations / 64 * passes };
 }
 
-function getNavigatorGpu(): WebGpuLike | null {
-  const gpu = (navigator as Navigator & { gpu?: WebGpuLike }).gpu;
-  return gpu && typeof gpu.requestAdapter === 'function' ? gpu : null;
-}
-
-function getWebGpuUsageFlag(name: string) {
-  const usage = typeof GPUBufferUsage !== 'undefined' ? GPUBufferUsage : undefined;
-  return usage?.[name] ?? 0;
-}
-
-function getWebGpuTextureUsageFlag(name: string) {
-  const usage = typeof GPUTextureUsage !== 'undefined' ? GPUTextureUsage : undefined;
-  return usage?.[name] ?? 0;
+function drawingSize(canvas: HTMLCanvasElement, scale: number, maxDimension: number, maxPixels: number, apply = true) {
+  const rect = canvas.getBoundingClientRect();
+  const density = Math.min(window.devicePixelRatio || 1, 2);
+  let width = Math.max(1, Math.floor((rect.width || 640) * density * scale));
+  let height = Math.max(1, Math.floor((rect.height || 360) * density * scale));
+  const reduction = Math.min(1, maxDimension / width, maxDimension / height, Math.sqrt(maxPixels / (width * height)));
+  width = Math.max(1, Math.floor(width * reduction));
+  height = Math.max(1, Math.floor(height * reduction));
+  if (apply && (canvas.width !== width || canvas.height !== height)) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  return { width, height };
 }
 
 function compileShader(gl: WebGLRenderingContext | WebGL2RenderingContext, type: number, source: string) {
-  if (type !== gl.VERTEX_SHADER && type !== gl.FRAGMENT_SHADER) {
-    throw new Error(`Unsupported WebGL shader type: ${type}`);
-  }
-
   const shader = gl.createShader(type);
-  const backendLabel = 'texImage3D' in gl ? 'WebGL2' : 'WebGL1';
-  if (!shader) {
-    throw new Error(`Unable to create ${backendLabel} shader.`);
-  }
+  if (!shader) throw new Error('Unable to allocate shader.');
   gl.shaderSource(shader, source);
   gl.compileShader(shader);
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const message = gl.getShaderInfoLog(shader) ?? `${backendLabel} shader failed to compile.`;
+    const message = gl.getShaderInfoLog(shader) || 'GPU shader failed to compile.';
     gl.deleteShader(shader);
     throw new Error(message);
   }
   return shader;
 }
-
-function canCreateContext(type: 'webgl2' | 'webgl') {
-  let canvas: HTMLCanvasElement | null = document.createElement('canvas');
-  try {
-    return Boolean(canvas.getContext(type, WEBGL_CONTEXT_ATTRIBUTES));
-  } catch {
-    return false;
-  } finally {
-    if (canvas) {
-      canvas.width = 0;
-      canvas.height = 0;
-      canvas = null;
-    }
-  }
-}
-
-function getWebGlContext(canvas: HTMLCanvasElement, backend: 'webgl2-fragment' | 'webgl1-fragment') {
-  if (backend === 'webgl2-fragment') {
-    const ctx = canvas.getContext('webgl2', WEBGL_CONTEXT_ATTRIBUTES);
-    return ctx instanceof WebGL2RenderingContext ? ctx : null;
-  }
-
-  const ctx = canvas.getContext('webgl', WEBGL_CONTEXT_ATTRIBUTES);
-  return ctx instanceof WebGLRenderingContext ? ctx : null;
-}
-
-function getCanvasPixelSize(canvas: HTMLCanvasElement) {
-  return {
-    width: Math.max(1, canvas.width),
-    height: Math.max(1, canvas.height)
-  };
-}
-
-function resolveWebGlDrawingSize(
-  canvas: HTMLCanvasElement,
-  gl: WebGLRenderingContext | WebGL2RenderingContext,
-  workloadLevel: number
-) {
-  const rect = canvas.getBoundingClientRect();
-  const baseScale = Math.min(window.devicePixelRatio || 1, 3);
-  const baseWidth = Math.max(1, Math.floor(rect.width * baseScale));
-  const baseHeight = Math.max(1, Math.floor(rect.height * baseScale));
-  const maxViewport = gl.getParameter(gl.MAX_VIEWPORT_DIMS) as Int32Array | number[] | null;
-  const maxWidth = Math.max(baseWidth, Number(maxViewport?.[0]) || baseWidth);
-  const maxHeight = Math.max(baseHeight, Number(maxViewport?.[1]) || baseHeight);
-  const stressScale = Math.max(1, Math.pow(Math.max(1, workloadLevel), 0.25));
-  return {
-    width: Math.max(1, Math.min(maxWidth, Math.floor(baseWidth * stressScale))),
-    height: Math.max(1, Math.min(maxHeight, Math.floor(baseHeight * stressScale)))
-  };
-}
-
-function isWebGl2Context(gl: WebGLRenderingContext | WebGL2RenderingContext): gl is WebGL2RenderingContext {
-  return typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
-}
-
 export class AdaptiveGpuWorkScaler {
   private level: number;
   private fastSamples = 0;
@@ -296,613 +208,395 @@ export class AdaptiveGpuWorkScaler {
 
 export async function startAdaptiveGpuStress(
   canvas: HTMLCanvasElement,
-  callbacks: StressGpuStressCallbacks
+  callbacks: StressGpuStressCallbacks,
+  options: StressGpuStressOptions = {}
 ): Promise<StressGpuStressHandle | null> {
-  const backends = resolveGpuBackendFallbacks({
-    hasWebGpu: Boolean(getNavigatorGpu()),
-    hasWebGl2: canCreateContext('webgl2'),
-    hasWebGl1: canCreateContext('webgl')
+  const backends = getNavigatorGpu()
+    ? ['webgpu-compute', 'webgl2-fragment', 'webgl1-fragment'] as const
+    : ['webgl2-fragment', 'webgl1-fragment'] as const;
+  let target = canvas;
+  // Device loss can resolve while startup is still awaiting an adapter, device,
+  // or pipeline validation. A failure that arrives before the caller receives a
+  // handle invalidates the whole startup: the failed handle is released and the
+  // factory resolves null instead of installing dead work.
+  let installed = false;
+  let failedDuringStartup = false;
+  const startupCallbacks: StressGpuStressCallbacks = Object.assign({}, callbacks, {
+    onAsyncError: (message: string) => {
+      if (installed) {
+        callbacks.onAsyncError(message);
+        return;
+      }
+      failedDuringStartup = true;
+      callbacks.onAsyncError(message);
+    }
   });
-
-  for (const backend of backends) {
+  for (let index = 0; index < backends.length; index++) {
+    if (options.signal?.aborted || failedDuringStartup) return null;
+    // A canvas cannot change context type, including after a failed pipeline.
+    if (index > 0) {
+      const replacement = target.cloneNode(false) as HTMLCanvasElement;
+      target.replaceWith(replacement);
+      target = replacement;
+      callbacks.onCanvasReplace?.(replacement);
+    }
     try {
-      if (backend === 'webgpu-compute') {
-        return await startWebGpuStress(canvas, callbacks);
+      const backend = backends[index];
+      const handle = backend === 'webgpu-compute'
+        ? await startWebGpuStress(target, startupCallbacks, options)
+        : startWebGlStress(target, startupCallbacks, backend, options);
+      if (failedDuringStartup) {
+        handle.stop({ loseContext: true });
+        return null;
       }
-      if (backend === 'webgl2-fragment') {
-        return startWebGlStress(canvas, callbacks, 'webgl2-fragment');
-      }
-      if (backend === 'webgl1-fragment') {
-        return startWebGlStress(canvas, callbacks, 'webgl1-fragment');
-      }
+      if (options.signal?.aborted) { handle.stop(); return null; }
+      const stop = handle.stop;
+      const abort = () => handle.stop();
+      options.signal?.addEventListener('abort', abort, { once: true });
+      handle.stop = stopOptions => {
+        options.signal?.removeEventListener('abort', abort);
+        stop(stopOptions);
+      };
+      installed = true;
+      return handle;
     } catch {
       callbacks.onCanvasActive(false);
     }
   }
-
   return null;
 }
 
-async function startWebGpuStress(
-  canvas: HTMLCanvasElement,
-  callbacks: StressGpuStressCallbacks
-): Promise<StressGpuStressHandle> {
+async function startWebGpuStress(canvas: HTMLCanvasElement, callbacks: StressGpuStressCallbacks,
+  options: StressGpuStressOptions): Promise<StressGpuStressHandle> {
   const gpu = getNavigatorGpu();
-  if (!gpu) {
-    throw new Error('WebGPU is unavailable.');
-  }
-  const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
-  if (!adapter) {
-    throw new Error('WebGPU adapter unavailable.');
-  }
+  const adapter = await gpu?.requestAdapter({ powerPreference: 'high-performance' });
+  if (!adapter || !gpu) throw new Error('WebGPU adapter unavailable.');
   const device = await adapter.requestDevice();
-  const context = canvas.getContext('webgpu');
-  if (!context) {
-    device.destroy?.();
-    throw new Error('WebGPU canvas context unavailable.');
-  }
-
-  const format = gpu.getPreferredCanvasFormat?.() ?? 'bgra8unorm';
-  context.configure({
-    device,
-    format,
-    usage: getWebGpuTextureUsageFlag('RENDER_ATTACHMENT'),
-    alphaMode: 'opaque'
-  });
-
-  const computeModule = device.createShaderModule({
-    code: `
-      struct StressBuffer { values: array<f32> };
-      @group(0) @binding(0) var<storage, read_write> stress: StressBuffer;
-
-      @compute @workgroup_size(256)
-      fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-        let index = id.x % ${WEBGPU_STORAGE_ITEMS}u;
-        var value = stress.values[index] + f32(id.x) * 0.000001;
-        for (var i = 0u; i < 256u; i = i + 1u) {
-          value = sin(value) * cos(value + 0.001) + sqrt(abs(value) + 1.0);
-        }
-        stress.values[index] = fract(value);
-      }
-    `
-  });
-  const renderModule = device.createShaderModule({
-    code: `
-      @group(0) @binding(0) var<uniform> uTime: vec4<f32>;
-
-      @vertex
-      fn vertexMain(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4<f32> {
-        var positions = array<vec2<f32>, 3>(
-          vec2<f32>(-1.0, -1.0),
-          vec2<f32>(3.0, -1.0),
-          vec2<f32>(-1.0, 3.0)
-        );
-        return vec4<f32>(positions[vertexIndex], 0.0, 1.0);
-      }
-
-      @fragment
-      fn fragmentMain(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-        let time = uTime.x;
-        let res = vec2<f32>(uTime.y, uTime.z);
-        let uv = (position.xy - 0.5 * res) / min(res.x, res.y);
-
-        var value = 0.0;
-        for (var i = 0u; i < 128u; i = i + 1u) {
-          let fi = f32(i);
-          let r = length(uv) * 8.0 + fi * 0.03 - time * 0.5;
-          let a = atan2(uv.y, uv.x) + fi * 0.1 + time * 0.05;
-          value = value + sin(r) * cos(a + fi * 0.2) * 0.05;
-        }
-
-        let dist = length(uv);
-        let intensity = smoothstep(1.2, 0.0, dist);
-        let hue = value * 0.5 + time * 0.1 + dist * 0.3;
-        let r = sin(hue * 6.28318 + 0.0) * 0.5 + 0.5;
-        let g = sin(hue * 6.28318 + 2.09439) * 0.5 + 0.5;
-        let b = sin(hue * 6.28318 + 4.18879) * 0.5 + 0.5;
-
-        return vec4<f32>(vec3<f32>(r, g, b) * intensity * 0.85, 1.0);
-      }
-    `
-  });
-  const bindGroupLayout = device.createBindGroupLayout({
-    entries: [
-      {
-        binding: 0,
-        visibility: 4,
-        buffer: { type: 'storage' }
-      }
-    ]
-  });
-  const pipelineLayout = device.createPipelineLayout({
-    bindGroupLayouts: [bindGroupLayout]
-  });
-  const computePipeline = device.createComputePipeline({
-    layout: pipelineLayout,
-    compute: {
-      module: computeModule,
-      entryPoint: 'main'
-    }
-  });
-  const renderPipeline = device.createRenderPipeline({
-    layout: 'auto',
-    vertex: {
-      module: renderModule,
-      entryPoint: 'vertexMain'
-    },
-    fragment: {
-      module: renderModule,
-      entryPoint: 'fragmentMain',
-      targets: [{ format }]
-    },
-    primitive: {
-      topology: 'triangle-list'
-    }
-  });
-  const storageBuffer = device.createBuffer({
-    size: WEBGPU_STORAGE_ITEMS * 4,
-    usage: getWebGpuUsageFlag('STORAGE') | getWebGpuUsageFlag('COPY_DST')
-  });
-  const computeBindGroup = device.createBindGroup({
-    layout: bindGroupLayout,
-    entries: [
-      {
-        binding: 0,
-        resource: { buffer: storageBuffer }
-      }
-    ]
-  });
-  const timeBuffer = device.createBuffer({
-    size: 16,
-    usage: getWebGpuUsageFlag('UNIFORM') | getWebGpuUsageFlag('COPY_DST')
-  });
-  const renderBindGroup = device.createBindGroup({
-    layout: renderPipeline.getBindGroupLayout(0),
-    entries: [
-      {
-        binding: 0,
-        resource: { buffer: timeBuffer }
-      }
-    ]
-  });
-  const maxWorkgroupsPerDispatch = Math.max(
-    WEBGPU_MIN_WORKGROUPS,
-    Math.floor(
-      device.limits?.maxComputeWorkgroupsPerDimension ??
-        adapter.limits?.maxComputeWorkgroupsPerDimension ??
-        WEBGPU_DEFAULT_MAX_WORKGROUPS_PER_DISPATCH
-    )
-  );
-  const scaler = new AdaptiveGpuWorkScaler({
-    initialLevel: 2048,
-    fastMs: 12,
-    slowMs: 120,
-    growAfterSamples: 1,
-    aggressiveGrowthMultiplier: 1.75,
-    steadyGrowthMultiplier: 1.3,
-    slowBackoffMultiplier: 0.78
-  });
-  const timeUniform = new Float32Array(4);
-  const startedAt = readNow();
+  let context: GpuContext | null = null;
+  let storage: GpuBuffer | undefined;
+  let uniforms: GpuBuffer | undefined;
+  let timer = 0;
+  let stallTimer = 0;
   let active = true;
-  let pumpTimer = 0;
-  let frameId = 0;
-  let visualTimer = 0;
-  let completionProbeActive = false;
-  let lastCompletionSampleAt = 0;
-
+  let reducedMotion = Boolean(options.reducedMotion);
+  let pointerX = 0;
+  let pointerY = 0;
+  let detail = 'Preparing compute + ray tracing';
   const stop = () => {
+    if (!active) return;
     active = false;
-    if (frameId) {
-      window.cancelAnimationFrame(frameId);
-      frameId = 0;
-    }
-    if (visualTimer) {
-      window.clearTimeout(visualTimer);
-      visualTimer = 0;
-    }
-    if (pumpTimer) {
-      window.clearTimeout(pumpTimer);
-      pumpTimer = 0;
-    }
-    storageBuffer.destroy?.();
-    timeBuffer.destroy?.();
-    device.destroy?.();
+    window.clearTimeout(timer);
+    window.clearTimeout(stallTimer);
+    context?.unconfigure();
+    storage?.destroy();
+    uniforms?.destroy();
+    device.destroy();
     callbacks.onCanvasActive(false);
   };
-
-  device.lost.then((info) => {
-    if (!active) {
-      return;
-    }
-    stop();
-    callbacks.onAsyncError(`WebGPU device lost: ${info.message || info.reason || 'Unknown reason'}`);
-  }).catch((error) => {
-    if (!active) {
-      return;
-    }
-    callbacks.onAsyncError(error instanceof Error ? error.message : 'WebGPU device loss handling failed.');
-  });
-
-  const submitComputeCommand = () => {
-    const workgroups = Math.max(WEBGPU_MIN_WORKGROUPS, Math.floor(scaler.getLevel()));
-    const encoder = device.createCommandEncoder();
-    let remaining = workgroups;
-    while (remaining > 0) {
-      const computePass = encoder.beginComputePass();
-      computePass.setPipeline(computePipeline);
-      computePass.setBindGroup(0, computeBindGroup);
-      const dispatchSize = Math.max(1, Math.min(maxWorkgroupsPerDispatch, remaining));
-      computePass.dispatchWorkgroups(dispatchSize);
-      computePass.end();
-      remaining -= dispatchSize;
-    }
-    device.queue.submit([encoder.finish()]);
-  };
-
-  const sampleCompletion = () => {
-    if (!active || completionProbeActive) {
-      return;
-    }
-    if (!device.queue.onSubmittedWorkDone) {
-      callbacks.onWorkloadLevel(scaler.recordCompletion(0));
-      return;
-    }
-
-    completionProbeActive = true;
-    const sampleStartedAt = readNow();
-    window.setTimeout(() => {
-      if (active && completionProbeActive) {
-        callbacks.onWorkloadLevel(scaler.recordBackpressure());
-      }
-    }, WEBGPU_COMPLETION_STALL_MS);
-    device.queue.onSubmittedWorkDone()
-      .then(() => {
-        if (!active) {
-          return;
+  try {
+    if (options.signal?.aborted) throw new Error('GPU startup cancelled.');
+    if (!device.queue.onSubmittedWorkDone) throw new Error('WebGPU completion tracking unavailable.');
+    context = (canvas as unknown as { getContext(type: 'webgpu'): GpuContext | null }).getContext('webgpu');
+    if (!context) throw new Error('WebGPU canvas unavailable.');
+    const format = gpu.getPreferredCanvasFormat();
+    context.configure({ device, format, alphaMode: 'opaque' });
+    device.pushErrorScope('validation');
+    const compute = device.createComputePipeline({ layout: 'auto',
+      compute: { module: device.createShaderModule({ code: gpuComputeWgsl }), entryPoint: 'main' } });
+    const renderModule = device.createShaderModule({ code: gpuSceneWgsl });
+    const render = device.createRenderPipeline({ layout: 'auto',
+      vertex: { module: renderModule, entryPoint: 'vertexMain' },
+      fragment: { module: renderModule, entryPoint: 'fragmentMain', targets: [{ format }] },
+      primitive: { topology: 'triangle-list' } });
+    const capacity = resolveGpuComputeWorkload(1, device.limits);
+    // WebGPU's standard flag values: STORAGE=128, UNIFORM=64, COPY_DST=8.
+    storage = device.createBuffer({ size: capacity.storageBytes, usage: 128 });
+    uniforms = device.createBuffer({ size: 32, usage: 64 | 8 });
+    const computeBindings = device.createBindGroup({ layout: compute.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: storage } }, { binding: 1, resource: { buffer: uniforms } }
+    ] });
+    const renderBindings = device.createBindGroup({ layout: render.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: uniforms } }
+    ] });
+    const validationError = await device.popErrorScope();
+    if (validationError) throw new Error(validationError.message);
+    if (options.signal?.aborted) throw new Error('GPU startup cancelled.');
+    const scaler = new AdaptiveGpuWorkScaler({ initialLevel: 1024, growAfterSamples: 1,
+      fastMs: 8, slowMs: 24, aggressiveGrowthMultiplier: 2, steadyGrowthMultiplier: 1.12,
+      slowBackoffMultiplier: 0.65 });
+    const started = readNow();
+    const data = new Float32Array(8);
+    let renderScale = 1;
+    const fail = (error: unknown) => {
+      if (!active) return;
+      stop();
+      callbacks.onAsyncError(error instanceof Error ? error.message : 'GPU workload failed.');
+    };
+    void device.lost.then(info => {
+      if (active) fail(new Error(`WebGPU device lost: ${info.message || info.reason}`));
+    }).catch(fail);
+    let inFlight = 0;
+    const maximum = resolveGpuComputeWorkload(Number.MAX_SAFE_INTEGER, device.limits).effectiveLevel;
+    const armWatchdog = () => {
+      window.clearTimeout(stallTimer);
+      stallTimer = window.setTimeout(() => fail(new Error('GPU stopped responding.')), 10000);
+    };
+    const fillQueue = () => {
+      timer = 0;
+      if (!active) return;
+      try {
+        // Retire old canvas work before replacing its drawing buffer. Once the
+        // queue drains, submit both new batches with the same dimensions.
+        const size = drawingSize(canvas, renderScale, device.limits.maxTextureDimension2D ?? 8192, 2400000, false);
+        if (canvas.width !== size.width || canvas.height !== size.height) {
+          if (inFlight) return;
+          canvas.width = size.width;
+          canvas.height = size.height;
         }
-        callbacks.onWorkloadLevel(scaler.recordCompletion(readNow() - sampleStartedAt));
-      })
-      .catch(() => {
-        if (active) {
-          callbacks.onWorkloadLevel(scaler.recordError());
-        }
-      })
-      .finally(() => {
-        completionProbeActive = false;
-      });
-  };
-
-  const scheduleComputePump = () => {
-    if (!active || pumpTimer) {
-      return;
-    }
-    pumpTimer = window.setTimeout(computePump, WEBGPU_PUMP_DELAY_MS);
-  };
-
-  const computePump = () => {
-    pumpTimer = 0;
-    if (!active) {
-      return;
-    }
-
-    const pumpStartedAt = readNow();
-    let submissions = 0;
-    try {
-      while (submissions < WEBGPU_MAX_SUBMISSIONS_PER_PUMP && readNow() - pumpStartedAt < WEBGPU_MAX_PUMP_MS) {
-        submitComputeCommand();
-        submissions += 1;
-      }
-    } catch {
-      callbacks.onWorkloadLevel(scaler.recordError());
-    }
-
-    const now = readNow();
-    if (now - lastCompletionSampleAt >= WEBGPU_COMPLETION_SAMPLE_INTERVAL_MS) {
-      lastCompletionSampleAt = now;
-      sampleCompletion();
-    }
-    scheduleComputePump();
-  };
-
-  const drawVisual = () => {
-    if (!active) {
-      return;
-    }
-    const now = readNow();
-    const elapsed = now - startedAt;
-    const { width, height } = getCanvasPixelSize(canvas);
-    timeUniform[0] = elapsed * 0.001;
-    timeUniform[1] = width;
-    timeUniform[2] = height;
-    timeUniform[3] = scaler.getLevel();
-    device.queue.writeBuffer(timeBuffer, 0, timeUniform);
-
-    try {
-      const encoder = device.createCommandEncoder();
-      const renderPass = encoder.beginRenderPass({
-        colorAttachments: [
-          {
-            view: context.getCurrentTexture().createView(),
-            clearValue: { r: 0, g: 0, b: 0, a: 1 },
-            loadOp: 'clear',
-            storeOp: 'store'
+        while (active && inFlight < 2) {
+          const began = readNow();
+          const workload = resolveGpuComputeWorkload(scaler.getLevel(), device.limits);
+          data.set([reducedMotion ? 0 : (began - started) / 1000, size.width, size.height, 0,
+            pointerX, pointerY, workload.iterations, 0]);
+          // writeBuffer and submit are ordered on the same queue: each batch
+          // sees its own uniforms even though the next batch reuses the buffer.
+          device.queue.writeBuffer(uniforms!, 0, data);
+          const encoder = device.createCommandEncoder();
+          const visual = encoder.beginRenderPass({ colorAttachments: [{
+            view: context!.getCurrentTexture().createView(), loadOp: 'clear', storeOp: 'store',
+            clearValue: { r: 0.969, g: 0.969, b: 0.961, a: 1 }
+          }] });
+          visual.setPipeline(render);
+          visual.setBindGroup(0, renderBindings);
+          visual.draw(3);
+          visual.end();
+          // Separate passes provide storage barriers; every invocation writes
+          // its own vec4 and feeds the next batch's state.
+          for (let index = 0; index < workload.passes; index++) {
+            const pass = encoder.beginComputePass();
+            pass.setPipeline(compute);
+            pass.setBindGroup(0, computeBindings);
+            pass.dispatchWorkgroups(workload.groups);
+            pass.end();
           }
-        ]
-      });
-      renderPass.setPipeline(renderPipeline);
-      renderPass.setBindGroup(0, renderBindGroup);
-      renderPass.draw(3);
-      renderPass.end();
-      device.queue.submit([encoder.finish()]);
-      callbacks.onCanvasActive(true);
-      callbacks.onFrame();
-    } catch (error) {
-      callbacks.onWorkloadLevel(scaler.recordError());
-      callbacks.onAsyncError(error instanceof Error ? error.message : 'WebGPU render pass failed.');
-      return;
-    }
-
-    visualTimer = window.setTimeout(() => {
-      frameId = window.requestAnimationFrame(drawVisual);
-    }, WEBGPU_VISUAL_INTERVAL_MS);
-  };
-
-  scheduleComputePump();
-  frameId = window.requestAnimationFrame(drawVisual);
-  callbacks.onWorkloadLevel(scaler.getLevel());
-  callbacks.onCanvasActive(true);
-
-  return {
-    backend: 'webgpu-compute',
-    getWorkloadLevel: () => scaler.getLevel(),
-    stop
-  };
+          device.queue.submit([encoder.finish()]);
+          const queueDepth = ++inFlight;
+          if (queueDepth === 1) armWatchdog();
+          // Snapshot completion before submitting the next batch. Keeping two
+          // bounded batches queued covers host wake-up latency without a RAF
+          // or timer gap between submissions, or an unbounded command backlog.
+          void device.queue.onSubmittedWorkDone().then(() => {
+            if (!active) return;
+            inFlight--;
+            const elapsed = (readNow() - began) / queueDepth;
+            if (scaler.getLevel() === 1 && elapsed > 24) {
+              renderScale = Math.max(0.125, renderScale * 0.8);
+            } else if (renderScale < 1 && elapsed < 8) {
+              renderScale = Math.min(1, renderScale * 1.1);
+            }
+            // Completion latency includes queue/host overhead; this tunes batch
+            // responsiveness, and is deliberately not presented as GPU usage.
+            const level = scaler.recordCompletion(elapsed);
+            if (level > maximum) scaler.reset(maximum);
+            detail = `${(workload.groups * WORKGROUP_SIZE).toLocaleString()} lanes · ${workload.iterations} iterations · ${workload.passes} ${workload.passes === 1 ? 'pass' : 'passes'}`;
+            armWatchdog();
+            fillQueue();
+            if (!active) return;
+            callbacks.onWorkloadLevel(scaler.getLevel());
+            callbacks.onCanvasActive(true);
+            callbacks.onFrame();
+          }).catch(fail);
+        }
+      } catch (error) { fail(error); }
+    };
+    timer = window.setTimeout(fillQueue, 0);
+    callbacks.onWorkloadLevel(scaler.getLevel());
+    const info = adapter.info;
+    const adapterName = info?.description || [info?.vendor, info?.architecture].filter(Boolean).join(' ') || 'WebGPU adapter';
+    return {
+      backend: 'webgpu-compute', getWorkloadLevel: () => scaler.getLevel(),
+      getDiagnostics: () => ({ adapter: adapterName, detail }),
+      setReducedMotion: value => { reducedMotion = value; },
+      setPointer: (x, y) => { pointerX = Number.isFinite(x) ? Math.max(-1, Math.min(1, x)) : 0;
+        pointerY = Number.isFinite(y) ? Math.max(-1, Math.min(1, y)) : 0; },
+      stop
+    };
+  } catch (error) { stop(); throw error; }
 }
 
-function startWebGlStress(
-  canvas: HTMLCanvasElement,
-  callbacks: StressGpuStressCallbacks,
-  backend: 'webgl2-fragment' | 'webgl1-fragment'
-): StressGpuStressHandle | null {
-  if (!canCreateContext(backend === 'webgl2-fragment' ? 'webgl2' : 'webgl')) {
-    return null;
-  }
-
-  const gl = getWebGlContext(canvas, backend);
-  if (!gl) {
-    return null;
-  }
-
-  const isWebGl2 = backend === 'webgl2-fragment';
-  const vertexShader = compileShader(
-    gl,
-    gl.VERTEX_SHADER,
-    isWebGl2
-      ? `#version 300 es
-      in vec2 a_position;
-      void main() {
-        gl_Position = vec4(a_position, 0.0, 1.0);
-      }`
-      : `
-      attribute vec2 a_position;
-      void main() {
-        gl_Position = vec4(a_position, 0.0, 1.0);
-      }`
-  );
-  const fragmentShader = compileShader(
-    gl,
-    gl.FRAGMENT_SHADER,
-    isWebGl2
-      ? `#version 300 es
-      precision highp float;
-      uniform float u_time;
-      uniform vec2 u_resolution;
-      out vec4 out_color;
-      void main() {
-        vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / min(u_resolution.x, u_resolution.y);
-        float time = u_time;
-        float value = 0.0;
-        for (int i = 0; i < ${WEBGL_FRAGMENT_LOOP_BOUND}; i++) {
-          float fi = float(i);
-          float r = length(uv) * 8.0 + fi * 0.03 - time * 0.5;
-          float a = atan(uv.y, uv.x) + fi * 0.1 + time * 0.05;
-          value = value + sin(r) * cos(a + fi * 0.2) * 0.05;
-        }
-        float dist = length(uv);
-        float intensity = smoothstep(1.2, 0.0, dist);
-        float hue = value * 0.5 + time * 0.1 + dist * 0.3;
-        float r = sin(hue * 6.28318 + 0.0) * 0.5 + 0.5;
-        float g = sin(hue * 6.28318 + 2.09439) * 0.5 + 0.5;
-        float b = sin(hue * 6.28318 + 4.18879) * 0.5 + 0.5;
-        out_color = vec4(vec3(r, g, b) * intensity * 0.85, 1.0);
-      }`
-      : `
-      precision highp float;
-      uniform float u_time;
-      uniform vec2 u_resolution;
-      void main() {
-        vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / min(u_resolution.x, u_resolution.y);
-        float time = u_time;
-        float value = 0.0;
-        for (int i = 0; i < ${WEBGL_FRAGMENT_LOOP_BOUND}; i++) {
-          float fi = float(i);
-          float r = length(uv) * 8.0 + fi * 0.03 - time * 0.5;
-          float a = atan(uv.y, uv.x) + fi * 0.1 + time * 0.05;
-          value = value + sin(r) * cos(a + fi * 0.2) * 0.05;
-        }
-        float dist = length(uv);
-        float intensity = smoothstep(1.2, 0.0, dist);
-        float hue = value * 0.5 + time * 0.1 + dist * 0.3;
-        float r = sin(hue * 6.28318 + 0.0) * 0.5 + 0.5;
-        float g = sin(hue * 6.28318 + 2.09439) * 0.5 + 0.5;
-        float b = sin(hue * 6.28318 + 4.18879) * 0.5 + 0.5;
-        gl_FragColor = vec4(vec3(r, g, b) * intensity * 0.85, 1.0);
-      }`
-  );
-  const program = gl.createProgram();
-  if (!program) {
-    return null;
-  }
-  gl.attachShader(program, vertexShader);
-  gl.attachShader(program, fragmentShader);
-  gl.linkProgram(program);
-  gl.deleteShader(vertexShader);
-  gl.deleteShader(fragmentShader);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const message = gl.getProgramInfoLog(program) ?? `${backend} stress shader failed to link.`;
-    gl.deleteProgram(program);
-    throw new Error(message);
-  }
-
-  const positionBuffer = gl.createBuffer();
-  if (!positionBuffer) {
-    gl.deleteProgram(program);
-    return null;
-  }
-  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-  gl.bufferData(
-    gl.ARRAY_BUFFER,
-    new Float32Array([-1, -1, 3, -1, -1, 3]),
-    gl.STATIC_DRAW
-  );
-
-  const positionLocation = gl.getAttribLocation(program, 'a_position');
-  const timeLocation = gl.getUniformLocation(program, 'u_time');
-  const resLocation = gl.getUniformLocation(program, 'u_resolution');
-  const scaler = new AdaptiveGpuWorkScaler({
-    initialLevel: 4,
-    fastMs: 6,
-    slowMs: 80,
-    growAfterSamples: 1,
-    aggressiveGrowthMultiplier: 2,
-    steadyGrowthMultiplier: 1.35,
-    slowBackoffMultiplier: 0.8
-  });
-  const startedAt = readNow();
-  let active = true;
+function startWebGlStress(canvas: HTMLCanvasElement, callbacks: StressGpuStressCallbacks,
+  backend: 'webgl2-fragment' | 'webgl1-fragment', options: StressGpuStressOptions): StressGpuStressHandle {
+  const webgl2 = backend === 'webgl2-fragment';
+  const gl = canvas.getContext(webgl2 ? 'webgl2' : 'webgl', GL_ATTRIBUTES) as WebGLRenderingContext | WebGL2RenderingContext | null;
+  if (!gl) throw new Error('WebGL unavailable.');
+  const gl2 = webgl2 ? gl as WebGL2RenderingContext : null;
+  let vertex: WebGLShader | null = null;
+  let fragment: WebGLShader | null = null;
+  let program: WebGLProgram | null = null;
+  let buffer: WebGLBuffer | null = null;
+  const pending: { fence: WebGLSync; began: number; depth: number }[] = [];
   let timer = 0;
-  let pendingSync: WebGLSync | null = null;
-  let pendingSyncStartedAt = 0;
-  let lastCompletionSampleAt = 0;
-
+  let active = true;
+  let reducedMotion = Boolean(options.reducedMotion);
+  let pointerX = 0;
+  let pointerY = 0;
+  let detail = 'Preparing ray tracing';
   const stop = ({ loseContext = false }: { loseContext?: boolean } = {}) => {
+    if (!active) return;
     active = false;
-    if (timer) {
-      window.clearTimeout(timer);
-      timer = 0;
-    }
-    if (pendingSync && isWebGl2Context(gl)) {
-      gl.deleteSync(pendingSync);
-      pendingSync = null;
-    }
-    gl.deleteProgram(program);
-    gl.deleteBuffer(positionBuffer);
-    if (loseContext) {
-      gl.getExtension('WEBGL_lose_context')?.loseContext();
-    }
+    window.clearTimeout(timer);
+    canvas.removeEventListener('webglcontextlost', lost);
+    for (const batch of pending) gl2?.deleteSync(batch.fence);
+    pending.length = 0;
+    if (vertex) gl.deleteShader(vertex);
+    if (fragment) gl.deleteShader(fragment);
+    if (program) gl.deleteProgram(program);
+    if (buffer) gl.deleteBuffer(buffer);
+    if (loseContext) gl.getExtension('WEBGL_lose_context')?.loseContext();
     callbacks.onCanvasActive(false);
   };
-
-  const drawOnce = (now: number) => {
-    const { width, height } = resolveWebGlDrawingSize(canvas, gl, scaler.getLevel());
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width;
-      canvas.height = height;
-    }
-    gl.viewport(0, 0, width, height);
-    gl.useProgram(program);
-    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-    if (positionLocation >= 0) {
-      gl.enableVertexAttribArray(positionLocation);
-      gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-    }
-    if (timeLocation) {
-      gl.uniform1f(timeLocation, (now - startedAt) * 0.001);
-    }
-    if (resLocation) {
-      gl.uniform2f(resLocation, width, height);
-    }
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  const fail = (error: unknown) => {
+    if (!active) return;
+    stop();
+    callbacks.onAsyncError(error instanceof Error ? error.message : 'WebGL workload failed.');
   };
-
-  const schedulePump = () => {
-    if (!active || timer) {
-      return;
-    }
-    timer = window.setTimeout(pump, WEBGL_PUMP_DELAY_MS);
-  };
-
-  const pump = () => {
-    timer = 0;
-    if (!active) {
-      return;
-    }
-
-    const pumpStarted = readNow();
-    const requestedDraws = Math.max(1, Math.min(WEBGL_MAX_DRAWS_PER_PUMP, Math.floor(scaler.getLevel())));
-    let submittedDraws = 0;
-    try {
-      for (let index = 0; index < requestedDraws; index += 1) {
-        drawOnce(readNow());
-        submittedDraws += 1;
-        if (readNow() - pumpStarted > WEBGL_MAX_MAIN_THREAD_BURST_MS) {
-          break;
-        }
+  function lost(event: Event) {
+    event.preventDefault();
+    fail(new Error('WebGL context lost. Restart the test to reconnect.'));
+  }
+  canvas.addEventListener('webglcontextlost', lost);
+  try {
+    vertex = compileShader(gl, gl.VERTEX_SHADER, `${webgl2 ? '#version 300 es' : ''}
+      ${webgl2 ? 'in' : 'attribute'} vec2 a_position;
+      void main() { gl_Position = vec4(a_position, 0.0, 1.0); }`);
+    const highp = Boolean(gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT)?.precision);
+    fragment = compileShader(gl, gl.FRAGMENT_SHADER, gpuSceneGlsl(webgl2, highp));
+    program = gl.createProgram();
+    if (!program) throw new Error('Unable to allocate GPU program.');
+    gl.attachShader(program, vertex);
+    gl.attachShader(program, fragment);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) || 'GPU program failed to link.');
+    buffer = gl.createBuffer();
+    if (!buffer) throw new Error('Unable to allocate GPU geometry.');
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+    const position = gl.getAttribLocation(program, 'a_position');
+    const scene = gl.getUniformLocation(program, 'u_scene');
+    const pointer = gl.getUniformLocation(program, 'u_pointer');
+    const sample = gl.getUniformLocation(program, 'u_sample');
+    const viewport = gl.getParameter(gl.MAX_VIEWPORT_DIMS) as Int32Array;
+    const deviceMaxDimension = Math.max(1, Math.min(viewport[0], viewport[1], gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number));
+    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+    const adapterName = (debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string : '') || (webgl2 ? 'WebGL 2 adapter' : 'WebGL 1 adapter');
+    // A software GL device shares CPU/compositor resources with the UI. Large
+    // supersampled batches can otherwise block Stop and even browser capture.
+    // Keep real shader work sustained but bounded; hardware keeps full scaling.
+    const software = /swiftshader|llvmpipe|softpipe|software rasterizer|microsoft basic render/i.test(adapterName);
+    const maxDimension = Math.min(deviceMaxDimension, software ? 512 : deviceMaxDimension);
+    const maxBackingPixels = software ? 512 * 512 : webgl2 ? 16000000 : 4000000;
+    const maxWorkloadLevel = software ? 1 : 128;
+    const scaler = new AdaptiveGpuWorkScaler({ initialLevel: webgl2 && !software ? 4 : 1, growAfterSamples: 1,
+      fastMs: 8, slowMs: 24, aggressiveGrowthMultiplier: 2, steadyGrowthMultiplier: 1.1 });
+    const started = readNow();
+    let baseScale = 1;
+    const completed = (elapsed: number) => {
+      if (!active) return;
+      if (scaler.getLevel() === 1 && elapsed > 24) {
+        baseScale = Math.max(0.125, baseScale * 0.8);
+      } else if (baseScale < 1 && elapsed < 8) {
+        baseScale = Math.min(1, baseScale * 1.1);
       }
-      gl.flush();
-      const glError = gl.getError();
-      if (glError !== gl.NO_ERROR) {
-        callbacks.onWorkloadLevel(scaler.recordError());
-      } else {
-        const now = readNow();
-        if (isWebGl2Context(gl)) {
-          if (pendingSync && now - lastCompletionSampleAt >= WEBGL_COMPLETION_SAMPLE_INTERVAL_MS) {
-            const status = gl.clientWaitSync(pendingSync, 0, 0);
-            if (status === gl.TIMEOUT_EXPIRED) {
-              if (now - pendingSyncStartedAt >= WEBGL_FENCE_STALL_MS) {
-                callbacks.onWorkloadLevel(scaler.recordBackpressure());
-                lastCompletionSampleAt = now;
-              } else {
-                callbacks.onWorkloadLevel(scaler.recordCompletion(now - pumpStarted));
-              }
-            } else {
-              gl.deleteSync(pendingSync);
-              pendingSync = null;
-              callbacks.onWorkloadLevel(scaler.recordCompletion(now - pendingSyncStartedAt));
-              lastCompletionSampleAt = now;
-            }
-          } else {
-            callbacks.onWorkloadLevel(scaler.recordCompletion(now - pumpStarted));
-          }
-        } else {
-          callbacks.onWorkloadLevel(scaler.recordCompletion(now - pumpStarted));
-        }
-      }
-      if (isWebGl2Context(gl) && !pendingSync) {
-        pendingSync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
-        pendingSyncStartedAt = readNow();
-      }
-    } catch (error) {
-      callbacks.onWorkloadLevel(scaler.recordError());
-      callbacks.onAsyncError(error instanceof Error ? error.message : `${backend} stress draw failed.`);
-      return;
-    }
-
-    if (submittedDraws > 0) {
+      const level = scaler.recordCompletion(elapsed);
+      // Supersampling and repeated geometry/lighting passes are bounded by
+      // viewport/memory limits and eight passes per batch.
+      if (level > maxWorkloadLevel) scaler.reset(maxWorkloadLevel);
+      callbacks.onWorkloadLevel(scaler.getLevel());
       callbacks.onCanvasActive(true);
       callbacks.onFrame();
-    }
-    schedulePump();
-  };
-
-  callbacks.onWorkloadLevel(scaler.getLevel());
-  callbacks.onCanvasActive(true);
-  schedulePump();
-
-  return {
-    backend,
-    getWorkloadLevel: () => scaler.getLevel(),
-    stop
-  };
+    };
+    const draw = () => {
+      const batchStart = readNow();
+      const level = scaler.getLevel();
+      const scale = baseScale * Math.min(4, Math.sqrt(level));
+      const passes = Math.min(8, Math.ceil(level / 16));
+      const size = drawingSize(canvas, scale, maxDimension, maxBackingPixels, false);
+      // Resizing invalidates the drawing buffer; let existing fenced batches
+      // finish first. Never block JavaScript waiting on a WebGL 2 fence.
+      if (canvas.width !== size.width || canvas.height !== size.height) {
+        if (pending.length) return false;
+        canvas.width = size.width;
+        canvas.height = size.height;
+      }
+      const { width, height } = size;
+      gl.viewport(0, 0, width, height);
+      gl.useProgram(program);
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.enableVertexAttribArray(position);
+      gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+      gl.uniform2f(pointer, pointerX, pointerY);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.ONE, gl.ONE);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      for (let index = 0; index < passes; index++) {
+        gl.uniform2f(sample, index, passes);
+        gl.uniform4f(scene, reducedMotion ? 0 : (batchStart - started) / 1000 + index * 0.00001, width, height, 0);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+      detail = `${width.toLocaleString()} × ${height.toLocaleString()} · ${passes} ${passes === 1 ? 'pass' : 'passes'} · 150 ray steps`;
+      if (gl.isContextLost()) throw new Error('WebGL context lost.');
+      if (gl2) {
+        const fence = gl2.fenceSync(gl2.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        if (!fence) throw new Error('Unable to track GPU completion.');
+        pending.push({ fence, began: batchStart, depth: pending.length + 1 });
+        gl.flush();
+      } else {
+        // WebGL 1 has no asynchronous completion fence. finish measures actual
+        // completed work and bounds the queue; task yields keep Stop responsive.
+        gl.finish();
+        completed(readNow() - batchStart);
+      }
+      return true;
+    };
+    const pump = () => {
+      timer = 0;
+      if (!active) return;
+      try {
+        if (gl2) {
+          // Check only previously submitted work. Newly created fences need an
+          // event-loop turn before clientWaitSync can observe their completion.
+          while (active && pending.length) {
+            const batch = pending[0];
+            const status = gl2.clientWaitSync(batch.fence, 0, 0);
+            if (status === gl2.WAIT_FAILED) throw new Error('GPU completion tracking failed.');
+            if (status === gl2.TIMEOUT_EXPIRED) {
+              if (readNow() - batch.began > 10000) throw new Error('GPU stopped responding.');
+              break;
+            }
+            pending.shift();
+            gl2.deleteSync(batch.fence);
+            completed((readNow() - batch.began) / batch.depth);
+          }
+          while (active && pending.length < 2 && draw()) { /* bounded queue refill */ }
+          if (active) timer = window.setTimeout(pump, software ? 16 : 1);
+        } else {
+          draw();
+          // A self-posting MessageChannel can starve compositor/input work,
+          // particularly with synchronous software GL. Timers give it a turn.
+          if (active) timer = window.setTimeout(pump, software ? 16 : 0);
+        }
+      } catch (error) { fail(error); }
+    };
+    callbacks.onWorkloadLevel(scaler.getLevel());
+    timer = window.setTimeout(pump, 0);
+    return {
+      backend, getWorkloadLevel: () => scaler.getLevel(),
+      getDiagnostics: () => ({ adapter: adapterName, detail }),
+      setReducedMotion: value => { reducedMotion = value; },
+      setPointer: (x, y) => { pointerX = Number.isFinite(x) ? Math.max(-1, Math.min(1, x)) : 0;
+        pointerY = Number.isFinite(y) ? Math.max(-1, Math.min(1, y)) : 0; },
+      stop
+    };
+  } catch (error) { stop({ loseContext: true }); throw error; }
 }

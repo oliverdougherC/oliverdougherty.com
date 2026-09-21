@@ -1,4 +1,4 @@
-import { createFftWorkspace, fft, fftInto } from './fft';
+import { createFftWorkspace, fftInto } from './fft';
 import { assertPowerOfTwo, clamp } from './math';
 
 export interface WindowedFourierOptions {
@@ -155,11 +155,6 @@ function interpolateUpSampled(samples: Float32Array, displaySampleCount: number)
     output[index] = samples[leftIndex] + (samples[rightIndex] - samples[leftIndex]) * phase;
   }
   return output;
-}
-
-function coefficientFrequency(coefficientIndex: number, binCount: number, sampleRate: number, frameSize: number) {
-  const bin = coefficientIndex % binCount;
-  return bin * sampleRate / frameSize;
 }
 
 // One-sided amplitude spectrum: DC (bin 0) and Nyquist (bin = binCount-1) are divided

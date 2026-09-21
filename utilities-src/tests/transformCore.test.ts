@@ -3,7 +3,6 @@ import { buildTransformRenderPlan } from '@utilities/transformRenderPlan';
 import { analyzeTransformImages } from '@utilities/transformIntelligence';
 import {
   buildResultPixels,
-  collectRankedCandidatesForTarget,
   createMatchingSearchContext,
   findBestAvailableSourceIndex,
   matchPackedPixels,
@@ -300,15 +299,8 @@ describe('transform core', () => {
       5,
       1
     );
-    const context = createMatchingSearchContext(
-      packRgbPixels(source.pixels),
-      packRgbPixels(target.pixels),
-      4
-    );
-    const candidates = collectRankedCandidatesForTarget(context, 0, 4);
     const assignment = matchPackedPixels(packRgbPixels(source.pixels), packRgbPixels(target.pixels), 4);
 
-    expect(candidates.map((candidate) => candidate.sourceIndex)).toEqual([1, 2, 0, 3]);
     expect(Array.from(assignment)).toEqual([1, 3, 2, 0, 4]);
   });
 

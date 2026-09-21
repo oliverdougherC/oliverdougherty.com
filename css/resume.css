@@ -57,10 +57,6 @@ body, html {
   transition: opacity 0.8s ease;
 }
 
-.resume-cursor-hidden {
-  display: none;
-}
-
 .meta-tiny {
   position: absolute;
   z-index: 20;
@@ -146,17 +142,6 @@ body, html {
 
 .hero-content {
   max-width: 800px;
-}
-
-.hero-tag {
-  display: inline-block;
-  font-family: var(--font-interface);
-  font-size: var(--text-xs);
-  font-weight: 400;
-  letter-spacing: var(--tracking-widest);
-  text-transform: uppercase;
-  color: var(--resume-accent);
-  margin-bottom: var(--space-4);
 }
 
 .hero-title {
@@ -300,15 +285,6 @@ html.skip-page-animation[data-page-id="resume"] .resume-hidden {
   margin-bottom: var(--space-6);
   padding-bottom: var(--space-4);
   border-bottom: 1px solid #000000;
-}
-
-.section-heading::before {
-  content: '';
-  display: block;
-  width: var(--space-4);
-  height: 1px;
-  background: #000000;
-  flex-shrink: 0;
 }
 
 /* ========================================
@@ -502,28 +478,6 @@ html.skip-page-animation[data-page-id="resume"] .resume-hidden {
   height: 5px;
   background: #000000;
   border-radius: 0;
-}
-
-.project-tech {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.tech-tag {
-  font-family: var(--font-interface);
-  font-size: 0.75rem;
-  font-weight: 400;
-  color: #000000;
-  padding: 0.35rem 0.75rem;
-  border: 1px solid #000000;
-  background: transparent;
-  border-radius: 0;
-  transition: border-color 150ms ease;
-}
-
-.tech-tag:hover {
-  border-color: var(--resume-accent);
 }
 
 /* ========================================
@@ -779,8 +733,7 @@ html.skip-page-animation[data-page-id="resume"] .resume-hidden {
 
   .nav-actions,
   .footer,
-  .schematic-grid,
-  .typewriter-cursor {
+  .schematic-grid {
     display: none !important;
   }
 

@@ -77,8 +77,27 @@
 
 .mobile-gallery .mobile-gallery-grid picture {
   break-inside: avoid;
-  margin-bottom: 8px;
   display: block;
+}
+
+/* F08: each photo is a real button now; keep the exact prior picture geometry
+   (full-column image, 8px flow) while resetting UA button chrome. */
+.mobile-gallery .mobile-gallery-grid .mobile-photo-button {
+  break-inside: avoid;
+  display: block;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: inherit;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-gallery .mobile-gallery-grid .mobile-photo-button:focus-visible {
+  outline: 2px solid #004ba8;
+  outline-offset: 2px;
 }
 
 .mobile-gallery .mobile-gallery-grid img {
@@ -158,10 +177,23 @@
   height: 24px;
 }
 
+.mobile-gallery .mobile-lightbox-close:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
 /* ========================================
    Body lock when lightbox is open
    ======================================== */
 
 .schematic-mobile.mobile-lightbox-open {
   overflow: hidden;
+}
+
+/* Reduced motion: no opacity fade between photos; navigation commits instantly
+   (the JS skips its transition delay under the same preference). */
+@media (prefers-reduced-motion: reduce) {
+  .mobile-gallery .mobile-lightbox-media img {
+    transition: none;
+  }
 }

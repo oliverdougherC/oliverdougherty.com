@@ -1,0 +1,55 @@
+/* A passage becomes a relationship, then one missing term is recalled. */
+.lyra-study { display: block; width: 500px; height: 320px; }
+.lyra-source { opacity: 0; }
+.lyra-source text { font: 400 16px 'JetBrains Mono',monospace; fill: #4c4c45; }
+.lyra-word-period, .lyra-word-frequency { fill: #22251f; }
+.lyra-underlines { fill: none; stroke: #ff6700; stroke-width: 1.6; stroke-linecap: round; }
+.lyra-relation text { font: 400 44px 'JetBrains Mono',monospace; fill: #272b23; }
+.lyra-period-symbol { transform: translate(141px,135px); }
+.lyra-frequency-symbol { transform: translate(318px,135px); }
+.lyra-frequency-symbol text { fill: #ff6700; }
+.lyra-recall-rule { fill: none; stroke: #ff6700; stroke-width: 1; opacity: 0; }
+.lyra-wave-group { fill: none; }
+.lyra-axis { stroke: #d8d6cf; stroke-width: .7; }
+.lyra-oscillation { transform-origin: 64px 206px; }
+.lyra-wave, .lyra-oscillation use { stroke: #8b8b82; stroke-width: 1.3; }
+.lyra-cycle { stroke: #ff6700; stroke-width: 1.5; }
+.lyra-period-span { transform-origin: 64px 257px; }
+.lyra-period-mark { stroke: #a3a297; stroke-width: .8; }
+.lyra-period-mark text { fill: #55594e; stroke: none; font: 400 15px 'JetBrains Mono',monospace; }
+[data-motion='lyra'][data-running] .lyra-source { animation: lyra-read 20s cubic-bezier(.77,0,.175,1) infinite; }
+[data-motion='lyra'][data-running] .lyra-underlines { animation: lyra-annotate 20s cubic-bezier(.77,0,.175,1) infinite; }
+[data-motion='lyra'][data-running] .lyra-period-symbol { animation: lyra-extract-period 20s cubic-bezier(.77,0,.175,1) infinite; }
+[data-motion='lyra'][data-running] .lyra-frequency-symbol { animation: lyra-extract-frequency 20s cubic-bezier(.77,0,.175,1) infinite; }
+[data-motion='lyra'][data-running] .lyra-equation-rest { animation: lyra-connect 20s cubic-bezier(.77,0,.175,1) infinite; }
+[data-motion='lyra'][data-running] .lyra-wave-group { animation: lyra-visualize 20s cubic-bezier(.77,0,.175,1) infinite; }
+[data-motion='lyra'][data-running] .lyra-cycle { animation: lyra-one-cycle 20s linear infinite; }
+[data-motion='lyra'][data-running] .lyra-recall-rule { animation: lyra-recall 20s linear infinite; }
+@keyframes lyra-read { 0%,24%,100% { opacity: 1; transform: translateY(0); } 34% { opacity: .35; transform: translateY(-4px); } 43%,92% { opacity: 0; transform: translateY(-10px); } }
+@keyframes lyra-annotate { 0%,12%,98%,100% { opacity: 0; clip-path: inset(0 100% 0 0); } 24%,34% { opacity: 1; clip-path: inset(0); } 40%,92% { opacity: 0; clip-path: inset(0); } }
+@keyframes lyra-extract-period {
+  0%,24%,100% { opacity: 0; transform: translate(89px,99px) scale(.36); }
+  28% { opacity: 1; transform: translate(89px,99px) scale(.36); }
+  43%,87% { opacity: 1; transform: translate(141px,135px) scale(1); }
+  94% { opacity: 0; transform: translate(141px,135px) scale(1); }
+}
+@keyframes lyra-extract-frequency {
+  0%,24%,100% { opacity: 0; transform: translate(70px,168px) scale(.36); clip-path: inset(0); }
+  28% { opacity: 1; transform: translate(70px,168px) scale(.36); clip-path: inset(0); }
+  43%,63% { opacity: 1; transform: translate(318px,135px) scale(1); clip-path: inset(0); }
+  68%,75% { opacity: 0; transform: translate(318px,135px) scale(1); clip-path: inset(0); }
+  77% { opacity: 1; transform: translate(318px,135px) scale(1); clip-path: inset(0 100% 0 0); }
+  83%,87% { opacity: 1; transform: translate(318px,135px) scale(1); clip-path: inset(0); }
+  94% { opacity: 0; transform: translate(318px,135px) scale(1); clip-path: inset(0); }
+}
+@keyframes lyra-connect { 0%,32%,96%,100% { opacity: 0; } 43%,87% { opacity: 1; } }
+@keyframes lyra-visualize { 0%,40%,98%,100% { opacity: 0; clip-path: inset(0 100% 0 0); } 57%,87% { opacity: 1; clip-path: inset(0); } 94% { opacity: 0; clip-path: inset(0); } }
+@keyframes lyra-one-cycle { 0%,54% { opacity: 0; } 62%,86% { opacity: 1; } 94%,100% { opacity: 0; } }
+@keyframes lyra-recall { 0%,64%,87%,100% { opacity: 0; } 68%,79% { opacity: .65; } }
+
+[data-motion='lyra'][data-running] :is(.lyra-oscillation,.lyra-period-span) { animation: lyra-frequency-change 20s cubic-bezier(.77,0,.175,1) infinite; }
+[data-motion='lyra'][data-running] .lyra-period-label { animation: lyra-period-position 20s cubic-bezier(.77,0,.175,1) infinite; }
+@keyframes lyra-frequency-change { 0%,78%,100% { transform: scaleX(1); } 88%,95% { transform: scaleX(.5); } }
+@keyframes lyra-period-position { 0%,78%,100% { transform: translateX(0); } 88%,95% { transform: translateX(-46.5px); } }
+[data-motion='lyra'][data-running] :is(.lyra-word-period,.lyra-word-frequency) { animation: lyra-abbreviate 20s linear infinite; }
+@keyframes lyra-abbreviate { 0%,24%,97%,100% { opacity: 1; } 28%,92% { opacity: 0; } }

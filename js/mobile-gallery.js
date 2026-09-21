@@ -20,6 +20,17 @@
   let currentIndex = -1;
   let touchStartX = 0;
   let touchStartY = 0;
+  // Delayed-navigation state: an explicit token + pending target lets close,
+  // replacement navigation, and lifecycle events invalidate queued work.
+  let navigationTimer = 0;
+  let navigationToken = 0;
+  let pendingTargetIndex = -1;
+  let lastTriggerElement = null;
+  let inertElements = [];
+
+  function prefersReducedMotion() {
+    return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
 
   /* ---- Utility functions ---- */
 
@@ -207,8 +218,18 @@
         img.decoding = 'async';
       }
 
+      // F08: semantic, keyboard-operable button per photo; the img keeps its
+      // data-entry-index attribute for existing selectors. Appearance matches
+      // the previous bare-picture grid via css/mobile-gallery.css.
       picture.appendChild(img);
-      fragment.appendChild(picture);
+
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'mobile-photo-button';
+      button.setAttribute('data-entry-index', index);
+      button.setAttribute('aria-label', 'Open ' + (entry.displayTitle || 'Photograph') + ' in photo viewer');
+      button.appendChild(picture);
+      fragment.appendChild(button);
     });
 
     container.appendChild(fragment);
@@ -227,8 +248,11 @@
     };
   }
 
-  function openLightbox(index) {
+  // trigger: the originating grid button on initial open (drives focus entry
+  // and later focus return). Navigation passes no trigger so focus stays put.
+  function openLightbox(index, trigger) {
     if (index < 0 || index >= entries.length) return;
+    var wasOpen = currentIndex >= 0;
     currentIndex = index;
 
     var el = getLightboxElements();
@@ -265,46 +289,117 @@
     el.overlay.removeAttribute('hidden');
     document.body.classList.add('mobile-lightbox-open');
 
+    if (!wasOpen) {
+      setBackgroundInert(true);
+      if (trigger) {
+        lastTriggerElement = trigger;
+      }
+      // F08: move focus into the modal dialog so keyboard and switch-control
+      // users are inside it while the photo viewer is up.
+      if (el.close) el.close.focus();
+    }
+
     // Preload adjacent entries
     preloadAdjacent(index);
   }
 
+  // F08: with the dialog modal, background content must not be interactive.
+  // inert covers modern engines; the fixed full-viewport overlay plus the Tab
+  // trap keep interaction contained even where inert is unsupported.
+  function setBackgroundInert(active) {
+    if (active) {
+      inertElements = Array.prototype.filter.call(document.body.children, function (node) {
+        return node.nodeType === 1 && node.id !== 'mobileLightbox';
+      }).map(function (node) { return { node: node, wasInert: node.hasAttribute('inert') }; });
+      inertElements.forEach(function (state) {
+        state.node.setAttribute('inert', '');
+      });
+    } else {
+      inertElements.forEach(function (state) {
+        if (state.wasInert) state.node.setAttribute('inert', '');
+        else state.node.removeAttribute('inert');
+      });
+      inertElements = [];
+    }
+  }
+
   function closeLightbox() {
+    cancelPendingNavigation();
     var el = getLightboxElements();
     el.overlay.setAttribute('hidden', '');
     document.body.classList.remove('mobile-lightbox-open');
     currentIndex = -1;
+    setBackgroundInert(false);
+
+    // F08: return focus to the control that opened the dialog.
+    if (lastTriggerElement && typeof lastTriggerElement.focus === 'function' && lastTriggerElement.isConnected) {
+      lastTriggerElement.focus({ preventScroll: true });
+    }
+    lastTriggerElement = null;
   }
 
+  function cancelPendingNavigation() {
+    getLightboxElements().image.style.opacity = '1';
+    if (navigationTimer) {
+      window.clearTimeout(navigationTimer);
+      navigationTimer = 0;
+    }
+    // Invalidates scheduled fades and pending image-load callbacks too.
+    navigationToken += 1;
+    pendingTargetIndex = -1;
+  }
+
+  // Deterministic rapid-navigation policy: every gesture advances the pending
+  // target by one (wraparound), so three fast swipes move three photos even
+  // before any commit runs; rendering coalesces onto the newest target and the
+  // older timers are cancelled. Close/lifecycle events invalidate the token.
   function navigateLightbox(direction) {
-    var newIndex = currentIndex + direction;
-    if (newIndex < 0) newIndex = entries.length - 1;
-    if (newIndex >= entries.length) newIndex = 0;
+    if (currentIndex < 0 || !entries.length) return;
+
+    var base = pendingTargetIndex >= 0 ? pendingTargetIndex : currentIndex;
+    var target = base + direction;
+    if (target < 0) target = entries.length - 1;
+    if (target >= entries.length) target = 0;
+
+    cancelPendingNavigation();
+    var token = navigationToken;
+    pendingTargetIndex = target;
+
+    var el = getLightboxElements();
+    el.image.style.opacity = '0';
+
+    if (prefersReducedMotion()) {
+      commitNavigation(target, token);
+      return;
+    }
+
+    navigationTimer = window.setTimeout(function () {
+      navigationTimer = 0;
+      commitNavigation(target, token);
+    }, 150);
+  }
+
+  function commitNavigation(target, token) {
+    if (token !== navigationToken || currentIndex < 0) return;
+    pendingTargetIndex = -1;
+    openLightbox(target);
 
     var el = getLightboxElements();
     var img = el.image;
-
-    // Fade out
-    img.style.opacity = '0';
-
-    setTimeout(function () {
-      openLightbox(newIndex);
-      // Force fade in after DOM update
-      requestAnimationFrame(function () {
-        requestAnimationFrame(function () {
-          var img = el.image;
-          // If image is already loaded or has naturalWidth, fade in
-          if (img.naturalWidth > 0) {
-            img.style.opacity = '1';
-          } else {
-            // Wait for load
-            img.addEventListener('load', function () {
-              img.style.opacity = '1';
-            }, { once: true });
-          }
-        });
+    var reveal = function () {
+      if (token !== navigationToken || currentIndex < 0) return;
+      img.style.opacity = '1';
+    };
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(function () {
+        if (token !== navigationToken || currentIndex < 0) return;
+        if (img.complete || img.naturalWidth > 0) {
+          reveal();
+        } else {
+          img.addEventListener('load', reveal, { once: true });
+        }
       });
-    }, 150);
+    });
   }
 
   function preloadAdjacent(index) {
@@ -332,13 +427,15 @@
 
   function bindGridClicks(grid) {
     grid.addEventListener('click', function (e) {
-      var target = e.target;
-      // Walk up to find the <img> with data-entry-index
-      if (target.tagName === 'IMG' && target.hasAttribute('data-entry-index')) {
-        var index = parseInt(target.getAttribute('data-entry-index'), 10);
-        if (!isNaN(index)) {
-          openLightbox(index);
-        }
+      // Delegates from the img (clicks, and Enter/Space activation of the
+      // semantic button in real browsers) up to the photo button.
+      var button = e.target && e.target.closest
+        ? e.target.closest('button[data-entry-index]')
+        : null;
+      if (!button || !grid.contains(button)) return;
+      var index = parseInt(button.getAttribute('data-entry-index'), 10);
+      if (!isNaN(index)) {
+        openLightbox(index, button);
       }
     });
   }
@@ -385,6 +482,64 @@
         closeLightbox();
       }
     }, { passive: true });
+
+    // F08: keyboard control for the modal dialog — Escape dismisses, arrows
+    // navigate, Tab stays inside the dialog. Covers keyboard/switch-control
+    // users on mobile and anyone opening the mobile URL on a desktop.
+    document.addEventListener('keydown', function (e) {
+      if (currentIndex < 0) return;
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeLightbox();
+        return;
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        navigateLightbox(1);
+        return;
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        navigateLightbox(-1);
+        return;
+      }
+      if (e.key === 'Tab') {
+        trapDialogFocus(e);
+      }
+    });
+
+    // Delayed navigation must not survive page suspension.
+    window.addEventListener('pagehide', cancelPendingNavigation);
+  }
+
+  function trapDialogFocus(event) {
+    var overlay = document.getElementById('mobileLightbox');
+    if (!overlay || overlay.hasAttribute('hidden')) return;
+
+    var focusables = Array.prototype.filter.call(
+      overlay.querySelectorAll('button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'),
+      function (node) { return !node.hasAttribute('hidden'); }
+    );
+    if (!focusables.length) return;
+
+    var first = focusables[0];
+    var last = focusables[focusables.length - 1];
+    var active = document.activeElement;
+
+    if (!overlay.contains(active)) {
+      // Focus escaped into (inert-unsupported) background content: pull it back.
+      event.preventDefault();
+      first.focus();
+      return;
+    }
+    if (event.shiftKey && active === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   /* ---- Init ---- */

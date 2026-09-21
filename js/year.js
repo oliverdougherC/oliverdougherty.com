@@ -128,16 +128,7 @@ function initColorModeToggle() {
     if (!mount) return;
 
     const toggleButton = buildThemeToggleButton();
-    if (mount.type === 'shared-nav') {
-      const navToggleButton = mount.element.querySelector('#navToggle, .nav-toggle');
-      if (navToggleButton) {
-        mount.element.insertBefore(toggleButton, navToggleButton);
-      } else {
-        mount.element.appendChild(toggleButton);
-      }
-    } else {
-      mount.element.appendChild(toggleButton);
-    }
+    mount.element.appendChild(toggleButton);
 
     toggleButtons = [toggleButton];
   }
@@ -147,16 +138,6 @@ function initColorModeToggle() {
 }
 
 function findColorModeToggleMount() {
-  const sharedNavControls = document.querySelector('.nav-controls');
-  if (sharedNavControls) {
-    return { type: 'shared-nav', element: sharedNavControls };
-  }
-
-  const abstractNavLinks = document.querySelector('.abstract-nav .nav-links');
-  if (abstractNavLinks) {
-    return { type: 'abstract-nav', element: abstractNavLinks };
-  }
-
   const galleryActions = document.querySelector('.gallery-actions');
   if (galleryActions) {
     return { type: 'gallery-actions', element: galleryActions };

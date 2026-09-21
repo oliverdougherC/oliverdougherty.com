@@ -34,6 +34,16 @@ const gallery = {
   heroRevealTimers: [],
   heroRevealComplete: false,
   heroRevealScrollHandler: null,
+  archiveItems: [],
+  archiveLayout: {
+    frame: 0,
+    signature: '',
+    pending: false,
+    observer: null,
+    resizeHandler: null,
+    placardHeight: 34,
+    placardRetuned: false
+  },
   elements: {}
 };
 
@@ -223,9 +233,11 @@ function bindStaticEvents() {
     element.addEventListener('click', () => closeLightbox());
   });
 
-  document.addEventListener('keydown', handleGlobalKeydown);
-  window.addEventListener('hashchange', handleHashChange);
-  window.addEventListener('pagehide', cleanupGalleryEvents, { once: true });
+  bindRuntimeListeners();
+  // Suspension/restore pair: pagehide only detaches what resume re-arms, so a
+  // page restored from the BFCache (no DOMContentLoaded) relives the runtime.
+  window.addEventListener('pagehide', suspendGalleryRuntime);
+  window.addEventListener('pageshow', resumeGalleryRuntime);
 
   if (gallery.elements.lightboxMedia) {
     let touchStartX = 0;
@@ -242,6 +254,16 @@ function bindStaticEvents() {
       navigateLightbox(diff > 0 ? 1 : -1);
     }, { passive: true });
   }
+}
+
+// Dynamic listeners that a BFCache restore must re-establish. Remove-before-add
+// keeps this idempotent across repeated trips. The click/touch bindings above
+// live on the persisted DOM itself and are never removed.
+function bindRuntimeListeners() {
+  document.removeEventListener('keydown', handleGlobalKeydown);
+  document.addEventListener('keydown', handleGlobalKeydown);
+  window.removeEventListener('hashchange', handleHashChange);
+  window.addEventListener('hashchange', handleHashChange);
 }
 
 async function initGallery() {
@@ -497,7 +519,11 @@ function renderGallery() {
   hideStatusStates();
 
   if (gallery.elements.archiveSection) gallery.elements.archiveSection.hidden = false;
-  renderPhotoGrid(gallery.elements.archiveGrid, visibleEntries, 'archive');
+
+  buildArchiveCards(visibleEntries);
+  applyArchiveLayout();
+  gallery.archiveLayout.signature = computeArchiveLayoutSignature(gallery.elements.archiveGrid);
+  initArchiveLayout();
 }
 
 function initScrollReveal() {
@@ -528,19 +554,30 @@ function initScrollReveal() {
   gallery.scrollRevealObserver = observer;
 }
 
-function renderPhotoGrid(container, entries, context) {
-  const fragment = document.createDocumentFragment();
+function buildArchiveCards(entries) {
   const prominentSet = buildProminentSet(entries);
 
-  entries.forEach((entry, index) => {
-    fragment.appendChild(createPhotoCard(entry, {
-      context,
-      index,
-      isProminent: prominentSet.has(index)
-    }));
-  });
+  gallery.archiveItems = entries.map((entry, index) => ({
+    entry,
+    index,
+    card: null,
+    aspect: sanitiseAspect(entry),
+    prominent: prominentSet.has(index)
+  }));
 
-  replaceChildrenCompat(container, fragment);
+  gallery.archiveItems.forEach((item) => {
+    item.card = createPhotoCard(item);
+  });
+}
+
+function sanitiseAspect(entry) {
+  const width = Number(entry.width);
+  const height = Number(entry.height);
+  if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
+    const ratio = width / height;
+    if (ratio > 0.1 && ratio < 12) return ratio;
+  }
+  return 1.5;
 }
 
 function buildProminentSet(entries) {
@@ -563,20 +600,15 @@ function buildProminentSet(entries) {
   return set;
 }
 
-function createPhotoCard(entry, { context, index, isProminent }) {
+function createPhotoCard(item) {
+  const { entry, index } = item;
+  const isProminent = item.prominent;
+  const context = 'archive';
   const article = document.createElement('article');
   article.className = 'photo-card is-loading';
   article.dataset.entryId = entry.id;
   article.dataset.context = context;
 
-  if (context === 'featured') {
-    article.classList.add('photo-card--featured');
-    if (index === 0) {
-      article.classList.add('photo-card--feature-hero');
-    } else {
-      article.classList.add('photo-card--feature-secondary');
-    }
-  }
   if (isProminent) {
     article.classList.add('photo-card--prominent');
   }
@@ -591,20 +623,15 @@ function createPhotoCard(entry, { context, index, isProminent }) {
 
   const media = document.createElement('div');
   media.className = 'photo-media';
-
-  const naturalRatio = entry.width / entry.height;
-  const isFeatureHero = context === 'featured' && index === 0;
-  const clampedRatio = isProminent
-    ? Math.max(1.2, Math.min(naturalRatio, 2.0))
-    : isFeatureHero
-      ? Math.max(1.4, Math.min(naturalRatio, 1.78))
-      : Math.max(0.85, Math.min(naturalRatio, 1.78));
-  media.style.aspectRatio = `${clampedRatio.toFixed(3)} / 1`;
+  // Pre-layout intrinsic box: the justified engine replaces this with an
+  // explicit pixel height once row packing runs. Aspect stays natural —
+  // photos are never cropped to fit a grid cell anymore.
+  media.style.aspectRatio = `${item.aspect.toFixed(4)} / 1`;
 
   const picture = document.createElement('picture');
   const imageSizes = getCardImageSizes(context, index, isProminent);
-  const smallSrc = isProminent ? 'medium' : 'thumb';
-  const largeSrc = isProminent ? 'large' : 'medium';
+  const smallSrc = 'thumb';
+  const largeSrc = 'medium';
 
   const sourceAvif = document.createElement('source');
   sourceAvif.type = 'image/avif';
@@ -643,6 +670,7 @@ function createPhotoCard(entry, { context, index, isProminent }) {
   image.addEventListener('load', () => {
     article.classList.remove('is-loading');
     article.classList.add('is-loaded');
+    reconcileCardAspect(item, image);
   }, { once: true });
   image.addEventListener('error', () => {
     console.warn('Gallery image failed to load:', image.currentSrc || image.src);
@@ -675,6 +703,488 @@ function createPhotoCard(entry, { context, index, isProminent }) {
   });
 
   return article;
+}
+
+/* ------------------------------------------------------------------
+ * Carrara mosaic layout
+ *
+ * The archive is solved as one absolutely-positioned mosaic — no row
+ * containers, no bands that read as shelves. Three tile classes mix:
+ *
+ *   A3 / A2  justified single-photo courses (exact aspect, zero crop),
+ *            three-up standard size or two-up large.
+ *   B        a spanning course-pair: one big tile (two columns wide)
+ *            straddling two side courses, breaking the horizontal
+ *            seam; the paired singles beside it stay uncropped. The
+ *            spanner takes the only crop in the system (~4-8% max,
+ *            centered), which is what lets tiles hug on all sides.
+ *            The spanner side alternates, so vertical seams wander.
+ *
+ * Everything is solved top-to-bottom into pixel boxes; the solver
+ * picks course types per beat against a height rhythm so sizes vary
+ * without a repeating pattern. Photos keep story order.
+ * ---------------------------------------------------------------- */
+
+const ARCHIVE_LAYOUT = {
+  maxSpanCrop: 0.085,
+  gapFactor: 0.021,
+  minGap: 14,
+  maxGap: 26,
+  // Course-type economics. The solver minimizes total cost, so these
+  // numbers set how often each class shows up; the repeat penalty is
+  // what forces variation instead of long runs of one class.
+  costA3: 0.32,
+  costA2: 0.26,
+  costB: 0.24,
+  costLone: 0.6,
+  cropCost: 12,
+  spannerSwapPenalty: 0.03,
+  repeatPenalty: 0.2
+};
+
+function clampNumber(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function computeArchiveMetrics(containerWidth) {
+  const gapX = clampNumber(
+    containerWidth * ARCHIVE_LAYOUT.gapFactor,
+    ARCHIVE_LAYOUT.minGap,
+    ARCHIVE_LAYOUT.maxGap
+  );
+  const columns = containerWidth >= 900 ? 3 : (containerWidth >= 560 ? 2 : 1);
+  // Full-bleed edge treatment: justified courses span the entire container
+  // width (see measureJustifiedCourse), so columns only subtract the interior
+  // gutters. The former extra `- gapX` removed one gutter too many, leaving a
+  // spare right gutter unmirrored and doubling the interior gap when mirrored.
+  const columnWidth = (containerWidth - gapX * (columns - 1)) / columns;
+
+  return {
+    width: containerWidth,
+    gapX,
+    gapY: Math.round(gapX * 1.5),
+    columns,
+    columnWidth,
+    minMediaHeight: clampNumber(containerWidth * 0.2, 175, 215),
+    placardHeight: gallery.archiveLayout.placardHeight,
+    spanEligible: columns >= 3 && containerWidth >= 900
+  };
+}
+
+// Geometry for a justified single-photo course: photos keep exact
+// aspect, media height solved so the row is exactly full width.
+function measureJustifiedCourse(items, metrics) {
+  let sumAspect = 0;
+  items.forEach((item) => { sumAspect += item.aspect; });
+  const mediaHeight = (metrics.width - metrics.gapX * (items.length - 1)) / sumAspect;
+  if (mediaHeight < metrics.minMediaHeight) return null;
+  return {
+    kind: 'justified',
+    items,
+    mediaHeight,
+    boxHeight: mediaHeight + metrics.placardHeight
+  };
+}
+
+// Geometry for a spanning course-pair: [ spanner | single ] twice,
+// where one big tile straddles both courses in the left column (the
+// side flips every occurrence). The seam under the single exists but
+// stops dead at the spanner's bottom edge, so courses never read as
+// shelves. The single keeps its exact aspect at full size; the
+// spanner absorbs the mismatch, cropped at most maxSpanCrop, centered.
+function measureSpanCourse(topItem, bottomItem, spanItem, metrics) {
+  const singleWidth = metrics.columnWidth;
+  const topMedia = singleWidth / topItem.aspect;
+  const bottomMedia = singleWidth / bottomItem.aspect;
+  if (topMedia < metrics.minMediaHeight || bottomMedia < metrics.minMediaHeight) {
+    return null;
+  }
+
+  const topBox = topMedia + metrics.placardHeight;
+  const bottomBox = bottomMedia + metrics.placardHeight;
+  const boxHeight = topBox + metrics.gapY + bottomBox;
+  const spannerWidth = metrics.columnWidth * 2 + metrics.gapX;
+  const spannerMedia = boxHeight - metrics.placardHeight;
+
+  const boxAspect = spannerWidth / spannerMedia;
+  const crop =
+    1 - Math.min(boxAspect / spanItem.aspect, spanItem.aspect / boxAspect);
+  if (crop > ARCHIVE_LAYOUT.maxSpanCrop) return null;
+
+  return {
+    kind: 'span',
+    topItem,
+    bottomItem,
+    spanItem,
+    singleWidth,
+    topMedia,
+    bottomMedia,
+    spannerWidth,
+    spannerMedia,
+    boxHeight,
+    crop
+  };
+}
+
+// Course-type ids for the DP state (the "previous course type" axis
+// powers the anti-repeat penalty).
+const COURSE_A3 = 0;
+const COURSE_A2 = 1;
+const COURSE_B = 2;
+const COURSE_LONE = 3;
+
+// Dynamic program over (itemIndex, lastCourseType): every partition of
+// the archive into justified/spanning/lone courses is a path, the
+// cheapest wins. Course geometry is closed-form, so this is exact and
+// runs in microseconds for a 28-photo archive.
+function solveArchiveCourses(items, metrics) {
+  const count = items.length;
+  const typeCount = 4;
+  const best = [];
+  const back = [];
+  for (let i = 0; i <= count; i += 1) {
+    best.push(new Array(typeCount).fill(Infinity));
+    back.push(new Array(typeCount).fill(null));
+  }
+  best[0][COURSE_LONE] = 0; // neutral "no previous course" state
+
+  for (let i = 0; i < count; i += 1) {
+    for (let prevType = 0; prevType < typeCount; prevType += 1) {
+      if (!Number.isFinite(best[i][prevType])) continue;
+
+      const relax = (end, type, course, costBase) => {
+        const cost = costBase + (type === prevType ? ARCHIVE_LAYOUT.repeatPenalty : 0);
+        const total = best[i][prevType] + cost;
+        if (total < best[end][type]) {
+          best[end][type] = total;
+          back[end][type] = { from: i, prevType, course };
+        }
+      };
+
+      if (i + 3 <= count) {
+        const course = measureJustifiedCourse(items.slice(i, i + 3), metrics);
+        if (course) relax(i + 3, COURSE_A3, course, ARCHIVE_LAYOUT.costA3);
+      }
+      if (i + 2 <= count) {
+        const course = measureJustifiedCourse(items.slice(i, i + 2), metrics);
+        if (course) relax(i + 2, COURSE_A2, course, ARCHIVE_LAYOUT.costA2);
+      }
+
+      // Span course: one big tile straddling two side courses. The
+      // spanner may be any of the three photos (swap = tiny penalty),
+      // the other two stay exact, stacked beside it in story order.
+      if (metrics.spanEligible && i + 3 <= count) {
+        for (let s = 0; s < 3; s += 1) {
+          const triple = items.slice(i, i + 3);
+          const spanItem = triple[s];
+          const singles = triple.filter((_, k) => k !== s);
+          const course = measureSpanCourse(singles[0], singles[1], spanItem, metrics, false);
+          if (!course) continue;
+          relax(
+            i + 3,
+            COURSE_B,
+            course,
+            ARCHIVE_LAYOUT.costB +
+              course.crop * course.crop * ARCHIVE_LAYOUT.cropCost +
+              s * ARCHIVE_LAYOUT.spannerSwapPenalty
+          );
+        }
+      }
+
+      // Lone course: a single photo, never stretched. On phones it is
+      // the only legal shape; on wider screens it closes the archive
+      // with one centered tile — the mosaic's ragged tail, like the
+      // stone slab's own silhouette.
+      if (i + 1 <= count && (metrics.columns === 1 || i + 1 === count)) {
+        const width = metrics.columns === 1
+          ? metrics.width
+          : Math.min(metrics.columnWidth, metrics.width);
+        const mediaHeight = width / items[i].aspect;
+        relax(i + 1, COURSE_LONE, {
+          kind: 'lone',
+          item: items[i],
+          width,
+          mediaHeight,
+          centered: metrics.columns !== 1
+        }, metrics.columns === 1 ? 0 : ARCHIVE_LAYOUT.costLone);
+      }
+    }
+  }
+
+  let bestType = 0;
+  for (let t = 1; t < typeCount; t += 1) {
+    if (best[count][t] < best[count][bestType]) bestType = t;
+  }
+  if (!Number.isFinite(best[count][bestType])) return null;
+
+  const courses = [];
+  let position = count;
+  let type = bestType;
+  while (position > 0) {
+    const link = back[position][type];
+    if (!link) return null;
+    courses.unshift(link.course);
+    position = link.from;
+    type = link.prevType;
+  }
+  return courses;
+}
+
+// Guaranteed-feasible fallback for inputs the DP cannot partition (for
+// example two panoramas whose only shared course would fall under the
+// readability floor while a lone course is illegal at index 0). Rows keep
+// the mosaic's justified, aspect-preserving grammar: shrink the row until
+// it clears the floor, then accept a short full-width single. Extreme
+// portraits cap at one container width of height and center instead of
+// producing a ten-thousand-pixel media box.
+function buildFallbackCourses(items, metrics) {
+  const courses = [];
+  const maxRow = Math.max(1, metrics.columns);
+  const maxHeight = Math.max(metrics.minMediaHeight, metrics.width);
+
+  for (let start = 0; start < items.length;) {
+    let row = items.slice(start, start + maxRow);
+    let mediaHeight = 0;
+    for (;;) {
+      let sumAspect = 0;
+      row.forEach((item) => { sumAspect += item.aspect; });
+      mediaHeight = (metrics.width - metrics.gapX * (row.length - 1)) / sumAspect;
+      if (row.length <= 1 || mediaHeight >= metrics.minMediaHeight) break;
+      row = row.slice(0, row.length - 1);
+    }
+
+    let x0 = 0;
+    if (mediaHeight > maxHeight) {
+      mediaHeight = maxHeight;
+      let rowWidth = metrics.gapX * (row.length - 1);
+      row.forEach((item) => { rowWidth += item.aspect * mediaHeight; });
+      x0 = Math.max(0, (metrics.width - rowWidth) / 2);
+    }
+
+    courses.push({
+      kind: 'justified',
+      items: row,
+      mediaHeight,
+      boxHeight: mediaHeight + metrics.placardHeight,
+      x0
+    });
+    start += row.length;
+  }
+
+  return courses;
+}
+
+// Resolve courses into absolute pixel boxes. The spanner side flips on
+// every other span course so vertical seams wander instead of stacking.
+function buildMosaicBoxes(courses, metrics) {
+  const boxes = [];
+  const g = metrics.gapX;
+  let y = 0;
+  let spanMirrored = false;
+
+  courses.forEach((course) => {
+    if (course.kind === 'justified') {
+      let x = course.x0 || 0;
+      course.items.forEach((item) => {
+        const width = Math.round(item.aspect * course.mediaHeight);
+        boxes.push({
+          item,
+          x: Math.round(x),
+          y: Math.round(y),
+          width,
+          mediaHeight: Math.round(course.mediaHeight)
+        });
+        x += width + g;
+      });
+      y += course.boxHeight + metrics.gapY;
+      return;
+    }
+
+    if (course.kind === 'lone') {
+      const width = Math.round(course.width);
+      const mediaHeight = Math.round(course.mediaHeight);
+      boxes.push({
+        item: course.item,
+        x: course.centered ? Math.round((metrics.width - width) / 2) : 0,
+        y: Math.round(y),
+        width,
+        mediaHeight
+      });
+      y += mediaHeight + metrics.placardHeight + metrics.gapY;
+      return;
+    }
+
+    const mirrored = spanMirrored;
+    spanMirrored = !spanMirrored;
+    const spanWidth = Math.round(course.spannerWidth);
+    const singleWidth = Math.round(course.singleWidth);
+    const spanX = mirrored ? Math.round(metrics.width) - spanWidth : 0;
+    const singleX = mirrored ? 0 : spanWidth + Math.round(g);
+
+    boxes.push({
+      item: course.spanItem,
+      x: spanX,
+      y: Math.round(y),
+      width: spanWidth,
+      mediaHeight: Math.round(course.spannerMedia),
+      spanner: true
+    });
+    boxes.push({
+      item: course.topItem,
+      x: singleX,
+      y: Math.round(y),
+      width: singleWidth,
+      mediaHeight: Math.round(course.topMedia)
+    });
+    boxes.push({
+      item: course.bottomItem,
+      x: singleX,
+      y: Math.round(y + course.topMedia + metrics.placardHeight + metrics.gapY),
+      width: singleWidth,
+      mediaHeight: Math.round(course.bottomMedia)
+    });
+    y += course.boxHeight + metrics.gapY;
+  });
+
+  return { boxes, height: Math.max(0, y - metrics.gapY) };
+}
+
+function applyArchiveLayout() {
+  const grid = gallery.elements.archiveGrid;
+  if (!grid || !gallery.archiveItems.length) return;
+
+  const width = grid.clientWidth;
+  if (width < 120) return;
+
+  const metrics = computeArchiveMetrics(width);
+  // The DP can legitimately have no legal partition (e.g. two panoramas whose
+  // only shared row drops under the readability floor). Fall back to a
+  // guaranteed-feasible stack instead of leaving an empty/stale archive.
+  const courses = solveArchiveCourses(gallery.archiveItems, metrics)
+    || buildFallbackCourses(gallery.archiveItems, metrics);
+
+  const mosaic = buildMosaicBoxes(courses, metrics);
+  grid.style.height = `${Math.round(mosaic.height)}px`;
+
+  // F05: Moving cards through a detached fragment blurs any focused descendant.
+  // Remember a focus that was inside the grid and give it back after reinsert,
+  // without scrolling. A focus outside the grid (modal, nav) is never touched.
+  const focusedBefore = document.activeElement;
+  const preserveFocus = focusedBefore && grid.contains(focusedBefore) ? focusedBefore : null;
+
+  const fragment = document.createDocumentFragment();
+
+  // Reveal in reading order: top-to-bottom, left-to-right.
+  mosaic.boxes
+    .slice()
+    .sort((a, b) => (a.y - b.y) || (a.x - b.x))
+    .forEach((box, index) => {
+      prepareArchiveCard(box, `${Math.min(210, index * 45)}ms`);
+      fragment.appendChild(box.item.card);
+    });
+
+  replaceChildrenCompat(grid, fragment);
+
+  if (preserveFocus && preserveFocus.isConnected) {
+    preserveFocus.focus({ preventScroll: true });
+  }
+
+  if (!gallery.archiveLayout.placardRetuned) {
+    const placard = grid.querySelector('.photo-placard');
+    const measured = placard ? Math.round(placard.getBoundingClientRect().height) : 0;
+    if (measured > 0) {
+      gallery.archiveLayout.placardRetuned = true;
+      if (Math.abs(measured - gallery.archiveLayout.placardHeight) > 1) {
+        gallery.archiveLayout.placardHeight = measured;
+        scheduleArchiveLayout({ force: true });
+      }
+    }
+  }
+}
+
+function prepareArchiveCard(box, revealDelay) {
+  const card = box.item.card;
+  if (!card) return;
+
+  card.style.left = `${box.x}px`;
+  card.style.top = `${box.y}px`;
+  card.style.width = `${box.width}px`;
+  card.classList.toggle('photo-card--placard-compact', box.width < 132);
+  card.classList.toggle('photo-card--spanner', !!box.spanner);
+  card.style.setProperty('--reveal-delay', revealDelay);
+
+  const media = card.querySelector('.photo-media');
+  if (media) media.style.height = `${box.mediaHeight}px`;
+
+  setCardImageWidthHint(card, box.width);
+}
+
+function setCardImageWidthHint(card, widthPx) {
+  const sizes = `${Math.ceil(widthPx)}px`;
+  const picture = card.querySelector('picture');
+  const image = card.querySelector('img');
+  if (picture) {
+    picture.querySelectorAll('source').forEach((source) => {
+      if (source.hasAttribute('sizes')) source.sizes = sizes;
+    });
+  }
+  if (image && image.hasAttribute('sizes')) image.sizes = sizes;
+}
+
+function reconcileCardAspect(item, image) {
+  const natural = image.naturalWidth && image.naturalHeight
+    ? image.naturalWidth / image.naturalHeight
+    : 0;
+  if (!natural || natural <= 0.1 || natural >= 12) return;
+  if (Math.abs(natural - item.aspect) / item.aspect <= 0.01) return;
+  item.aspect = natural;
+  const media = item.card ? item.card.querySelector('.photo-media') : null;
+  if (media) media.style.aspectRatio = `${natural.toFixed(4)} / 1`;
+  scheduleArchiveLayout({ force: true });
+}
+
+function computeArchiveLayoutSignature(grid) {
+  return String(Math.round(grid ? grid.clientWidth : 0));
+}
+
+function scheduleArchiveLayout({ force = false } = {}) {
+  if (gallery.lightboxOpen && !force) {
+    gallery.archiveLayout.pending = true;
+    return;
+  }
+
+  if (gallery.archiveLayout.frame) {
+    if (!force) return;
+    window.cancelAnimationFrame(gallery.archiveLayout.frame);
+    gallery.archiveLayout.frame = 0;
+  }
+
+  gallery.archiveLayout.frame = window.requestAnimationFrame(() => {
+    gallery.archiveLayout.frame = 0;
+
+    const grid = gallery.elements.archiveGrid;
+    if (!grid) return;
+
+    const signature = computeArchiveLayoutSignature(grid);
+    if (signature !== gallery.archiveLayout.signature) {
+      gallery.archiveLayout.signature = signature;
+    } else if (!force) {
+      return;
+    }
+
+    applyArchiveLayout();
+  });
+}
+
+function initArchiveLayout() {
+  if (typeof ResizeObserver !== 'undefined' && !gallery.archiveLayout.observer) {
+    gallery.archiveLayout.observer = new ResizeObserver(() => scheduleArchiveLayout());
+    gallery.archiveLayout.observer.observe(gallery.elements.archiveGrid);
+  }
+  if (!gallery.archiveLayout.resizeHandler) {
+    gallery.archiveLayout.resizeHandler = () => scheduleArchiveLayout();
+    window.addEventListener('resize', gallery.archiveLayout.resizeHandler, { passive: true });
+  }
 }
 
 function setLoadingState(active) {
@@ -943,6 +1453,10 @@ function closeLightboxUi() {
   if (gallery.elements.lightbox) {
     gallery.elements.lightbox.hidden = true;
   }
+  if (gallery.archiveLayout.pending) {
+    gallery.archiveLayout.pending = false;
+    scheduleArchiveLayout();
+  }
   gallery.triggerElement?.focus?.();
   gallery.triggerElement = null;
 }
@@ -1141,21 +1655,60 @@ function syncGalleryFromUrl() {
   }
 }
 
-function cleanupGalleryEvents() {
+// F04: Suspension detaches only the dynamic listeners/observers/timers that
+// resumeGalleryRuntime re-arms. It is idempotent and safe both for real unload
+// (document is discarded) and for BFCache suspension (document may return).
+function suspendGalleryRuntime() {
+  cleanupLightboxImageOpacity();
   document.removeEventListener('keydown', handleGlobalKeydown);
   window.removeEventListener('hashchange', handleHashChange);
   gallery.scrollRevealObserver?.disconnect();
+  gallery.scrollRevealObserver = null;
+  if (gallery.archiveLayout.frame) {
+    window.cancelAnimationFrame(gallery.archiveLayout.frame);
+    gallery.archiveLayout.frame = 0;
+  }
+  gallery.archiveLayout.observer?.disconnect();
+  gallery.archiveLayout.observer = null;
+  if (gallery.archiveLayout.resizeHandler) {
+    window.removeEventListener('resize', gallery.archiveLayout.resizeHandler);
+    gallery.archiveLayout.resizeHandler = null;
+  }
   if (gallery.lightboxNavigationTimer) {
     window.clearTimeout(gallery.lightboxNavigationTimer);
+    gallery.lightboxNavigationTimer = 0;
   }
   if (gallery.hashChangeTimer) {
     window.clearTimeout(gallery.hashChangeTimer);
+    gallery.hashChangeTimer = 0;
   }
   gallery.heroRevealTimers.forEach((t) => window.clearTimeout(t));
   gallery.heroRevealTimers = [];
   if (gallery.heroRevealScrollHandler) {
     window.removeEventListener('scroll', gallery.heroRevealScrollHandler, { passive: true });
     gallery.heroRevealScrollHandler = null;
+  }
+}
+
+// A fresh load already bound everything in bindStaticEvents; only a persisted
+// restore needs to re-arm the runtime. Scroll, lightbox, and selection state
+// are untouched — the restored DOM never lost them.
+function resumeGalleryRuntime(event) {
+  if (event && !event.persisted) return;
+
+  bindRuntimeListeners();
+
+  // Scroll-reveal observation re-arms either way; when the hero sequence was
+  // interrupted mid-trip, its timers/scroll-skip are re-armed as well.
+  initScrollReveal();
+  if (!gallery.heroRevealComplete) {
+    initGalleryHeroReveal();
+  }
+
+  if (gallery.entries.length) {
+    initArchiveLayout();
+    scheduleArchiveLayout({ force: true });
+    syncGalleryFromUrl();
   }
 }
 
