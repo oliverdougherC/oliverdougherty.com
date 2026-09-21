@@ -185,6 +185,39 @@ describe('stress test controller lifecycle', () => {
     expect(document.getElementById('stressPrimeSummary')!.textContent).toContain('7 primes found');
   });
 
+  it('reports candidate throughput as a moving average over the trailing window', async () => {
+    await start('cpu');
+    const [first, second] = workloadWorkers();
+    expect(root.dataset.stressCandidatesPerSecond).toBe('0');
+
+    // Actual steady throughput: two workers add 500 candidates per 200 ms frame.
+    for (let tick = 1; tick <= 10; tick += 1) {
+      first.heartbeat(1_000_000_000_003, 1, tick * 500);
+      second.heartbeat(1_000_000_000_009, 1, tick * 500);
+      advanceFrame();
+    }
+    expect(root.dataset.stressIterations).toBe('10000');
+    expect(root.dataset.stressCandidatesPerSecond).toBe('5000');
+    expect(document.getElementById('stressPrimeSummary')!.textContent).toContain('5,000 candidates/s');
+
+    // With no new candidates for 3 s, the 5 s window holds only 2 s of measured
+    // work, so the moving average decays to exactly 2/5 of the steady rate.
+    for (let tick = 0; tick < 15; tick += 1) advanceFrame();
+    expect(root.dataset.stressCandidatesPerSecond).toBe('2000');
+
+    // Advancing past the whole window, the recorded work ages out of the
+    // trailing 5 s entirely and the reading reaches 0. A cumulative
+    // since-start average could not report 0 here, so this pins the window
+    // clamp and the interpolation-anchor pruning in recordCandidateRate.
+    for (let tick = 0; tick < 10; tick += 1) advanceFrame();
+    expect(root.dataset.stressCandidatesPerSecond).toBe('0');
+
+    // A removed CPU workload reports no stale throughput.
+    click('stressStopBtn');
+    expect(root.dataset.stressCandidatesPerSecond).toBe('0');
+    expect(document.getElementById('stressPrimeSummary')!.textContent).toContain('0 candidates/s');
+  });
+
   it('stops both workloads, clears worker activity, preserves the result, and ignores an already queued heartbeat', async () => {
     const gpu = availableGpu();
     await start();
