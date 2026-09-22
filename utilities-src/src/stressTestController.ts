@@ -34,6 +34,9 @@ interface StressWorkerRecord {
   // Disposable SMT benchmark capacity: never counted in production results and
   // never able to fail the permanent workload.
   benchmark: boolean;
+  // The allocator this record refills from: the permanent production allocator
+  // for production waves, or its wave's disposable allocator for probe capacity.
+  allocator: PrimeBlockAllocator;
   activityElement: HTMLElement;
   messageListener: (event: MessageEvent<StressTestWorkerResponse>) => void;
   errorListener: (event: ErrorEvent) => void;
@@ -112,7 +115,6 @@ export class StressTestController {
   private requestId = 0;
   private workers: StressWorkerRecord[] = [];
   private primeAllocator = new PrimeBlockAllocator();
-  private benchAllocator = createBenchmarkPrimeAllocator();
   private blocksAssigned = 0;
   private benchIterations = 0;
   private benchWorkUnits = 0;
@@ -450,7 +452,6 @@ export class StressTestController {
     });
 
     this.primeAllocator = new PrimeBlockAllocator();
-    this.benchAllocator = createBenchmarkPrimeAllocator();
     this.blocksAssigned = 0;
     this.benchIterations = 0;
     this.benchWorkUnits = 0;
@@ -467,9 +468,10 @@ export class StressTestController {
     // capacity on multithreaded CPUs. A throughput probe spawns disposable
     // benchmark waves and converts them into permanent workers only when
     // aggregate measured work actually grows, repeating until growth stops or
-    // the total cap. Benchmark waves sieve a separate disposable range, so a
-    // revert can never leave a hole in the production search. The explicit
-    // worker cap pins the count and skips the probe.
+    // the total cap. Each wave sieves its own disposable allocator seeded at
+    // the live production frontier, so probe and permanent work units cost the
+    // same and a revert can never leave a hole in the production search. The
+    // explicit worker cap pins the count and skips the probe.
     this.smtProbeWave = 0;
     this.smtProbeBaseline = workerCount;
     this.smtProbeExtra = getStressTestMaxWorkersOverride() === null
@@ -485,16 +487,21 @@ export class StressTestController {
 
   /**
    * Spawns one wave of workers and seeds each with its prefetch fill. Benchmark
-   * waves sieve the disposable allocator and are flagged probe capacity. The
-   * worker is constructed before its activity bar so a constructor failure can
-   * not orphan a bar. A wave that fails partway is fully unwound before the
-   * error is rethrown: every block the wave consumed is returned to its
-   * allocator and its assignment counters reversed, so even a partially failed
-   * permanent replacement wave cannot leave a hole in the production frontier.
+   * waves sieve a fresh disposable allocator seeded at the live production
+   * frontier — the exact work the permanent workers are about to perform — so
+   * probe and permanent work units are cost-comparable, and are flagged probe
+   * capacity. The worker is constructed before its activity bar so a
+   * constructor failure can not orphan a bar. A wave that fails partway is
+   * fully unwound before the error is rethrown: every block the wave consumed
+   * is returned to its allocator and its assignment counters reversed, so even
+   * a partially failed permanent replacement wave cannot leave a hole in the
+   * production frontier.
    */
   private spawnWorkerWave(requestId: number, count: number, firstIndex: number, benchmark: boolean) {
     const spawned: StressWorkerRecord[] = [];
-    const allocator = benchmark ? this.benchAllocator : this.primeAllocator;
+    const allocator = benchmark
+      ? createBenchmarkPrimeAllocator(this.primeAllocator.frontier)
+      : this.primeAllocator;
     // Spawning is synchronous, so no refill allocation can interleave behind
     // this mark; rewinding it can only reclaim blocks this wave just consumed.
     const mark = allocator.mark();
@@ -535,6 +542,7 @@ export class StressTestController {
           blocksAssigned: 0,
           refills: 0,
           benchmark,
+          allocator,
           activityElement: bar,
           messageListener,
           errorListener
@@ -578,7 +586,7 @@ export class StressTestController {
     record.activityElement.remove();
   }
 
-  /** Drops the disposable probe wave only; permanent records and both allocator positions are untouched. */
+  /** Drops the disposable probe wave only: its seeded allocator dies with the records and the production frontier is untouched. */
   private terminateSmtProbeWave() {
     for (let index = this.workers.length - 1; index >= this.workers.length - this.smtProbeWave; index -= 1) {
       this.removeWorkerRecord(this.workers[index]);
@@ -658,9 +666,10 @@ export class StressTestController {
       if (message.supplyId !== record.supplyId + 1 || !Number.isInteger(message.count)
         || message.count < 1 || message.count > PRIME_PREFETCH_BLOCKS) return;
       record.supplyId = message.supplyId;
-      // Benchmark workers are fed exclusively from the disposable allocator;
-      // production block coverage is untouched by probe capacity either way.
-      const allocator = record.benchmark ? this.benchAllocator : this.primeAllocator;
+      // Each record refills from the allocator that seeded its wave: permanent
+      // workers from the production allocator, probe workers from their wave's
+      // disposable allocator, so probe capacity can never touch production coverage.
+      const allocator = record.allocator;
       const blocks = allocator.take(message.count);
       record.blocksAssigned += blocks.length;
       record.refills += 1;
@@ -696,9 +705,10 @@ export class StressTestController {
         this.root.dataset.stressLastChecksum = String(message.checksum);
       }
       if (this.smtProbe) {
-        // Frontier-flat work units measure CPU work actually executed.
-        // Candidates/s would decay and per-prime scan counts would drift
-        // cheaper as the frontier grows, hiding or faking capacity gains.
+        // Work units measure CPU work actually executed, and disposable waves
+        // seed at the production frontier, so benchmark and permanent units
+        // cost the same. Candidates/s would decay with the frontier and
+        // per-prime scan counts would drift cheaper, hiding or faking capacity.
         this.applySmtProbeAction(this.smtProbe.observe(readNow(), this.totalWorkUnits + this.benchWorkUnits));
       }
       return;

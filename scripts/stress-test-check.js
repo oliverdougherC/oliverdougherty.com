@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 // Focused browser coverage: real GPU backends and two pinned CPU workers, so the
 // SMT throughput probe never changes worker counts while this check asserts them,
-// plus a dedicated probe-mode page where the closed loop runs against real cores.
+// plus dedicated probe-mode pages where the closed loop runs against real cores:
+// one simulating a 1-thread under-report (the growth path) and one reporting the
+// machine's true logical CPU count, where an already-saturated machine must
+// revert the extra wave (the saturated path).
 // STRESS_BROWSER_TYPE selects the engine (chromium|firefox|webkit);
-// STRESS_PROBE_ONLY=1 runs only the probe-mode page, for per-engine matrix runs.
+// STRESS_PROBE_ONLY=1 runs only the probe-mode pages, for per-engine matrix runs.
 const assert = require('node:assert/strict');
+const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
 const playwright = require('playwright');
@@ -191,42 +195,46 @@ async function assertDesktopSizes(page, label) {
   }
 }
 
-// Probe-mode coverage: with a simulated 1-thread under-report and no worker cap,
-// the SMT probe runs its real spawn→(keep|revert) chain against real cores.
-// Which decision each wave makes is machine-dependent; what is pinned is the
-// closed loop itself: the probe must install, must actually spawn disposable
-// benchmark waves (a probe that silently reverts without ever spawning fails
-// here), must tear every disposable worker down, and must leave a healthy,
-// advancing production workload with matching records and bars.
-async function assertSmtProbeMode(browser, url) {
+// Probe-mode coverage. `cores` is the mocked hardwareConcurrency and `label`
+// names the page. Both pages pin the closed loop itself against real cores:
+// the probe must install, must actually spawn disposable benchmark waves (a
+// probe that silently reverts without ever spawning fails here), must tear
+// every disposable worker down, and must leave a healthy, advancing
+// production workload with matching records and bars. Which verdict the
+// under-report page reaches is machine-dependent; the saturated page pins the
+// opposite real-world case — a report that already matches the machine's true
+// logical CPU count leaves no idle capacity, so the extra wave must revert.
+function smtProbeInit(cores) {
+  Object.defineProperty(navigator, 'hardwareConcurrency', { value: cores, configurable: true });
+  // Trace the mechanism, not just its endpoint: count stress-worker
+  // constructions and every probe-state transition from before the app runs.
+  window.__SMT_PROBE_TRACE__ = { workers: 0, transitions: [] };
+  const OriginalWorker = window.Worker;
+  window.Worker = class extends OriginalWorker {
+    constructor(workerUrl, options) {
+      super(workerUrl, options);
+      if (/stressTest\.worker/.test(String(workerUrl))) window.__SMT_PROBE_TRACE__.workers += 1;
+    }
+  };
+  document.addEventListener('DOMContentLoaded', () => {
+    const app = document.getElementById('stressTestApp');
+    const trace = window.__SMT_PROBE_TRACE__;
+    const record = () => {
+      const value = app.dataset.stressCpuSmtProbe ?? 'none';
+      if (trace.transitions.at(-1) !== value) trace.transitions.push(value);
+    };
+    new MutationObserver(record).observe(app, { attributes: true, attributeFilter: ['data-stress-cpu-smt-probe'] });
+    record();
+  });
+}
+
+async function assertSmtProbeMode(browser, url, { cores, expectOutcome, label }) {
   const startedAt = Date.now();
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, 'hardwareConcurrency', { value: 1, configurable: true });
-    // Trace the mechanism, not just its endpoint: count stress-worker
-    // constructions and every probe-state transition from before the app runs.
-    window.__SMT_PROBE_TRACE__ = { workers: 0, transitions: [] };
-    const OriginalWorker = window.Worker;
-    window.Worker = class extends OriginalWorker {
-      constructor(workerUrl, options) {
-        super(workerUrl, options);
-        if (/stressTest\.worker/.test(String(workerUrl))) window.__SMT_PROBE_TRACE__.workers += 1;
-      }
-    };
-    document.addEventListener('DOMContentLoaded', () => {
-      const app = document.getElementById('stressTestApp');
-      const trace = window.__SMT_PROBE_TRACE__;
-      const record = () => {
-        const value = app.dataset.stressCpuSmtProbe ?? 'none';
-        if (trace.transitions.at(-1) !== value) trace.transitions.push(value);
-      };
-      new MutationObserver(record).observe(app, { attributes: true, attributeFilter: ['data-stress-cpu-smt-probe'] });
-      record();
-    });
-  });
+  await page.addInitScript(smtProbeInit, cores);
   await page.goto(`${url}/pages/utilities/index.html#stress-test`);
   await page.waitForSelector('#stressTestApp[data-stress-state="idle"]');
   await page.click('[data-stress-mode-option="cpu"]');
@@ -249,30 +257,53 @@ async function assertSmtProbeMode(browser, url) {
       trace: window.__SMT_PROBE_TRACE__
     };
   });
-  assert.equal(settled.state, 'running', `Probe mode must survive wave churn: ${JSON.stringify(settled)}`);
-  assert(settled.workers >= 1, `Probe mode must keep the reported worker: ${JSON.stringify(settled)}`);
-  assert.equal(settled.bars, settled.workers, 'Every surviving worker record must own exactly one activity bar');
-  assert(settled.assigned >= settled.workers * 4, 'Permanent workers must each hold their prefetch fill');
+  settled.label = label;
+  assert.equal(settled.state, 'running', `Probe mode (${label}) must survive wave churn: ${JSON.stringify(settled)}`);
+  assert(settled.workers >= cores, `Probe mode (${label}) must keep every reported worker: ${JSON.stringify(settled)}`);
+  assert.equal(settled.bars, settled.workers, `(${label}) every surviving worker record must own exactly one activity bar`);
+  assert(settled.assigned >= settled.workers * 4, `(${label}) permanent workers must each hold their prefetch fill`);
   // The probe must decide through its closed loop, never a preset verdict.
   assert.deepEqual(settled.trace.transitions, ['none', 'probing', settled.outcome],
-    `Probe must transition probing → decision: ${JSON.stringify(settled.trace)}`);
-  // A terminal decision with only the baseline worker is a probe that never
+    `(${label}) probe must transition probing → decision: ${JSON.stringify(settled.trace)}`);
+  // A terminal decision with only the baseline workers is a probe that never
   // exercised throughput: baseline plus at least one disposable wave member.
-  assert(settled.trace.workers >= 2,
-    `Probe must spawn at least one benchmark wave worker: ${JSON.stringify(settled)}`);
+  assert(settled.trace.workers >= cores + 1,
+    `(${label}) probe must spawn at least one benchmark wave worker: ${JSON.stringify(settled)}`);
   if (settled.outcome === 'kept') {
-    assert(settled.workers >= 2, `A kept wave must leave grown permanent capacity: ${JSON.stringify(settled)}`);
+    assert(settled.workers > cores, `(${label}) a kept wave must leave grown permanent capacity: ${JSON.stringify(settled)}`);
+  }
+  if (expectOutcome) {
+    // One worker per real hardware thread already saturates the machine; a
+    // kept extra wave here would mean the probe mistook cheaper benchmark-
+    // range work (or noise) for capacity the CPUs do not have.
+    assert.equal(settled.outcome, expectOutcome, `(${label}) the probe must ${expectOutcome}: ${JSON.stringify(settled)}`);
+    assert.equal(settled.workers, cores, `(${label}) a revert must leave exactly the reported workers: ${JSON.stringify(settled)}`);
   }
   await page.waitForFunction(previous => Number(document.querySelector('#stressTestApp').dataset.stressIterations) > previous.iterations,
     settled, { timeout: 20000 });
   await page.click('#stressStopBtn');
   await page.waitForSelector('#stressTestApp[data-stress-state="idle"]');
   assert.equal(await page.locator('#stressWorkerActivity > span').count(), 0);
-  assert.deepEqual(errors, [], 'SMT probe-mode browser errors');
+  assert.deepEqual(errors, [], `(${label}) browser errors`);
   await page.close();
-  console.log(`SMT probe mode resolved (${settled.outcome}, ${settled.workers} workers, `
+  console.log(`SMT probe page passed (${label}: ${settled.outcome}, ${settled.workers} workers, `
     + `${settled.trace.workers} spawns) in ${Date.now() - startedAt}ms`);
   return settled;
+}
+
+// Both probe pages: the growth path (simulated 1-thread under-report) and the
+// saturated path (the host's true logical CPU count, where the extra wave
+// cannot add throughput and must revert). The saturated page needs probe
+// headroom under the probe's total-worker cap, which huge hosts lack.
+async function assertSmtProbePages(browser, url) {
+  const growth = await assertSmtProbeMode(browser, url, { cores: 1, expectOutcome: null, label: 'under-report growth' });
+  const logicalCores = os.cpus().length;
+  if (logicalCores < 1 || logicalCores >= 128) {
+    console.log(`SMT saturated-revert page skipped: ${logicalCores} logical CPUs leave no probe headroom`);
+    return { growth, saturatedRevert: { skipped: true, logicalCores } };
+  }
+  const saturatedRevert = await assertSmtProbeMode(browser, url, { cores: logicalCores, expectOutcome: 'reverted', label: 'saturated revert' });
+  return { growth, saturatedRevert };
 }
 
 async function main() {
@@ -299,7 +330,7 @@ async function main() {
   const cpuRuns = [];
   try {
     if (process.env.STRESS_PROBE_ONLY === '1') {
-      const smtProbe = await assertSmtProbeMode(browser, server?.url || baseUrl);
+      const smtProbe = await assertSmtProbePages(browser, server?.url || baseUrl);
       console.log(JSON.stringify({ passed: true, browserType, probeOnly: true, smtProbe }, null, 2));
       return;
     }
@@ -403,7 +434,7 @@ async function main() {
       await page.close();
       console.log(`Stress backend passed: ${backend} (${Date.now() - backendStarted}ms)`);
     }
-    const smtProbe = await assertSmtProbeMode(browser, server?.url || baseUrl);
+    const smtProbe = await assertSmtProbePages(browser, server?.url || baseUrl);
     console.log(JSON.stringify({ passed: true, cpuPipeline: cpuRuns, backends: results, smtProbe,
       renderer: process.env.STRESS_BROWSER_CHANNEL ? 'installed-browser' : 'SwiftShader software rendering',
       webgpu: results.some(result => result.selected.startsWith('webgpu')) ? 'executed' : 'unavailable in this run',

@@ -29,9 +29,12 @@ export class SegmentedPrimeSieve {
   }
 
   /**
-   * Cumulative executed sieve work, frontier-flat: one unit costs the same
-   * CPU time at any search range. Charges every marking store, both linear
-   * buffer passes per segment, and a flat charge per executed base-prime scan.
+   * Cumulative executed sieve work: charges every marking store, both linear
+   * buffer passes per segment, and a flat charge per executed base-prime
+   * scan. Charging executed work keeps per-unit CPU cost near-flat across
+   * frontiers, leaving rate comparisons only the precondition that the
+   * compared ranges are comparable — held exactly by probe waves seeded at
+   * the production frontier, never by a fixed-seed benchmark range.
    */
   get workUnits(): number { return this.units; }
 
@@ -98,7 +101,7 @@ export class SegmentedPrimeSieve {
       // writes for small primes and one for large ones, so its measured rate
       // would drift cheaper as the frontier grows — faking capacity the
       // machine did not gain. Charging executed work keeps per-unit cost
-      // flat, making rates from different ranges directly comparable.
+      // near-flat, so rate comparisons hinge only on comparable ranges.
       this.units += 1;
       // `low % prime` on a value past the SMI range drops V8 into the slow
       // floating fmod path, a 5× throughput cliff at the 2^31 frontier. Barrett

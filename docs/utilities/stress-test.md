@@ -13,11 +13,13 @@ siblings or whole cores idle (historically Firefox capped the value at 16 via
 modes can still report less than the real capability). A closed-loop throughput
 probe recovers that capacity. Its work measure counts executed sieve work —
 every marking store, both linear buffer passes per segment, and a flat charge
-per base-prime scan. One unit costs the same CPU time at any search frontier,
-unlike candidates/s (which decays) or a per-prime scan count (whose units grow
-cheaper as the frontier advances and would fake capacity gains); production and
-disposable-benchmark rates are therefore directly comparable even though they
-sieve different ranges. Sieve base extensions and
+per base-prime scan — which keeps per-unit CPU cost near-flat across search
+frontiers, unlike candidates/s (which decays) or a per-prime scan count (whose
+units grow cheaper as the frontier advances and would fake capacity gains).
+Exact rate comparability comes from the seed instead: every disposable wave
+sieves its own allocator seeded at the production frontier current when that
+wave spawns, so probe workers perform exactly the work the permanent workers
+are about to perform and no fixed range can fake a throughput gain. Sieve base extensions and
 JIT phase changes make any single measurement window bursty, so the probe keeps
 the peak window rate over several baseline windows, spawns a disposable
 benchmark wave (doubling workers, capped at 128 total), and keeps it when a
@@ -26,10 +28,10 @@ missing the threshold revert it. Peak-versus-peak comparison lets bursts
 influence both sides equally instead of faking or masking a capacity change.
 Every kept wave re-baselines and attempts another doubling wave, so a heavily
 under-reporting browser keeps growing until a wave fails to grow or the cap is
-reached. Benchmark workers sieve a disposable benchmark range from their own
-allocator and feed only the probe's rate measurement: reported primes,
-checksums, and production block coverage never see benchmark work, so no keep
-or revert decision can leave a hole in the production search. A probe worker
+reached. Benchmark workers sieve the frontier-seeded allocator of their own
+wave and feed only the probe's rate measurement: reported primes, checksums,
+and production block coverage never see benchmark work, so no keep or revert
+decision can leave a hole in the production search. A probe worker
 error or partially failed wave reverts only the probe wave and leaves the
 permanent workload running; a partially failed wave rewinds its allocator to
 the position marked before the wave, so even a partially spawned permanent
@@ -39,10 +41,13 @@ timers, and `data-stress-cpu-smt-probe` reports `probing`, then finally `kept` o
 `reverted` (whether final capacity grew beyond the reported count). The explicit
 `window.__OD_STRESS_TEST_MAX_WORKERS__` override
 pins the count and disables the probe, keeping the bounded browser checks
-deterministic; `scripts/stress-test-check.js` adds a dedicated probe-mode page
-that exercises the real spawn/keep/revert chain against real cores, pins the
-mechanism itself (probe-state transitions plus worker-spawn counts, so a probe
-that reverts without ever spawning a benchmark wave fails), and the release
+deterministic; `scripts/stress-test-check.js` adds dedicated probe-mode pages
+that exercise the real spawn/keep/revert chain against real cores: one
+simulates a 1-thread under-report (the growth path) and one reports the
+machine's true logical CPU count, where an already-saturated machine must
+revert the extra wave (the saturated path). The pages pin the mechanism
+itself (probe-state transitions plus worker-spawn counts, so a probe that
+reverts without ever spawning a benchmark wave fails), and the release
 matrix repeats probe mode on Chromium, Firefox, and WebKit.
 
 Each worker runs an odd-only segmented sieve of Eratosthenes using a reused 32 KiB
@@ -55,9 +60,10 @@ The sieve's work counter charges every executed marking store, both linear
 buffer passes per segment, and every executed base-prime scan. There is no
 repeated trial division or artificial CPU busy work.
 The search starts at 1 (rejected); prime 2 is included exactly once. A main-thread
-allocator issues disjoint, consecutive blocks of 64 segments; SMT benchmark waves
-consume blocks only from a separate disposable allocator, keeping production
-coverage contiguous across every probe outcome. Workers prefetch four
+allocator issues disjoint, consecutive blocks of 64 segments; SMT benchmark
+waves consume blocks only from their own disposable allocator seeded at the
+production frontier, keeping production coverage contiguous across every probe
+outcome. Workers prefetch four
 blocks and request a refill with two or fewer left, so fast cores receive more useful
 work without exhausting their queues during the communication round trip. No
 SharedArrayBuffer or cross-origin isolation is required by this static site.
@@ -142,7 +148,7 @@ A browser cannot guarantee 100% CPU utilization, select every installed GPU, or 
 | `utilities-src/src/stressTestController.ts` | Session lifecycle, UI, counters, worker aggregation, interaction |
 | `utilities-src/src/stressTest.worker.ts` | Sustained CPU work and heartbeat scheduling |
 | `utilities-src/src/stressTestPrimes.ts` | Reusable segmented sieve and cached base primes |
-| `utilities-src/src/stressTestPrimeScheduler.ts` | Consecutive block allocation, bounded prefetch, disposable benchmark allocator |
+| `utilities-src/src/stressTestPrimeScheduler.ts` | Consecutive block allocation, bounded prefetch, disposable benchmark allocator seeded at the production frontier |
 | `utilities-src/src/stressTestWorkerTypes.ts` | Worker messages |
 | `utilities-src/src/stressTestGpu.ts` | GPU backends, adaptive scaling, resource lifecycle |
 | `utilities-src/src/stressTestGpuShaders.ts` | Shared scene design in WGSL and GLSL; compute shader |

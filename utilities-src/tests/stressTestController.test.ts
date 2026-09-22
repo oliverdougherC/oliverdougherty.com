@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StressTestController } from '../src/stressTestController';
 import { startAdaptiveGpuStress, type StressGpuStressCallbacks, type StressGpuStressHandle } from '../src/stressTestGpu';
 import type { StartCpuStressRequest, StressTestWorkerResponse } from '../src/stressTestWorkerTypes';
-import { BENCHMARK_PRIME_SEARCH_START } from '../src/stressTestPrimeScheduler';
 
 vi.mock('../src/stressTestGpu', () => ({ startAdaptiveGpuStress: vi.fn() }));
 
@@ -528,13 +527,44 @@ describe('stress test controller lifecycle', () => {
     return { first, second };
   }
 
+  // Regression: a wave seeded at a fixed range measures the range's cheapness,
+  // not capacity — work units at a cheaper frontier fake >10% aggregate gains
+  // on pinned CPUs. Every disposable wave must seed exactly at the production
+  // frontier current when that wave spawns.
+  it('seeds every disposable probe wave at the live production frontier', async () => {
+    await start('cpu');
+    const [first, second] = workloadWorkers();
+    // Advance the production frontier well past its spawn fill before probing.
+    first.receive({ type: 'cpu-stress-work-request', requestId: first.request.requestId,
+      workerIndex: 0, supplyId: 1, count: 4 });
+    second.receive({ type: 'cpu-stress-work-request', requestId: second.request.requestId,
+      workerIndex: 1, supplyId: 1, count: 4 });
+    const frontier = second.postMessage.mock.calls[1][0].blocks.at(-1).high + 1;
+    first.heartbeat(7, 1, 100);
+    second.heartbeat(7, 1, 150);
+    for (let step = 0; step < 3; step += 1) {
+      for (let frame = 0; frame < 4; frame += 1) advanceFrame();
+      first.heartbeat(7, step + 2, 350 + step * 150);
+      second.heartbeat(7, step + 2, 350 + step * 150);
+    }
+    const [, , benchA, benchB] = workloadWorkers();
+    expect(benchA.request.blocks[0].low).toBe(frontier); // the advanced frontier, not a constant
+    expect(benchB.request.blocks[0].low).toBe(benchA.request.blocks.at(-1)!.high + 1);
+    // Production resumption is unaffected: its next block starts at exactly
+    // the frontier the wave was seeded from.
+    first.receive({ type: 'cpu-stress-work-request', requestId: first.request.requestId,
+      workerIndex: 0, supplyId: 2, count: 2 });
+    expect(first.postMessage.mock.calls[2][0].blocks[0].low).toBe(frontier);
+  });
+
   it('reverts the benchmark probe wave on stalled throughput and keeps production coverage gapless', async () => {
     const { first, second } = await startCpuThroughProbeSpawn();
     expect(root.dataset.stressCpuSmtProbe).toBe('probing');
     expect(workloadWorkers()).toHaveLength(4);
     const [, , benchA, benchB] = workloadWorkers();
-    // Probe workers sieve the disposable benchmark range, never production blocks.
-    expect(benchA.request.blocks[0].low).toBe(BENCHMARK_PRIME_SEARCH_START);
+    // The disposable wave seeds at the live production frontier and sieves
+    // its own allocator: it never consumes nor skips any production block.
+    expect(benchA.request.blocks[0].low).toBe(second.request.blocks.at(-1)!.high + 1);
     expect(benchB.request.blocks[0].low).toBe(benchA.request.blocks.at(-1)!.high + 1);
 
     for (let frame = 0; frame < 3; frame += 1) advanceFrame();
@@ -605,7 +635,12 @@ describe('stress test controller lifecycle', () => {
     }
     expect(workloadWorkers()).toHaveLength(10); // four disposable benchmark workers
     const waveTwo = workloadWorkers().slice(6);
-    for (const worker of waveTwo) expect(worker.request.blocks[0].low).toBeGreaterThan(BENCHMARK_PRIME_SEARCH_START);
+    // Wave two re-seeds at the frontier the kept permanent replacements just
+    // advanced; a stale seed would compare mismatched-cost ranges.
+    expect(waveTwo[0].request.blocks[0].low).toBe(fourth.request.blocks.at(-1)!.high + 1);
+    for (let index = 1; index < waveTwo.length; index += 1) {
+      expect(waveTwo[index].request.blocks[0].low).toBe(waveTwo[index - 1].request.blocks.at(-1)!.high + 1);
+    }
     expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(8);
 
     // The second wave's candidate windows stay at the baseline production rate

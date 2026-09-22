@@ -31,6 +31,9 @@ export class PrimeBlockAllocator {
     this.next = start;
   }
 
+  /** Next unallocated odd; the live search frontier this allocator owns. */
+  get frontier() { return this.next; }
+
   get exhausted() { return this.finished; }
 
   take(count: number): PrimeBlock[] {
@@ -70,13 +73,14 @@ export class PrimeBlockAllocator {
 }
 
 /**
- * Disposable benchmark range for SMT throughput waves. Probe workers sieve from
- * their own start through a private allocator so a keep/revert decision can
- * never consume, skip, or reclaim production blocks: the production allocator's
- * disjoint, consecutive coverage invariant survives every probe outcome.
+ * Disposable benchmark range for SMT throughput waves, seeded at the live
+ * production frontier so probe workers sieve the exact work the permanent
+ * workers are about to perform: work-unit rates from the two sides are cost-
+ * comparable, which a fixed seed cannot promise. Probe waves own their
+ * allocator outright, so a keep/revert decision can never consume, skip, or
+ * reclaim production blocks: the production allocator's disjoint, consecutive
+ * coverage invariant survives every probe outcome.
  */
-export const BENCHMARK_PRIME_SEARCH_START = 1_000_000_001;
-
-export function createBenchmarkPrimeAllocator() {
-  return new PrimeBlockAllocator(PRIME_BLOCK_ODDS, Number.MAX_SAFE_INTEGER, BENCHMARK_PRIME_SEARCH_START);
+export function createBenchmarkPrimeAllocator(frontier: number) {
+  return new PrimeBlockAllocator(PRIME_BLOCK_ODDS, Number.MAX_SAFE_INTEGER, frontier);
 }

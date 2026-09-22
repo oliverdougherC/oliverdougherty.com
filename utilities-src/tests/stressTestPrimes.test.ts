@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PRIME_SEARCH_START, PRIME_SEGMENT_ODDS, SegmentedPrimeSieve } from '../src/stressTestPrimes';
-import { PrimeBlockAllocator, PRIME_PREFETCH_BLOCKS, PRIME_REFILL_THRESHOLD, type PrimeBlock } from '../src/stressTestPrimeScheduler';
+import { createBenchmarkPrimeAllocator, PrimeBlockAllocator, PRIME_BLOCK_ODDS, PRIME_PREFETCH_BLOCKS, PRIME_REFILL_THRESHOLD, type PrimeBlock } from '../src/stressTestPrimeScheduler';
 import type { StressTestWorkerRequest, StressTestWorkerResponse, CpuStressHeartbeatResponse } from '../src/stressTestWorkerTypes';
 
 function referencePrimes(limit: number) {
@@ -83,11 +83,12 @@ describe('segmented prime sieve', () => {
     }
   });
 
-  it('charges frontier-flat work units for executed sieve work', () => {
-    // One unit must cost the same CPU time at any frontier: a full segment
-    // charges its marking stores, its two linear passes, and per-prime scan
-    // overhead. A per-prime count would drift ~100× cheaper between these two
-    // frontiers, faking capacity gains the machine never made.
+  it('bounds work-unit cost drift across distant frontiers', () => {
+    // Units charge executed work, so one segment's unit count stays within
+    // 1.6× across a five-orders-of-magnitude frontier jump. A per-prime count
+    // would drift ~100× cheaper and fake capacity gains the machine never
+    // made. Exact cost parity for throughput comparisons comes from probing
+    // at aligned frontiers (see the controller frontier-seed regressions).
     const segmentWork = (low: number) => {
       const sieve = new SegmentedPrimeSieve();
       const high = low + PRIME_SEGMENT_ODDS * 2 - 1;
@@ -164,6 +165,20 @@ describe('demand-driven prime blocks', () => {
     allocator.rewindTo(mark);
     expect(allocator.take(2)).toEqual(abandoned.slice(0, 2)); // re-issued gaplessly
     expect(() => allocator.rewindTo({ ...mark, nextId: mark.nextId + 4 })).toThrow('rollback window');
+  });
+
+  it('seeds disposable benchmark coverage at an arbitrary production frontier', () => {
+    const production = new PrimeBlockAllocator();
+    production.take(PRIME_PREFETCH_BLOCKS);
+    const frontier = production.frontier;
+    const benchmark = createBenchmarkPrimeAllocator(frontier);
+    const blocks = benchmark.take(2);
+    expect(blocks[0].low).toBe(frontier); // exactly the work production performs next
+    expect(blocks[0].high - blocks[0].low).toBe(PRIME_BLOCK_ODDS * 2 - 1); // same block alignment
+    expect(blocks[1].low).toBe(blocks[0].high + 1);
+    // Seeding a probe wave consumes nothing production will ever need.
+    expect(production.take(1)[0].low).toBe(frontier);
+    expect(() => createBenchmarkPrimeAllocator(1_000_000_000)).toThrow('bounds');
   });
 });
 

@@ -64,20 +64,20 @@ export function resolveSmtProbeExtraWorkers(reportedWorkers: number) {
 
 /**
  * Closed-loop SMT probe driven by worker heartbeat arrivals, never by timers.
- * Work rate is measured as executed frontier-flat sieve work units per
- * window; heartbeat gaps close windows. One unit costs the same CPU time at
- * every search frontier, so production and disposable-benchmark rates are
- * comparable despite sieving different ranges. Sieve base-extension bursts
- * and JIT phase changes make any single window noisy, so the probe keeps the
- * PEAK window rate: bursts inflate both sides of the comparison equally and
- * cannot fake or mask a capacity change. After several baseline windows it
- * spawns a disposable benchmark wave; the wave is kept when any candidate
- * window beats the baseline peak by the keep ratio, and reverted once enough
- * candidate windows all miss. A kept wave
- * re-baselines at the grown count and doubles again, so a heavily under-
- * reporting browser grows until a wave stalls or the caller reaches the
- * total-worker cap. A baseline whose best window shows no progress gives no
- * trustworthy comparison: the probe reverts without spawning.
+ * Work rate is measured as executed sieve work units per window; heartbeat
+ * gaps close windows. The caller seeds every disposable benchmark wave at the
+ * live production frontier, so both sides sieve same-cost ranges and their
+ * rates are directly comparable. Sieve base-extension bursts and JIT phase
+ * changes make any single window noisy, so the probe keeps the PEAK window
+ * rate: bursts inflate both sides of the comparison equally and cannot fake
+ * or mask a capacity change. After several baseline windows it spawns a
+ * disposable benchmark wave; the wave is kept when any candidate window beats
+ * the baseline peak by the keep ratio, and reverted once enough candidate
+ * windows all miss. A kept wave re-baselines at the grown count and doubles
+ * again, so a heavily under-reporting browser grows until a wave stalls or
+ * the caller reaches the total-worker cap. A baseline whose best window shows
+ * no progress gives no trustworthy comparison: the probe reverts without
+ * spawning.
  */
 export class CpuSmtProbe {
   private phase: 'baseline' | 'settle' | 'spawned' | 'candidate' | 'done' = 'baseline';
