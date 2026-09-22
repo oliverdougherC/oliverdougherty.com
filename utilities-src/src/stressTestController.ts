@@ -46,6 +46,12 @@ type StressMetricId = 'elapsed' | 'workers' | 'gpu' | 'cadence' | 'stalls' | 'it
 
 const DEFAULT_MODE: StressMode = 'both';
 const METRIC_INTERVAL_MS = 120;
+// CPU candidate throughput is compared across machines, so the reported rate is
+// a true moving average over this fixed window instead of a single-tick delta.
+const CANDIDATE_RATE_WINDOW_MS = 5000;
+// Until the ring spans this much actual time, the average would be dominated by
+// worker startup and the first heartbeat, so no throughput is claimed.
+const CANDIDATE_RATE_MIN_SPAN_MS = 1000;
 // Count gaps over an explicit duration, independent of display refresh rate.
 // GPU callbacks report batch completions; CPU visuals report animation callbacks.
 const RENDER_STALL_GAP_MS = 34;
@@ -144,7 +150,7 @@ export class StressTestController {
   private latestPrime = 0;
   private primesFound = 0;
   private candidatesPerSecond = 0;
-  private previousIterations = 0;
+  private candidateRateSamples: Array<{ at: number; iterations: number }> = [];
   private pointerX = 0;
   private pointerY = 0;
   private readonly primeLabel: HTMLElement;
@@ -307,8 +313,8 @@ export class StressTestController {
     this.totalWorkUnits = 0;
     this.latestPrime = 0;
     this.primesFound = 0;
-    this.previousIterations = 0;
     this.candidatesPerSecond = 0;
+    this.candidateRateSamples = [];
     this.frameCount = 0;
     this.callbackStalls = 0;
     this.lastRenderRate = 0;
@@ -430,6 +436,7 @@ export class StressTestController {
     this.stopCpuVisuals();
     this.stopMetricLoop();
     this.candidatesPerSecond = 0;
+    this.candidateRateSamples = [];
     this.frameCount = 0;
     this.callbackStalls = 0;
     this.lastRenderRate = 0;
@@ -930,6 +937,65 @@ export class StressTestController {
     }
   }
 
+  // The moving average is a benchmark-grade reading, so it must not inherit the
+  // timing noise of heartbeat delivery. Each metric tick records the actual
+  // cumulative candidate count with its actual timestamp; the rate is the count
+  // difference across the trailing window divided by the window. The window
+  // edge is interpolated between the two bracketing real samples, which keeps
+  // the window length constant and lets a stalled CPU decay out of the average
+  // smoothly instead of freezing until a stale boundary is replaced.
+  private recordCandidateRate(now: number) {
+    const samples = this.candidateRateSamples;
+    if (this.workers.length === 0) {
+      samples.length = 0;
+      return 0;
+    }
+
+    const last = samples[samples.length - 1];
+    // Metric ticks are already throttled; this only rejects a forced sync that
+    // would add a near-duplicate sample and could grow the ring unboundedly.
+    if (!last || now - last.at >= METRIC_INTERVAL_MS) {
+      samples.push({ at: now, iterations: this.totalIterations });
+      // Keep the newest sample older than the window as the interpolation
+      // anchor; everything strictly inside the window is needed for the edge.
+      while (samples.length > 2 && samples[1].at < now - CANDIDATE_RATE_WINDOW_MS) {
+        samples.shift();
+      }
+    }
+
+    const latest = samples[samples.length - 1];
+    const windowStart = Math.max(samples[0].at, latest.at - CANDIDATE_RATE_WINDOW_MS);
+    const spanMs = latest.at - windowStart;
+    if (spanMs < CANDIDATE_RATE_MIN_SPAN_MS) {
+      return 0;
+    }
+    return Math.max(0, (latest.iterations - this.candidatesTestedAt(samples, windowStart)) * 1000 / spanMs);
+  }
+
+  // Linear estimate of the actual cumulative count at a window edge, taken
+  // between the two samples that bracket it. Before the first sample the
+  // observed count was already its recorded value, so no extrapolation occurs.
+  private candidatesTestedAt(samples: Array<{ at: number; iterations: number }>, at: number) {
+    const first = samples[0];
+    if (at <= first.at) {
+      return first.iterations;
+    }
+    const last = samples[samples.length - 1];
+    if (at >= last.at) {
+      return last.iterations;
+    }
+    for (let index = 1; index < samples.length; index += 1) {
+      if (samples[index].at >= at) {
+        const previous = samples[index - 1];
+        const gapMs = samples[index].at - previous.at;
+        return gapMs > 0
+          ? previous.iterations + (samples[index].iterations - previous.iterations) * (at - previous.at) / gapMs
+          : samples[index].iterations;
+      }
+    }
+    return last.iterations;
+  }
+
   private syncMetrics(force = false) {
     const now = readNow();
     if (!force && now - this.lastMetricAt < METRIC_INTERVAL_MS) {
@@ -944,11 +1010,7 @@ export class StressTestController {
         / Math.max(1, (now - this.cadenceStartedAt) / 1000);
     }
 
-    const sampleMs = now - this.lastMetricAt;
-    if (sampleMs > 0 && this.workers.length) {
-      this.candidatesPerSecond = Math.max(0, (this.totalIterations - this.previousIterations) * 1000 / sampleMs);
-    }
-    this.previousIterations = this.totalIterations;
+    this.candidatesPerSecond = this.recordCandidateRate(now);
     this.root.dataset.stressCpuBlocksAssigned = String(this.blocksAssigned);
     this.root.dataset.stressCpuRefills = String(this.cpuRefills);
     this.primeLabel.textContent = this.latestPrime > 0 ? this.latestPrime.toLocaleString('en-US') : '1';
@@ -992,6 +1054,7 @@ export class StressTestController {
     this.root.dataset.stressCanvasActive = (this.gpuCanvasActive || this.cpuVisualFrameId > 0) ? 'true' : 'false';
     this.root.dataset.stressGpuLastError = this.lastError;
     this.root.dataset.stressIterations = String(this.totalIterations);
+    this.root.dataset.stressCandidatesPerSecond = String(Math.round(this.candidatesPerSecond));
     this.root.dataset.stressCallbackStalls = String(this.callbackStalls);
     this.root.dataset.stressRenderRate = renderRate;
     this.lastMetricAt = now;

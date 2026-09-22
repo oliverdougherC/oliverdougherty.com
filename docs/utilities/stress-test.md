@@ -81,6 +81,22 @@ results. Stop preserves the result, and a new run resets it. Allocation stops at
 safe-integer boundary. Worker bars report relative completed candidate throughput,
 not OS utilization.
 
+The summary's `candidates/s` reading is a moving average intended for comparing
+CPU throughput across machines: actual cumulative candidates tested divided by
+the actual elapsed time over the trailing 5,000 ms window, with the window edge
+linearly interpolated between the two actual samples that bracket it. Because
+heartbeats are throttled to about 140ms, a single-tick delta would report
+delivery jitter instead of throughput; the fixed interpolated window keeps the
+window length constant and lets a stalled CPU decay out of the average smoothly.
+Nothing is reported until the measured span reaches 1,000ms, and worker startup
+leaves the window once a run is 5 seconds old. The integer is also exposed as
+`data-stress-candidates-per-second` for automated comparison. It measures
+delivered actual work in the browser, so thermals, browser scheduling and
+competing applications affect it like any whole-machine benchmark. Actual
+throughput naturally falls as the consecutive search moves to ranges where
+segments are marked by more base primes, so cross-machine comparisons read the
+average at equal elapsed time within a run rather than at an arbitrary moment.
+
 ### Local performance check
 
 Run `node scripts/stress-prime-bench.js` from the repository root. This compares the
