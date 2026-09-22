@@ -33,6 +33,8 @@ export interface CpuStressHeartbeatResponse {
   checksum: number;
   latestPrime: number;
   primesFound: number;
+  // Cumulative executed sieve work units: frontier-flat CPU-work counter.
+  workUnits: number;
 }
 
 export interface CpuStressWorkRequestResponse {

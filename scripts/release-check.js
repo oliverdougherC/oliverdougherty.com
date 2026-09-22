@@ -99,6 +99,13 @@ async function main() {
         results.push(result);
         }
       }
+      // The full stress run above is Chromium-only; repeat the SMT probe-mode
+      // page on every other release engine so a probe that only works in one
+      // engine's worker scheduling cannot pass the release gate.
+      if (browser !== 'chromium') {
+        results.push(await run(`${browser}-stress-probe`, 'stress-test-check.js',
+          { ...browserEnv, STRESS_BROWSER_TYPE: browser, STRESS_PROBE_ONLY: '1' }));
+      }
     }
   } finally {
     server.kill();

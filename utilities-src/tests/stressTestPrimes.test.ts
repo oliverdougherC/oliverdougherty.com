@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PRIME_SEARCH_START, PRIME_SEGMENT_ODDS, SegmentedPrimeSieve } from '../src/stressTestPrimes';
-import { PrimeBlockAllocator, PRIME_PREFETCH_BLOCKS, PRIME_REFILL_THRESHOLD, type PrimeBlock } from '../src/stressTestPrimeScheduler';
+import { createBenchmarkPrimeAllocator, PrimeBlockAllocator, PRIME_BLOCK_ODDS, PRIME_PREFETCH_BLOCKS, PRIME_REFILL_THRESHOLD, type PrimeBlock } from '../src/stressTestPrimeScheduler';
 import type { StressTestWorkerRequest, StressTestWorkerResponse, CpuStressHeartbeatResponse } from '../src/stressTestWorkerTypes';
 
 function referencePrimes(limit: number) {
@@ -63,6 +63,46 @@ describe('segmented prime sieve', () => {
     }
   });
 
+  it('matches trial division across the 2^31 SMI boundary and deep frontiers', () => {
+    // Barrett reduction replaces `low % prime` past SMI range; verify exact
+    // segment results where that path starts mattering and far beyond it.
+    const isPrime = (n: number) => {
+      if (n < 2 || (n > 2 && n % 2 === 0)) return false;
+      for (let d = 3; d * d <= n; d += 2) if (n % d === 0) return false;
+      return true;
+    };
+    const sieve = new SegmentedPrimeSieve();
+    for (const anchor of [2 ** 31 - 15, 2 ** 31 + 1, 2 ** 34 + 1, 2 ** 46 + 1]) {
+      const low = anchor % 2 ? anchor : anchor + 1;
+      const high = low + 41;
+      const expected: number[] = [];
+      for (let value = low; value <= high; value += 2) if (isPrime(value)) expected.push(value);
+      const result = sieve.sieve(low, high);
+      expect(result.primesFound, String(low)).toBe(expected.length);
+      expect(result.latestPrime).toBe(expected.at(-1) ?? 0);
+    }
+  });
+
+  it('bounds work-unit cost drift across distant frontiers', () => {
+    // Units charge executed work, so one segment's unit count stays within
+    // 1.6× across a five-orders-of-magnitude frontier jump. A per-prime count
+    // would drift ~100× cheaper and fake capacity gains the machine never
+    // made. Exact cost parity for throughput comparisons comes from probing
+    // at aligned frontiers (see the controller frontier-seed regressions).
+    const segmentWork = (low: number) => {
+      const sieve = new SegmentedPrimeSieve();
+      const high = low + PRIME_SEGMENT_ODDS * 2 - 1;
+      sieve.sieve(low, high); // pays geometric base-cache extension
+      const before = sieve.workUnits;
+      sieve.sieve(low, high); // cache warm: exactly one segment's work
+      return sieve.workUnits - before;
+    };
+    const lowFrontier = segmentWork(10_001); // base primes up to √75,536 ≈ 274
+    const highFrontier = segmentWork(2 ** 32 + 1); // base primes up to √high = 65,536
+    expect(highFrontier).toBeGreaterThan(lowFrontier); // marking density grows with √high
+    expect(highFrontier / lowFrontier).toBeLessThan(1.6);
+  });
+
   it('rejects unsafe and oversized intervals', () => {
     const sieve = new SegmentedPrimeSieve();
     for (const [low, high] of [[0, 10], [3, 2], [1, PRIME_SEGMENT_ODDS * 2 + 1], [1, Infinity], [1, Number.MAX_SAFE_INTEGER + 1]]) {
@@ -114,6 +154,31 @@ describe('demand-driven prime blocks', () => {
     expect(allocator.exhausted).toBe(true);
     expect(allocator.take(4)).toEqual([]);
     expect(() => allocator.take(5)).toThrow();
+  });
+
+  it('rewinds its frontier to a mark when the consuming wave fails', () => {
+    const allocator = new PrimeBlockAllocator(64, 100000);
+    const baseline = allocator.take(4);
+    const mark = allocator.mark();
+    const abandoned = allocator.take(4); // e.g. a partially failed permanent wave
+    expect(abandoned[0].low).toBe(baseline.at(-1)!.high + 1);
+    allocator.rewindTo(mark);
+    expect(allocator.take(2)).toEqual(abandoned.slice(0, 2)); // re-issued gaplessly
+    expect(() => allocator.rewindTo({ ...mark, nextId: mark.nextId + 4 })).toThrow('rollback window');
+  });
+
+  it('seeds disposable benchmark coverage at an arbitrary production frontier', () => {
+    const production = new PrimeBlockAllocator();
+    production.take(PRIME_PREFETCH_BLOCKS);
+    const frontier = production.frontier;
+    const benchmark = createBenchmarkPrimeAllocator(frontier);
+    const blocks = benchmark.take(2);
+    expect(blocks[0].low).toBe(frontier); // exactly the work production performs next
+    expect(blocks[0].high - blocks[0].low).toBe(PRIME_BLOCK_ODDS * 2 - 1); // same block alignment
+    expect(blocks[1].low).toBe(blocks[0].high + 1);
+    // Seeding a probe wave consumes nothing production will ever need.
+    expect(production.take(1)[0].low).toBe(frontier);
+    expect(() => createBenchmarkPrimeAllocator(1_000_000_000)).toThrow('bounds');
   });
 });
 
@@ -182,6 +247,8 @@ describe('CPU prime worker queue lifecycle', () => {
     expect(last).toMatchObject({ iterations: 501, primesFound: 168, latestPrime: 997 });
     expect(last.checksum).toBeGreaterThanOrEqual(0);
     expect(last.checksum).toBeLessThan(1);
+    expect(Number.isSafeInteger(last.workUnits)).toBe(true);
+    expect(last.workUnits).toBeGreaterThan(0);
     expect(messages.filter(message => message.type === 'cpu-stress-exhausted')).toHaveLength(1);
     expect(messages.some(message => message.type === 'cpu-stress-error')).toBe(false);
   });

@@ -42,6 +42,111 @@ export function resolveCpuWorkerCount(input: CpuWorkerResolutionInput = {}) {
   return Math.min(requested, configuredMax);
 }
 
+export const SMT_PROBE_SAMPLE_WINDOW_MS = 600;
+export const SMT_PROBE_SPAWN_WARMUP_MS = 700;
+export const SMT_PROBE_KEEP_RATIO = 1.1;
+export const SMT_PROBE_MAX_TOTAL_WORKERS = 128;
+export const SMT_PROBE_BASELINE_WINDOWS = 3;
+export const SMT_PROBE_CANDIDATE_WINDOWS = 2;
+
+export type CpuSmtProbeAction = 'none' | 'spawn' | 'keep' | 'revert';
+
+/**
+ * Extra workers for one throughput-probe wave. Browsers may under-report logical
+ * processors — rounding to physical cores or capping the count — so the reported
+ * count can leave simultaneous-multithreading siblings or entire cores idle.
+ * Each wave doubles the current worker count, bounded by a total cap.
+ */
+export function resolveSmtProbeExtraWorkers(reportedWorkers: number) {
+  if (!Number.isSafeInteger(reportedWorkers) || reportedWorkers < 1) return 0;
+  return Math.max(0, Math.min(reportedWorkers, SMT_PROBE_MAX_TOTAL_WORKERS - reportedWorkers));
+}
+
+/**
+ * Closed-loop SMT probe driven by worker heartbeat arrivals, never by timers.
+ * Work rate is measured as executed sieve work units per window; heartbeat
+ * gaps close windows. The caller seeds every disposable benchmark wave at the
+ * live production frontier, so both sides sieve same-cost ranges and their
+ * rates are directly comparable. Sieve base-extension bursts and JIT phase
+ * changes make any single window noisy, so the probe keeps the PEAK window
+ * rate: bursts inflate both sides of the comparison equally and cannot fake
+ * or mask a capacity change. After several baseline windows it spawns a
+ * disposable benchmark wave; the wave is kept when any candidate window beats
+ * the baseline peak by the keep ratio, and reverted once enough candidate
+ * windows all miss. A kept wave re-baselines at the grown count and doubles
+ * again, so a heavily under-reporting browser grows until a wave stalls or
+ * the caller reaches the total-worker cap. A baseline whose best window shows
+ * no progress gives no trustworthy comparison: the probe reverts without
+ * spawning.
+ */
+export class CpuSmtProbe {
+  private phase: 'baseline' | 'settle' | 'spawned' | 'candidate' | 'done' = 'baseline';
+  private windowStartAt = 0;
+  private windowStartWork = 0;
+  private settleAt = 0;
+  private baselineWindows = 0;
+  private candidateWindows = 0;
+  private peakBaselineRate = 0;
+
+  observe(now: number, totalWork: number): CpuSmtProbeAction {
+    if (this.phase === 'done') return 'none';
+    if (this.phase === 'settle' || this.phase === 'spawned') {
+      // Discard every window that overlaps the spawn; new workers need a moment
+      // before their work (or absence of it) is representative.
+      if (now - this.settleAt < SMT_PROBE_SPAWN_WARMUP_MS) return 'none';
+      this.windowStartAt = now;
+      this.windowStartWork = totalWork;
+      // A kept wave re-baselines before growing again; a spawned wave measures its candidate.
+      this.phase = this.phase === 'spawned' ? 'candidate' : 'baseline';
+      return 'none';
+    }
+    if (this.windowStartAt === 0) {
+      this.windowStartAt = now;
+      this.windowStartWork = totalWork;
+      return 'none';
+    }
+    const elapsed = now - this.windowStartAt;
+    if (elapsed < SMT_PROBE_SAMPLE_WINDOW_MS) return 'none';
+    const rate = (totalWork - this.windowStartWork) / elapsed;
+    this.windowStartAt = now;
+    this.windowStartWork = totalWork;
+    if (this.phase === 'baseline') {
+      this.baselineWindows += 1;
+      this.peakBaselineRate = Math.max(this.peakBaselineRate, rate);
+      if (this.baselineWindows < SMT_PROBE_BASELINE_WINDOWS) return 'none';
+      if (this.peakBaselineRate <= 0) {
+        // An idle or stalled baseline gives no trustworthy comparison; revert conservatively.
+        this.phase = 'done';
+        return 'revert';
+      }
+      this.phase = 'spawned';
+      this.settleAt = now;
+      this.windowStartAt = 0;
+      return 'spawn';
+    }
+    if (rate >= this.peakBaselineRate * SMT_PROBE_KEEP_RATIO) {
+      this.phase = 'done';
+      return 'keep';
+    }
+    this.candidateWindows += 1;
+    if (this.candidateWindows < SMT_PROBE_CANDIDATE_WINDOWS) return 'none';
+    this.phase = 'done';
+    return 'revert';
+  }
+
+  /** Records that the caller installed permanent workers for a kept wave; re-baselines for the next one. */
+  registerKeep(now: number) {
+    if (this.phase !== 'done') throw new Error('SMT probe keep recorded outside a keep decision.');
+    if (!Number.isFinite(now)) throw new Error('Invalid SMT probe keep time.');
+    this.phase = 'settle';
+    this.settleAt = now;
+    this.windowStartAt = 0;
+    this.baselineWindows = 0;
+    this.candidateWindows = 0;
+    this.peakBaselineRate = 0;
+  }
+}
+
 export function resolveGpuBackend(input: GpuBackendSupportInput): StressGpuBackend {
   return resolveGpuBackendFallbacks(input)[0] ?? 'none';
 }

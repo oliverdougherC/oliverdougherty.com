@@ -27,7 +27,7 @@ function post(message: StressTestWorkerResponse) { workerScope.postMessage(messa
 function heartbeat() {
   lastHeartbeat = performance.now();
   post({ type: 'cpu-stress-heartbeat', requestId: activeRequestId, workerIndex: activeWorkerIndex,
-    iterations, checksum: checksum / 1_000_003, latestPrime, primesFound });
+    iterations, checksum: checksum / 1_000_003, latestPrime, primesFound, workUnits: sieve.workUnits });
 }
 
 function fail(error: unknown) {
