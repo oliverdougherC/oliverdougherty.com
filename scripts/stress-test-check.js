@@ -2,10 +2,12 @@
 // Focused browser coverage: real GPU backends and two pinned CPU workers, so the
 // SMT throughput probe never changes worker counts while this check asserts them,
 // plus a dedicated probe-mode page where the closed loop runs against real cores.
+// STRESS_BROWSER_TYPE selects the engine (chromium|firefox|webkit);
+// STRESS_PROBE_ONLY=1 runs only the probe-mode page, for per-engine matrix runs.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require('playwright');
+const playwright = require('playwright');
 const { startLocalStaticServer } = require('./lib/playwright-static');
 
 const DESKTOP_VIEWPORTS = [
@@ -191,9 +193,11 @@ async function assertDesktopSizes(page, label) {
 
 // Probe-mode coverage: with a simulated 1-thread under-report and no worker cap,
 // the SMT probe runs its real spawn→(keep|revert) chain against real cores.
-// Which decision each wave makes is machine-dependent; what is pinned is that
-// the closed loop resolves, tears every disposable worker down, and leaves a
-// healthy, advancing production workload with matching records and bars.
+// Which decision each wave makes is machine-dependent; what is pinned is the
+// closed loop itself: the probe must install, must actually spawn disposable
+// benchmark waves (a probe that silently reverts without ever spawning fails
+// here), must tear every disposable worker down, and must leave a healthy,
+// advancing production workload with matching records and bars.
 async function assertSmtProbeMode(browser, url) {
   const startedAt = Date.now();
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
@@ -202,6 +206,26 @@ async function assertSmtProbeMode(browser, url) {
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'hardwareConcurrency', { value: 1, configurable: true });
+    // Trace the mechanism, not just its endpoint: count stress-worker
+    // constructions and every probe-state transition from before the app runs.
+    window.__SMT_PROBE_TRACE__ = { workers: 0, transitions: [] };
+    const OriginalWorker = window.Worker;
+    window.Worker = class extends OriginalWorker {
+      constructor(workerUrl, options) {
+        super(workerUrl, options);
+        if (/stressTest\.worker/.test(String(workerUrl))) window.__SMT_PROBE_TRACE__.workers += 1;
+      }
+    };
+    document.addEventListener('DOMContentLoaded', () => {
+      const app = document.getElementById('stressTestApp');
+      const trace = window.__SMT_PROBE_TRACE__;
+      const record = () => {
+        const value = app.dataset.stressCpuSmtProbe ?? 'none';
+        if (trace.transitions.at(-1) !== value) trace.transitions.push(value);
+      };
+      new MutationObserver(record).observe(app, { attributes: true, attributeFilter: ['data-stress-cpu-smt-probe'] });
+      record();
+    });
   });
   await page.goto(`${url}/pages/utilities/index.html#stress-test`);
   await page.waitForSelector('#stressTestApp[data-stress-state="idle"]');
@@ -209,6 +233,10 @@ async function assertSmtProbeMode(browser, url) {
   await page.click('#stressStartBtn');
   await page.waitForFunction(() => ['kept', 'reverted'].includes(document.querySelector('#stressTestApp').dataset.stressCpuSmtProbe),
     null, { timeout: 60000 });
+  // The terminal dataset verdict is written immediately, while the throttled
+  // metric loop refreshes worker/count datasets at ≤120ms: give it one settled
+  // frame so counts and live DOM are sampled together, not mid-update.
+  await page.waitForTimeout(300);
   const settled = await page.evaluate(() => {
     const data = document.querySelector('#stressTestApp').dataset;
     return {
@@ -217,13 +245,24 @@ async function assertSmtProbeMode(browser, url) {
       workers: Number(data.stressWorkerCount),
       bars: document.querySelectorAll('#stressWorkerActivity > span').length,
       assigned: Number(data.stressCpuBlocksAssigned),
-      iterations: Number(data.stressIterations)
+      iterations: Number(data.stressIterations),
+      trace: window.__SMT_PROBE_TRACE__
     };
   });
   assert.equal(settled.state, 'running', `Probe mode must survive wave churn: ${JSON.stringify(settled)}`);
   assert(settled.workers >= 1, `Probe mode must keep the reported worker: ${JSON.stringify(settled)}`);
   assert.equal(settled.bars, settled.workers, 'Every surviving worker record must own exactly one activity bar');
   assert(settled.assigned >= settled.workers * 4, 'Permanent workers must each hold their prefetch fill');
+  // The probe must decide through its closed loop, never a preset verdict.
+  assert.deepEqual(settled.trace.transitions, ['none', 'probing', settled.outcome],
+    `Probe must transition probing → decision: ${JSON.stringify(settled.trace)}`);
+  // A terminal decision with only the baseline worker is a probe that never
+  // exercised throughput: baseline plus at least one disposable wave member.
+  assert(settled.trace.workers >= 2,
+    `Probe must spawn at least one benchmark wave worker: ${JSON.stringify(settled)}`);
+  if (settled.outcome === 'kept') {
+    assert(settled.workers >= 2, `A kept wave must leave grown permanent capacity: ${JSON.stringify(settled)}`);
+  }
   await page.waitForFunction(previous => Number(document.querySelector('#stressTestApp').dataset.stressIterations) > previous.iterations,
     settled, { timeout: 20000 });
   await page.click('#stressStopBtn');
@@ -231,7 +270,8 @@ async function assertSmtProbeMode(browser, url) {
   assert.equal(await page.locator('#stressWorkerActivity > span').count(), 0);
   assert.deepEqual(errors, [], 'SMT probe-mode browser errors');
   await page.close();
-  console.log(`SMT probe mode resolved (${settled.outcome}, ${settled.workers} workers) in ${Date.now() - startedAt}ms`);
+  console.log(`SMT probe mode resolved (${settled.outcome}, ${settled.workers} workers, `
+    + `${settled.trace.workers} spawns) in ${Date.now() - startedAt}ms`);
   return settled;
 }
 
@@ -239,10 +279,16 @@ async function main() {
   const root = path.resolve(__dirname, '..');
   const baseUrl = process.env.STRESS_CHECK_URL || 'http://127.0.0.1:4186';
   const server = await startLocalStaticServer({ url: baseUrl, cwd: root, skip: Boolean(process.env.STRESS_CHECK_URL) });
+  const browserType = process.env.STRESS_BROWSER_TYPE || 'chromium';
+  assert(['chromium', 'firefox', 'webkit'].includes(browserType), `Unknown STRESS_BROWSER_TYPE: ${browserType}`);
+  const launch = { headless: true };
+  if (browserType === 'chromium') {
+    launch.channel = process.env.STRESS_BROWSER_CHANNEL || undefined;
+    if (!process.env.STRESS_BROWSER_CHANNEL) launch.args = ['--enable-webgl', '--ignore-gpu-blocklist', '--use-angle=swiftshader'];
+  }
   let browser;
   try {
-    browser = await chromium.launch({ headless: true, channel: process.env.STRESS_BROWSER_CHANNEL || undefined,
-      args: process.env.STRESS_BROWSER_CHANNEL ? undefined : ['--enable-webgl', '--ignore-gpu-blocklist', '--use-angle=swiftshader'] });
+    browser = await playwright[browserType].launch(launch);
   } catch (error) {
     server?.kill();
     throw error;
@@ -252,6 +298,11 @@ async function main() {
   const results = [];
   const cpuRuns = [];
   try {
+    if (process.env.STRESS_PROBE_ONLY === '1') {
+      const smtProbe = await assertSmtProbeMode(browser, server?.url || baseUrl);
+      console.log(JSON.stringify({ passed: true, browserType, probeOnly: true, smtProbe }, null, 2));
+      return;
+    }
     for (const backend of ['auto', 'webgl2', 'webgl1', 'none']) {
       const backendStarted = Date.now();
       console.log(`Stress backend: ${backend}`);

@@ -28,8 +28,12 @@ export class SegmentedPrimeSieve {
     this.baseComposite = new Uint8Array(PRIME_SEGMENT_ODDS);
   }
 
-  /** Cumulative executed base-prime scans: sieve work actually performed. */
-  get scanUnits(): number { return this.units; }
+  /**
+   * Cumulative executed sieve work, frontier-flat: one unit costs the same
+   * CPU time at any search range. Charges every marking store, both linear
+   * buffer passes per segment, and a flat charge per executed base-prime scan.
+   */
+  get workUnits(): number { return this.units; }
 
   sieve(low: number, high: number): PrimeSegmentResult {
     if (!Number.isSafeInteger(low) || !Number.isSafeInteger(high) || low < 1 || high < low
@@ -80,13 +84,21 @@ export class SegmentedPrimeSieve {
 
   private markComposites(low: number, high: number, buffer: Uint8Array, length: number) {
     buffer.fill(0, 0, length);
+    // Charge the zeroing fill and the result scan that always follows one
+    // unit per odd: fixed per-segment passes a per-prime count would ignore.
+    this.units += 2 * length;
     for (let index = 0; index < this.basePrimes.length; index += 1) {
       const prime = this.basePrimes[index];
       const square = prime * prime;
       if (square > high) break;
-      // One executed scan: the dominant, frontier-growing work per segment.
-      // Counting scans yields a work measure whose per-odd cost stays flat as
-      // the search range advances, unlike candidates/s.
+      // A work unit is one marking store plus a flat charge for the scan's
+      // reduction overhead. Marking counts come from the loop bounds computed
+      // here, so the hot marking loop itself stays untouched. Counting one
+      // unit per prime instead would make the same unit cost thousands of
+      // writes for small primes and one for large ones, so its measured rate
+      // would drift cheaper as the frontier grows — faking capacity the
+      // machine did not gain. Charging executed work keeps per-unit cost
+      // flat, making rates from different ranges directly comparable.
       this.units += 1;
       // `low % prime` on a value past the SMI range drops V8 into the slow
       // floating fmod path, a 5× throughput cliff at the 2^31 frontier. Barrett
@@ -105,6 +117,7 @@ export class SegmentedPrimeSieve {
         first += prime;
       }
       offset = (first - low) / 2;
+      this.units += Math.ceil((length - offset) / prime);
       for (let mark = offset; mark < length; mark += prime) buffer[mark] = 1;
     }
   }

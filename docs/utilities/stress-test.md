@@ -11,9 +11,13 @@ deliberately cap it, which on multithreaded CPUs leaves simultaneous-multithread
 siblings or whole cores idle (historically Firefox capped the value at 16 via
 `dom.maxHardwareConcurrency` until Firefox 139 raised the default to 128; privacy
 modes can still report less than the real capability). A closed-loop throughput
-probe recovers that capacity. Its work measure is executed base-prime scans —
-the dominant per-segment sieve work — which, unlike candidates/s, keeps a flat
-cost per unit of work as the search frontier grows. Sieve base extensions and
+probe recovers that capacity. Its work measure counts executed sieve work —
+every marking store, both linear buffer passes per segment, and a flat charge
+per base-prime scan. One unit costs the same CPU time at any search frontier,
+unlike candidates/s (which decays) or a per-prime scan count (whose units grow
+cheaper as the frontier advances and would fake capacity gains); production and
+disposable-benchmark rates are therefore directly comparable even though they
+sieve different ranges. Sieve base extensions and
 JIT phase changes make any single measurement window bursty, so the probe keeps
 the peak window rate over several baseline windows, spawns a disposable
 benchmark wave (doubling workers, capped at 128 total), and keeps it when a
@@ -27,13 +31,19 @@ allocator and feed only the probe's rate measurement: reported primes,
 checksums, and production block coverage never see benchmark work, so no keep
 or revert decision can leave a hole in the production search. A probe worker
 error or partially failed wave reverts only the probe wave and leaves the
-permanent workload running. The probe advances on worker heartbeats, never on
-timers, and `data-stress-smt-probe` reports `probing`, then finally `kept` or
+permanent workload running; a partially failed wave rewinds its allocator to
+the position marked before the wave, so even a partially spawned permanent
+replacement wave returns its blocks and the surviving workers resume the exact
+frontier. The probe advances on worker heartbeats, never on
+timers, and `data-stress-cpu-smt-probe` reports `probing`, then finally `kept` or
 `reverted` (whether final capacity grew beyond the reported count). The explicit
 `window.__OD_STRESS_TEST_MAX_WORKERS__` override
 pins the count and disables the probe, keeping the bounded browser checks
 deterministic; `scripts/stress-test-check.js` adds a dedicated probe-mode page
-that exercises the real spawn/keep/revert chain against real cores.
+that exercises the real spawn/keep/revert chain against real cores, pins the
+mechanism itself (probe-state transitions plus worker-spawn counts, so a probe
+that reverts without ever spawning a benchmark wave fails), and the release
+matrix repeats probe mode on Chromium, Firefox, and WebKit.
 
 Each worker runs an odd-only segmented sieve of Eratosthenes using a reused 32 KiB
 marking buffer. Base primes are cached and extended geometrically with a separate
@@ -41,7 +51,8 @@ segmented sieve, together with their reciprocals: the hot `low % prime` scan use
 Barrett reduction with a correction loop, which stays exact integer arithmetic
 even past the small-integer range, where the native floating remainder operator
 costs several times more and would collapse throughput at the 2^31 frontier.
-The sieve counts every executed base-prime scan as its work counter. There is no
+The sieve's work counter charges every executed marking store, both linear
+buffer passes per segment, and every executed base-prime scan. There is no
 repeated trial division or artificial CPU busy work.
 The search starts at 1 (rejected); prime 2 is included exactly once. A main-thread
 allocator issues disjoint, consecutive blocks of 64 segments; SMT benchmark waves

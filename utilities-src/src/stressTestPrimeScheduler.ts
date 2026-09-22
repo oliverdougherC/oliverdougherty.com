@@ -10,6 +10,13 @@ export interface PrimeBlock {
   high: number;
 }
 
+/** Allocator position a partially failed spawn wave can be rewound to. */
+export interface PrimeAllocatorMark {
+  next: number;
+  nextId: number;
+  finished: boolean;
+}
+
 /** Main-thread allocation is O(prefetch), never proportional to searched integers. */
 export class PrimeBlockAllocator {
   private next = PRIME_SEARCH_START;
@@ -40,6 +47,25 @@ export class PrimeBlockAllocator {
       else this.next = high + 1;
     }
     return blocks;
+  }
+
+  mark(): PrimeAllocatorMark {
+    return { next: this.next, nextId: this.nextId, finished: this.finished };
+  }
+
+  /**
+   * Rewinds the frontier to `mark`, returning every block issued since. Legal
+   * only as the immediate rollback of a failed allocation sequence: wave
+   * spawning is synchronous, so no refill can interleave and none of the
+   * rewound blocks can have reached a live worker.
+   */
+  rewindTo(mark: PrimeAllocatorMark) {
+    if (this.next < mark.next || this.nextId < mark.nextId) {
+      throw new Error('Prime allocator rewound outside its rollback window.');
+    }
+    this.next = mark.next;
+    this.nextId = mark.nextId;
+    this.finished = mark.finished;
   }
 }
 

@@ -24,7 +24,7 @@ interface StressWorkerRecord {
   worker: Worker;
   stopped: boolean;
   iterations: number;
-  scans: number;
+  workUnits: number;
   primesFound: number;
   activity: number;
   index: number;
@@ -115,7 +115,7 @@ export class StressTestController {
   private benchAllocator = createBenchmarkPrimeAllocator();
   private blocksAssigned = 0;
   private benchIterations = 0;
-  private benchScans = 0;
+  private benchWorkUnits = 0;
   private cpuRefills = 0;
   private smtProbe: CpuSmtProbe | null = null;
   private smtProbeExtra = 0;
@@ -138,7 +138,7 @@ export class StressTestController {
   private callbackStalls = 0;
   private lastRenderRate = 0;
   private totalIterations = 0;
-  private totalScans = 0;
+  private totalWorkUnits = 0;
   private latestPrime = 0;
   private primesFound = 0;
   private candidatesPerSecond = 0;
@@ -302,7 +302,7 @@ export class StressTestController {
     this.requestId += 1;
     const requestId = this.requestId;
     this.totalIterations = 0;
-    this.totalScans = 0;
+    this.totalWorkUnits = 0;
     this.latestPrime = 0;
     this.primesFound = 0;
     this.previousIterations = 0;
@@ -453,7 +453,7 @@ export class StressTestController {
     this.benchAllocator = createBenchmarkPrimeAllocator();
     this.blocksAssigned = 0;
     this.benchIterations = 0;
-    this.benchScans = 0;
+    this.benchWorkUnits = 0;
     this.cpuRefills = 0;
     this.root.dataset.stressCpuAlgorithm = 'segmented-sieve';
     this.root.dataset.stressCpuBlocksAssigned = '0';
@@ -487,11 +487,18 @@ export class StressTestController {
    * Spawns one wave of workers and seeds each with its prefetch fill. Benchmark
    * waves sieve the disposable allocator and are flagged probe capacity. The
    * worker is constructed before its activity bar so a constructor failure can
-   * not orphan a bar, and a wave that fails partway is fully unwound before the
-   * error is rethrown, leaving no half-spawned records.
+   * not orphan a bar. A wave that fails partway is fully unwound before the
+   * error is rethrown: every block the wave consumed is returned to its
+   * allocator and its assignment counters reversed, so even a partially failed
+   * permanent replacement wave cannot leave a hole in the production frontier.
    */
   private spawnWorkerWave(requestId: number, count: number, firstIndex: number, benchmark: boolean) {
     const spawned: StressWorkerRecord[] = [];
+    const allocator = benchmark ? this.benchAllocator : this.primeAllocator;
+    // Spawning is synchronous, so no refill allocation can interleave behind
+    // this mark; rewinding it can only reclaim blocks this wave just consumed.
+    const mark = allocator.mark();
+    let consumedBlocks = 0;
     try {
       for (let offset = 0; offset < count; offset += 1) {
         const index = firstIndex + offset;
@@ -520,7 +527,7 @@ export class StressTestController {
           worker,
           stopped: false,
           iterations: 0,
-          scans: 0,
+          workUnits: 0,
           primesFound: 0,
           activity: 0,
           index,
@@ -536,8 +543,8 @@ export class StressTestController {
         worker.addEventListener('error', errorListener);
         this.workers.push(record);
         spawned.push(record);
-        const allocator = benchmark ? this.benchAllocator : this.primeAllocator;
         const blocks = allocator.take(PRIME_PREFETCH_BLOCKS);
+        consumedBlocks += blocks.length;
         record.blocksAssigned = blocks.length;
         if (!benchmark) this.blocksAssigned += blocks.length;
         bar.dataset.blocksAssigned = String(blocks.length);
@@ -552,6 +559,8 @@ export class StressTestController {
         worker.postMessage(request);
       }
     } catch (error) {
+      allocator.rewindTo(mark);
+      if (!benchmark) this.blocksAssigned -= consumedBlocks;
       for (let index = spawned.length - 1; index >= 0; index -= 1) this.removeWorkerRecord(spawned[index]);
       this.workers.length -= spawned.length;
       this.workerActivity.style.setProperty('--stress-workers', String(this.workerActivity.children.length));
@@ -577,7 +586,7 @@ export class StressTestController {
     this.workers.length -= this.smtProbeWave;
     this.smtProbeWave = 0;
     this.benchIterations = 0;
-    this.benchScans = 0;
+    this.benchWorkUnits = 0;
     this.workerActivity.style.setProperty('--stress-workers', String(this.workerActivity.children.length));
   }
 
@@ -607,7 +616,9 @@ export class StressTestController {
     // keep: benchmark work is disposable, so trade the wave for permanent
     // workers of the same proven count fed by the production allocator, then
     // re-baseline and attempt another doubling wave until growth stops or the
-    // total cap is reached.
+    // total cap is reached. A replacement wave that fails partway rewinds the
+    // production allocator, so continuing with the old permanent workers is
+    // safe: their next refill resumes the exact frontier, gapless.
     const replacement = this.smtProbeWave;
     this.terminateSmtProbeWave();
     try {
@@ -631,7 +642,7 @@ export class StressTestController {
     this.smtProbeWave = 0;
     this.smtProbeBaseline = 0;
     this.benchIterations = 0;
-    this.benchScans = 0;
+    this.benchWorkUnits = 0;
     delete this.root.dataset.stressCpuSmtProbe;
     for (const record of this.workers) this.removeWorkerRecord(record);
     this.workers = [];
@@ -671,23 +682,24 @@ export class StressTestController {
       record.activity = Math.max(0, record.iterations - previousIterations);
       const primeDelta = Math.max(0, message.primesFound - record.primesFound);
       record.primesFound = Math.max(record.primesFound, message.primesFound);
-      const scanDelta = Math.max(0, message.scans - record.scans);
-      record.scans = Math.max(record.scans, message.scans);
+      const workDelta = Math.max(0, message.workUnits - record.workUnits);
+      record.workUnits = Math.max(record.workUnits, message.workUnits);
       if (record.benchmark) {
         // Disposable benchmark work feeds only the probe's rate measurement.
         this.benchIterations += record.activity;
-        this.benchScans += scanDelta;
+        this.benchWorkUnits += workDelta;
       } else {
         this.totalIterations += record.activity;
-        this.totalScans += scanDelta;
+        this.totalWorkUnits += workDelta;
         this.latestPrime = Math.max(this.latestPrime, message.latestPrime);
         this.primesFound += primeDelta;
         this.root.dataset.stressLastChecksum = String(message.checksum);
       }
       if (this.smtProbe) {
-        // Base-prime scans measure work actually executed. Candidates/s would
-        // decay as the frontier grows, hiding real capacity gains from the probe.
-        this.applySmtProbeAction(this.smtProbe.observe(readNow(), this.totalScans + this.benchScans));
+        // Frontier-flat work units measure CPU work actually executed.
+        // Candidates/s would decay and per-prime scan counts would drift
+        // cheaper as the frontier grows, hiding or faking capacity gains.
+        this.applySmtProbeAction(this.smtProbe.observe(readNow(), this.totalWorkUnits + this.benchWorkUnits));
       }
       return;
     }
@@ -962,7 +974,7 @@ export class StressTestController {
     this.iterationLabel.textContent = this.totalIterations > 0 ? this.totalIterations.toLocaleString() : '0';
     this.iterationLabel.style.setProperty('--readout-chars', String(this.iterationLabel.textContent.length));
     this.root.dataset.stressWorkerCount = String(this.workers.length);
-    this.root.dataset.stressTotalScans = String(this.totalScans + this.benchScans);
+    this.root.dataset.stressTotalWorkUnits = String(this.totalWorkUnits + this.benchWorkUnits);
     this.root.dataset.stressGpuBackend = this.gpuBackend;
     this.root.dataset.stressTotalRenderedFrames = String(this.frameCount);
     this.root.dataset.stressGpuWorkloadLevel = String(this.gpuWorkloadLevel);

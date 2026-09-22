@@ -50,10 +50,10 @@ class MockWorker {
     for (const listener of this.listeners.get('message') ?? []) listener(new MessageEvent('message', { data }));
   }
 
-  heartbeat(latestPrime: number, primesFound: number, iterations: number, scans = iterations) {
+  heartbeat(latestPrime: number, primesFound: number, iterations: number, workUnits = iterations) {
     const data: StressTestWorkerResponse = {
       type: 'cpu-stress-heartbeat', requestId: this.request.requestId,
-      workerIndex: this.request.workerIndex, latestPrime, primesFound, iterations, checksum: .25, scans
+      workerIndex: this.request.workerIndex, latestPrime, primesFound, iterations, checksum: .25, workUnits
     };
     this.receive(data);
     return data;
@@ -706,6 +706,41 @@ describe('stress test controller lifecycle', () => {
       workerIndex: 0, supplyId: 1, count: 2 });
     const supply = first.postMessage.mock.calls[1][0];
     expect(supply.blocks[0].low).toBe(second.request.blocks.at(-1)!.high + 1);
+  });
+
+  it('reclaims production blocks when a permanent replacement wave fails partway', async () => {
+    // Regression: a kept wave trades disposable workers for permanent ones.
+    // The first replacement consumes four production blocks before the second
+    // replacement's constructor throws; the rollback must rewind the frontier
+    // so surviving workers resume gaplessly instead of skipping the blocks.
+    MockWorker.failRealAfter = 5; // the second permanent replacement throws
+    const { first, second } = await startCpuThroughProbeSpawn();
+    const [, , benchA] = workloadWorkers();
+    for (let frame = 0; frame < 3; frame += 1) advanceFrame();
+    first.heartbeat(7, 4, 660); // spawn warmup: window discarded
+    advanceFrame();
+    first.heartbeat(7, 4, 665); // candidate window opens
+    for (let frame = 0; frame < 3; frame += 1) advanceFrame();
+    benchA.heartbeat(7, 0, 4000); // growth beats the peak → keep → replacements spawn
+
+    expect(root.dataset.stressState).toBe('running');
+    expect(root.dataset.stressCpuSmtProbe).toBe('reverted'); // probe ends with no extra capacity
+    expect(benchA.terminate).toHaveBeenCalledOnce();
+    const replacement = workloadWorkers().at(-1)!; // the half-spawned permanent worker
+    expect(replacement.terminate).toHaveBeenCalledOnce();
+    expect(first.terminate).not.toHaveBeenCalled();
+    expect(second.terminate).not.toHaveBeenCalled();
+    expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(2);
+    advanceFrame();
+    expect(root.dataset.stressWorkerCount).toBe('2');
+    expect(root.dataset.stressCpuBlocksAssigned).toBe('8'); // replacement blocks reclaimed
+
+    // The frontier is exact: the next refill resumes after the last block the
+    // surviving permanent workers ever received.
+    first.receive({ type: 'cpu-stress-work-request', requestId: first.request.requestId,
+      workerIndex: 0, supplyId: 1, count: 2 });
+    const supply = first.postMessage.mock.calls[1][0];
+    expect(supply.blocks[0]).toMatchObject({ id: 8, low: second.request.blocks.at(-1)!.high + 1 });
   });
 
   it('unwinds a partially constructed baseline wave on start failure', async () => {
