@@ -22,10 +22,6 @@ const ROOT_ENTRIES = [
   'js',
   'pages',
   'assets',
-  'favicon-happy.svg',
-  'favicon-happy.ico',
-  'favicon-sad.svg',
-  'favicon-sad.ico'
 ];
 
 function relPath(filePath) {
@@ -128,10 +124,10 @@ function main() {
   [
     'CNAME',
     '.nojekyll',
-    'favicon-happy.svg',
-    'favicon-happy.ico',
-    'favicon-sad.svg',
-    'favicon-sad.ico'
+    'assets/tab-icons/favicon-happy.svg',
+    'assets/tab-icons/favicon-happy.ico',
+    'assets/tab-icons/favicon-sad.svg',
+    'assets/tab-icons/favicon-sad.ico'
   ].forEach((entry) => assertExists(path.join(ROOT, entry)));
 
   fs.rmSync(DIST_DIR, { recursive: true, force: true });
