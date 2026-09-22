@@ -2,10 +2,10 @@
  * Landing Page Schematic Styles
  *
  * NOTE: This stylesheet is scoped to the landing page (body.schematic-mode).
- * When editing colors, typography, spacing, or borders, refer to the source
- * of truth in the project root:
+ * When editing colors, typography, spacing, or borders, refer to the
+ * canonical design document:
  *
- *   Design.md
+ *   docs/Design.md
  *
  * Base:   #FFFFFF background, #000000 text/elements
  * Flare:  #FF6700 (Pumpkin Spice) for landing-page accents
@@ -41,15 +41,15 @@ body.schematic-mode ::selection {
    ======================================== */
 
 body.schematic-mode {
-  /* Per Design.md — Base Colors */
+  /* Per docs/Design.md — Base Colors */
   --schematic-bg: #FFFFFF;
   --schematic-text: #000000;
   --schematic-border: #000000;
 
-  /* Per Design.md — Landing Page Flare */
+  /* Per docs/Design.md — Landing Page Flare */
   --schematic-flare: #FF6700;
 
-  /* Per Design.md — Typography */
+  /* Per docs/Design.md — Typography */
   --font-display: 'JetBrains Mono', 'Fira Code', 'Menlo', 'Consolas', monospace;
   --font-interface: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --font-body-text: 'JetBrains Mono', 'Fira Code', 'Menlo', 'Consolas', monospace;

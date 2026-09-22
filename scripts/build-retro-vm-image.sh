@@ -81,13 +81,13 @@ download_extension_closure() {
 
 download_extension_closure "${RETRO_VM_DEFAULT_EXTENSIONS[@]}"
 
-cp "${ROOT_DIR}/vm-src/tinycore/branding/bliss-wallpaper.png" \
+cp "${ROOT_DIR}/utilities-src/vm-src/tinycore/branding/bliss-wallpaper.png" \
   "${GENERATED_DIR}/opt/backgrounds/retro-vm-wallpaper.png"
 
 # SVG-to-PNG conversion: check source existence before rsvg-convert so errors name the missing file
 for _svg_src in \
-  "${ROOT_DIR}/vm-src/tinycore/branding/retro-browser.svg" \
-  "${ROOT_DIR}/vm-src/tinycore/branding/retro-guide.svg"; do
+  "${ROOT_DIR}/utilities-src/vm-src/tinycore/branding/retro-browser.svg" \
+  "${ROOT_DIR}/utilities-src/vm-src/tinycore/branding/retro-guide.svg"; do
   if [ ! -f "$_svg_src" ]; then
     echo "Missing SVG source: $_svg_src" >&2
     exit 1
@@ -97,11 +97,11 @@ done
 rsvg-convert \
   --format=png \
   --output="${GENERATED_DIR}/usr/local/share/pixmaps/retro-browser.png" \
-  "${ROOT_DIR}/vm-src/tinycore/branding/retro-browser.svg"
+  "${ROOT_DIR}/utilities-src/vm-src/tinycore/branding/retro-browser.svg"
 rsvg-convert \
   --format=png \
   --output="${GENERATED_DIR}/usr/local/share/pixmaps/retro-guide.png" \
-  "${ROOT_DIR}/vm-src/tinycore/branding/retro-guide.svg"
+  "${ROOT_DIR}/utilities-src/vm-src/tinycore/branding/retro-guide.svg"
 
 docker run --rm \
   --platform linux/amd64 \
@@ -139,7 +139,7 @@ docker run --rm \
       exit 1
     fi
 
-    cp -R /repo/vm-src/tinycore/rootfs-overlay/. /tmp/rootfs/
+    cp -R /repo/utilities-src/vm-src/tinycore/rootfs-overlay/. /tmp/rootfs/
     cp -R /repo/.tmp/tinycore-retro-vm-build/generated/. /tmp/rootfs/
 
     # Docker Desktop can expose bind-mounted files with the macOS account uid.

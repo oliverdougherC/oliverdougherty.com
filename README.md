@@ -10,8 +10,7 @@ Static portfolio site for me (Oliver Dougherty, duh).
 - `js/` — Shared browser scripts (navigation, gallery, page effects, mobile gate, etc.)
 - `css/` — Design system tokens + page-specific stylesheets
 - `assets/` — Static media, gallery photos, utilities assets (demo images, audio, VM ISO)
-- `utilities-src/` — Editable TypeScript source for the utilities workbench
-- `vm-src/` — Tiny Core Linux rootfs overlay for the Retro VM utility
+- `utilities-src/` — Editable TypeScript source for the utilities workbench; `vm-src/` inside holds the Tiny Core Linux rootfs overlay and proxy worker for the Retro VM utility
 - `config/` — Vite, Vitest, and TypeScript configs for generated projects
 - `scripts/` — Image processing, linting, build deploy, Playwright testing
 - `docs/` — Architecture documentation and content workflows
@@ -32,10 +31,10 @@ npm run setup
 Then serve locally:
 
 ```bash
-npx serve -l 3000
+npm run serve
 ```
 
-Open `http://localhost:3000`. Done.
+Open `http://localhost:4173`. Done.
 
 ### Step-by-step (if you prefer manual control)
 
@@ -54,7 +53,7 @@ npm run utilities:build  # build utilities workbench
 3. No additional configuration needed
 
 **Dev servers:**
-- **Site:** `npx serve -l 3000` — static file server, open `http://localhost:3000`
+- **Site:** `npm run serve` — the repo's path-exact static server, open `http://localhost:4173`. Do not use `npx serve`: its clean-URL rewriting breaks the site's relative navigation links and the utilities entry load.
 
 ## Common commands
 
@@ -102,7 +101,7 @@ Utilities is a desktop-only, curiosity-driven workbench with Image Transform, Fo
 
 ## Source-of-truth rules
 
-- **Edit** `utilities-src/`, `vm-src/`, and files in the repo root, `pages/`, `js/`, `css/`, `assets/`.
+- **Edit** `utilities-src/` (including `utilities-src/vm-src/`), and files in the repo root, `pages/`, `js/`, `css/`, `assets/`.
 - **Do not hand-edit** `pages/utilities/assets/` or `dist/` — these are generated outputs.
 - **Mobile** has dedicated Home, Resume, and Gallery pages in `mobile/`. Desktop pages use `js/mobile-gate.js` to redirect phone visitors to mobile Home (bypass with `?full=1`); use the mobile navigation to reach Resume or Gallery.
 - **Homepage art** renders the actual 200 × 63 character grid from `assets/art/nighthawks-binary.txt` in one `<pre>` on both homepages. White credit letters occupy rows 58/60 of that same grid. `js/nighthawks.js` waits for the locally hosted `assets/fonts/nighthawks-mono-bold.ttf` font and tiny `nighthawks-colors.png` color map before revealing text. Successful text rendering downloads no painting raster; unavailable fonts/color maps and no-JavaScript visits use the credited PNG/WebP fallback. Run `npm run build:art` after changing source artwork to refresh the embedded grid, color map, and fallback derivatives. Keep the 6000 × 3274 composition, black backdrop, and 1880px size cap. Source inputs are excluded from deployment.
@@ -134,4 +133,4 @@ GitHub Actions runs lint, format check, typecheck, tests, build, and smoke on ev
 
 - [Site architecture](docs/site-architecture.md)
 - [Content workflows](docs/content-workflows.md)
-- [Design system](Design.md)
+- [Design system](docs/Design.md)

@@ -76,4 +76,4 @@ coverage/
 .pnpm-store/
 
 # Local Cloudflare Worker dev cache
-vm-src/proxy-worker/.wrangler/
+utilities-src/vm-src/proxy-worker/.wrangler/
