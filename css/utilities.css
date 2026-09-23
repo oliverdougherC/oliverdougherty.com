@@ -53,6 +53,8 @@ html[data-active-utility] .page-utilities { height: 100dvh; min-height: 0; displ
 #utilitiesUtilityView { height: 100%; min-height: 0; display: grid; grid-template-rows: 54px minmax(0, 1fr); font-family: var(--workbench-ui); }
 .workbench-toolbar { display: grid; grid-template-columns: 80px minmax(0,1fr) auto; align-items: center; gap: 14px; border-top: 1px solid var(--workbench-rule); }
 .nav-back-btn { justify-self: start; padding: 7px 0; border: 0; background: none; font: 500 12px/1.4 var(--workbench-ui) !important; }
+/* Inter's U+2190 sits ~1.7px below x-height center; lift the glyph to center it with the label. */
+.nav-back-arrow { display: inline-block; transform: translateY(-2px); }
 .nav-back-btn:hover { color: var(--workbench-accent); }
 .workbench-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .workbench-heading .workbench-label { color: var(--workbench-accent); font-size: 13px; line-height: 1; }
