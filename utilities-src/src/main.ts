@@ -1416,6 +1416,12 @@ class UtilitiesApp {
       return;
     }
 
+    if (this.state === 'animating' && this.animationStartedAt) {
+      this.animationElapsedMs += (performance.now() - this.animationStartedAt) * this.animationSpeed;
+      this.animationElapsedMs = clamp(this.animationElapsedMs, 0, this.getAnimationDurationMs());
+      this.animationStartedAt = 0;
+    }
+
     this.speedIndex = nextIndex;
     this.syncSpeedControl();
   }

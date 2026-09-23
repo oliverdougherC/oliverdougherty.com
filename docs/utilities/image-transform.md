@@ -120,10 +120,11 @@ multiplier on the preset's base duration; changing it mid-playback keeps the cur
 and only alters the rate, and pausing, seeking, and replay operate on the base (1x)
 timeline throughout.
 
-A background toggle to the left of the instrument stats flips the result panel between the
-default light stage and black, reusing the shared moon/sun `theme-toggle-icon` masks. The
-state lives on the panel's `data-stage-background` attribute; the canvas image itself is
-unaffected.
+A background toggle to the left of the instrument stats flips the animation stage between the
+default light background and black, reusing the shared moon/sun `theme-toggle-icon` masks. Only the
+stage is affected; the timeline, playback controls, stats, and progress below it stay on the
+normal workbench background. The state lives on the panel's `data-stage-background` attribute;
+the canvas image itself is unaffected.
 
 The same deterministic renderer is used for automatic playback and seeking. Each
 render resets its scratch buffers, so visiting a phase produces the same pixels

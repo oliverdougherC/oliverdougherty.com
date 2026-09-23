@@ -101,14 +101,8 @@ html[data-active-utility] .page-utilities { height: 100dvh; min-height: 0; displ
 #transformOverlayCanvas { pointer-events: none; }
 .canvas-placeholder-minimal { position: absolute; inset: 0; display: grid; place-items: center; background: var(--workbench-paper); color: #aaa; font-size: 28px; }
 .canvas-placeholder-minimal.is-hidden { display: none; }
-.canvas-panel--result { transition: background-color 240ms var(--ease-smooth); }
-.canvas-panel--result[data-stage-background="dark"] { background: #000; }
 .canvas-panel--result[data-stage-background="dark"] .canvas-stage--result,
 .canvas-panel--result[data-stage-background="dark"] .canvas-placeholder-minimal { background: #000; }
-.canvas-panel--result[data-stage-background="dark"] .instrument-stats dd,
-.canvas-panel--result[data-stage-background="dark"] .image-timeline output { color: #f5f5f5; }
-.canvas-panel--result[data-stage-background="dark"] .instrument-stats dt,
-.canvas-panel--result[data-stage-background="dark"] .image-timeline label { color: #9a9a9a; }
 .instrument-bar { display: flex; justify-content: space-between; align-items: center; min-width: 0; gap: 16px; padding: 9px 0; }
 .canvas-overlay-controls { display: flex; flex-shrink: 0; gap: 6px; }
 .speed-stepper { display: inline-flex; align-self: center; align-items: stretch; gap: 4px; flex-shrink: 0; }
