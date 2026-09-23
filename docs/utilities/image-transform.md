@@ -113,6 +113,18 @@ continues from that position; at 100%, Replay starts again. Reset or invalidatin
 result disables and resets the range. Reduced-motion generation shows the final frame
 immediately; manual seeking and an explicit Play action remain available.
 
+Playback speed is adjustable from the instrument bar stepper next to Reset: minus and
+plus buttons move through 0.10x, 0.25x, 0.50x, 1.00x (default), 1.50x, and 2.00x, with the
+current value shown between them and the end buttons disabling at the bounds. Speed is a
+multiplier on the preset's base duration; changing it mid-playback keeps the current phase
+and only alters the rate, and pausing, seeking, and replay operate on the base (1x)
+timeline throughout.
+
+A background toggle to the left of the instrument stats flips the result panel between the
+default light stage and black, reusing the shared moon/sun `theme-toggle-icon` masks. The
+state lives on the panel's `data-stage-background` attribute; the canvas image itself is
+unaffected.
+
 The same deterministic renderer is used for automatic playback and seeking. Each
 render resets its scratch buffers, so visiting a phase produces the same pixels
 regardless of the order in which frames were visited.

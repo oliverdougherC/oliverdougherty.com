@@ -96,7 +96,8 @@
                     <output id="transformTimelinePosition" for="transformTimeline" aria-live="off">0%</output>
                   </div>
                   <div class="instrument-bar">
-                    <div class="canvas-overlay-controls"><button type="button" class="btn-secondary-minimal" id="transformPlayBtn" disabled="" aria-label="Play animation">Play</button><button type="button" class="btn-secondary-minimal" id="transformResetBtn" aria-label="Reset">Reset</button></div>
+                    <div class="canvas-overlay-controls"><button type="button" class="btn-secondary-minimal" id="transformPlayBtn" disabled="" aria-label="Play animation">Play</button><button type="button" class="btn-secondary-minimal" id="transformResetBtn" aria-label="Reset">Reset</button><div class="speed-stepper" role="group" aria-label="Animation playback speed"><button type="button" class="speed-stepper-btn" id="transformSpeedDownBtn" aria-label="Decrease animation speed">&minus;</button><output class="speed-stepper-value" id="transformSpeedValue" aria-live="off">1.00x</output><button type="button" class="speed-stepper-btn" id="transformSpeedUpBtn" aria-label="Increase animation speed">+</button></div></div>
+                    <button type="button" class="btn-secondary-minimal canvas-bg-toggle" id="transformBackgroundBtn" data-mode="light" aria-pressed="false" aria-label="Set animation background to black"><span class="theme-toggle-icon" aria-hidden="true"></span></button>
                     <dl class="instrument-stats"><div><dt>Dimensions</dt><dd id="transformOutputSize">—</dd></div><div><dt>Pixels</dt><dd id="transformPixelCount">—</dd></div><div><dt>Compute</dt><dd id="transformDuration">—</dd></div></dl>
                   </div>
                 </article>

@@ -413,6 +413,7 @@ async function assertControlPanelGeometry(page, utilityId, label) {
       'image-transform': [
         '#sourceDropzone', '#targetDropzone', '#transformSwapBtn', '#transformPreset',
         '#transformGenerateBtn', '[data-demo-key]', '#transformPlayBtn', '#transformResetBtn',
+        '#transformSpeedDownBtn', '#transformSpeedValue', '#transformSpeedUpBtn', '#transformBackgroundBtn',
         '#transformStatusChip', '#transformProgressText', '#transformProgressMeta',
         '#transformTimeline', '#transformTimelinePosition', '#sourceDropzonePreview', '#targetDropzonePreview',
         '#transformOutputSize', '#transformPixelCount', '#transformDuration'
@@ -674,6 +675,67 @@ async function assertImageTimeline(page, { reducedMotion = false } = {}) {
     await waitForStatusMatch(page, 'Animation complete', 15000, 'timeline resume completion');
     assert((await readTimelineState(page)).value === 1000, 'Playback completion should return the timeline to its end.');
   }
+}
+
+async function assertImageSpeedAndBackground(page) {
+  const speedState = () =>
+    page.evaluate(() => ({
+      value: document.getElementById('transformSpeedValue')?.textContent?.trim(),
+      downDisabled: document.getElementById('transformSpeedDownBtn')?.disabled,
+      upDisabled: document.getElementById('transformSpeedUpBtn')?.disabled
+    }));
+
+  assert((await speedState()).value === '1.00x', 'Playback speed should start at 1.00x.');
+  for (let i = 0; i < 2; i += 1) {
+    await page.click('#transformSpeedUpBtn');
+  }
+  let speed = await speedState();
+  assert(
+    speed.value === '2.00x' && speed.upDisabled && !speed.downDisabled,
+    'Stepping up should stop at 2.00x with the plus control disabled.'
+  );
+  for (let i = 0; i < 5; i += 1) {
+    await page.click('#transformSpeedDownBtn');
+  }
+  speed = await speedState();
+  assert(
+    speed.value === '0.10x' && speed.downDisabled && !speed.upDisabled,
+    'Repeated decreases should stop at 0.10x with the minus control disabled.'
+  );
+  await page.click('#transformSpeedUpBtn');
+  await page.click('#transformSpeedUpBtn');
+  assert((await speedState()).value === '0.50x', 'Decreasing then increasing should step back through the speed ladder.');
+
+  await seekImageTimeline(page, 0);
+  await page.click('#transformPlayBtn');
+  await waitForStatusMatch(page, 'Animating', 5000, 'half-speed playback starts');
+  await page.waitForFunction(() => Number(document.getElementById('transformTimeline').value) > 150);
+  const beforeSpeedChange = await readTimelineState(page);
+  await page.click('#transformSpeedUpBtn');
+  assert((await speedState()).value === '1.00x', 'Speed changes should apply while the animation is playing.');
+  await waitForStatusMatch(page, 'Animating', 3000, 'speed change keeps playback running');
+  await page.waitForFunction(value => Number(document.getElementById('transformTimeline').value) > value, beforeSpeedChange.value);
+  await waitForStatusMatch(page, 'Animation complete', 20000, 'speed-adjusted playback completes');
+  assert((await readTimelineState(page)).value === 1000, 'Speed-adjusted playback should finish at the timeline end.');
+
+  const stageState = () =>
+    page.evaluate(() => ({
+      stage: getComputedStyle(document.querySelector('#utilitiesApp .canvas-stage--result')).backgroundColor,
+      panel: document.querySelector('#utilitiesApp .canvas-panel--result')?.dataset?.stageBackground ?? 'light',
+      pressed: document.getElementById('transformBackgroundBtn')?.getAttribute('aria-pressed')
+    }));
+
+  const before = await stageState();
+  assert(before.panel !== 'dark' && before.stage !== 'rgb(0, 0, 0)', 'The animation stage should start with a light background.');
+  await page.click('#transformBackgroundBtn');
+  await page.waitForTimeout(340);
+  const dark = await stageState();
+  assert(dark.stage === 'rgb(0, 0, 0)', `Toggling should paint the animation stage black; got ${dark.stage}.`);
+  assert(dark.panel === 'dark' && dark.pressed === 'true', 'The background toggle should expose its dark state.');
+  await page.click('#transformBackgroundBtn');
+  await page.waitForTimeout(340);
+  const light = await stageState();
+  assert(light.panel === 'light' && light.stage !== 'rgb(0, 0, 0)', 'Toggling again should restore the light animation stage.');
 }
 
 async function createInvalidImageFile() {
@@ -1374,6 +1436,9 @@ async function main() {
     );
     assert(completedOverlayAlphaPixels === 0, 'Completed animation should leave no overlay pixels behind.');
     await assertImageTimeline(page);
+    await runUtilitySection(utilitySectionFailures, 'Image Speed And Background', async () => {
+      await assertImageSpeedAndBackground(page);
+    });
 
     await page.click('#transformPlayBtn');
     await waitForStatusMatch(page, 'Animating', 5000, 'navigation pause start');
