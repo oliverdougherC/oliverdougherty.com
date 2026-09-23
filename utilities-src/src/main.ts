@@ -56,6 +56,8 @@ interface ActiveTransform {
 
 const MAX_IMAGE_FILE_BYTES = 20 * 1024 * 1024;
 const TARGET_ANIMATION_FRAME_MS = 1000 / 60;
+const TRANSFORM_SPEED_STEPS = [0.1, 0.25, 0.5, 1, 1.5, 2];
+const DEFAULT_TRANSFORM_SPEED_INDEX = 3;
 
 class UtilitiesApp {
   private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -97,6 +99,11 @@ class UtilitiesApp {
   private readonly targetContext: CanvasRenderingContext2D;
   private readonly resultContext: CanvasRenderingContext2D;
   private readonly overlayContext: CanvasRenderingContext2D;
+  private readonly speedDownButton: HTMLButtonElement;
+  private readonly speedUpButton: HTMLButtonElement;
+  private readonly speedValue: HTMLOutputElement;
+  private readonly backgroundButton: HTMLButtonElement;
+  private readonly resultPanel: HTMLElement;
   private readonly demoButtons: HTMLButtonElement[];
   private readonly builtInTransformCache = new Map<string, CachedBuiltInTransform>();
   private readonly builtInTransformAssetPromises = new Map<string, Promise<SerializedPrecomputedBuiltInTransform>>();
@@ -114,6 +121,8 @@ class UtilitiesApp {
   private animationStartedAt = 0;
   private lastAnimationFrameTimestamp = 0;
   private animationElapsedMs = 0;
+  private speedIndex = DEFAULT_TRANSFORM_SPEED_INDEX;
+  private backgroundDark = false;
   private state: StateKind = 'idle';
   private workerUnavailable = false;
   private workerFallbackScheduled = false;
@@ -130,6 +139,10 @@ class UtilitiesApp {
     this.playButton = this.requireElement('transformPlayBtn');
     this.timeline = this.requireElement('transformTimeline');
     this.timelinePosition = this.requireElement('transformTimelinePosition');
+    this.speedDownButton = this.requireElement('transformSpeedDownBtn');
+    this.speedUpButton = this.requireElement('transformSpeedUpBtn');
+    this.speedValue = this.requireElement('transformSpeedValue');
+    this.backgroundButton = this.requireElement('transformBackgroundBtn');
     this.statusChip = document.getElementById('transformStatusChip');
     this.statusText = document.getElementById('transformStatusText');
     this.progressText = this.requireElement('transformProgressText');
@@ -159,6 +172,11 @@ class UtilitiesApp {
     this.targetContext = this.getContext(this.targetCanvas);
     this.resultContext = this.getContext(this.resultCanvas);
     this.overlayContext = this.getContext(this.overlayCanvas);
+    const resultPanel = this.root.querySelector<HTMLElement>('.canvas-panel--result');
+    if (!resultPanel) {
+      throw new Error('Missing required element: .canvas-panel--result');
+    }
+    this.resultPanel = resultPanel;
     this.overlayContext.imageSmoothingEnabled = false;
   }
 
@@ -181,6 +199,9 @@ class UtilitiesApp {
     this.playButton.addEventListener('click', () => this.handlePlaybackButton());
     this.timeline.addEventListener('pointerdown', () => this.pauseAnimation());
     this.timeline.addEventListener('input', () => this.seekAnimation(Number(this.timeline.value) / 1000));
+    this.speedDownButton.addEventListener('click', () => this.stepTransformSpeed(-1));
+    this.speedUpButton.addEventListener('click', () => this.stepTransformSpeed(1));
+    this.backgroundButton.addEventListener('click', () => this.toggleCanvasBackground());
     this.presetSelect.addEventListener('change', () => {
       const preset = getPreset(this.selectedPreset);
       if (this.activeTransform) {
@@ -230,6 +251,7 @@ class UtilitiesApp {
     this.bindDropzone(this.targetDropzone, 'target');
     this.syncSelectionLabels();
     this.syncButtons();
+    this.syncSpeedControl();
     this.applyDemo('pattern-face');
   }
 
@@ -1324,7 +1346,7 @@ class UtilitiesApp {
       }
       this.lastAnimationFrameTimestamp = timestamp;
 
-      const elapsedMs = this.animationElapsedMs + (timestamp - this.animationStartedAt);
+      const elapsedMs = this.animationElapsedMs + (timestamp - this.animationStartedAt) * this.animationSpeed;
       const phase = clamp(elapsedMs / durationMs, 0, 1);
       this.renderAnimationFrame(phase);
       this.setProgress(
@@ -1358,7 +1380,7 @@ class UtilitiesApp {
 
     if (this.state === 'animating') {
       if (this.animationStartedAt) {
-        this.animationElapsedMs += performance.now() - this.animationStartedAt;
+        this.animationElapsedMs += (performance.now() - this.animationStartedAt) * this.animationSpeed;
       }
       const durationMs = this.getAnimationDurationMs();
       this.animationElapsedMs = clamp(this.animationElapsedMs, 0, durationMs);
@@ -1382,6 +1404,43 @@ class UtilitiesApp {
   private getAnimationDurationMs(): number {
     const preset = getPreset(this.activeTransform?.metadata.presetId ?? this.selectedPreset);
     return preset.animationDurationMs;
+  }
+
+  private get animationSpeed(): number {
+    return TRANSFORM_SPEED_STEPS[this.speedIndex];
+  }
+
+  private stepTransformSpeed(direction: -1 | 1) {
+    const nextIndex = clamp(this.speedIndex + direction, 0, TRANSFORM_SPEED_STEPS.length - 1);
+    if (nextIndex === this.speedIndex) {
+      return;
+    }
+
+    if (this.state === 'animating' && this.animationStartedAt) {
+      this.animationElapsedMs += (performance.now() - this.animationStartedAt) * this.animationSpeed;
+      this.animationElapsedMs = clamp(this.animationElapsedMs, 0, this.getAnimationDurationMs());
+      this.animationStartedAt = 0;
+    }
+
+    this.speedIndex = nextIndex;
+    this.syncSpeedControl();
+  }
+
+  private syncSpeedControl() {
+    this.speedValue.textContent = `${this.animationSpeed.toFixed(2)}x`;
+    this.speedDownButton.disabled = this.speedIndex === 0;
+    this.speedUpButton.disabled = this.speedIndex === TRANSFORM_SPEED_STEPS.length - 1;
+  }
+
+  private toggleCanvasBackground() {
+    this.backgroundDark = !this.backgroundDark;
+    this.resultPanel.dataset.stageBackground = this.backgroundDark ? 'dark' : 'light';
+    this.backgroundButton.dataset.mode = this.backgroundDark ? 'dark' : 'light';
+    this.backgroundButton.setAttribute('aria-pressed', String(this.backgroundDark));
+    this.backgroundButton.setAttribute(
+      'aria-label',
+      this.backgroundDark ? 'Set animation background to white' : 'Set animation background to black'
+    );
   }
 
   private replayAnimation() {

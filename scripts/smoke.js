@@ -52,6 +52,17 @@ function validatePages() {
     if (page.startsWith('mobile/') || page === 'pages/utilities/index.html') {
       assert(html.includes('data-current-year'), `Missing dynamic year placeholder in ${page}`);
     }
+
+    // A render-blocking Google Fonts <link> white-screens the whole page until
+    // the stylesheet resolves; every font link must use the media=print swap.
+    const outsideNoScript = html.replace(/<noscript>[\s\S]*?<\/noscript>/g, '');
+    const fontLinks = outsideNoScript.match(/<link[^>]*fonts\.googleapis\.com\/css2[^>]*>/g) ?? [];
+    for (const fontLink of fontLinks) {
+      assert(
+        /media="print"/.test(fontLink) && /onload="this\.media='all'"/.test(fontLink),
+        `Google Fonts link in ${page} must load non-blocking (media="print" swap pattern)`
+      );
+    }
   }
 
   const galleryHtml = fs.readFileSync(path.join(ROOT, 'pages/gallery/index.html'), 'utf8');
