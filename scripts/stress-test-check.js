@@ -203,7 +203,9 @@ async function assertDesktopSizes(page, label) {
 // production workload with matching records and bars. Which verdict the
 // under-report page reaches is machine-dependent; the saturated page pins the
 // opposite real-world case — a report that already matches the machine's true
-// logical CPU count leaves no idle capacity, so the extra wave must revert.
+// logical CPU count leaves no idle capacity, so the first extra wave must
+// revert and, with nothing ever kept, end the search at exactly the reported
+// count.
 function smtProbeInit(cores) {
   Object.defineProperty(navigator, 'hardwareConcurrency', { value: cores, configurable: true });
   // Trace the mechanism, not just its endpoint: count stress-worker
@@ -239,8 +241,11 @@ async function assertSmtProbeMode(browser, url, { cores, expectOutcome, label })
   await page.waitForSelector('#stressTestApp[data-stress-state="idle"]');
   await page.click('[data-stress-mode-option="cpu"]');
   await page.click('#stressStartBtn');
+  // The converging search can run several disposable waves on an under-reporting
+  // host (exponential growth plus bisection refinement), so allow generous time
+  // for the terminal verdict on slow or busy machines.
   await page.waitForFunction(() => ['kept', 'reverted'].includes(document.querySelector('#stressTestApp').dataset.stressCpuSmtProbe),
-    null, { timeout: 60000 });
+    null, { timeout: 120000 });
   // The terminal dataset verdict is written immediately, while the throttled
   // metric loop refreshes worker/count datasets at ≤120ms: give it one settled
   // frame so counts and live DOM are sampled together, not mid-update.

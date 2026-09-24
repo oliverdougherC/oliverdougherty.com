@@ -3,9 +3,9 @@ import {
   formatStressElapsed,
   isStressMode,
   resolveCpuWorkerCount,
-  resolveSmtProbeExtraWorkers,
   shouldStressCpu,
   shouldStressGpu,
+  SMT_PROBE_MAX_TOTAL_WORKERS,
   transitionStressState,
   type CpuSmtProbeAction,
   type StressGpuBackend,
@@ -126,7 +126,6 @@ export class StressTestController {
   private benchWorkUnits = 0;
   private cpuRefills = 0;
   private smtProbe: CpuSmtProbe | null = null;
-  private smtProbeExtra = 0;
   private smtProbeWave = 0;
   private smtProbeBaseline = 0;
   private gpu: StressGpuStressHandle | null = null;
@@ -471,24 +470,25 @@ export class StressTestController {
     this.root.dataset.stressCpuBlocksAssigned = String(this.blocksAssigned);
 
     // Browsers may report fewer logical processors than the machine actually
-    // has — rounding to physical cores or capping the count — leaving idle
-    // capacity on multithreaded CPUs. A throughput probe spawns disposable
-    // benchmark waves and converts them into permanent workers only when
-    // aggregate measured work actually grows, repeating until growth stops or
-    // the total cap. Each wave sieves its own disposable allocator seeded at
-    // the live production frontier, so probe and permanent work units cost the
-    // same and a revert can never leave a hole in the production search. The
-    // explicit worker cap pins the count and skips the probe.
+    // has — rounding to physical cores, capping the count, or an OS reserving
+    // cores — leaving idle capacity on multithreaded CPUs. A throughput search
+    // grows the worker count with disposable benchmark waves: exponentially
+    // while aggregate measured work keeps rising, then by bisecting between
+    // the last grown count and the first stalled one, converting proven waves
+    // into permanent workers. The search lands at or just above measured
+    // saturation instead of striding past it in doublings (12 → 24 → 48 → 24
+    // never reaches a 32-thread machine; the search converges near it). Each
+    // wave sieves its own disposable allocator seeded at the live production
+    // frontier, so probe and permanent work units cost the same and a revert
+    // can never leave a hole in the production search. The explicit worker cap
+    // pins the count and skips the search.
     this.smtProbeWave = 0;
     this.smtProbeBaseline = workerCount;
-    this.smtProbeExtra = getStressTestMaxWorkersOverride() === null
-      ? resolveSmtProbeExtraWorkers(workerCount)
-      : 0;
-    if (this.smtProbeExtra > 0) {
-      this.smtProbe = new CpuSmtProbe();
+    this.smtProbe = getStressTestMaxWorkersOverride() === null && workerCount < SMT_PROBE_MAX_TOTAL_WORKERS
+      ? new CpuSmtProbe(workerCount)
+      : null;
+    if (this.smtProbe) {
       this.root.dataset.stressCpuSmtProbe = 'probing';
-    } else {
-      this.smtProbe = null;
     }
   }
 
@@ -518,7 +518,8 @@ export class StressTestController {
         const index = firstIndex + offset;
         const worker = new Worker(new URL('./stressTest.worker.ts', import.meta.url), { type: 'module' });
         const bar = document.createElement('span');
-        bar.setAttribute('aria-label', `Worker ${index + 1}: starting`);
+        bar.setAttribute('aria-label', benchmark ? `Probe worker ${index + 1}: starting` : `Worker ${index + 1}: starting`);
+        if (benchmark) bar.dataset.benchmark = 'true';
         this.workerActivity.append(bar);
         this.workerActivity.style.setProperty('--stress-workers', String(this.workerActivity.children.length));
         const messageListener = (event: MessageEvent<StressTestWorkerResponse>) => {
@@ -607,15 +608,14 @@ export class StressTestController {
 
   private finishSmtProbe() {
     this.smtProbe = null;
-    this.smtProbeExtra = 0;
     this.root.dataset.stressCpuSmtProbe = this.workers.length > this.smtProbeBaseline ? 'kept' : 'reverted';
   }
 
   private applySmtProbeAction(action: CpuSmtProbeAction) {
-    if (action === 'none' || !this.smtProbe) return;
-    if (action === 'spawn') {
+    if (action.action === 'none' || !this.smtProbe) return;
+    if (action.action === 'spawn') {
       try {
-        this.spawnWorkerWave(this.requestId, this.smtProbeExtra, this.workers.length, true);
+        this.spawnWorkerWave(this.requestId, action.extra, this.workers.length, true);
       } catch (error) {
         // The probe wave is optional capacity; the permanent run stays valid.
         console.error('[StressTest] CPU probe worker wave failed to start', error);
@@ -623,18 +623,24 @@ export class StressTestController {
       }
       return;
     }
-    if (action === 'revert') {
+    if (action.action === 'revert') {
+      // Discarding a failed trial does not necessarily end the search: once a
+      // wave was ever kept, a revert lowers the bisection bound and the probe
+      // re-baselines for a smaller trial. Only a finished search finalizes.
       this.terminateSmtProbeWave();
-      this.finishSmtProbe();
+      if (this.smtProbe.registerRevert(readNow())) this.finishSmtProbe();
       return;
     }
     // keep: benchmark work is disposable, so trade the wave for permanent
-    // workers of the same proven count fed by the production allocator, then
-    // re-baseline and attempt another doubling wave until growth stops or the
-    // total cap is reached. A replacement wave that fails partway rewinds the
-    // production allocator, so continuing with the old permanent workers is
-    // safe: their next refill resumes the exact frontier, gapless.
-    const replacement = this.smtProbeWave;
+    // workers fed by the production allocator — but only as many as the
+    // machine's measured throughput can explain (the probe's capacity
+    // estimate), then re-baseline and either attempt another exponential wave
+    // or a refinement bisect, until the bracket converges, the total cap is
+    // reached, or a trial fails against the never-exceeded reported count. A
+    // replacement wave that fails partway rewinds the production allocator,
+    // so continuing with the old permanent workers is safe: their next refill
+    // resumes the exact frontier, gapless.
+    const replacement = action.convert;
     this.terminateSmtProbeWave();
     try {
       this.spawnWorkerWave(this.requestId, replacement, this.workers.length, false);
@@ -643,17 +649,11 @@ export class StressTestController {
       this.finishSmtProbe();
       return;
     }
-    this.smtProbeExtra = resolveSmtProbeExtraWorkers(this.workers.length);
-    if (this.smtProbeExtra <= 0) {
-      this.finishSmtProbe();
-      return;
-    }
-    this.smtProbe.registerKeep(readNow());
+    if (this.smtProbe.registerKeep(readNow())) this.finishSmtProbe();
   }
 
   private stopCpuStress() {
     this.smtProbe = null;
-    this.smtProbeExtra = 0;
     this.smtProbeWave = 0;
     this.smtProbeBaseline = 0;
     this.benchIterations = 0;

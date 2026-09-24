@@ -545,14 +545,15 @@ describe('stress test controller lifecycle', () => {
 
   // Starts CPU stress and drives heartbeats through the baseline windows until
   // the probe spawns its first benchmark wave; returns the permanent workers.
-  // Peak-window probe: paired beats every 800ms each close one baseline window.
-  // Window rates .5625, .375, .375 → peak .5625, spawn on the third window.
+  // The first beat anchors the initial settle warmup; paired beats every 800ms
+  // then open the window and close three baseline windows (0.375 work/ms
+  // each — the reference is their newest-window mean) → spawn on the third.
   async function startCpuThroughProbeSpawn() {
     await start('cpu');
     const [first, second] = workloadWorkers();
     first.heartbeat(7, 1, 100);
-    second.heartbeat(7, 1, 150); // baseline window opens at total scan 250
-    for (let step = 0; step < 3; step += 1) {
+    second.heartbeat(7, 1, 150); // anchors the settle warmup
+    for (let step = 0; step < 4; step += 1) {
       for (let frame = 0; frame < 4; frame += 1) advanceFrame();
       first.heartbeat(7, step + 2, 350 + step * 150);
       second.heartbeat(7, step + 2, 350 + step * 150);
@@ -575,7 +576,7 @@ describe('stress test controller lifecycle', () => {
     const frontier = second.postMessage.mock.calls[1][0].blocks.at(-1).high + 1;
     first.heartbeat(7, 1, 100);
     second.heartbeat(7, 1, 150);
-    for (let step = 0; step < 3; step += 1) {
+    for (let step = 0; step < 4; step += 1) {
       for (let frame = 0; frame < 4; frame += 1) advanceFrame();
       first.heartbeat(7, step + 2, 350 + step * 150);
       second.heartbeat(7, step + 2, 350 + step * 150);
@@ -603,7 +604,7 @@ describe('stress test controller lifecycle', () => {
     for (let frame = 0; frame < 3; frame += 1) advanceFrame();
     first.heartbeat(7, 4, 660); // spawn warmup: window discarded
     advanceFrame();
-    first.heartbeat(7, 4, 665); // candidate window opens at total scan 1315
+    first.heartbeat(7, 4, 665); // candidate window opens at total scan 1600
     for (let frame = 0; frame < 3; frame += 1) advanceFrame();
     first.heartbeat(7, 4, 700); // .058 work/ms: first miss
     for (let frame = 0; frame < 3; frame += 1) advanceFrame();
@@ -651,18 +652,18 @@ describe('stress test controller lifecycle', () => {
     expect(third.request.blocks[0].id).toBe(8);
     expect(third.request.blocks[0].low).toBe(second.request.blocks.at(-1)!.high + 1);
     expect(fourth.request.blocks[0].low).toBe(third.request.blocks.at(-1)!.high + 1);
-    expect(root.dataset.stressCpuSmtProbe).toBe('probing'); // another doubling wave is pending
+    expect(root.dataset.stressCpuSmtProbe).toBe('probing'); // another exponential wave is pending
     advanceFrame();
-    expect(root.dataset.stressIterations).toBe('1315'); // benchmark iterations never counted
-    expect(root.dataset.stressPrimesFound).toBe('8'); // benchmark primes never counted
+    expect(root.dataset.stressIterations).toBe('1600'); // benchmark iterations never counted
+    expect(root.dataset.stressPrimesFound).toBe('10'); // benchmark primes never counted
     expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(4);
 
     // Wave two re-baselines at the kept count: paired four-worker beats every
     // 800ms give windows of 1.5 work/ms; the third spawns four disposable workers.
     for (let step = 0; step < 4; step += 1) {
       for (let frame = 0; frame < 4; frame += 1) advanceFrame();
-      first.heartbeat(7, 5, 700 + step * 300);
-      second.heartbeat(7, 4, 660 + step * 300);
+      first.heartbeat(7, 5, 1700 + step * 300);
+      second.heartbeat(7, 4, 1600 + step * 300);
       third.heartbeat(7, 1, 40 + step * 300);
       fourth.heartbeat(7, 1, 30 + step * 300);
     }
@@ -677,7 +678,9 @@ describe('stress test controller lifecycle', () => {
     expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(8);
 
     // The second wave's candidate windows stay at the baseline production rate
-    // while the benchmark workers report nothing → revert.
+    // while the benchmark workers report nothing → revert. Because an earlier
+    // wave was kept, the search is not over: the stalled trial becomes the
+    // failed bound and the probe re-baselines to bisect the bracket.
     for (let step = 0; step < 2; step += 1) {
       for (let frame = 0; frame < 2; frame += 1) advanceFrame();
       first.heartbeat(7, 5, 1630 + step * 30);
@@ -692,9 +695,43 @@ describe('stress test controller lifecycle', () => {
       third.heartbeat(7, 1, 1090 + step * 60);
       fourth.heartbeat(7, 1, 1080 + step * 60);
     }
+    for (const worker of waveTwo) expect(worker.terminate).toHaveBeenCalledOnce();
+    expect(root.dataset.stressCpuSmtProbe).toBe('probing'); // refining the bracket [4, 8] now
+    expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(4);
+
+    // The refinement baseline runs at the kept four workers; the next trial
+    // bisects to six, so its disposable wave has two members, not the
+    // exponential phase's four.
+    for (let step = 0; step < 4; step += 1) {
+      for (let frame = 0; frame < 4; frame += 1) advanceFrame();
+      first.heartbeat(7, 6, 1950 + step * 300);
+      second.heartbeat(7, 5, 1910 + step * 300);
+      third.heartbeat(7, 2, 1290 + step * 300);
+      fourth.heartbeat(7, 2, 1280 + step * 300);
+    }
+    const refinementWave = workloadWorkers().slice(10);
+    expect(refinementWave).toHaveLength(2);
+    expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(6);
+
+    // The refinement trial stalls too; the bracket [4, 6] is inside the
+    // keep-ratio tolerance, so the search ends with the overall grown count.
+    for (let step = 0; step < 2; step += 1) {
+      for (let frame = 0; frame < 2; frame += 1) advanceFrame();
+      first.heartbeat(7, 6, 3150 + step * 30);
+      second.heartbeat(7, 5, 3110 + step * 30);
+      third.heartbeat(7, 2, 2490 + step * 30);
+      fourth.heartbeat(7, 2, 2480 + step * 30);
+    }
+    for (let step = 0; step < 2; step += 1) {
+      for (let frame = 0; frame < 3; frame += 1) advanceFrame();
+      first.heartbeat(7, 6, 3270 + step * 60);
+      second.heartbeat(7, 5, 3230 + step * 60);
+      third.heartbeat(7, 2, 2610 + step * 60);
+      fourth.heartbeat(7, 2, 2600 + step * 60);
+    }
 
     expect(root.dataset.stressCpuSmtProbe).toBe('kept'); // capacity still grew overall
-    for (const worker of waveTwo) expect(worker.terminate).toHaveBeenCalledOnce();
+    for (const worker of refinementWave) expect(worker.terminate).toHaveBeenCalledOnce();
     expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(4);
     advanceFrame();
     expect(root.dataset.stressWorkerCount).toBe('4');

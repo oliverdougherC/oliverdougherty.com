@@ -7,11 +7,12 @@ The utility runs sustained CPU prime searches and an interactive GPU sculpture, 
 One module worker is created per browser-reported logical processor, with no fixed
 64-worker production cap. Browsers may report fewer logical processors than the
 machine has: privacy modes round `hardwareConcurrency` down to physical cores or
-deliberately cap it, which on multithreaded CPUs leaves simultaneous-multithreading
+deliberately cap it, and an OS may reserve cores (for example virtualization-based
+security), which on multithreaded CPUs leaves simultaneous-multithreading
 siblings or whole cores idle (historically Firefox capped the value at 16 via
 `dom.maxHardwareConcurrency` until Firefox 139 raised the default to 128; privacy
 modes can still report less than the real capability). A closed-loop throughput
-probe recovers that capacity. Its work measure counts executed sieve work —
+search recovers that capacity. Its work measure counts executed sieve work —
 every marking store, both linear buffer passes per segment, and a flat charge
 per base-prime scan — which keeps per-unit CPU cost near-flat across search
 frontiers, unlike candidates/s (which decays) or a per-prime scan count (whose
@@ -19,33 +20,70 @@ units grow cheaper as the frontier advances and would fake capacity gains).
 Exact rate comparability comes from the seed instead: every disposable wave
 sieves its own allocator seeded at the production frontier current when that
 wave spawns, so probe workers perform exactly the work the permanent workers
-are about to perform and no fixed range can fake a throughput gain. Sieve base extensions and
-JIT phase changes make any single measurement window bursty, so the probe keeps
-the peak window rate over several baseline windows, spawns a disposable
-benchmark wave (doubling workers, capped at 128 total), and keeps it when a
-candidate window beats that peak by at least 10%; a few candidate windows all
-missing the threshold revert it. Peak-versus-peak comparison lets bursts
-influence both sides equally instead of faking or masking a capacity change.
-Every kept wave re-baselines and attempts another doubling wave, so a heavily
-under-reporting browser keeps growing until a wave fails to grow or the cap is
-reached. Benchmark workers sieve the frontier-seeded allocator of their own
-wave and feed only the probe's rate measurement: reported primes, checksums,
-and production block coverage never see benchmark work, so no keep or revert
-decision can leave a hole in the production search. A probe worker
-error or partially failed wave reverts only the probe wave and leaves the
-permanent workload running; a partially failed wave rewinds its allocator to
-the position marked before the wave, so even a partially spawned permanent
+are about to perform and no fixed range can fake a throughput gain. Rates must
+also be comparable across time, because a candidate wave is always measured
+seconds after its baseline: per-worker rate decays as the shared sieve frontier
+deepens — steepest in a run's first seconds — so a reference taken from the
+best baseline window (as the original probe used) is set at a shallower,
+cheaper frontier that a wave which genuinely doubled throughput cannot beat,
+and idle capacity gets falsely reverted. Every phase, including the very first
+baseline, begins with a settle warmup that discards the steepest startup
+windows, and the comparison reference is the mean of only the newest two
+baseline windows, temporally adjacent to the candidate; a wave is kept when a
+candidate window beats that reference by at least 10% and reverted when two
+consecutive candidate windows miss it.
+
+Keeping converts only the workers the measurement can explain: while every
+worker owns a hardware thread, aggregate rate scales with the worker count, so
+the candidate's rate ratio estimates the machine's measured saturation point,
+and keep converts `proven count × ratio` workers into permanent ones. A
+doubling wave that strides past capacity is trimmed to the estimate instead of
+installed whole.
+
+Doubling alone cannot turn an under-report into the true thread count: it
+strides over it (12 → 24 → 48 skips 32 entirely), and a stalled wave that
+reverted and stopped used to strand the run below saturation. The search
+therefore keeps proven bounds and converges. Waves are kept exponentially
+(doubling) while aggregate measured work keeps rising, so a heavily
+under-reporting browser reaches capacity in a few waves; a kept wave that
+only partially converted proved its trial total overshot capacity and stands
+as the upper bound. Once a wave stalls, the failed trial likewise becomes the
+upper bound and the search refines by bisecting
+between the last grown count and the first stalled one: a kept trial raises the
+proven bound, a reverted trial lowers the failed bound, and each trial re-runs
+the same baseline/candidate measurement at the current count. The search stops
+when the bracket is inside the tolerance (`max(2, 10% of the proven count)`,
+because no windowed comparison resolves capacity differences finer than the
+keep ratio), or when the 128 total-worker cap is reached. If the very first
+wave fails — the browser's own report never grew — the report is trusted and
+the search ends after that one wave, exactly as a correctly reported machine
+needs. The final worker count therefore sits at measured
+saturation (full utilization) and within tolerance of it, instead of a
+power-of-two stride away. A browser that over-reports cannot be corrected:
+permanent workers cannot be terminated without leaving holes in the production
+search coverage, so the search only ever adds capacity. A baseline whose
+reference windows show no progress gives no trustworthy comparison: it is treated as a
+failed trial and the search stops. Benchmark workers sieve the frontier-seeded
+allocator of their own wave, are marked with `data-benchmark="true"` on their
+activity bar, and feed only the search's rate measurement: reported primes,
+checksums, and production block coverage never see benchmark work, so no keep
+or revert decision can leave a hole in the production search. A probe worker
+error or partially failed wave ends the search and leaves the permanent
+workload running; a partially failed wave rewinds its allocator to the
+position marked before the wave, so even a partially spawned permanent
 replacement wave returns its blocks and the surviving workers resume the exact
-frontier. The probe advances on worker heartbeats, never on
-timers, and `data-stress-cpu-smt-probe` reports `probing`, then finally `kept` or
-`reverted` (whether final capacity grew beyond the reported count). The explicit
+frontier. The search advances on worker heartbeats, never on
+timers, and `data-stress-cpu-smt-probe` reports `probing` throughout (including
+between refinement waves), then finally `kept` or `reverted` (whether final
+capacity grew beyond the reported count). The explicit
 `window.__OD_STRESS_TEST_MAX_WORKERS__` override
-pins the count and disables the probe, keeping the bounded browser checks
+pins the count and disables the search, keeping the bounded browser checks
 deterministic; `scripts/stress-test-check.js` adds dedicated probe-mode pages
 that exercise the real spawn/keep/revert chain against real cores: one
 simulates a 1-thread under-report (the growth path) and one reports the
 machine's true logical CPU count, where an already-saturated machine must
-revert the extra wave (the saturated path). The pages pin the mechanism
+revert the extra wave and end the search at exactly the reported count (the
+saturated path). The pages pin the mechanism
 itself (probe-state transitions plus worker-spawn counts, so a probe that
 reverts without ever spawning a benchmark wave fails), and the release
 matrix repeats probe mode on Chromium, Firefox, and WebKit.
