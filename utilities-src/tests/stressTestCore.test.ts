@@ -6,41 +6,54 @@ import {
   resolveGpuBackendFallbacks,
   shouldStressCpu,
   shouldStressGpu,
-  transitionStressState,
-  type CpuSmtProbeAction
+  transitionStressState
 } from '@utilities/stressTestCore';
 
-// Drives the heartbeat-only probe through trials without timers: baseline
-// windows tick at ~1 work unit/ms (1 = 800 work units per 800ms window), and
-// a candidate window's delta scales its rate against the recent-window mean.
+// Drives the heartbeat-only probe through interleaved trials without timers.
+// A window closes on a heartbeat ≥600ms after the window opened; every action
+// settles first, so a window is opened by a beat clearing the settle warmup
+// and closed 600ms later. Production off windows default to 600 work units
+// (rate 1.0); the keep decision compares production on-window rates against
+// the bracketing off windows — bench deltas ride along for the liveness guard.
 function probeDriver(probe: CpuSmtProbe) {
   let now = 400;
   let work = 100;
-  const obs = (dt: number, delta: number) => {
+  let bench = 0;
+  const beat = (dt: number, delta: number, benchDelta = 0) => {
     now += dt;
     work += delta;
-    return probe.observe(now, work);
+    bench += benchDelta;
+    return probe.observe(now, work, bench);
   };
+  const open = (warmupMs: number) => beat(warmupMs + 100, 0);
+  const close = (delta: number, benchDelta = 0) => beat(600, delta, benchDelta);
   return {
     now: () => now,
-    // Opens the measurement window after the settle warmup (the initial one
-    // is anchored by an extra first observation), then closes the baseline
-    // windows; the last closes with the spawn decision.
-    baseline(cold = false, windowDeltas: number[] = [800, 800, 800]) {
-      if (cold) obs(1, 1); // anchors the initial settle warmup
-      obs(700, 1); // warmup ends, first window opens
-      let action: CpuSmtProbeAction = { action: 'none' };
-      for (const delta of windowDeltas) action = obs(800, delta);
-      return action;
+    beat,
+    // The first heartbeat anchors the initial settle warmup.
+    anchor() {
+      beat(1, 1);
     },
-    // Candidate windows at `windowDelta` work units each: kept on the first
-    // window that beats the reference by the keep ratio, reverted on two
-    // consecutive misses.
-    candidate(windowDelta: number) {
-      obs(700, 100); // warmup ends, candidate window opens
-      const first = obs(800, windowDelta);
-      if (first.action === 'keep') return first;
-      return obs(800, windowDelta);
+    // Two pre-spawn off windows; the second close decides the spawn. The
+    // first close may already revert via the idle guard.
+    baseline(offDelta = 600) {
+      open(700);
+      const first = close(offDelta);
+      if (first.action !== 'none') return first;
+      return close(offDelta);
+    },
+    // One full trial flip: off3 → resume, on1 → pause, off4 → resume,
+    // on2 → keep/revert decision. `onDelta` is the permanent workers' rate
+    // under the wave; bench workers report `benchDelta` per on window.
+    trial(onDelta: number, offDelta = 600, benchDelta = 600) {
+      open(700);
+      expect(close(offDelta)).toEqual({ action: 'resume' });
+      open(300);
+      expect(close(onDelta, benchDelta)).toEqual({ action: 'pause' });
+      open(300);
+      expect(close(offDelta)).toEqual({ action: 'resume' });
+      open(300);
+      return close(onDelta, benchDelta);
     }
   };
 }
@@ -111,63 +124,85 @@ describe('stress test core helpers', () => {
   it('doubles the exponential phase and converts kept waves in full', () => {
     const probe = new CpuSmtProbe(3);
     const driver = probeDriver(probe);
-    expect(driver.baseline(true)).toEqual({ action: 'spawn', extra: 3 }); // trial 6
-    expect(driver.candidate(1600)).toEqual({ action: 'keep', convert: 3 }); // 2× rate → capacity 6
+    driver.anchor();
+    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 3 }); // trial 6
+    expect(driver.trial(600)).toEqual({ action: 'keep', convert: 3 }); // no slowdown → capacity ≥ 6
     expect(probe.registerKeep(driver.now())).toBe(false);
     expect(driver.baseline()).toEqual({ action: 'spawn', extra: 6 }); // trial 12
-    expect(driver.candidate(1600)).toEqual({ action: 'keep', convert: 6 });
+    expect(driver.trial(600)).toEqual({ action: 'keep', convert: 6 });
     expect(probe.registerKeep(driver.now())).toBe(false);
     expect(driver.baseline()).toEqual({ action: 'spawn', extra: 12 }); // trial 24
   });
 
-  it('trims a kept wave that strides past the measured capacity', () => {
-    // Reported 12 on a machine whose measured capacity is ~32: the 24-member
-    // 48 wave only raises aggregate throughput 32/24, so keep converts just
-    // the 8 workers the ratio explains (12 × 32/24 = 32 total) instead of
-    // installing all 24 — the count lands at capacity, not above it.
+  it('converts a slowed SMT-region trial in full instead of trimming it', () => {
+    // Reported 12 on a 16-physical/32-logical machine: the 48-total trial
+    // shares some permanent workers with SMT siblings and measures 0.8 —
+    // threads still exist, so the wave converts in full. Trimming keeps by a
+    // fair-sharing capacity estimate was the old bug: it read this
+    // sharing-caused slowdown as oversubscription, converted only part of the
+    // wave, and capped the search below the machine's real capacity.
     const probe = new CpuSmtProbe(12);
     const driver = probeDriver(probe);
-    expect(driver.baseline(true)).toEqual({ action: 'spawn', extra: 12 }); // trial 24
-    expect(driver.candidate(2400)).toEqual({ action: 'keep', convert: 12 }); // full 2× wave
+    driver.anchor();
+    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 12 }); // trial 24
+    expect(driver.trial(600)).toEqual({ action: 'keep', convert: 12 }); // full 2× wave
     expect(probe.registerKeep(driver.now())).toBe(false);
     expect(driver.baseline()).toEqual({ action: 'spawn', extra: 24 }); // trial 48
-    expect(driver.candidate(1067)).toEqual({ action: 'keep', convert: 8 }); // 1.33× → capacity ≈ 32
-    expect(probe.registerKeep(driver.now())).toBe(false); // bracket [32, 48]
+    expect(driver.trial(480)).toEqual({ action: 'keep', convert: 24 }); // 0.8×: SMT sharing, not time-slicing
+    expect(probe.registerKeep(driver.now())).toBe(false);
+    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 48 }); // trial 96
   });
 
-  it('refines by bisecting between the last grown and first stalled count', () => {
+  it('refines by bisecting between the last grown and first oversubscribed trial', () => {
+    // Reported 12 on a simulated 32-thread machine: a trial total T above the
+    // thread count reads ≈ 32 ÷ T permanent-worker slowdown (pure
+    // time-slicing). 48 slows to 0.67 → revert; 36 (0.89) and 42 (0.76) stay
+    // within the keep ratio → convert; 45 (0.71) reverts inside tolerance.
     const probe = new CpuSmtProbe(12);
     const driver = probeDriver(probe);
-    expect(driver.baseline(true)).toEqual({ action: 'spawn', extra: 12 }); // trial 24
-    expect(driver.candidate(2400)).toEqual({ action: 'keep', convert: 12 });
+    driver.anchor();
+    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 12 }); // trial 24
+    expect(driver.trial(600)).toEqual({ action: 'keep', convert: 12 });
     expect(probe.registerKeep(driver.now())).toBe(false);
     expect(driver.baseline()).toEqual({ action: 'spawn', extra: 24 }); // trial 48
-    expect(driver.candidate(40)).toEqual({ action: 'revert' });
+    expect(driver.trial(400)).toEqual({ action: 'revert' }); // 0.67 < 0.75
     expect(probe.registerRevert(driver.now())).toBe(false); // bracket [24, 48]
     expect(driver.baseline()).toEqual({ action: 'spawn', extra: 12 }); // trial 36
-    expect(driver.candidate(1200)).toEqual({ action: 'keep', convert: 12 });
+    expect(driver.trial(533)).toEqual({ action: 'keep', convert: 12 }); // 0.89
     expect(probe.registerKeep(driver.now())).toBe(false); // bracket [36, 48]
     expect(driver.baseline()).toEqual({ action: 'spawn', extra: 6 }); // trial 42
-    expect(driver.candidate(40)).toEqual({ action: 'revert' });
-    expect(probe.registerRevert(driver.now())).toBe(false); // bracket [36, 42]
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 3 }); // trial 39
-    expect(driver.candidate(40)).toEqual({ action: 'revert' });
-    // Bracket [36, 39] is inside tolerance: the run keeps the proven 36.
+    expect(driver.trial(457)).toEqual({ action: 'keep', convert: 6 }); // 0.76
+    expect(probe.registerKeep(driver.now())).toBe(false); // bracket [42, 48]
+    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 3 }); // trial 45
+    expect(driver.trial(426)).toEqual({ action: 'revert' }); // 0.71
+    // Bracket [42, 45] is inside tolerance: the run keeps the proven 42.
     expect(probe.registerRevert(driver.now())).toBe(true);
-    expect(driver.candidate(40)).toEqual({ action: 'none' });
   });
 
-  it('compares candidate windows against the newest baseline windows, not the startup peak', () => {
-    // Frontier decay traced on a real browser: a lone worker runs 2.0 units/ms
-    // at the shallow frontier and decays to 1.1 within the baseline phase.
-    // The wave (2 workers on a multi-threaded machine) aggregates 1.75 — far
-    // below the startup peak (which the original probe kept and reverted on),
-    // but clearly above the recent-window mean of 1.3.
-    const probe = new CpuSmtProbe(1);
+  it('measures each on window against bracketing off windows, immune to drift', () => {
+    // The regression this protocol exists for: CPU boost sag and frontier
+    // decay cut every worker's rate ~30% between the pre-spawn windows and
+    // the trial. A sequential comparison would read the on windows against
+    // the earlier (faster-clock) baseline as a 30% slowdown and revert a
+    // wave that never touched existing workers; the interleaved ratio
+    // compares same-moment rates, measures 1.0, and converts the whole wave.
+    const probe = new CpuSmtProbe(12);
     const driver = probeDriver(probe);
-    expect(driver.baseline(true, [1600, 1200, 880])).toEqual({ action: 'spawn', extra: 1 });
-    expect(driver.candidate(1400)).toEqual({ action: 'keep', convert: 1 });
-    expect(probe.registerKeep(driver.now())).toBe(false);
+    driver.anchor();
+    expect(driver.baseline(960)).toEqual({ action: 'spawn', extra: 12 }); // trial 24
+    expect(driver.trial(672, 672)).toEqual({ action: 'keep', convert: 12 }); // on/off = 1.0
+    expect(probe.registerKeep(driver.now())).toBe(false); // capacity not yet bounded
+  });
+
+  it('reverts when a silent benchmark wave makes the trial unmeasurable', () => {
+    const probe = new CpuSmtProbe(2);
+    const driver = probeDriver(probe);
+    driver.anchor();
+    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 2 });
+    // Permanent workers are unimpeded (ratio 1.0) but the wave itself did no
+    // work during either on window — nothing was measured, nothing is kept.
+    expect(driver.trial(600, 600, 0)).toEqual({ action: 'revert' });
+    expect(probe.registerRevert(driver.now())).toBe(true); // report never grew
   });
 
   it('stops after one failed wave when the browser report never grew', () => {
@@ -175,47 +210,48 @@ describe('stress test core helpers', () => {
     // keep its reported workers — no refinement churn.
     const probe = new CpuSmtProbe(32);
     const driver = probeDriver(probe);
-    expect(driver.baseline(true)).toEqual({ action: 'spawn', extra: 32 });
-    expect(driver.candidate(40)).toEqual({ action: 'revert' });
+    driver.anchor();
+    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 32 });
+    expect(driver.trial(30)).toEqual({ action: 'revert' });
     expect(probe.registerRevert(driver.now())).toBe(true);
+    driver.anchor();
     expect(driver.baseline()).toEqual({ action: 'none' });
   });
 
   it('stops at the total-worker cap', () => {
     const probe = new CpuSmtProbe(100, 128);
     const driver = probeDriver(probe);
-    expect(driver.baseline(true)).toEqual({ action: 'spawn', extra: 28 }); // capped trial 128
-    expect(driver.candidate(1600)).toEqual({ action: 'keep', convert: 28 });
+    driver.anchor();
+    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 28 }); // capped trial 128
+    expect(driver.trial(600)).toEqual({ action: 'keep', convert: 28 });
     expect(probe.registerKeep(driver.now())).toBe(true); // cap reached
   });
 
-  it('keeps the probe wave only when a candidate window beats the recent baseline mean', () => {
-    const probe = new CpuSmtProbe(2);
-    const driver = probeDriver(probe);
-    expect(driver.baseline(true)).toEqual({ action: 'spawn', extra: 2 });
-    expect(driver.candidate(960)).toEqual({ action: 'keep', convert: 1 }); // 1.2×: barely over the ratio
-    expect(driver.candidate(7200)).toEqual({ action: 'none' }); // decided
+  it('keeps waves slowed up to the keep ratio and reverts slower ones', () => {
+    const kept = new CpuSmtProbe(2);
+    const keptDriver = probeDriver(kept);
+    keptDriver.anchor();
+    expect(keptDriver.baseline()).toEqual({ action: 'spawn', extra: 2 });
+    expect(keptDriver.trial(450)).toEqual({ action: 'keep', convert: 2 }); // exactly 0.75: SMT-region sharing
+    const reverted = new CpuSmtProbe(2);
+    const revertedDriver = probeDriver(reverted);
+    revertedDriver.anchor();
+    expect(revertedDriver.baseline()).toEqual({ action: 'spawn', extra: 2 });
+    expect(revertedDriver.trial(435)).toEqual({ action: 'revert' }); // 0.725: time-slicing began
   });
 
-  it('reverts the probe wave when no candidate window grows work throughput', () => {
+  it('re-baselines after a keep and refines after the next wave slows workers', () => {
     const probe = new CpuSmtProbe(2);
     const driver = probeDriver(probe);
-    expect(driver.baseline(true)).toEqual({ action: 'spawn', extra: 2 });
-    expect(driver.candidate(40)).toEqual({ action: 'revert' });
-    expect(probe.registerRevert(driver.now())).toBe(true); // report never grew
-  });
-
-  it('re-baselines after a keep and refines after the next wave stalls', () => {
-    const probe = new CpuSmtProbe(2);
-    const driver = probeDriver(probe);
-    expect(driver.baseline(true)).toEqual({ action: 'spawn', extra: 2 }); // trial 4
-    expect(driver.candidate(1600)).toEqual({ action: 'keep', convert: 2 });
+    driver.anchor();
+    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 2 }); // trial 4
+    expect(driver.trial(600)).toEqual({ action: 'keep', convert: 2 });
     expect(probe.registerKeep(driver.now())).toBe(false);
     expect(driver.baseline()).toEqual({ action: 'spawn', extra: 4 }); // trial 8
-    expect(driver.candidate(40)).toEqual({ action: 'revert' });
+    expect(driver.trial(30)).toEqual({ action: 'revert' });
     expect(probe.registerRevert(driver.now())).toBe(false); // bracket [4, 8]
     expect(driver.baseline()).toEqual({ action: 'spawn', extra: 2 }); // trial 6
-    expect(driver.candidate(40)).toEqual({ action: 'revert' });
+    expect(driver.trial(30)).toEqual({ action: 'revert' });
     expect(probe.registerRevert(driver.now())).toBe(true); // bracket [4, 6] inside tolerance
   });
 
@@ -224,18 +260,21 @@ describe('stress test core helpers', () => {
     expect(() => probe.registerKeep(500)).toThrow('outside a keep decision');
     expect(() => probe.registerRevert(500)).toThrow('outside a revert decision');
     const driver = probeDriver(probe);
-    expect(driver.baseline(true)).toEqual({ action: 'spawn', extra: 2 });
+    driver.anchor();
+    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 2 });
     expect(() => probe.registerKeep(driver.now())).toThrow('outside a keep decision');
-    expect(driver.candidate(1600)).toEqual({ action: 'keep', convert: 2 });
+    expect(driver.trial(600)).toEqual({ action: 'keep', convert: 2 });
     expect(probe.registerKeep(driver.now())).toBe(false);
     expect(() => probe.registerRevert(driver.now())).toThrow('outside a revert decision');
   });
 
-  it('reverts without spawning when every baseline window reports no progress', () => {
+  it('reverts without spawning when the first off window reports no progress', () => {
     const probe = new CpuSmtProbe(4);
     const driver = probeDriver(probe);
-    expect(driver.baseline(true, [0, 0, 0])).toEqual({ action: 'revert' });
+    driver.anchor();
+    expect(driver.baseline(0)).toEqual({ action: 'revert' });
     expect(probe.registerRevert(driver.now())).toBe(true);
-    expect(driver.candidate(1600)).toEqual({ action: 'none' });
+    driver.anchor();
+    expect(driver.baseline(1200)).toEqual({ action: 'none' });
   });
 });

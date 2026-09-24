@@ -473,15 +473,16 @@ export class StressTestController {
     // has — rounding to physical cores, capping the count, or an OS reserving
     // cores — leaving idle capacity on multithreaded CPUs. A throughput search
     // grows the worker count with disposable benchmark waves: exponentially
-    // while aggregate measured work keeps rising, then by bisecting between
-    // the last grown count and the first stalled one, converting proven waves
-    // into permanent workers. The search lands at or just above measured
-    // saturation instead of striding past it in doublings (12 → 24 → 48 → 24
-    // never reaches a 32-thread machine; the search converges near it). Each
-    // wave sieves its own disposable allocator seeded at the live production
-    // frontier, so probe and permanent work units cost the same and a revert
-    // can never leave a hole in the production search. The explicit worker cap
-    // pins the count and skips the search.
+    // while the permanent workers keep their rate under the wave, then by
+    // bisecting between the last kept count and the first that slowed them
+    // past the keep ratio, converting proven waves into permanent workers. The
+    // search lands at or just above measured saturation instead of striding
+    // past it in doublings (12 → 24 → 48 → 24 never reaches a 32-thread
+    // machine; the search converges near it). Each wave sieves its own
+    // disposable allocator seeded at the live production frontier, so probe
+    // and permanent work units cost the same and a revert can never leave a
+    // hole in the production search. The explicit worker cap pins the count
+    // and skips the search.
     this.smtProbeWave = 0;
     this.smtProbeBaseline = workerCount;
     this.smtProbe = getStressTestMaxWorkersOverride() === null && workerCount < SMT_PROBE_MAX_TOTAL_WORKERS
@@ -611,16 +612,30 @@ export class StressTestController {
     this.root.dataset.stressCpuSmtProbe = this.workers.length > this.smtProbeBaseline ? 'kept' : 'reverted';
   }
 
+  private postSmtProbeWaveControl(type: 'pause-cpu-stress' | 'resume-cpu-stress') {
+    for (let index = this.workers.length - this.smtProbeWave; index < this.workers.length; index += 1) {
+      const record = this.workers[index];
+      record.worker.postMessage({ type, requestId: this.requestId, workerIndex: record.index });
+    }
+  }
+
   private applySmtProbeAction(action: CpuSmtProbeAction) {
     if (action.action === 'none' || !this.smtProbe) return;
     if (action.action === 'spawn') {
       try {
         this.spawnWorkerWave(this.requestId, action.extra, this.workers.length, true);
+        // The trial's remaining off windows run while the wave idles paused;
+        // the probe flips it on between bracketing off windows.
+        this.postSmtProbeWaveControl('pause-cpu-stress');
       } catch (error) {
         // The probe wave is optional capacity; the permanent run stays valid.
         console.error('[StressTest] CPU probe worker wave failed to start', error);
         this.finishSmtProbe();
       }
+      return;
+    }
+    if (action.action === 'pause' || action.action === 'resume') {
+      this.postSmtProbeWaveControl(action.action === 'pause' ? 'pause-cpu-stress' : 'resume-cpu-stress');
       return;
     }
     if (action.action === 'revert') {
@@ -631,15 +646,15 @@ export class StressTestController {
       if (this.smtProbe.registerRevert(readNow())) this.finishSmtProbe();
       return;
     }
-    // keep: benchmark work is disposable, so trade the wave for permanent
-    // workers fed by the production allocator — but only as many as the
-    // machine's measured throughput can explain (the probe's capacity
-    // estimate), then re-baseline and either attempt another exponential wave
-    // or a refinement bisect, until the bracket converges, the total cap is
-    // reached, or a trial fails against the never-exceeded reported count. A
-    // replacement wave that fails partway rewinds the production allocator,
-    // so continuing with the old permanent workers is safe: their next refill
-    // resumes the exact frontier, gapless.
+    // keep: benchmark work is disposable, so trade the whole kept wave for
+    // permanent workers fed by the production allocator (kept waves convert in
+    // full — trimming by a capacity estimate capped the search below real
+    // capacity on SMT machines), then re-baseline and either attempt another
+    // exponential wave or a refinement bisect, until the bracket converges,
+    // the total cap is reached, or a trial fails against the never-exceeded
+    // reported count. A replacement wave that fails partway rewinds the
+    // production allocator, so continuing with the old permanent workers is
+    // safe: their next refill resumes the exact frontier, gapless.
     const replacement = action.convert;
     this.terminateSmtProbeWave();
     try {
@@ -712,11 +727,12 @@ export class StressTestController {
         this.root.dataset.stressLastChecksum = String(message.checksum);
       }
       if (this.smtProbe) {
-        // Work units measure CPU work actually executed, and disposable waves
-        // seed at the production frontier, so benchmark and permanent units
-        // cost the same. Candidates/s would decay with the frontier and
-        // per-prime scan counts would drift cheaper, hiding or faking capacity.
-        this.applySmtProbeAction(this.smtProbe.observe(readNow(), this.totalWorkUnits + this.benchWorkUnits));
+        // Work units measure CPU work actually executed at the same frontier
+        // cost, and the probe's keep signal is the permanent workers' own
+        // rate under the wave — candidates/s would decay with the frontier
+        // and per-prime scan counts would drift cheaper. Benchmark units ride
+        // along only as a wave-liveness guard.
+        this.applySmtProbeAction(this.smtProbe.observe(readNow(), this.totalWorkUnits, this.benchWorkUnits));
       }
       return;
     }

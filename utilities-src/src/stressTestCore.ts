@@ -44,23 +44,39 @@ export function resolveCpuWorkerCount(input: CpuWorkerResolutionInput = {}) {
 
 export const SMT_PROBE_SAMPLE_WINDOW_MS = 600;
 export const SMT_PROBE_SPAWN_WARMUP_MS = 700;
-export const SMT_PROBE_KEEP_RATIO = 1.1;
+// Short discarded settle after a wave spawn or a pause/resume flip: in-flight
+// chunk work and already-sent heartbeats must not bleed into the next window.
+export const SMT_PROBE_TOGGLE_WARMUP_MS = 300;
+// A trial is kept while its wave has not yet squeezed the permanent workers
+// below 75% of their bracketed rate, and a kept wave ALWAYS converts in full.
+// OS scheduling gives the two overload regimes distinct signatures: sharing a
+// physical core's SMT sibling (workers still fit on logical threads) slows a
+// permanent worker only ~10–30%, while genuine oversubscription (more
+// workers than logical threads) time-slices each one to ≈ capacity ÷ workers,
+// under ~70%. Keeping at ≥0.75 therefore grows through the SMT-sharing region
+// — where every thread still exists and still adds throughput — and reverts
+// once threads run out. Converting a kept wave only partially (by a
+// `ratio × trial` capacity estimate) was the previous design's fatal flaw:
+// SMT-region slowdowns look like the time-slicing formula's input, so the
+// estimate undershot, the partial keep bounded the search below true capacity,
+// and a 32-thread machine stalled at 22.
+// The measurement is the permanent workers' rate, not aggregate throughput:
+// extra logical cores add workers at sub-linear aggregate gains (SMT siblings
+// are not full cores, and background threads steal capacity), so an aggregate
+// keep ratio would stop the search far short of the threads that exist, while
+// existing-worker slowdown pinpoints thread exhaustion.
+export const SMT_PROBE_KEEP_RATIO = 0.75;
 export const SMT_PROBE_MAX_TOTAL_WORKERS = 128;
-export const SMT_PROBE_BASELINE_WINDOWS = 3;
-// The keep/revert reference is the mean of only the newest baseline windows.
-// Per-worker sieve rate decays as the shared frontier deepens — steepest at
-// the start of a run, where it halves within the first seconds — so a
-// reference taken across all baseline windows (or worse, their peak) is set
-// from a shallower, cheaper frontier era that a candidate wave — which
-// necessarily runs later — cannot reach even when its workers genuinely
-// double throughput, and idle capacity gets falsely reverted. The newest
-// windows sit closest in time (and frontier depth) to the candidate wave, and
-// averaging two of them keeps tolerance for single-window bursts.
-export const SMT_PROBE_REFERENCE_WINDOWS = 2;
+// Off windows measured before the trial wave spawns; the first doubles as the
+// idle guard, and together they precede the interleaved on/off measurement.
+export const SMT_PROBE_BASELINE_WINDOWS = 2;
+// Bench-on windows per trial; between them the wave is paused again so each
+// on window is bracketed by an off window at the same clock speed and
+// frontier depth (see the class documentation).
 export const SMT_PROBE_CANDIDATE_WINDOWS = 2;
 // Refinement stops once the proven/failed worker bracket is this narrow. No
 // windowed throughput comparison can resolve capacity differences finer than
-// the keep ratio, so bisecting inside this tolerance would add wave churn
+// the keep threshold, so bisecting inside this tolerance would add wave churn
 // without any trustworthy information.
 export const SMT_PROBE_REFINE_TOLERANCE_MIN = 2;
 export const SMT_PROBE_REFINE_TOLERANCE_RATIO = 0.1;
@@ -68,6 +84,8 @@ export const SMT_PROBE_REFINE_TOLERANCE_RATIO = 0.1;
 export type CpuSmtProbeAction =
   | { action: 'none' }
   | { action: 'spawn'; extra: number }
+  | { action: 'pause' }
+  | { action: 'resume' }
   | { action: 'keep'; convert: number }
   | { action: 'revert' };
 
@@ -80,49 +98,53 @@ export type CpuSmtProbeAction =
  * count (12 → 24 → 48 skips 32 entirely) and a failed wave that reverts and
  * stops strands the run below saturation. So this is a converging search over
  * worker counts with proven bounds: `low` is the highest count measured to
- * raise aggregate work, `high` the lowest trial measured not to.
+ * keep the existing workers within the keep ratio, `high` the lowest trial
+ * measured to slow them past it.
  *
- * Measurement is executed sieve work units per window; heartbeat gaps close
+ * Work is executed sieve work units; heartbeat gaps close the measurement
  * windows, and the caller seeds every disposable benchmark wave at the live
- * production frontier so both sides sieve same-cost ranges. Two biases must be
- * removed before rates are comparable across time, because a trial wave is
- * always measured seconds after its baseline:
+ * production frontier and PAUSES it (idle, queue kept) until asked to resume.
+ * A trial compares interleaved windows: two off windows (wave paused) precede
+ * the spawn, then the wave flips on/off/on so every on window is bracketed by
+ * off windows measured moments earlier and later. Comparing rates across time
+ * — any candidate window against any earlier baseline — is poisoned by drift
+ * no probe can model: the per-worker sieve rate falls as the shared frontier
+ * deepens (and a bigger wave advances it faster), and CPU boost clocks sag
+ * seconds into a load. Both drifts are monotone over seconds but locally
+ * smooth, so an on/off/off-on interleaving cancels them: a trial's ratio is
+ * mean(on windows) / mean(bracketing off windows), and drift affects
+ * numerator and denominator alike.
  *
- * - Frontier decay: per-worker rate falls as the shared sieve frontier
- *   deepens, steepest in the first seconds of a run. Comparing candidate
- *   windows against the best-ever baseline window (as the original probe did)
- *   sets a threshold from a shallower, cheaper frontier era that genuinely
- *   doubled throughput cannot beat — idle capacity gets falsely reverted,
- *   and the bias worsens with every kept wave because more workers advance
- *   the frontier faster. The search instead measures its reference from the
- *   newest baseline windows only (mean of the last two, which keeps
- *   tolerance for single-window bursts), and every phase — including the
- *   very first baseline — begins with a settle warmup that discards the
- *   steepest startup windows.
- * - Overshoot: keeping means converting only the workers the machine's
- *   measured aggregate throughput can explain. While every worker owns a
- *   hardware thread, aggregate rate scales with the worker count, so the
- *   candidate's rate ratio against its reference estimates the machine's
- *   measured saturation point: keep converts `low × ratio` (clamped to the
- *   trial and to at least one) workers into permanent ones. A doubling wave
- *   that strides past capacity is therefore trimmed to the estimated capacity
- *   instead of being installed whole, which is what lets the final count
- *   land at (not above) saturation: reported 12 on a 32-thread machine keeps
- *   12 → 24 in full, converts only 8 of the 24-member 48 trial (12×32/24 →
- *   32 total), then refines [32, 48] down and stops at 32.
+ * The ratio signal is the PERMANENT workers' rate, not aggregate throughput.
+ * Aggregate scaling is a dead end as a keep test: extra logical cores join at
+ * sub-linear aggregate gain — SMT siblings add a fraction of a core, memory
+ * bandwidth bends the curve, and background threads eat capacity — so on a
+ * real 32-thread machine a 24-on-12 trial measures ~1.6 aggregate, below any
+ * sensible aggregate keep ratio, and the search stalls near 20 while half the
+ * threads spin idle. Existing-worker slowdown has no such ceiling. The two
+ * overload regimes read distinctly: while the trial's workers still fit on
+ * logical threads, the worst a permanent worker suffers is SMT-sibling
+ * sharing — a ~10–30% slowdown — but once there are more workers than
+ * logical threads, fair time-slicing drops every permanent worker to
+ * ≈ capacity ÷ workers, under ~70%. The trial is kept at ≥75% of the
+ * bracketed rate and ALWAYS converts in full — growth walks through the
+ * SMT-sharing region (every thread there is real capacity) and stops where
+ * time-slicing begins. Reported 12 on a 32-thread machine: the 24-on-12 trial
+ * measures ~0.85 (threads exist, siblings shared) → keeps 24 → the 48-on-24
+ * trial measures ~0.6 (real oversubscription) → reverts → bisection lands at
+ * ≈32. An earlier design instead trimmed keeps with a `ratio × trial`
+ * capacity estimate: SMT-region slowdowns plug that fair-sharing formula
+ * with values that undershoot, the trimmed keep bounds the search below
+ * capacity, and the same 32-thread machine stalled at 22.
  *
- * Waves are kept exponentially (doubling) while aggregate measured work keeps
- * rising, so a heavily under-reporting browser reaches capacity in a few
- * waves. Once a wave reverts — but only if at least one wave was kept, i.e.
- * the browser's report was proven wrong — `high` is set and the search refines
- * by bisecting the bracket: a kept trial raises `low`, a reverted trial lowers
- * `high`. The search stops when the bracket is inside the tolerance (the keep
- * ratio's noise floor), the total-worker cap is reached, or the very first
- * wave fails against an unproven report — in which case the browser's own
- * count is trusted and the search stops after one wave, exactly as a correctly
- * reported machine needs. A baseline whose reference windows show no progress
- * gives no trustworthy comparison: the search treats it as a failed trial and
- * stops.
+ * The search stops when the bracket is inside the tolerance (the slowdown
+ * signal's noise floor), the total-worker cap is reached, or the very first
+ * trial fails against an unproven report — in which case the browser's own
+ * count is trusted and the search stops after one trial, exactly as a
+ * correctly reported machine needs. A first off window showing no progress
+ * gives no trustworthy comparison, and a wave whose bench workers report no
+ * work during either on window was never really measured: either ends the
+ * search as a failed trial.
  *
  * A browser that OVER-reports (more workers than hardware threads) cannot be
  * corrected here: permanent workers cannot be terminated without leaving
@@ -130,28 +152,35 @@ export type CpuSmtProbeAction =
  * under-reporting, so the search only ever adds capacity.
  */
 export class CpuSmtProbe {
-  // The search always begins settled: the initial baseline skips the steepest
-  // startup windows exactly like every later re-baseline does.
-  private phase: 'baseline' | 'settle' | 'spawned' | 'candidate' | 'decided' | 'finished' = 'settle';
+  // Every trial and the initial measurement begin settled (see beginSettle);
+  // the very first settle anchors its warmup on the first heartbeat.
+  private phase: 'settle' | 'off' | 'on' | 'decided' | 'finished' = 'settle';
+  private settleTarget: 'off' | 'on' = 'off';
+  private settleWarmupMs = SMT_PROBE_SPAWN_WARMUP_MS;
   private readonly reportedWorkers: number;
   private readonly maxTotalWorkers: number;
   // Search bounds: highest proven-grown worker count and lowest proven-stalled
   // trial total. The final permanent count is `low`.
   private low: number;
   private high: number | null = null;
-  // Total worker count of the trial whose spawn/keep/revert decision is live,
-  // its wave size, and how many of that wave a keep decision converts.
+  // Total worker count of the trial whose decision is live, its wave size,
+  // and how many of that wave a keep decision converts.
   private trialTotal = 0;
   private trialExtra = 0;
   private pendingConvert = 0;
+  // Whether this trial's (paused) benchmark wave is alive awaiting its flips.
+  private waveLive = false;
   private windowStartAt = 0;
   private windowStartWork = 0;
+  private windowStartBench = 0;
   private settleAt = 0;
-  private baselineWindows = 0;
-  private candidateWindows = 0;
-  // Rates of the newest baseline windows; their mean is the candidate
-  // comparison reference (see SMT_PROBE_REFERENCE_WINDOWS).
-  private referenceRates: number[] = [];
+  // Per-trial window rates of the PERMANENT workers only (off windows: wave
+  // paused; on windows: wave measuring). The reference is the mean of the
+  // last two off windows — the pair bracketing the on windows. Bench work
+  // feeds a liveness guard, never the ratio.
+  private offRates: number[] = [];
+  private onRates: number[] = [];
+  private onBenchDeltas: number[] = [];
 
   constructor(reportedWorkers: number, maxTotalWorkers = SMT_PROBE_MAX_TOTAL_WORKERS) {
     if (!Number.isSafeInteger(reportedWorkers) || reportedWorkers < 1) {
@@ -165,76 +194,36 @@ export class CpuSmtProbe {
     this.low = reportedWorkers;
   }
 
-  observe(now: number, totalWork: number): CpuSmtProbeAction {
+  observe(now: number, productionWork: number, benchWork: number): CpuSmtProbeAction {
     // A decision awaits the caller's registerKeep/registerRevert bookkeeping,
     // and a finished search is inert: neither may re-enter the measurement loop.
     if (this.phase === 'decided' || this.phase === 'finished') return { action: 'none' };
-    if (this.phase === 'settle' || this.phase === 'spawned') {
-      // Discard every window that overlaps the spawn or a replacement wave; new
-      // workers need a moment before their work (or absence of it) is
-      // representative. The initial settle anchors its warmup on the first
-      // heartbeat, so the search never measures the startup burst windows.
+    if (this.phase === 'settle') {
+      // Discard every window that overlaps a spawn or flip: boot work, the
+      // final in-flight chunk, and heartbeats sent before the flip must not
+      // represent the phase that follows it.
       if (this.settleAt === 0) this.settleAt = now;
-      if (now - this.settleAt < SMT_PROBE_SPAWN_WARMUP_MS) return { action: 'none' };
+      if (now - this.settleAt < this.settleWarmupMs) return { action: 'none' };
       this.windowStartAt = now;
-      this.windowStartWork = totalWork;
-      // A kept wave re-baselines before growing again; a spawned wave measures its candidate.
-      this.phase = this.phase === 'spawned' ? 'candidate' : 'baseline';
+      this.windowStartWork = productionWork;
+      this.windowStartBench = benchWork;
+      this.phase = this.settleTarget;
       return { action: 'none' };
     }
     if (this.windowStartAt === 0) {
       this.windowStartAt = now;
-      this.windowStartWork = totalWork;
+      this.windowStartWork = productionWork;
+      this.windowStartBench = benchWork;
       return { action: 'none' };
     }
     const elapsed = now - this.windowStartAt;
     if (elapsed < SMT_PROBE_SAMPLE_WINDOW_MS) return { action: 'none' };
-    const rate = (totalWork - this.windowStartWork) / elapsed;
+    const rate = (productionWork - this.windowStartWork) / elapsed;
+    const benchDelta = benchWork - this.windowStartBench;
     this.windowStartAt = now;
-    this.windowStartWork = totalWork;
-    if (this.phase === 'baseline') {
-      this.baselineWindows += 1;
-      this.referenceRates.push(rate);
-      if (this.referenceRates.length > SMT_PROBE_REFERENCE_WINDOWS) this.referenceRates.shift();
-      if (this.baselineWindows < SMT_PROBE_BASELINE_WINDOWS) return { action: 'none' };
-      if (this.referenceAt() <= 0) {
-        // An idle or stalled baseline gives no trustworthy comparison; a failed
-        // trial against the current count ends the search with what it proves.
-        this.trialTotal = this.low;
-        this.trialExtra = 0;
-        this.phase = 'decided';
-        return { action: 'revert' };
-      }
-      this.trialTotal = this.nextTrialTotal();
-      this.trialExtra = this.trialTotal - this.low;
-      if (this.trialExtra <= 0) {
-        // Unreachable while registerKeep/registerRevert gate continuation on
-        // the tolerance and cap; treat it as a failed trial so the search can
-        // still terminate cleanly.
-        this.phase = 'decided';
-        return { action: 'revert' };
-      }
-      this.phase = 'spawned';
-      this.settleAt = now;
-      this.windowStartAt = 0;
-      return { action: 'spawn', extra: this.trialExtra };
-    }
-    const reference = this.referenceAt();
-    if (reference > 0 && rate >= reference * SMT_PROBE_KEEP_RATIO) {
-      // Aggregate throughput scales with the number of workers as long as each
-      // one gets its own hardware thread, so the rate ratio estimates the
-      // machine's measured saturation point; convert only up to it. A trial
-      // that stays at or below capacity estimates at or above its own total
-      // and converts fully.
-      const estimatedCapacity = Math.round(this.low * (rate / reference));
-      this.pendingConvert = Math.min(this.trialExtra, Math.max(1, estimatedCapacity - this.low));
-      this.phase = 'decided';
-      return { action: 'keep', convert: this.pendingConvert };
-    }
-    this.candidateWindows += 1;
-    if (this.candidateWindows < SMT_PROBE_CANDIDATE_WINDOWS) return { action: 'none' };
-    this.phase = 'decided';
-    return { action: 'revert' };
+    this.windowStartWork = productionWork;
+    this.windowStartBench = benchWork;
+    return this.phase === 'off' ? this.closeOffWindow(now, rate) : this.closeOnWindow(now, rate, benchDelta);
   }
 
   /**
@@ -246,12 +235,9 @@ export class CpuSmtProbe {
   registerKeep(now: number): boolean {
     if (this.phase !== 'decided') throw new Error('SMT probe keep recorded outside a keep decision.');
     if (!Number.isFinite(now)) throw new Error('Invalid SMT probe keep time.');
+    // Kept waves always convert in full (see closeOnWindow), so a keep never
+    // sets the upper bound; only a reverting trial does.
     this.low += this.pendingConvert;
-    // A partially converted trial proved the whole trial total overshot
-    // capacity: it stands as the search's upper bound.
-    if (this.pendingConvert < this.trialExtra) {
-      this.high = this.high === null ? this.trialTotal : Math.min(this.high, this.trialTotal);
-    }
     return this.advanceSearch(now);
   }
 
@@ -273,14 +259,76 @@ export class CpuSmtProbe {
     return this.advanceSearch(now);
   }
 
-  /**
-   * The candidate comparison reference: the mean of the newest baseline
-   * window rates, temporally adjacent to the candidate wave so frontier decay
-   * shifts both sides of the comparison alike.
-   */
-  private referenceAt() {
-    if (this.referenceRates.length === 0) return 0;
-    return this.referenceRates.reduce((sum, rate) => sum + rate, 0) / this.referenceRates.length;
+  private closeOffWindow(now: number, rate: number): CpuSmtProbeAction {
+    this.offRates.push(rate);
+    if (this.offRates.length === 1 && rate <= 0) {
+      // An idle or stalled machine gives no trustworthy comparison; a failed
+      // trial against the current count ends the search with what it proves.
+      this.trialTotal = this.low;
+      this.trialExtra = 0;
+      this.phase = 'decided';
+      return { action: 'revert' };
+    }
+    if (!this.waveLive) {
+      if (this.offRates.length < SMT_PROBE_BASELINE_WINDOWS) return { action: 'none' };
+      this.trialTotal = this.nextTrialTotal();
+      this.trialExtra = this.trialTotal - this.low;
+      if (this.trialExtra <= 0) {
+        // Unreachable while registerKeep/registerRevert gate continuation on
+        // the tolerance and cap; treat it as a failed trial so the search can
+        // still terminate cleanly.
+        this.phase = 'decided';
+        return { action: 'revert' };
+      }
+      this.waveLive = true;
+      this.beginSettle('off', SMT_PROBE_SPAWN_WARMUP_MS, now);
+      // The caller spawns the wave paused; it contributes nothing until the
+      // resume flip, so this trial's off windows continue seamlessly.
+      return { action: 'spawn', extra: this.trialExtra };
+    }
+    if (this.onRates.length < SMT_PROBE_CANDIDATE_WINDOWS) {
+      this.beginSettle('on', SMT_PROBE_TOGGLE_WARMUP_MS, now);
+      return { action: 'resume' };
+    }
+    // Unreachable: the trial decides on the last on window's close.
+    return { action: 'none' };
+  }
+
+  private closeOnWindow(now: number, rate: number, benchDelta: number): CpuSmtProbeAction {
+    this.onRates.push(rate);
+    this.onBenchDeltas.push(benchDelta);
+    if (this.onRates.length < SMT_PROBE_CANDIDATE_WINDOWS) {
+      this.beginSettle('off', SMT_PROBE_TOGGLE_WARMUP_MS, now);
+      return { action: 'pause' };
+    }
+    if (this.onBenchDeltas.every(delta => delta <= 0)) {
+      // The wave contributed no work during either on window — a wave that
+      // stalled, starved, or never really resumed. Nothing was measured, so
+      // treat it as a failed trial rather than a slowdown of 1.0.
+      this.phase = 'decided';
+      return { action: 'revert' };
+    }
+    const bracket = this.offRates.slice(-SMT_PROBE_BASELINE_WINDOWS);
+    const reference = bracket.reduce((sum, value) => sum + value, 0) / bracket.length;
+    const ratio = reference > 0 ? (this.onRates.reduce((sum, value) => sum + value, 0) / this.onRates.length) / reference : 0;
+    this.phase = 'decided';
+    if (ratio >= SMT_PROBE_KEEP_RATIO) {
+      // Threads still absorb the wave (unshared or only SMT-shared): every
+      // trial worker becomes permanent. No capacity estimate trims the keep —
+      // SMT-region slowdowns read like the fair-sharing formula's input and
+      // would undershoot, and a trimmed keep bounds the search below capacity.
+      this.pendingConvert = this.trialExtra;
+      return { action: 'keep', convert: this.trialExtra };
+    }
+    return { action: 'revert' };
+  }
+
+  private beginSettle(target: 'off' | 'on', warmupMs: number, now: number) {
+    this.phase = 'settle';
+    this.settleTarget = target;
+    this.settleWarmupMs = warmupMs;
+    this.settleAt = now;
+    this.windowStartAt = 0;
   }
 
   private advanceSearch(now: number): boolean {
@@ -288,12 +336,13 @@ export class CpuSmtProbe {
       this.phase = 'finished';
       return true;
     }
-    this.phase = 'settle';
-    this.settleAt = now;
-    this.windowStartAt = 0;
-    this.baselineWindows = 0;
-    this.candidateWindows = 0;
-    this.referenceRates = [];
+    this.waveLive = false;
+    this.offRates = [];
+    this.onRates = [];
+    this.onBenchDeltas = [];
+    // The caller discarded (or converted) the wave and installed permanent
+    // replacements, so the next trial needs the full spawn warmup settle.
+    this.beginSettle('off', SMT_PROBE_SPAWN_WARMUP_MS, now);
     return false;
   }
 

@@ -23,7 +23,16 @@ export interface StopCpuStressRequest {
   workerIndex?: number;
 }
 
-export type StressTestWorkerRequest = StartCpuStressRequest | SupplyCpuStressWorkRequest | StopCpuStressRequest;
+// Disposable probe waves flip between measuring windows by idling their workers
+// at chunk boundaries (queue kept) instead of through spawn/terminate churn.
+export interface PauseCpuStressRequest {
+  type: 'pause-cpu-stress' | 'resume-cpu-stress';
+  requestId: number;
+  workerIndex: number;
+}
+
+export type StressTestWorkerRequest = StartCpuStressRequest | SupplyCpuStressWorkRequest
+  | StopCpuStressRequest | PauseCpuStressRequest;
 
 export interface CpuStressHeartbeatResponse {
   type: 'cpu-stress-heartbeat';

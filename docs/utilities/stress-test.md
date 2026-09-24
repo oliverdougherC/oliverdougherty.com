@@ -21,51 +21,77 @@ Exact rate comparability comes from the seed instead: every disposable wave
 sieves its own allocator seeded at the production frontier current when that
 wave spawns, so probe workers perform exactly the work the permanent workers
 are about to perform and no fixed range can fake a throughput gain. Rates must
-also be comparable across time, because a candidate wave is always measured
-seconds after its baseline: per-worker rate decays as the shared sieve frontier
-deepens — steepest in a run's first seconds — so a reference taken from the
-best baseline window (as the original probe used) is set at a shallower,
-cheaper frontier that a wave which genuinely doubled throughput cannot beat,
-and idle capacity gets falsely reverted. Every phase, including the very first
-baseline, begins with a settle warmup that discards the steepest startup
-windows, and the comparison reference is the mean of only the newest two
-baseline windows, temporally adjacent to the candidate; a wave is kept when a
-candidate window beats that reference by at least 10% and reverted when two
-consecutive candidate windows miss it.
+also be comparable across time, which seconds of separation cannot promise:
+per-worker rate drifts while a measurement runs — it decays as the shared sieve
+frontier deepens (steepest in a run's first seconds) and again as CPU boost
+clocks sag under sustained load. Measuring a reference before the wave and the
+candidate seconds later lets that drift poison the ratio in both directions,
+which is how an earlier probe landed a 32-thread machine at 20–22. So the probe
+never compares windows taken at different times: each trial flips the wave's
+bench workers between paused and running against the same permanent set, and
+the measurement windows interleave — off, on, off, on — so every on window is
+scored against off windows measured at the same moment, at the same frontier
+depth and the same clock state. Drift affects both sides of the ratio the same
+way and cancels out. Every phase begins with a settle warmup, and the decision
+ratio is the mean of the two on windows over the mean of the two off windows
+bracketing them. The ratio measures the PERMANENT workers' rate, not aggregate
+throughput, and a wave is kept while those workers retain at least 75% of
+their bracketed rate. A paused wave idles silently at its work-chunk boundary,
+keeping its queue, so on/off windows contain identical production traffic and
+only the wave's own contribution flips between them.
 
-Keeping converts only the workers the measurement can explain: while every
-worker owns a hardware thread, aggregate rate scales with the worker count, so
-the candidate's rate ratio estimates the machine's measured saturation point,
-and keep converts `proven count × ratio` workers into permanent ones. A
-doubling wave that strides past capacity is trimmed to the estimate instead of
-installed whole.
+Aggregate throughput is the wrong keep signal, and measurements on real
+hardware are why: extra logical cores join at sub-linear aggregate gain — SMT
+siblings deliver a fraction of a core, memory bandwidth bends the curve, and
+the browser's own threads steal capacity — so on a 32-thread machine the jump
+from 4 to 8 workers might add only ~70% aggregate throughput, and the step
+from 24 to 32 workers less than 12%. An aggregate keep ratio either stalls the
+search far short of the threads that exist (a ratio of 1.1 is already out of
+reach long before saturation) or keeps waves past it. Existing-worker slowdown
+has no such ceiling, and its two overload regimes read distinctly: while the
+trial's workers still fit on logical threads the worst a permanent worker
+suffers is SMT-sibling sharing, a 10–30% slowdown; once there are more workers
+than logical threads, fair time-slicing drops every permanent worker to
+roughly capacity ÷ workers of her unshared rate — under ~70%. The 75% keep
+threshold walks the search through the SMT-sharing region, where every thread
+is real capacity, and reverts where time-slicing begins.
+
+A kept wave converts in full — no capacity estimate trims it. Estimating
+capacity as `ratio × trial total` and converting only that many workers was
+the previous design's fatal flaw: SMT-region slowdowns plug the fair-sharing
+formula with values it only means for genuine oversubscription, the estimate
+undershoots, and the partial keep then stands as an upper bound capping the
+search below the machine's real capacity — a 32-thread machine stalled at 22.
+Only reverting trials set the search's upper bound.
 
 Doubling alone cannot turn an under-report into the true thread count: it
-strides over it (12 → 24 → 48 skips 32 entirely), and a stalled wave that
+strides over it (12 → 24 → 48 skips 32 entirely), and a slowed wave that
 reverted and stopped used to strand the run below saturation. The search
 therefore keeps proven bounds and converges. Waves are kept exponentially
-(doubling) while aggregate measured work keeps rising, so a heavily
-under-reporting browser reaches capacity in a few waves; a kept wave that
-only partially converted proved its trial total overshot capacity and stands
-as the upper bound. Once a wave stalls, the failed trial likewise becomes the
+(doubling) while the permanent workers stay within the keep ratio, so a heavily
+under-reporting browser reaches capacity in a few waves. Once a wave slows the
+permanent workers past it, the failed trial becomes the
 upper bound and the search refines by bisecting
-between the last grown count and the first stalled one: a kept trial raises the
+between the last grown count and the first oversubscribed one: a kept trial raises the
 proven bound, a reverted trial lowers the failed bound, and each trial re-runs
-the same baseline/candidate measurement at the current count. The search stops
+the same interleaved measurement at the current count. The search stops
 when the bracket is inside the tolerance (`max(2, 10% of the proven count)`,
 because no windowed comparison resolves capacity differences finer than the
-keep ratio), or when the 128 total-worker cap is reached. If the very first
+keep threshold), or when the 128 total-worker cap is reached. If the very first
 wave fails — the browser's own report never grew — the report is trusted and
 the search ends after that one wave, exactly as a correctly reported machine
 needs. The final worker count therefore sits at measured
 saturation (full utilization) and within tolerance of it, instead of a
 power-of-two stride away. A browser that over-reports cannot be corrected:
 permanent workers cannot be terminated without leaving holes in the production
-search coverage, so the search only ever adds capacity. A baseline whose
-reference windows show no progress gives no trustworthy comparison: it is treated as a
-failed trial and the search stops. Benchmark workers sieve the frontier-seeded
-allocator of their own wave, are marked with `data-benchmark="true"` on their
-activity bar, and feed only the search's rate measurement: reported primes,
+search coverage, so the search only ever adds capacity. An off window that
+reports no progress gives no trustworthy comparison, and a wave whose bench
+workers report no work during either on window was never really measured:
+either is treated as a failed trial and the search stops. Benchmark workers
+sieve the frontier-seeded allocator of their own wave, are marked with
+`data-benchmark="true"` on their activity bar, and feed only the search's
+wave-liveness guard (the keep decision itself measures the permanent workers,
+who stay unpaused either way): reported primes,
 checksums, and production block coverage never see benchmark work, so no keep
 or revert decision can leave a hole in the production search. A probe worker
 error or partially failed wave ends the search and leaves the permanent

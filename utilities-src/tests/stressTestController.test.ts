@@ -27,6 +27,9 @@ class MockWorker {
   readonly listeners = new Map<string, Set<EventListener>>();
   readonly postMessage = vi.fn();
   readonly terminate = vi.fn();
+  // Running heartbeat counters the test driver maintains per worker.
+  cum = 0;
+  benchWork = 0;
 
   constructor(url?: unknown) {
     if (typeof url !== 'string' && ++MockWorker.realSpawns > MockWorker.failRealAfter) {
@@ -543,27 +546,72 @@ describe('stress test controller lifecycle', () => {
     expect(canvas.width).toBe(1200);
   });
 
-  // Starts CPU stress and drives heartbeats through the baseline windows until
-  // the probe spawns its first benchmark wave; returns the permanent workers.
-  // The first beat anchors the initial settle warmup; paired beats every 800ms
-  // then open the window and close three baseline windows (0.375 work/ms
-  // each — the reference is their newest-window mean) → spawn on the third.
+  // Advances the probe by one 600ms measurement window: after `openFrames`
+  // 200ms frames (4 past the 700ms spawn/keep/revert settles, 2 past the
+  // 300ms pause/resume settles, 0 when a window directly follows another
+  // window's close) an opening beat starts the window; 200ms later all delta
+  // beats report work (absorbed, too early to close); 600ms after the opening
+  // a zero-delta beat closes it. Production workers beat on every phase,
+  // each adding `delta` work per window to its running counter; bench workers
+  // beat only when listed, mirroring the pause flip: a paused wave is silent.
+  function smtWindow(
+    permanent: readonly MockWorker[],
+    bench: readonly MockWorker[],
+    delta: number,
+    benchDelta = 0,
+    openFrames = 0
+  ) {
+    for (let frame = 0; frame < openFrames; frame += 1) advanceFrame();
+    for (const worker of permanent) worker.heartbeat(7, 2, worker.cum); // opening beat
+    advanceFrame();
+    for (const worker of bench) {
+      worker.benchWork += benchDelta;
+      worker.heartbeat(7, 0, worker.benchWork);
+    }
+    for (const worker of permanent) {
+      worker.cum += delta;
+      worker.heartbeat(7, 2, worker.cum);
+    }
+    for (let frame = 0; frame < 2; frame += 1) advanceFrame();
+    for (const worker of permanent) worker.heartbeat(7, 2, worker.cum); // closing beat
+  }
+
+  // Runs one interleaved trial against the live paused wave: an off window
+  // (clearing the spawn settle), then on/off/on flips. The keep signal is the
+  // permanent workers' rate under the wave versus the bracketing off windows
+  // (`onProdDelta < prodDelta` simulates thread oversubscription slowing them).
+  function smtTrial(
+    permanent: readonly MockWorker[],
+    bench: readonly MockWorker[],
+    benchDelta: number,
+    prodDelta = 300,
+    onProdDelta = prodDelta
+  ) {
+    smtWindow(permanent, [], prodDelta, 0, 4); // off window after the spawn settle → resume
+    smtWindow(permanent, bench, onProdDelta, benchDelta, 2); // on window after the flip settle → pause
+    smtWindow(permanent, [], prodDelta, 0, 2); // bracketing off window → resume
+    smtWindow(permanent, bench, onProdDelta, benchDelta, 2); // second on window → decision
+  }
+
+  // Starts CPU stress and drives heartbeats through the two pre-spawn off
+  // windows until the probe spawns its first (paused) benchmark wave; returns
+  // the permanent workers. Production beats 300 work units per worker per
+  // window (aggregate rate 1.0 work/ms).
   async function startCpuThroughProbeSpawn() {
     await start('cpu');
     const [first, second] = workloadWorkers();
-    first.heartbeat(7, 1, 100);
-    second.heartbeat(7, 1, 150); // anchors the settle warmup
-    for (let step = 0; step < 4; step += 1) {
-      for (let frame = 0; frame < 4; frame += 1) advanceFrame();
-      first.heartbeat(7, step + 2, 350 + step * 150);
-      second.heartbeat(7, step + 2, 350 + step * 150);
-    }
+    first.heartbeat(7, 1, 100); first.cum = 100;
+    second.heartbeat(7, 1, 150); second.cum = 150; // anchors the initial settle
+    smtWindow([first, second], [], 300, 0, 4); // off window 1 (opens after the warmup)
+    smtWindow([first, second], [], 300); // off window 2 → spawn the paused wave
     return { first, second };
   }
 
   // Regression: a wave seeded at a fixed range measures the range's cheapness,
-  // not capacity — work units at a cheaper frontier fake >10% aggregate gains
-  // on pinned CPUs. Every disposable wave must seed exactly at the production
+  // not the work the next permanent workers would really do — work units at a
+  // stale cheap frontier made the old aggregate metric fake capacity gains on
+  // pinned CPUs, and cheap seeded waves would also under-contend the trial's
+  // threads. Every disposable wave must seed exactly at the production
   // frontier current when that wave spawns.
   it('seeds every disposable probe wave at the live production frontier', async () => {
     await start('cpu');
@@ -574,13 +622,10 @@ describe('stress test controller lifecycle', () => {
     second.receive({ type: 'cpu-stress-work-request', requestId: second.request.requestId,
       workerIndex: 1, supplyId: 1, count: 4 });
     const frontier = second.postMessage.mock.calls[1][0].blocks.at(-1).high + 1;
-    first.heartbeat(7, 1, 100);
-    second.heartbeat(7, 1, 150);
-    for (let step = 0; step < 4; step += 1) {
-      for (let frame = 0; frame < 4; frame += 1) advanceFrame();
-      first.heartbeat(7, step + 2, 350 + step * 150);
-      second.heartbeat(7, step + 2, 350 + step * 150);
-    }
+    first.heartbeat(7, 1, 100); first.cum = 100;
+    second.heartbeat(7, 1, 150); second.cum = 150; // anchors the initial settle
+    smtWindow([first, second], [], 300, 0, 4); // off window 1
+    smtWindow([first, second], [], 300); // off window 2 → spawn the paused wave
     const [, , benchA, benchB] = workloadWorkers();
     expect(benchA.request.blocks[0].low).toBe(frontier); // the advanced frontier, not a constant
     expect(benchB.request.blocks[0].low).toBe(benchA.request.blocks.at(-1)!.high + 1);
@@ -601,14 +646,10 @@ describe('stress test controller lifecycle', () => {
     expect(benchA.request.blocks[0].low).toBe(second.request.blocks.at(-1)!.high + 1);
     expect(benchB.request.blocks[0].low).toBe(benchA.request.blocks.at(-1)!.high + 1);
 
-    for (let frame = 0; frame < 3; frame += 1) advanceFrame();
-    first.heartbeat(7, 4, 660); // spawn warmup: window discarded
-    advanceFrame();
-    first.heartbeat(7, 4, 665); // candidate window opens at total scan 1600
-    for (let frame = 0; frame < 3; frame += 1) advanceFrame();
-    first.heartbeat(7, 4, 700); // .058 work/ms: first miss
-    for (let frame = 0; frame < 3; frame += 1) advanceFrame();
-    first.heartbeat(7, 4, 735); // second miss → revert
+    const permanent = [first, second];
+    // The bench workers' on windows slow the permanent workers to ~67% — the
+    // trial's threads no longer fit — so the trial reverts.
+    smtTrial(permanent, [benchA, benchB], 300, 300, 200);
 
     expect(root.dataset.stressCpuSmtProbe).toBe('reverted');
     expect(benchA.terminate).toHaveBeenCalledOnce();
@@ -632,15 +673,11 @@ describe('stress test controller lifecycle', () => {
   it('converts kept probe waves into permanent workers and iterates until growth stalls', async () => {
     const { first, second } = await startCpuThroughProbeSpawn();
     const [, , benchA, benchB] = workloadWorkers();
+    const permanent = [first, second];
 
-    for (let frame = 0; frame < 3; frame += 1) advanceFrame();
-    first.heartbeat(7, 4, 660); // spawn warmup
-    advanceFrame();
-    first.heartbeat(7, 4, 665); // candidate window opens
-    for (let frame = 0; frame < 3; frame += 1) advanceFrame();
-    benchA.heartbeat(7, 0, 4000); // benchmark scan work arrives
-    for (let frame = 0; frame < 3; frame += 1) advanceFrame();
-    benchB.heartbeat(7, 0, 9000); // window beats the baseline peak → keep
+    // The wave costs the permanent workers nothing (their on-window rate is
+    // unchanged) → keep converts the entire wave.
+    smtTrial(permanent, [benchA, benchB], 300);
 
     // The disposable wave is traded for permanent workers fed by the production allocator.
     expect(benchA.terminate).toHaveBeenCalledOnce();
@@ -652,21 +689,17 @@ describe('stress test controller lifecycle', () => {
     expect(third.request.blocks[0].id).toBe(8);
     expect(third.request.blocks[0].low).toBe(second.request.blocks.at(-1)!.high + 1);
     expect(fourth.request.blocks[0].low).toBe(third.request.blocks.at(-1)!.high + 1);
-    expect(root.dataset.stressCpuSmtProbe).toBe('probing'); // another exponential wave is pending
+    expect(root.dataset.stressCpuSmtProbe).toBe('probing'); // another exponential trial is pending
     advanceFrame();
-    expect(root.dataset.stressIterations).toBe('1600'); // benchmark iterations never counted
-    expect(root.dataset.stressPrimesFound).toBe('10'); // benchmark primes never counted
+    expect(root.dataset.stressIterations).toBe('3850'); // benchmark iterations never counted
+    expect(root.dataset.stressPrimesFound).toBe('4'); // benchmark primes never counted
     expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(4);
 
-    // Wave two re-baselines at the kept count: paired four-worker beats every
-    // 800ms give windows of 1.5 work/ms; the third spawns four disposable workers.
-    for (let step = 0; step < 4; step += 1) {
-      for (let frame = 0; frame < 4; frame += 1) advanceFrame();
-      first.heartbeat(7, 5, 1700 + step * 300);
-      second.heartbeat(7, 4, 1600 + step * 300);
-      third.heartbeat(7, 1, 40 + step * 300);
-      fourth.heartbeat(7, 1, 30 + step * 300);
-    }
+    // Wave two re-baselines at the kept four workers and spawns the trial-8
+    // wave of four disposable benchmark workers.
+    const grown = [first, second, third, fourth];
+    smtWindow(grown, [], 300, 0, 4); // re-baseline off window 1
+    smtWindow(grown, [], 300); // off window 2 → spawn
     expect(workloadWorkers()).toHaveLength(10); // four disposable benchmark workers
     const waveTwo = workloadWorkers().slice(6);
     // Wave two re-seeds at the frontier the kept permanent replacements just
@@ -677,58 +710,26 @@ describe('stress test controller lifecycle', () => {
     }
     expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(8);
 
-    // The second wave's candidate windows stay at the baseline production rate
-    // while the benchmark workers report nothing → revert. Because an earlier
-    // wave was kept, the search is not over: the stalled trial becomes the
-    // failed bound and the probe re-baselines to bisect the bracket.
-    for (let step = 0; step < 2; step += 1) {
-      for (let frame = 0; frame < 2; frame += 1) advanceFrame();
-      first.heartbeat(7, 5, 1630 + step * 30);
-      second.heartbeat(7, 4, 1590 + step * 30);
-      third.heartbeat(7, 1, 970 + step * 30);
-      fourth.heartbeat(7, 1, 960 + step * 30);
-    }
-    for (let step = 0; step < 2; step += 1) {
-      for (let frame = 0; frame < 3; frame += 1) advanceFrame();
-      first.heartbeat(7, 5, 1750 + step * 60);
-      second.heartbeat(7, 4, 1710 + step * 60);
-      third.heartbeat(7, 1, 1090 + step * 60);
-      fourth.heartbeat(7, 1, 1080 + step * 60);
-    }
+    // Wave two's on windows slow the permanent workers to ~67% — those trial
+    // threads do not fit → revert. Because an earlier wave was kept,
+    // the search is not over: the slowed trial becomes the failed bound and
+    // the probe re-baselines to bisect the bracket.
+    smtTrial(grown, waveTwo, 300, 300, 200);
     for (const worker of waveTwo) expect(worker.terminate).toHaveBeenCalledOnce();
     expect(root.dataset.stressCpuSmtProbe).toBe('probing'); // refining the bracket [4, 8] now
     expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(4);
 
-    // The refinement baseline runs at the kept four workers; the next trial
-    // bisects to six, so its disposable wave has two members, not the
-    // exponential phase's four.
-    for (let step = 0; step < 4; step += 1) {
-      for (let frame = 0; frame < 4; frame += 1) advanceFrame();
-      first.heartbeat(7, 6, 1950 + step * 300);
-      second.heartbeat(7, 5, 1910 + step * 300);
-      third.heartbeat(7, 2, 1290 + step * 300);
-      fourth.heartbeat(7, 2, 1280 + step * 300);
-    }
+    // The refinement trial bisects to six, so its disposable wave has two
+    // members, not the exponential phase's four.
+    smtWindow(grown, [], 300, 0, 4); // re-baseline off window 1
+    smtWindow(grown, [], 300); // off window 2 → spawn two
     const refinementWave = workloadWorkers().slice(10);
     expect(refinementWave).toHaveLength(2);
     expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(6);
 
-    // The refinement trial stalls too; the bracket [4, 6] is inside the
-    // keep-ratio tolerance, so the search ends with the overall grown count.
-    for (let step = 0; step < 2; step += 1) {
-      for (let frame = 0; frame < 2; frame += 1) advanceFrame();
-      first.heartbeat(7, 6, 3150 + step * 30);
-      second.heartbeat(7, 5, 3110 + step * 30);
-      third.heartbeat(7, 2, 2490 + step * 30);
-      fourth.heartbeat(7, 2, 2480 + step * 30);
-    }
-    for (let step = 0; step < 2; step += 1) {
-      for (let frame = 0; frame < 3; frame += 1) advanceFrame();
-      first.heartbeat(7, 6, 3270 + step * 60);
-      second.heartbeat(7, 5, 3230 + step * 60);
-      third.heartbeat(7, 2, 2610 + step * 60);
-      fourth.heartbeat(7, 2, 2600 + step * 60);
-    }
+    // The refinement trial slows workers to ~67% too; the bracket [4, 6] is
+    // inside the tolerance, so the search ends with the overall grown count.
+    smtTrial(grown, refinementWave, 300, 300, 200);
 
     expect(root.dataset.stressCpuSmtProbe).toBe('kept'); // capacity still grew overall
     for (const worker of refinementWave) expect(worker.terminate).toHaveBeenCalledOnce();
@@ -745,19 +746,18 @@ describe('stress test controller lifecycle', () => {
   });
 
   it('keeps a wave on rising scan work even as candidate throughput decays with the frontier', async () => {
-    const { first } = await startCpuThroughProbeSpawn();
-    const [, , benchA] = workloadWorkers();
-    for (let frame = 0; frame < 3; frame += 1) advanceFrame();
-    first.heartbeat(7, 4, 660); // spawn warmup
-    advanceFrame();
-    first.heartbeat(7, 4, 665, 665); // candidate window opens on scan work only
-    for (let frame = 0; frame < 3; frame += 1) advanceFrame();
-    // The bench worker reports pure scan work and zero candidates. A
-    // candidate-based metric would see flat aggregate throughput and revert;
-    // executed sieve work more than doubled, so the wave is kept.
-    benchA.heartbeat(7, 0, 0, 5000);
-    expect(root.dataset.stressCpuSmtProbe).toBe('probing'); // keep decided; next wave pending
+    const { first, second } = await startCpuThroughProbeSpawn();
+    const [, , benchA, benchB] = workloadWorkers();
+    // The bench workers report pure scan work and zero candidates, and the
+    // production set itself slows down as the frontier advances (300 → 200
+    // units per window). A candidate-based or time-sequential metric sees
+    // attenuating windows and would revert; the interleaved comparison sees
+    // the same slowdown in on and off windows alike, measures the wave as
+    // costing the permanent workers nothing, and converts it in full.
+    smtTrial([first, second], [benchA, benchB], 900, 200);
+    expect(root.dataset.stressCpuSmtProbe).toBe('probing'); // keep decided; next trial pending
     expect(benchA.terminate).toHaveBeenCalledOnce();
+    expect(benchB.terminate).toHaveBeenCalledOnce();
     expect(workloadWorkers()).toHaveLength(6); // permanent replacements installed
     click('stressStopBtn');
     expect(root.dataset.stressState).toBe('idle');
@@ -820,13 +820,8 @@ describe('stress test controller lifecycle', () => {
     // so surviving workers resume gaplessly instead of skipping the blocks.
     MockWorker.failRealAfter = 5; // the second permanent replacement throws
     const { first, second } = await startCpuThroughProbeSpawn();
-    const [, , benchA] = workloadWorkers();
-    for (let frame = 0; frame < 3; frame += 1) advanceFrame();
-    first.heartbeat(7, 4, 660); // spawn warmup: window discarded
-    advanceFrame();
-    first.heartbeat(7, 4, 665); // candidate window opens
-    for (let frame = 0; frame < 3; frame += 1) advanceFrame();
-    benchA.heartbeat(7, 0, 4000); // growth beats the peak → keep → replacements spawn
+    const [, , benchA, benchB] = workloadWorkers();
+    smtTrial([first, second], [benchA, benchB], 300); // 2× ratio → keep → replacements spawn
 
     expect(root.dataset.stressState).toBe('running');
     expect(root.dataset.stressCpuSmtProbe).toBe('reverted'); // probe ends with no extra capacity

@@ -21,6 +21,7 @@ let lastBlockHigh = 0;
 let supplyId = 0;
 let supplyPending = false;
 let exhausted = false;
+let paused = false;
 
 function post(message: StressTestWorkerResponse) { workerScope.postMessage(message); }
 
@@ -37,7 +38,7 @@ function fail(error: unknown) {
 }
 
 function schedule() {
-  if (!active || taskPending || blocks.length === 0) return;
+  if (!active || paused || taskPending || blocks.length === 0) return;
   taskPending = true;
   chunkChannel.port2.postMessage(generation);
 }
@@ -65,7 +66,7 @@ function acceptBlocks(incoming: PrimeBlock[]) {
 }
 
 function runChunk() {
-  if (!active) return;
+  if (!active || paused) return; // a paused worker idles silent at a chunk boundary
   try {
     const deadline = performance.now() + 8;
     do {
@@ -122,6 +123,7 @@ workerScope.onmessage = (event: MessageEvent<StressTestWorkerRequest>) => {
     supplyId = 0;
     supplyPending = false;
     exhausted = request.exhausted;
+    paused = false;
     sieve = new SegmentedPrimeSieve();
     try {
       acceptBlocks(request.blocks);
@@ -140,6 +142,17 @@ workerScope.onmessage = (event: MessageEvent<StressTestWorkerRequest>) => {
     blocks = [];
     taskPending = false;
     post({ type: 'cpu-stress-stopped', requestId: activeRequestId, workerIndex: activeWorkerIndex });
+    return;
+  }
+  if (request.type === 'pause-cpu-stress') {
+    if (!active || request.workerIndex !== activeWorkerIndex) return;
+    paused = true;
+    return;
+  }
+  if (request.type === 'resume-cpu-stress') {
+    if (!active || request.workerIndex !== activeWorkerIndex) return;
+    paused = false;
+    schedule();
     return;
   }
   if (request.type === 'supply-cpu-stress-work') {
