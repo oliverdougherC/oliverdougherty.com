@@ -38,7 +38,13 @@ async function main() {
       assert((await response.text()).includes('not-found-number'), `${gone}: must serve the custom 404 page`);
     }
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: 'reduce' });
-    await context.addInitScript(() => Object.defineProperty(navigator, 'hardwareConcurrency', { value: 2, configurable: true }));
+    // Pinned worker count: this check exercises the packaged assets, not the host's
+    // core count, and the pool size must be the same on a 2-core runner and a 32-core
+    // developer machine.
+    await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'hardwareConcurrency', { value: 2, configurable: true });
+      window.__OD_STRESS_TEST_WORKERS__ = 2;
+    });
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -131,8 +137,13 @@ async function main() {
     await failedAudio.click('#audioFourierGenerateBtn');
     await failedAudio.waitForSelector('#audioFourierPlayBtn:enabled', { timeout: 60000 });
     await failedAudio.close();
+    // A worker script that will not load must produce a visible failure and a working
+    // restart, at a pool size this page controls.
     const failedCpu = await browser.newPage();
-    await failedCpu.addInitScript(() => Object.defineProperty(navigator, 'hardwareConcurrency', { value: 2, configurable: true }));
+    await failedCpu.addInitScript(() => {
+      Object.defineProperty(navigator, 'hardwareConcurrency', { value: 2, configurable: true });
+      window.__OD_STRESS_TEST_WORKERS__ = 2;
+    });
     await failedCpu.route('**/stressTest.worker-*.js', request => request.fulfill({ status: 404, body: 'Removed worker' }));
     await failedCpu.goto(`${base}/pages/utilities/#stress-test`, { waitUntil: 'networkidle' });
     await failedCpu.click('[data-stress-mode-option="cpu"]');

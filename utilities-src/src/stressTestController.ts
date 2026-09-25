@@ -1,15 +1,14 @@
 import {
-  CpuPoolGrowth,
-  CPU_POOL_GROWTH_WINDOW_MS,
+  CPU_POOL_MAX_REPLACEMENTS,
+  CPU_POOL_REPORT_TIMEOUT_MS,
+  CPU_POOL_SPAWN_BATCH,
   formatStressElapsed,
   isStressMode,
-  nextCpuWorkerCount,
   planCpuPool,
+  sanitizeLogicalProcessorReport,
   shouldStressCpu,
   shouldStressGpu,
   transitionStressState,
-  type CpuPoolGrowthAction,
-  type CpuPoolSignal,
   type CpuPoolPlan,
   type StressGpuBackend,
   type StressMode,
@@ -22,20 +21,18 @@ import { primeWorkerRange } from './stressTestPrimeRanges';
 interface StressWorkerRecord {
   worker: Worker;
   stopped: boolean;
+  /** Lane this worker sieves: blocks workerIndex + k·poolSize. Survives replacement. */
+  index: number;
+  /** Pool size this worker was assigned, so a replacement sieves the same lane. */
+  poolSize: number;
   /** Cumulative odd candidates this worker has sieved. */
   candidates: number;
   primesFound: number;
   activity: number;
-  index: number;
-  /** Prefetch sequence guard for this worker's next-band requests. */
-  supplyId: number;
   /** Worker's own search cursor, for activity diagnostics. */
   rangeLow: number;
-  busyMs: number;
-  idleMs: number;
-  bandWaitMs: number;
-  slices: number;
-  slowSlices: number;
+  /** Blocks this worker has taken from its lane: a stalled lane is one number. */
+  blocksTaken: number;
   activityElement: HTMLElement;
   messageListener: (event: MessageEvent<StressTestWorkerResponse>) => void;
   errorListener: (event: ErrorEvent) => void;
@@ -43,20 +40,8 @@ interface StressWorkerRecord {
 
 type StressMetricId = 'elapsed' | 'workers' | 'gpu' | 'cadence' | 'stalls' | 'iterations';
 
-/**
- * Pool verdict published as `data-stress-cpu-pool`. `growing` means the pool is
- * still gaining workers, `settled` that measured work-rate stopped improving,
- * `capped` that the runaway guard bound it, and `pinned` that a diagnostic
- * request fixed the size. None of these claims a thread count.
- */
-type StressPoolVerdict = 'growing' | 'settled' | 'capped' | 'pinned';
-
 const DEFAULT_MODE: StressMode = 'both';
 const METRIC_INTERVAL_MS = 120;
-// Workers are spawned in small bursts. A 32-worker burst is one long task, and
-// in combined mode that task would delay GPU submission and pointer input; a
-// short burst keeps the control panel responsive while the pool grows.
-const CPU_POOL_SPAWN_BATCH = 8;
 // CPU candidate throughput is compared across machines, so the reported rate is
 // a true moving average over this fixed window instead of a single-tick delta.
 const CANDIDATE_RATE_WINDOW_MS = 5000;
@@ -66,6 +51,22 @@ const CANDIDATE_RATE_MIN_SPAN_MS = 1000;
 // Count gaps over an explicit duration, independent of display refresh rate.
 // GPU callbacks report batch completions; CPU visuals report animation callbacks.
 const RENDER_STALL_GAP_MS = 34;
+
+/**
+ * First integer of the block a lane sieves first — serial `index`, because a lane's
+ * k-th block is `index + k·poolSize`. The main thread never allocates work; this only
+ * labels an activity bar before that worker's first progress message arrives.
+ */
+function workerStartLow(index: number) {
+  try {
+    return primeWorkerRange(index).low;
+  } catch (_error) {
+    // Past the end of the safe-integer number line, which the worker itself reports
+    // as a failure; a bar label is not where that gets said.
+    return 0;
+  }
+}
+
 const STRESS_METRIC_HIDE_ORDER: Record<StressMode, StressMetricId[]> = {
   // Hide least relevant metrics first when the control panel is height-limited.
   cpu: ['stalls', 'gpu', 'cadence', 'iterations', 'elapsed', 'workers'],
@@ -103,19 +104,18 @@ function supportsModuleWorkers() {
 }
 
 /**
- * Diagnostic hooks. Neither is part of the public UI contract, and the normal
- * user path never sets either one.
- *
- * `__OD_STRESS_TEST_WORKERS__` requests an exact pool size — including a size
- * ABOVE the browser's report — and pins it, which is how the browser checks and
- * the load harness get a known pool. `__OD_STRESS_TEST_MAX_WORKERS__` is a
- * ceiling on the automatic pool, not a request: it bounds growth but never asks
- * for workers. Both exist so a wrong `hardwareConcurrency` can be diagnosed
- * without touching the automatic policy that real users get.
+ * Diagnostic hook: `window.__OD_STRESS_TEST_WORKERS__ = N` asks for exactly N
+ * workload workers. It is not part of the public UI contract, the normal user path
+ * never sets it, and it does not make the page grow: it replaces the pool size for
+ * the run, nothing else. It may exceed the browser's own report, which is how a
+ * specific pool size is tested on a machine that reports something different, and an
+ * unusable value is ignored rather than honoured, because a hook that spawns an
+ * absurd number of workers diagnoses nothing.
  */
-function readWorkerHook(name: '__OD_STRESS_TEST_WORKERS__' | '__OD_STRESS_TEST_MAX_WORKERS__') {
-  const globalValue = (window as Window & Partial<Record<typeof name, number>>)[name];
-  return Number.isFinite(globalValue) ? Number(globalValue) : null;
+function readExactWorkersHook() {
+  const globalValue = (window as Window & Partial<Record<'__OD_STRESS_TEST_WORKERS__', number>>)
+    .__OD_STRESS_TEST_WORKERS__;
+  return sanitizeLogicalProcessorReport(Number.isFinite(globalValue) ? Number(globalValue) : null);
 }
 
 export class StressTestController {
@@ -141,15 +141,24 @@ export class StressTestController {
   private state: StressState = 'idle';
   private requestId = 0;
   private workers: StressWorkerRecord[] = [];
-  // Serial of the next prime band to hand out. Bands tile the number line, so a
-  // monotonically increasing serial is the whole allocation scheme.
-  private primeBandSerial = 0;
   private poolPlan: CpuPoolPlan | null = null;
-  private poolGrowth: CpuPoolGrowth | null = null;
-  private poolGrowthTimer = 0;
+  // Lane index for the next worker of the current run. Lanes are 0…poolSize-1 and a
+  // replacement reuses the lane of the worker it replaces, so this counter only ever
+  // fills the requested pool and can never widen it.
+  private poolLanesFilled = 0;
   private poolSpawnTimer = 0;
-  // Honest record of anything that stopped the pool reaching its target size.
+  private replacementsLeft = 0;
+  // Honest record of anything that kept the live pool below its requested size.
   private poolLimitation = '';
+  // Largest worker-scope processor report seen this run, and the one outstanding
+  // request for it. Both exist so the pool can be sized from the count the workers
+  // themselves report; see planCpuPool.
+  private workerReport = 0;
+  private reportWait: { record: StressWorkerRecord; finish: (value: number) => void } | null = null;
+  private reportTimer = 0;
+  /** One-shot worker-scope report probe, alive only while the pool is being sized. */
+  private reportProbe: Worker | null = null;
+  private reportProbeUrl = '';
   private gpu: StressGpuStressHandle | null = null;
   private gpuAbort: AbortController | null = null;
   // requestId of the start generation whose GPU backend owns the canvas backing
@@ -171,18 +180,6 @@ export class StressTestController {
   private primesFound = 0;
   private candidatesPerSecond = 0;
   private candidateRateSamples: Array<{ at: number; candidates: number }> = [];
-  // Rolling window over the pool's own scheduling counters — sieving time,
-  // waiting-to-run time, waiting-for-a-band time, and slice overruns. This is the
-  // reading the growth rule decides on, and it is measured whether or not the pool
-  // is still growing: a pinned diagnostic pool publishes it too, so the thresholds
-  // can be checked against a real machine instead of asserted.
-  private signalWindowAt = 0;
-  private signalWindowBusy = 0;
-  private signalWindowIdle = 0;
-  private signalWindowBand = 0;
-  private signalWindowSlices = 0;
-  private signalWindowSlow = 0;
-  private poolSignal: CpuPoolSignal = { duty: 0, slowShare: 0, slices: 0 };
   private pointerX = 0;
   private pointerY = 0;
   private readonly primeLabel: HTMLElement;
@@ -346,8 +343,6 @@ export class StressTestController {
     this.primesFound = 0;
     this.candidatesPerSecond = 0;
     this.candidateRateSamples = [];
-    this.resetPoolSignalWindow();
-    this.poolSignal = { duty: 0, slowShare: 0, slices: 0 };
     this.frameCount = 0;
     this.callbackStalls = 0;
     this.lastRenderRate = 0;
@@ -367,13 +362,18 @@ export class StressTestController {
     try {
       if (shouldStressCpu(this.mode)) {
         try {
-          this.startCpuStress(requestId);
+          await this.startCpuStress(requestId);
         } catch (error) {
           this.stopCpuStress();
           cpuStartError = error instanceof Error ? error.message : 'CPU stress failed to start.';
           if (this.mode === 'cpu') {
             throw error;
           }
+        }
+        // Sizing the pool waits on one worker, so Stop can land inside that wait.
+        // A superseded start installs nothing: stopCpuStress already ended the run.
+        if (requestId !== this.requestId) {
+          return;
         }
       }
 
@@ -470,8 +470,6 @@ export class StressTestController {
     this.stopMetricLoop();
     this.candidatesPerSecond = 0;
     this.candidateRateSamples = [];
-    this.resetPoolSignalWindow();
-    this.poolSignal = { duty: 0, slowShare: 0, slices: 0 };
     this.frameCount = 0;
     this.callbackStalls = 0;
     this.lastRenderRate = 0;
@@ -484,210 +482,270 @@ export class StressTestController {
   }
 
   /**
-   * Puts the whole CPU workload on workers, then lets the pool grow.
+   * Creates the CPU workload: one exact pool of continuously computing workers.
    *
-   * `hardwareConcurrency` is a logical-processor hint that browsers round down,
-   * cap, or leave stale, so the pool starts at the WHOLE hint — nothing is
-   * halved and no core is reserved, the main thread stays light instead — and
-   * CpuPoolGrowth then adds workers while the pool's own measured work-rate
-   * keeps improving. Nothing here measures CPU utilisation (a browser cannot) or
-   * reconstructs processor topology; the only question the policy answers is
-   * "did more workers produce more work?", and the pool never shrinks.
+   * The sequence is: read the browser's logical-processor report, create ONE worker,
+   * read the same report from inside it, size the pool, then create exactly that many
+   * workers and never revisit the number for the rest of the run. Nothing here grows,
+   * shrinks, or resizes in response to how much work the pool is doing — the only
+   * input to the size is the count the browser itself states (see planCpuPool), and
+   * the only thing that can change the live count is Stop or a bounded replacement of
+   * a failed worker, which restores the requested size rather than exceeding it.
+   *
+   * The first worker is not a disposable probe: it is lane 0 of the pool it sized.
    */
-  private startCpuStress(requestId: number) {
+  private async startCpuStress(requestId: number) {
     if (!supportsModuleWorkers()) {
       throw new Error('This browser does not support module workers required for CPU stress.');
     }
 
-    const plan = planCpuPool({
-      hardwareConcurrency: navigator.hardwareConcurrency,
-      exactWorkers: readWorkerHook('__OD_STRESS_TEST_WORKERS__'),
-      maxWorkers: readWorkerHook('__OD_STRESS_TEST_MAX_WORKERS__')
-    });
-    this.poolPlan = plan;
-    this.primeBandSerial = 0;
+    const pageReport = sanitizeLogicalProcessorReport(navigator.hardwareConcurrency);
+    const exactWorkers = readExactWorkersHook();
     this.poolLimitation = '';
-    this.root.dataset.stressCpuAlgorithm = 'segmented-sieve';
-    this.root.dataset.stressCpuReported = String(plan.reported);
-    delete this.root.dataset.stressCpuPoolLimitation;
-    this.root.dataset.stressCpuPoolWindows = '[]';
-    this.resetPoolSignalWindow();
-    this.poolSignal = { duty: 0, slowShare: 0, slices: 0 };
+    this.replacementsLeft = CPU_POOL_MAX_REPLACEMENTS;
+    this.workerReport = 0;
+    this.poolLanesFilled = 0;
+    // The previous run's plan is not this run's request: until the new plan exists, a
+    // failure has no requested count to restore, and must not borrow the old one.
+    this.poolPlan = null;
     this.workerActivity.replaceChildren();
-    this.spawnWorkerWave(requestId, plan.initial, 0);
 
-    if (plan.pinned) {
-      // An exact diagnostic request is what it says: this many workers, no
-      // growth, so a test can measure a known pool on any machine.
-      this.poolGrowth = null;
-      this.root.dataset.stressCpuPool = 'pinned';
-      return;
+    // Created before the pool is sized so the count can be read in the scope the
+    // workload runs in. A construction failure propagates: a run with no workers is
+    // an error, not an idle page.
+    const first = this.createWorkerRecord(requestId, 0);
+    this.poolLanesFilled = 1;
+    this.workers.push(first);
+    let workerReport = 0;
+    if (exactWorkers === 0) {
+      // An exact diagnostic request already is the pool size, so it does not wait.
+      workerReport = await this.readWorkerScopeReport(first, requestId);
+      if (requestId !== this.requestId) return;
+      // The first worker can fail while this is awaited; the failure path has already
+      // removed it (and possibly ended the run), so do not plan a pool around a record
+      // that is gone.
+      if (first.stopped) return;
     }
-    if (nextCpuWorkerCount(plan.initial, plan.ceiling) <= plan.initial) {
-      this.finishPoolGrowth('capped');
-      return;
-    }
-    // The report is the floor the duty-cycle reading is only trusted at: below it
-    // the pool grows on the browser's own claim rather than stopping on a signal it
-    // cannot attribute, which is what keeps an under-reporting browser growing.
-    this.poolGrowth = new CpuPoolGrowth(plan.ceiling, plan.reported);
-    this.root.dataset.stressCpuPool = 'growing';
-    this.schedulePoolGrowthTick(requestId);
-  }
 
-  private schedulePoolGrowthTick(requestId: number) {
-    this.poolGrowthTimer = window.setTimeout(() => {
-      this.poolGrowthTimer = 0;
-      this.poolGrowthTick(requestId);
-    }, CPU_POOL_GROWTH_WINDOW_MS);
-  }
+    const plan = planCpuPool({ pageReport, workerReport, exactWorkers });
+    this.poolPlan = plan;
+    this.root.dataset.stressCpuAlgorithm = 'segmented-sieve';
+    this.root.dataset.stressCpuReportPage = String(plan.pageReport);
+    this.root.dataset.stressCpuReportWorker = String(plan.workerReport);
+    this.root.dataset.stressCpuReport = String(plan.reported);
+    this.root.dataset.stressCpuPoolSize = String(plan.workers);
+    this.root.dataset.stressCpuPoolSource = plan.source;
+    delete this.root.dataset.stressCpuPoolLimitation;
 
-  /**
-   * One growth window. The signal is production work the pool already did, so
-   * unlike a benchmark phase this never interrupts load; the timer only decides
-   * whether to add workers, it never paces the compute.
-   */
-  private poolGrowthTick(requestId: number) {
-    const growth = this.poolGrowth;
-    if (!growth || requestId !== this.requestId) return;
-    if (this.state !== 'running' && this.state !== 'starting') return;
-    const action = growth.observe(readNow(), this.totalCandidates, this.workers.length, this.poolSignal);
-    // Publish the windows the decision was made from. A worker count on its own
-    // cannot be audited — this is the only way to tell a measured plateau from a
-    // measurement that never saw the work the pool was doing.
-    this.root.dataset.stressCpuPoolWindows = JSON.stringify(growth.windows);
-    if (action === 'grow') {
-      const ceiling = this.poolPlan?.ceiling ?? this.workers.length;
-      this.spawnGrowthWave(requestId, nextCpuWorkerCount(this.workers.length, ceiling) - this.workers.length);
-      this.schedulePoolGrowthTick(requestId);
-      return;
-    }
-    if (action === 'settled' || action === 'capped') {
-      this.finishPoolGrowth(action);
-      return;
-    }
-    this.schedulePoolGrowthTick(requestId);
+    this.startWorkerRecord(first, plan.workers, requestId);
+    this.spawnPoolLanes(requestId, plan.workers - 1, plan.workers);
   }
 
   /**
-   * Adds one growth step in short spawn bursts. Constructing a worker is a main
-   * thread task, and in combined mode one 24-worker burst would be a long task
-   * that delays GPU submission and pointer input; bursts of a few workers keep
-   * the control panel responsive while the pool grows.
+   * Reads `navigator.hardwareConcurrency` from inside a dedicated worker, once, before
+   * the pool is sized.
+   *
+   * Two workers are asked at the same time and the first answer wins: the pool's own
+   * lane-0 worker, and a one-message probe built from an inline blob that does nothing
+   * else. The probe exists because this measurement has to be fast as well as correct.
+   * On the browser this sizing was written for, the workload worker took longer to load
+   * its module graph than the bounded wait allows, so the page planned from the
+   * window-scope number and built the reduced pool the user reported — while that same
+   * worker's own report of the true count arrived a moment too late to be used. A probe
+   * with no imports answers in milliseconds, and it is not part of the workload: it
+   * computes nothing, it is terminated here, and it is never counted as a pool worker.
    */
-  private spawnGrowthWave(requestId: number, remaining: number) {
+  private async readWorkerScopeReport(record: StressWorkerRecord, requestId: number): Promise<number> {
+    this.createReportProbe();
+    try {
+      return await this.readWorkerReport(record, requestId);
+    } finally {
+      this.disposeReportProbe();
+    }
+  }
+
+  /**
+   * The report probe: a dedicated module worker whose entire script posts the count its
+   * own scope reports. Both scopes are `DedicatedWorkerGlobalScope`, which is the point
+   * — it is the same API the workload worker reads, asked in the same kind of scope. A
+   * browser that blocks blob workers leaves the probe silent, and the page then sizes
+   * from the workload worker's answer or from the window scope, as it would anyway.
+   */
+  private createReportProbe() {
+    let url = '';
+    try {
+      url = URL.createObjectURL(new Blob([
+        'postMessage(typeof navigator !== "undefined"'
+        + ' && typeof navigator.hardwareConcurrency === "number"'
+        + ' ? navigator.hardwareConcurrency : null);'
+      ], { type: 'text/javascript' }));
+      const probe = new Worker(url, { type: 'module' });
+      probe.addEventListener('message', (event: MessageEvent<number | null>) => {
+        this.noteWorkerReport(event.data);
+      });
+      // A blocked or broken probe must not read as a workload failure: the wait simply
+      // runs out and the window-scope report is used.
+      probe.addEventListener('error', () => { this.noteWorkerReport(null); });
+      this.reportProbe = probe;
+      this.reportProbeUrl = url;
+    } catch (_error) {
+      if (url) URL.revokeObjectURL(url);
+    }
+  }
+
+  private disposeReportProbe() {
+    const probe = this.reportProbe;
+    this.reportProbe = null;
+    if (this.reportProbeUrl) {
+      URL.revokeObjectURL(this.reportProbeUrl);
+      this.reportProbeUrl = '';
+    }
+    probe?.terminate();
+  }
+
+  /**
+   * Waits (bounded) for one worker to report its own scope's processor count. The
+   * wait is on a worker that has nothing else to do yet, so it costs one message
+   * round trip; if the worker never answers, the timeout hands back whatever report
+   * arrived from another worker, and the planner uses the window-scope report if
+   * there is none. Start cannot hang on it, and Stop cancels it outright.
+   */
+  private readWorkerReport(record: StressWorkerRecord, requestId: number): Promise<number> {
+    return new Promise(resolve => {
+      // The probe can be quicker than this call: a report already in hand is used at
+      // once rather than waited out.
+      if (this.workerReport > 0) {
+        resolve(this.workerReport);
+        return;
+      }
+      let settled = false;
+      const finish = (value: number) => {
+        if (settled) return;
+        settled = true;
+        if (this.reportWait?.record === record) this.reportWait = null;
+        if (this.reportTimer !== 0) {
+          window.clearTimeout(this.reportTimer);
+          this.reportTimer = 0;
+        }
+        if (requestId === this.requestId || value === 0) resolve(value);
+        else resolve(0);
+      };
+      this.reportWait = { record, finish };
+      this.reportTimer = window.setTimeout(() => finish(this.workerReport), CPU_POOL_REPORT_TIMEOUT_MS);
+    });
+  }
+
+  /** Records a worker-scope report. The largest one seen wins; the plan never revises. */
+  private noteWorkerReport(report: number | null) {
+    const count = sanitizeLogicalProcessorReport(report);
+    if (count === 0) return;
+    const running = this.state === 'running' || this.state === 'starting';
+    if (count > this.workerReport) {
+      this.workerReport = count;
+      // Auditable even after the plan was made: an answer that arrived too late to be
+      // used is exactly what a diagnosis needs, so it is still published.
+      if (running) this.root.dataset.stressCpuReportWorker = String(count);
+    }
+    const waiting = this.reportWait;
+    if (waiting) {
+      this.reportWait = null;
+      waiting.finish(count);
+    }
+  }
+
+  /**
+   * Creates the remaining lanes of the pool in short bursts. Constructing a worker is
+   * main-thread work, and in combined mode one 32-worker burst would be a long task
+   * that delays GPU submission and pointer input, so the pool is built a few workers
+   * at a time. This only spaces creation out: the pool ends at exactly the requested
+   * size, and each burst starts the workers it created immediately.
+   */
+  private spawnPoolLanes(requestId: number, remaining: number, poolSize: number) {
     if (remaining <= 0 || requestId !== this.requestId) return;
     const batch = Math.min(CPU_POOL_SPAWN_BATCH, remaining);
     try {
-      this.spawnWorkerWave(requestId, batch, this.workers.length);
+      for (let offset = 0; offset < batch; offset += 1) {
+        const index = this.poolLanesFilled;
+        const record = this.createWorkerRecord(requestId, index);
+        this.poolLanesFilled += 1;
+        this.workers.push(record);
+        this.startWorkerRecord(record, poolSize, requestId);
+      }
     } catch (error) {
-      // Bounded recovery: the run keeps the workers that did start, growth ends,
-      // and the shortfall is published rather than passed off as the requested
-      // workload. No restart loop.
+      // Worker creation can genuinely fail (worker quota, memory pressure). The
+      // workers that did get created keep computing, the remaining lanes are not
+      // retried in a loop, and the shortfall is published: a pool smaller than the
+      // one that was asked for is never presented as the full workload.
       this.poolLimitation = error instanceof Error ? error.message : 'A CPU worker failed to start.';
-      console.error('[StressTest] CPU pool growth ended after a worker failed to start', error);
-      this.finishPoolGrowth('settled');
+      console.error('[StressTest] CPU pool is smaller than requested after a worker failed to start', error);
+      this.root.dataset.stressCpuPoolLimitation = this.poolLimitation;
+      this.syncMetrics(true);
       return;
     }
     const left = remaining - batch;
     if (left > 0) {
       this.poolSpawnTimer = window.setTimeout(() => {
         this.poolSpawnTimer = 0;
-        this.spawnGrowthWave(requestId, left);
+        this.spawnPoolLanes(requestId, left, poolSize);
       }, 0);
+      return;
     }
-  }
-
-  private finishPoolGrowth(verdict: Exclude<StressPoolVerdict, 'growing'>) {
-    this.poolGrowth = null;
-    if (this.poolGrowthTimer !== 0) {
-      window.clearTimeout(this.poolGrowthTimer);
-      this.poolGrowthTimer = 0;
-    }
-    if (this.poolSpawnTimer !== 0) {
-      window.clearTimeout(this.poolSpawnTimer);
-      this.poolSpawnTimer = 0;
-    }
-    this.root.dataset.stressCpuPool = verdict;
     if (this.poolLimitation) {
       this.root.dataset.stressCpuPoolLimitation = this.poolLimitation;
     }
   }
 
   /**
-   * Spawns a wave of continuously computing workers, each seeded with the band of
-   * the number line it owns. Seeding costs one message per worker and then never
-   * recurses into the main thread again until that worker prefetches its next
-   * band, so a growing pool has no work queue to feed and a failed worker cannot
-   * strand allocated search blocks that would have to be recovered.
-   *
-   * The worker is constructed before its activity bar so a constructor failure
-   * cannot orphan a bar, and a wave that fails partway is unwound completely
-   * before the error is rethrown — the initial wave fails the Start, while a
-   * growth wave keeps the run that is already going and reports the shortfall.
+   * One worker plus the activity bar that represents it, in that order, so a
+   * constructor failure cannot leave a bar without a worker behind it. Nothing is
+   * started here: a worker only computes once it has been told the final pool size.
    */
-  private spawnWorkerWave(requestId: number, count: number, firstIndex: number) {
-    const spawned: StressWorkerRecord[] = [];
-    try {
-      for (let offset = 0; offset < count; offset += 1) {
-        const index = firstIndex + offset;
-        const worker = new Worker(new URL('./stressTest.worker.ts', import.meta.url), { type: 'module' });
-        const bar = document.createElement('span');
-        bar.setAttribute('aria-label', `Worker ${index + 1}: starting`);
-        this.workerActivity.append(bar);
-        this.workerActivity.style.setProperty('--stress-workers', String(this.workerActivity.children.length));
-        const messageListener = (event: MessageEvent<StressTestWorkerResponse>) => {
-          this.handleWorkerMessage(record, event.data);
-        };
-        const errorListener = (event: ErrorEvent) => {
-          if (requestId !== this.requestId || record.stopped) return;
-          console.error('[StressTest] CPU worker error', event.message, event.filename, event.lineno);
-          const details = [event.message, event.filename, event.lineno ? `line ${event.lineno}` : ''].filter(Boolean).join(' ');
-          this.handleCpuStressFailure(details ? `CPU stress worker failed: ${details}` : 'A CPU stress worker failed.');
-          window.dispatchEvent(new Event('utility-load-error'));
-        };
-        const record: StressWorkerRecord = {
-          worker,
-          stopped: false,
-          candidates: 0,
-          busyMs: 0,
-          idleMs: 0,
-          bandWaitMs: 0,
-          slices: 0,
-          slowSlices: 0,
-          primesFound: 0,
-          activity: 0,
-          index,
-          supplyId: 0,
-          rangeLow: 0,
-          activityElement: bar,
-          messageListener,
-          errorListener
-        };
-        worker.addEventListener('message', messageListener);
-        worker.addEventListener('error', errorListener);
-        this.workers.push(record);
-        spawned.push(record);
-        const range = primeWorkerRange(this.primeBandSerial);
-        this.primeBandSerial += 1;
-        record.rangeLow = range.low;
-        bar.dataset.rangeLow = String(range.low);
-        const request: StressTestWorkerRequest = {
-          type: 'start-cpu-stress',
-          requestId,
-          workerIndex: index,
-          low: range.low,
-          limit: range.limit
-        };
-        worker.postMessage(request);
-      }
-    } catch (error) {
-      for (let index = spawned.length - 1; index >= 0; index -= 1) this.removeWorkerRecord(spawned[index]);
-      this.workers.length -= spawned.length;
-      this.workerActivity.style.setProperty('--stress-workers', String(this.workerActivity.children.length));
-      throw error;
-    }
-    return spawned.length;
+  private createWorkerRecord(requestId: number, index: number): StressWorkerRecord {
+    const worker = new Worker(new URL('./stressTest.worker.ts', import.meta.url), { type: 'module' });
+    const bar = document.createElement('span');
+    bar.setAttribute('aria-label', `Worker ${index + 1}: starting`);
+    bar.dataset.rangeLow = String(workerStartLow(index));
+    this.workerActivity.append(bar);
+    this.workerActivity.style.setProperty('--stress-workers', String(this.workerActivity.children.length));
+    const messageListener = (event: MessageEvent<StressTestWorkerResponse>) => {
+      this.handleWorkerMessage(record, event.data);
+    };
+    const errorListener = (event: ErrorEvent) => {
+      if (requestId !== this.requestId || record.stopped) return;
+      console.error('[StressTest] CPU worker error', event.message, event.filename, event.lineno);
+      const details = [event.message, event.filename, event.lineno ? `line ${event.lineno}` : ''].filter(Boolean).join(' ');
+      window.dispatchEvent(new Event('utility-load-error'));
+      this.handleWorkerFailure(record, details ? `CPU stress worker failed: ${details}` : 'A CPU stress worker failed.');
+    };
+    const record: StressWorkerRecord = {
+      worker,
+      stopped: false,
+      index,
+      poolSize: 0,
+      candidates: 0,
+      primesFound: 0,
+      activity: 0,
+      rangeLow: workerStartLow(index),
+      blocksTaken: 0,
+      activityElement: bar,
+      messageListener,
+      errorListener
+    };
+    worker.addEventListener('message', messageListener);
+    worker.addEventListener('error', errorListener);
+    return record;
+  }
+
+  /** The whole work assignment: which lane this worker sieves, and how wide the lane grid is. */
+  private startWorkerRecord(record: StressWorkerRecord, poolSize: number, requestId: number) {
+    const request: StressTestWorkerRequest = {
+      type: 'start-cpu-stress',
+      requestId,
+      workerIndex: record.index,
+      poolSize
+    };
+    record.poolSize = poolSize;
+    record.worker.postMessage(request);
   }
 
   private removeWorkerRecord(record: StressWorkerRecord) {
@@ -696,78 +754,73 @@ export class StressTestController {
     record.worker.terminate();
     record.stopped = true;
     record.activityElement.remove();
+    const position = this.workers.indexOf(record);
+    if (position >= 0) this.workers.splice(position, 1);
+    this.workerActivity.style.setProperty('--stress-workers', String(this.workerActivity.children.length));
   }
 
   private stopCpuStress() {
-    this.poolGrowth = null;
     this.poolPlan = null;
     this.poolLimitation = '';
-    if (this.poolGrowthTimer !== 0) {
-      window.clearTimeout(this.poolGrowthTimer);
-      this.poolGrowthTimer = 0;
+    this.replacementsLeft = 0;
+    this.poolLanesFilled = 0;
+    this.workerReport = 0;
+    // Startup work is cancelled, not left to land later: a pending report wait would
+    // otherwise resolve into a run that has already been replaced or ended.
+    this.disposeReportProbe();
+    if (this.reportWait) {
+      const waiting = this.reportWait;
+      this.reportWait = null;
+      waiting.finish(0);
+    }
+    if (this.reportTimer !== 0) {
+      window.clearTimeout(this.reportTimer);
+      this.reportTimer = 0;
     }
     if (this.poolSpawnTimer !== 0) {
       window.clearTimeout(this.poolSpawnTimer);
       this.poolSpawnTimer = 0;
     }
-    delete this.root.dataset.stressCpuPool;
+    delete this.root.dataset.stressCpuReportPage;
+    delete this.root.dataset.stressCpuReportWorker;
+    delete this.root.dataset.stressCpuReport;
+    delete this.root.dataset.stressCpuPoolSize;
+    delete this.root.dataset.stressCpuPoolSource;
     delete this.root.dataset.stressCpuPoolLimitation;
-    delete this.root.dataset.stressCpuPoolWindows;
+    delete this.root.dataset.stressCpuBlocks;
     // Termination is the stop signal. A busy worker never has to acknowledge a
-    // stop message before it can be torn down, which is what makes Stop work
-    // while every worker is mid-chunk.
-    for (const record of this.workers) this.removeWorkerRecord(record);
+    // stop message before it can be torn down — it is in a compute loop and reads
+    // nothing — which is what makes Stop work while every worker is mid-sieve.
+    for (const record of [...this.workers]) this.removeWorkerRecord(record);
     this.workers = [];
     this.workerActivity.replaceChildren();
   }
 
   private handleWorkerMessage(record: StressWorkerRecord, message: StressTestWorkerResponse) {
+    if (record.stopped) return;
+
+    // Posted by the worker script as it loads, before this worker has a run or a lane
+    // to match against — the one message without a request id.
+    if (message.type === 'cpu-stress-ready') {
+      this.noteWorkerReport(message.hardwareConcurrency);
+      return;
+    }
+
     // A message from an earlier run can never touch this one: the request id is
     // bumped on every Start and Stop, and the record itself is torn down.
-    if (message.requestId !== this.requestId || message.workerIndex !== record.index || record.stopped) {
-      return;
-    }
+    if (message.requestId !== this.requestId || message.workerIndex !== record.index) return;
 
-    if (message.type === 'cpu-stress-work-request') {
-      // The worker owns a band and is prefetching the next one. Allocation is
-      // O(1) and needs no bookkeeping: bands tile the number line, so the next
-      // serial is disjoint from everything issued before it.
-      if (message.supplyId !== record.supplyId + 1) return;
-      record.supplyId = message.supplyId;
-      let range;
-      try {
-        range = primeWorkerRange(this.primeBandSerial);
-      } catch (error) {
-        // The safe-integer number line is exhausted. Say so plainly rather than
-        // wrapping back over already-searched integers or shrinking quietly.
-        this.handleCpuStressFailure(error instanceof Error ? error.message : 'Prime band allocation failed.');
-        return;
-      }
-      this.primeBandSerial += 1;
-      record.rangeLow = range.low;
-      const response: StressTestWorkerRequest = {
-        type: 'continue-cpu-stress', requestId: this.requestId, workerIndex: record.index,
-        supplyId: message.supplyId, low: range.low, limit: range.limit
-      };
-      record.worker.postMessage(response);
-      return;
-    }
-
-    if (message.type === 'cpu-stress-heartbeat') {
+    if (message.type === 'cpu-stress-progress') {
       const previousCandidates = record.candidates;
       record.candidates = Math.max(record.candidates, message.candidates);
       record.activity = Math.max(0, record.candidates - previousCandidates);
-      record.busyMs = Math.max(record.busyMs, message.busyMs);
-      record.idleMs = Math.max(record.idleMs, message.idleMs);
-      record.bandWaitMs = Math.max(record.bandWaitMs, message.bandWaitMs);
-      record.slices = Math.max(record.slices, message.slices);
-      record.slowSlices = Math.max(record.slowSlices, message.slowSlices);
       const primeDelta = Math.max(0, message.primesFound - record.primesFound);
       record.primesFound = Math.max(record.primesFound, message.primesFound);
+      record.blocksTaken = Math.max(record.blocksTaken, message.blocks);
       if (message.rangeLow > 0) record.rangeLow = message.rangeLow;
       this.totalCandidates += record.activity;
-      // Workers own disjoint bands, so every prime counted here was found once,
-      // and the displayed maximum is a prime some worker actually produced.
+      // Lanes are disjoint by construction, so every prime counted here was found
+      // once, and the displayed maximum is a prime some worker actually produced.
       this.latestPrime = Math.max(this.latestPrime, message.latestPrime);
       this.primesFound += primeDelta;
       this.root.dataset.stressLastChecksum = String(message.checksum);
@@ -775,17 +828,68 @@ export class StressTestController {
     }
 
     if (message.type === 'cpu-stress-error' && message.message) {
-      record.stopped = true;
-      this.handleCpuStressFailure(message.message);
+      this.handleWorkerFailure(record, message.message);
       return;
     }
 
     console.warn(`[StressTest] Ignoring unexpected CPU worker message type: ${message.type}`);
   }
+
+  /**
+   * A worker that stopped computing. Its lane is worth keeping, so it is replaced by
+   * one worker with the same lane index and the same pool size: the live pool returns
+   * to the size it was asked for and never goes past it. Replacement is bounded, so a
+   * worker script that fails the moment it loads cannot spin creating replacements
+   * forever. A pool that ends up below the requested size says so — a smaller pool is
+   * never presented as the workload that was asked for — and a pool with nothing left
+   * has no workload, which is an error rather than a quiet idle page.
+   */
+  private handleWorkerFailure(record: StressWorkerRecord, message: string) {
+    if (record.stopped) return;
+    const requested = this.poolPlan?.workers ?? this.workers.length;
+    this.removeWorkerRecord(record);
+    if (this.state !== 'running' && this.state !== 'starting') return;
+
+    let detail = message;
+    if (this.workers.length < requested) {
+      if (this.replacementsLeft > 0) {
+        this.replacementsLeft -= 1;
+        try {
+          const replacement = this.createWorkerRecord(this.requestId, record.index);
+          this.workers.push(replacement);
+          this.startWorkerRecord(replacement, requested, this.requestId);
+          detail = `${message}; lane ${record.index} restarted`;
+        } catch (error) {
+          detail = `${message}; the lane could not be restarted: ${error instanceof Error ? error.message : 'unknown error'}`;
+        }
+      } else {
+        detail = `${message}; the replacement budget for this run is exhausted`;
+      }
+    }
+
+    if (this.workers.length === 0) {
+      this.handleCpuStressFailure(`CPU pool stopped with no workers left — ${detail}`);
+      return;
+    }
+    if (this.workers.length < requested) {
+      this.poolLimitation = `CPU pool is running ${this.workers.length} of ${requested} workers — ${detail}`;
+      this.root.dataset.stressCpuPoolLimitation = this.poolLimitation;
+    } else {
+      this.poolLimitation = '';
+      delete this.root.dataset.stressCpuPoolLimitation;
+    }
+    console.error('[StressTest] CPU worker faulted:', detail);
+    this.syncMetrics(true);
+  }
+
   private handleCpuStressFailure(message: string) {
     this.stopCpuStress();
     this.stopCpuVisuals();
     this.lastError = message;
+    // `stopCpuStress` cleared the pool's diagnostics because there is no pool; say
+    // why, so an ended CPU workload never reads back as a page that was never asked
+    // to compute. Combined mode keeps the GPU running and still reports this.
+    this.root.dataset.stressCpuPoolLimitation = message;
 
     if (this.mode === 'both' && this.gpu) {
       this.setState(transitionStressState(this.state, 'running'));
@@ -999,61 +1103,27 @@ export class StressTestController {
   }
 
   /**
-   * Closes the rolling scheduling window for the whole pool: wall time its workers
-   * spent sieving, time spent waiting to be handed a processor again, and time
-   * spent waiting for the page to hand out integers. `duty` is the first divided by
-   * the first two, and it is what the growth rule decides on — the only in-page
-   * reading that separates "one worker per logical processor" from "workers
-   * queueing for one" without depending on what the work costs, how deep the search
-   * has gone, or how far the clocks have sagged. Band waits are kept out of `duty`
-   * and published separately: a pool that cannot get work is a page-side problem,
-   * and reading it as a full machine would stop growth for the wrong reason.
+   * The CPU summary line: how many workers are computing. When that is fewer than
+   * the pool the run asked for, the same line says so — a reduced pool must never
+   * read back as the full workload the page requested.
    */
-  private recordPoolSignal(now: number) {
-    let busy = 0;
-    let idle = 0;
-    let band = 0;
-    let slices = 0;
-    let slow = 0;
-    for (const record of this.workers) {
-      busy += record.busyMs;
-      idle += record.idleMs;
-      band += record.bandWaitMs;
-      slices += record.slices;
-      slow += record.slowSlices;
-    }
-    if (this.signalWindowAt === 0) {
-      // First sight of the pool: open the window rather than measure a share
-      // against a baseline of zero, which would read as "nothing is wrong".
-      this.resetPoolSignalWindow(now, busy, idle, band, slices, slow);
-      return;
-    }
-    if (now - this.signalWindowAt < CPU_POOL_GROWTH_WINDOW_MS) return;
-    const windowBusy = Math.max(0, busy - this.signalWindowBusy);
-    const windowIdle = Math.max(0, idle - this.signalWindowIdle);
-    const windowBand = Math.max(0, band - this.signalWindowBand);
-    const windowSlices = Math.max(0, slices - this.signalWindowSlices);
-    const windowSlow = Math.max(0, slow - this.signalWindowSlow);
-    this.resetPoolSignalWindow(now, busy, idle, band, slices, slow);
-    const running = windowBusy + windowIdle;
-    this.poolSignal = {
-      duty: running > 0 ? windowBusy / running : 0,
-      slowShare: windowSlices > 0 ? windowSlow / windowSlices : 0,
-      slices: windowSlices
-    };
-    this.root.dataset.stressCpuBusy = String(Math.round(100 * this.poolSignal.duty));
-    this.root.dataset.stressCpuSliceSlow = String(Math.round(100 * this.poolSignal.slowShare));
-    const waited = running + windowBand;
-    this.root.dataset.stressCpuBandWait = String(waited > 0 ? Math.round(100 * windowBand / waited) : 0);
+  private workerPoolSummary() {
+    const workers = this.workers.length;
+    if (!workers) return 'CPU ready';
+    const requested = this.poolPlan?.workers ?? workers;
+    return `CPU · ${workers} workers${workers < requested ? ` (${workers} of ${requested} requested)` : ''}`;
   }
 
-  private resetPoolSignalWindow(at = 0, busy = 0, idle = 0, band = 0, slices = 0, slow = 0) {
-    this.signalWindowAt = at;
-    this.signalWindowBusy = busy;
-    this.signalWindowIdle = idle;
-    this.signalWindowBand = band;
-    this.signalWindowSlices = slices;
-    this.signalWindowSlow = slow;
+  /**
+   * Closes nothing and decides nothing: the pool has no measurement window because it
+   * has nothing to decide after it is built. What the metric loop publishes is what
+   * the workers reported — how far each lane has advanced, which is how a stalled
+   * worker is told apart from a worker that is merely slow.
+   */
+  private poolBlocksTaken() {
+    let blocks = 0;
+    for (const record of this.workers) blocks += record.blocksTaken;
+    return blocks;
   }
 
   // Linear estimate of the actual cumulative count at a window edge, taken
@@ -1101,7 +1171,7 @@ export class StressTestController {
     this.primeSummary.textContent = this.latestPrime > 0
       ? `${this.primesFound.toLocaleString()} primes found · ${Math.round(this.candidatesPerSecond).toLocaleString()} candidates/s`
       : '0 primes found';
-    this.workerSummary.textContent = this.workers.length ? `CPU · ${this.workers.length} workers` : 'CPU ready';
+    this.workerSummary.textContent = this.workerPoolSummary();
     const maxActivity = Math.max(1, ...this.workers.map((record) => record.activity));
     Array.from(this.workerActivity.children).forEach((element, index) => {
       const record = this.workers[index];
@@ -1109,6 +1179,7 @@ export class StressTestController {
       element.dataset.candidates = String(record.candidates);
       element.dataset.primesFound = String(record.primesFound);
       element.dataset.rangeLow = String(record.rangeLow);
+      element.dataset.blocks = String(record.blocksTaken);
       element.style.transform = `scaleY(${.1 + .9 * record.activity / maxActivity})`;
       element.setAttribute('aria-label', `Worker ${index + 1}: ${record.candidates.toLocaleString()} candidates, ${record.primesFound.toLocaleString()} primes`);
     });
@@ -1135,13 +1206,7 @@ export class StressTestController {
     this.root.dataset.stressGpuLastError = this.lastError;
     this.root.dataset.stressCandidates = String(this.totalCandidates);
     this.root.dataset.stressCandidatesPerSecond = String(Math.round(this.candidatesPerSecond));
-    if (this.workers.length > 0) {
-      this.recordPoolSignal(now);
-    } else {
-      delete this.root.dataset.stressCpuBusy;
-      delete this.root.dataset.stressCpuSliceSlow;
-      delete this.root.dataset.stressCpuBandWait;
-    }
+    this.root.dataset.stressCpuBlocks = String(this.poolBlocksTaken());
     this.root.dataset.stressCallbackStalls = String(this.callbackStalls);
     this.root.dataset.stressRenderRate = renderRate;
     this.lastMetricAt = now;

@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // Focused browser coverage: real GPU backends plus a CPU workload pinned to two
-// workers (through the exact-count hook, so the automatic pool never moves while
-// this check asserts counts, geometry and per-worker progress), and dedicated
-// pool pages that run the automatic policy against real cores. One page simulates
-// a 1-thread under-report, where the pool must grow well past the report before
-// it settles; the other reports the host's true logical CPU count, where the pool
-// must stay at or above that count and keep every worker computing.
+// workers (through the exact-count hook, so these pages assert counts, geometry and
+// per-worker progress against a pool size they can predict), and dedicated pool pages
+// that run the shipped sizing against real cores. One page reports a reduced
+// processor count in window scope, where the pool must follow the higher count its
+// own worker reports; one runs the unmodified report; one pins 32 workers against a
+// report of 12 and must stay at exactly 32.
 // STRESS_BROWSER_TYPE selects the engine (chromium|firefox|webkit);
 // STRESS_POOL_ONLY=1 runs only the pool pages, for per-engine matrix runs.
 const assert = require('node:assert/strict');
@@ -42,43 +42,66 @@ async function readPrime(page) {
   return state.value;
 }
 
+/**
+ * The static HTML already declares `data-stress-state="idle"`, so that selector proves
+ * only that the markup arrived. A click sent before the controller has bound its
+ * listeners is lost without trace, which on a browser that boots its modules slowly
+ * looks like a workload that never starts. Every page that clicks therefore first waits
+ * for a dataset only the controller publishes: its first metric frame.
+ */
+async function waitForStressController(page) {
+  await page.waitForSelector('#stressTestApp[data-stress-state="idle"]');
+  await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressTotalRenderedFrames !== undefined,
+    null, { timeout: 30000 });
+}
+
 async function readCpuPipeline(page) {
   return page.evaluate(() => {
     const root = document.getElementById('stressTestApp');
     const data = root.dataset;
     return {
       time: performance.now(),
-      reportedCores: navigator.hardwareConcurrency,
+      pageReport: Number(data.stressCpuReportPage),
+      workerReport: Number(data.stressCpuReportWorker),
+      report: Number(data.stressCpuReport),
+      poolSize: Number(data.stressCpuPoolSize),
+      poolSource: data.stressCpuPoolSource,
+      limitation: data.stressCpuPoolLimitation ?? '',
+      blocks: Number(data.stressCpuBlocks),
       workerCount: Number(data.stressWorkerCount),
       algorithm: data.stressCpuAlgorithm,
-      pool: data.stressCpuPool,
       candidates: Number(data.stressCandidates),
       workers: Array.from(document.querySelectorAll('#stressWorkerActivity > span')).map(worker => ({
         candidates: Number(worker.dataset.candidates),
         primes: Number(worker.dataset.primesFound),
-        rangeLow: Number(worker.dataset.rangeLow)
-      }))
+        rangeLow: Number(worker.dataset.rangeLow),
+        blocks: Number(worker.dataset.blocks)
+      })),
+      // Present only on the pool pages, which install the construction counter.
+      trace: window.__POOL_TRACE__ ?? null
     };
   });
 }
 
 /**
- * A pinned pool must be visibly complete: one activity bar per worker, every
- * worker testing candidates (a worker that stopped reporting is a starved or
- * dead worker the aggregate total would hide), each worker sitting in its own
- * region of the number line, and the main thread still able to paint.
+ * A fixed pool must be visibly complete: one activity bar per worker, every worker
+ * testing candidates (a worker that stopped reporting is a stalled or dead worker the
+ * aggregate total would hide), each worker sitting in its own region of the number
+ * line, and the main thread still able to paint.
  */
-async function assertCpuPipeline(page) {
-  await page.waitForFunction(() => {
+async function assertCpuPipeline(page, expectedWorkers) {
+  await page.waitForFunction(poolSize => {
     const root = document.getElementById('stressTestApp');
     const workers = Array.from(document.querySelectorAll('#stressWorkerActivity > span'));
     return root.dataset.stressCpuAlgorithm === 'segmented-sieve'
-      && workers.length === navigator.hardwareConcurrency
+      && Number(root.dataset.stressCpuPoolSize) === poolSize
+      && workers.length === poolSize
       && workers.every(worker => Number(worker.dataset.candidates) > 0 && Number(worker.dataset.primesFound) > 0
         && Number(worker.dataset.rangeLow) > 0);
-  }, null, { timeout: 15000 });
+  }, expectedWorkers, { timeout: 15000 });
   const before = await readCpuPipeline(page);
-  assert.equal(before.workerCount, before.reportedCores, 'A pinned CPU workload must run exactly the requested pool.');
+  assert.equal(before.poolSize, expectedWorkers, 'The pool must be exactly the requested count.');
+  assert.equal(before.workerCount, expectedWorkers, 'A fixed pool must run exactly the requested number of workers.');
   assert.equal(before.workers.length, before.workerCount, 'Every worker record must own exactly one activity bar.');
   assert.equal(new Set(before.workers.map(worker => worker.rangeLow)).size, before.workers.length,
     'Each worker must own a distinct region of the number line, so no integer is sieved twice.');
@@ -88,6 +111,8 @@ async function assertCpuPipeline(page) {
       Number(worker.dataset.candidates) > previous.workers[index].candidates);
   }, before, { timeout: 15000 });
   const after = await readCpuPipeline(page);
+  assert.equal(after.poolSize, before.poolSize, 'A fixed pool must not change size while the run lasts.');
+  assert(after.blocks > 0, 'The pool must report how far its lanes have advanced.');
   let responsivenessTimer;
   try {
     await Promise.race([
@@ -104,7 +129,9 @@ async function assertCpuPipeline(page) {
   return {
     algorithm: after.algorithm,
     workers: after.workerCount,
-    pool: after.pool,
+    poolSize: after.poolSize,
+    poolSource: after.poolSource,
+    report: after.report,
     observedCandidates: completedCandidates,
     observedMilliseconds: Math.round(elapsedMs),
     candidatesPerSecond: Math.round(completedCandidates * 1000 / elapsedMs)
@@ -200,18 +227,15 @@ async function assertDesktopSizes(page, label) {
   }
 }
 
-// Automatic-pool coverage. `cores` is the mocked hardwareConcurrency. Both pages
-// run the real policy against real cores and must reach a terminal verdict, which
-// only the measurement loop can decide — nothing here presets an outcome. The
-// under-report page is the regression this whole design exists for: a browser that
-// claims one processor on a many-thread host must end the search with a pool far
-// above that claim, so the assertion is on the FINAL worker count and not on the
-// run merely staying alive at the reported number.
-function poolInit(cores) {
-  Object.defineProperty(navigator, 'hardwareConcurrency', { value: cores, configurable: true });
-  // Trace the mechanism, not just its endpoint: count stress-worker
-  // constructions and every pool-verdict transition from before the app runs.
-  window.__POOL_TRACE__ = { workers: 0, verdicts: [] };
+// Fixed-pool coverage. `pageCores` replaces window-scope `hardwareConcurrency`
+// before the app runs; `exactWorkers` is the diagnostic hook. Both pages count every
+// stress-worker construction and every change to the published pool size from before
+// the app exists, so a pool that resizes during a run — or constructs a worker nobody
+// asked for — fails the check even if its final count happens to look right.
+function poolInit({ pageCores, exactWorkers }) {
+  if (pageCores) Object.defineProperty(navigator, 'hardwareConcurrency', { value: pageCores, configurable: true });
+  if (exactWorkers) window.__OD_STRESS_TEST_WORKERS__ = exactWorkers;
+  window.__POOL_TRACE__ = { workers: 0, sizes: [] };
   const OriginalWorker = window.Worker;
   window.Worker = class extends OriginalWorker {
     constructor(workerUrl, options) {
@@ -223,119 +247,126 @@ function poolInit(cores) {
     const app = document.getElementById('stressTestApp');
     const trace = window.__POOL_TRACE__;
     const record = () => {
-      const value = app.dataset.stressCpuPool ?? 'none';
-      if (trace.verdicts.at(-1) !== value) trace.verdicts.push(value);
+      const value = app.dataset.stressCpuPoolSize ?? 'none';
+      if (trace.sizes.at(-1) !== value) trace.sizes.push(value);
     };
-    new MutationObserver(record).observe(app, { attributes: true, attributeFilter: ['data-stress-cpu-pool'] });
+    new MutationObserver(record).observe(app, { attributes: true, attributeFilter: ['data-stress-cpu-pool-size'] });
     record();
   });
 }
 
-async function assertPoolMode(browser, url, { cores, minWorkers, label }) {
+async function assertPoolMode(browser, url, { pageCores = null, exactWorkers = null, label }) {
   const startedAt = Date.now();
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  await page.addInitScript(poolInit, cores);
+  await page.addInitScript(poolInit, { pageCores, exactWorkers });
   await page.goto(`${url}/pages/utilities/index.html#stress-test`);
-  await page.waitForSelector('#stressTestApp[data-stress-state="idle"]');
+  await waitForStressController(page);
   await page.click('[data-stress-mode-option="cpu"]');
   await page.click('#stressStartBtn');
-  // Growth is measured in one-second windows and each step is one bounded wave,
-  // so a heavy under-report needs a dozen or so windows to reach the plateau.
-  await page.waitForFunction(() => ['settled', 'capped'].includes(document.querySelector('#stressTestApp').dataset.stressCpuPool),
-    null, { timeout: 120000 });
-  // The verdict dataset is written immediately, while the throttled metric loop
-  // refreshes worker counts at ≤120ms: sample counts and DOM once they agree.
-  await page.waitForTimeout(300);
-  const settled = await page.evaluate(() => {
+  await page.waitForFunction(() => document.querySelector('#stressTestApp').dataset.stressCpuPoolSize !== undefined,
+    null, { timeout: 30000 });
+  // The size dataset is written at plan time; the throttled metric loop refreshes the
+  // running worker count and the bars, so sample once those agree.
+  await page.waitForFunction(() => {
+    const data = document.querySelector('#stressTestApp').dataset;
+    return Number(data.stressWorkerCount) === Number(data.stressCpuPoolSize)
+      && document.querySelectorAll('#stressWorkerActivity > span').length === Number(data.stressCpuPoolSize);
+  }, null, { timeout: 30000 });
+  const planned = await page.evaluate(() => {
     const data = document.querySelector('#stressTestApp').dataset;
     return {
-      verdict: data.stressCpuPool,
-      limitation: data.stressCpuPoolLimitation ?? '',
       state: data.stressState,
-      reported: Number(data.stressCpuReported),
+      limitation: data.stressCpuPoolLimitation ?? '',
+      pageReport: Number(data.stressCpuReportPage),
+      workerReport: Number(data.stressCpuReportWorker),
+      report: Number(data.stressCpuReport),
+      poolSize: Number(data.stressCpuPoolSize),
+      poolSource: data.stressCpuPoolSource,
       workers: Number(data.stressWorkerCount),
       bars: document.querySelectorAll('#stressWorkerActivity > span').length,
       candidates: Number(data.stressCandidates),
       perWorker: Array.from(document.querySelectorAll('#stressWorkerActivity > span')).map(bar => ({
         candidates: Number(bar.dataset.candidates), rangeLow: Number(bar.dataset.rangeLow)
       })),
-      windows: JSON.parse(data.stressCpuPoolWindows ?? '[]'),
       trace: window.__POOL_TRACE__
     };
   });
-  settled.label = label;
-  assert.equal(settled.limitation, '', `(${label}) a pool that grew must not report a worker-creation shortfall`);
-  // A pool that stopped must have stopped because it MEASURED oversubscription, not
-  // because it ran out of rounds or hit the ceiling. This mirrors
-  // CPU_POOL_CONTENTION_SHARE on purpose: a test that re-derived the threshold from
-  // the same constant would prove nothing. 0.1 also sits above the 1%–4% the machine
-  // shows while it is merely full, so this fails if growth ever ends on noise.
-  const lastWindow = settled.windows.at(-1);
-  if (settled.verdict === 'settled') {
-    assert(lastWindow && lastWindow.slowShare !== null && lastWindow.slowShare >= 0.1,
-      `(${label}) growth must end on a measured mid-slice preemption share, not a bound: ${JSON.stringify(settled.windows)}`);
-    assert(lastWindow.slices >= 8,
-      `(${label}) the stopping decision must be measured over real slices: ${JSON.stringify(lastWindow)}`);
-  } else {
-    assert(settled.workers >= 128,
-      `(${label}) a pool that capped must have reached the runaway ceiling: ${JSON.stringify(settled)}`);
+  const expected = exactWorkers ?? Math.max(planned.pageReport, planned.workerReport);
+  assert.equal(planned.state, 'running', `(${label}) the pool must be running: ${JSON.stringify(planned)}`);
+  assert.equal(planned.limitation, '', `(${label}) a complete pool must not report a worker-creation shortfall`);
+  assert.equal(planned.poolSize, expected, `(${label}) the pool must be exactly the count it was given: ${JSON.stringify(planned)}`);
+  assert.equal(planned.poolSource, exactWorkers ? 'exact' : (expected > 0 ? 'report' : 'fallback'),
+    `(${label}) the plan must say where its count came from: ${JSON.stringify(planned)}`);
+  assert.equal(planned.report, expected, `(${label}) the count the pool was sized from must be published`);
+  if (pageCores) {
+    // Whatever the page was told must be visible, even when the pool used a higher
+    // reading: a reduced report is shown, not hidden behind the pool's final number.
+    assert.equal(planned.pageReport, pageCores, `(${label}) the page must publish the hint it was given`);
   }
-  assert.equal(settled.state, 'running', `(${label}) the pool policy must survive its own growth: ${JSON.stringify(settled)}`);
-  assert.equal(settled.reported, cores, `(${label}) the page must publish the hint it was given: ${JSON.stringify(settled)}`);
-  assert.equal(settled.bars, settled.workers, `(${label}) every worker record must own exactly one activity bar`);
-  assert(settled.workers >= cores, `(${label}) the pool must never fall below the reported count: ${JSON.stringify(settled)}`);
-  // The mechanism ran through its closed loop rather than starting fixed-size:
-  // growing verdict, then more constructions than the report, then a terminal one.
-  assert(settled.trace.verdicts.includes('growing'), `(${label}) pool must start in the growing state: ${JSON.stringify(settled.trace)}`);
-  assert(settled.trace.workers > cores, `(${label}) pool must construct workers beyond the report: ${JSON.stringify(settled)}`);
-  assert(settled.workers > cores, `(${label}) an under-reported machine must end with more workers than it claimed: ${JSON.stringify(settled)}`);
-  if (minWorkers) {
-    // Deliberately far below what the policy reaches in practice, so this can
-    // only fail if growth stalls early — the old bug — never on machine noise.
-    assert(settled.workers >= minWorkers, `(${label}) pool must grow toward the machine's real capacity: ${JSON.stringify(settled)}`);
-  }
-  // A grown pool must also be a working pool: every worker keeps testing
-  // candidates, in its own region of the number line.
-  assert.equal(new Set(settled.perWorker.map(worker => worker.rangeLow)).size, settled.workers,
+  assert.equal(planned.workers, expected, `(${label}) the running worker count must equal the pool size`);
+  assert.equal(planned.bars, expected, `(${label}) every worker record must own exactly one activity bar`);
+  // The pool is built once: not one extra worker is constructed, and the published
+  // size is written once and never revised. This is the assertion that a pool which
+  // resizes — for any reason, on any measurement — cannot pass. (`none` is the state
+  // before Start, recorded by the observer as soon as the app exists.)
+  assert.equal(planned.trace.workers, expected,
+    `(${label}) the page must construct exactly the pool it asked for: ${JSON.stringify(planned.trace)}`);
+  assert.deepEqual(planned.trace.sizes.filter(size => size !== 'none'), [String(expected)],
+    `(${label}) the pool size must be published once and never changed: ${JSON.stringify(planned.trace)}`);
+  // A fixed pool must also be a working pool: every worker keeps testing candidates,
+  // in its own region of the number line.
+  assert.equal(new Set(planned.perWorker.map(worker => worker.rangeLow)).size, planned.workers,
     `(${label}) each worker must own a distinct region of the number line`);
   await page.waitForFunction(previous => {
     const workers = Array.from(document.querySelectorAll('#stressWorkerActivity > span'));
     return workers.length === previous.length && workers.every((bar, index) =>
       Number(bar.dataset.candidates) > previous[index].candidates);
-  }, settled.perWorker, { timeout: 20000 });
+  }, planned.perWorker, { timeout: 20000 });
   await page.waitForFunction(previous => Number(document.querySelector('#stressTestApp').dataset.stressCandidates) > previous.candidates,
-    settled, { timeout: 20000 });
+    planned, { timeout: 20000 });
+  // And it must still be that size after the run has had every reason to change: a
+  // throughput collapse, a long elapsed time, and messages arriving out of order are
+  // what the removed adaptive rules reacted to.
+  await page.waitForTimeout(4000);
+  const held = await readCpuPipeline(page);
+  assert.equal(held.poolSize, expected, `(${label}) the pool size must not move during a run`);
+  assert.equal(held.workerCount, expected, `(${label}) the running pool must not lose or gain workers during a run`);
+  assert.equal(held.trace.workers, expected, `(${label}) no worker may be constructed after the pool is built`);
   await page.click('#stressStopBtn');
   await page.waitForSelector('#stressTestApp[data-stress-state="idle"]');
   assert.equal(await page.locator('#stressWorkerActivity > span').count(), 0);
+  assert.equal(await page.locator('#stressTestApp').getAttribute('data-stress-worker-count'), '0');
+  assert.equal(await page.locator('#stressTestApp').getAttribute('data-stress-cpu-pool-size'), null);
+  assert.equal(await page.locator('#stressTestApp').getAttribute('data-stress-cpu-report'), null);
   assert.deepEqual(errors, [], `(${label}) browser errors`);
   await page.close();
-  console.log(`CPU pool page passed (${label}: ${settled.verdict} on ${lastWindow ? `${(100 * (lastWindow.slowShare ?? 0)).toFixed(0)}% measured preemption` : 'no window'}, `
-    + `${cores} reported → ${settled.workers} workers, ${settled.trace.workers} spawns, `
-    + `${settled.windows.length} windows) in ${Date.now() - startedAt}ms`);
-  return settled;
+  console.log(`CPU pool page passed (${label}: ${planned.pageReport} page / ${planned.workerReport} worker report → `
+    + `${expected} workers, source ${planned.poolSource}, ${planned.trace.workers} spawns, held after 4 s) `
+    + `in ${Date.now() - startedAt}ms`);
+  return { label, ...planned, heldPoolSize: held.poolSize };
 }
 
-// The growth path (a simulated 1-thread report on a many-thread host) and the
-// accurate-report path (the host's real logical CPU count, where the pool must
-// hold at least that many workers and keep all of them computing).
+// The reduced-report path (the reported bug: a browser whose window scope reports
+// fewer processors than its own workers do) and the unmodified path, plus the exact
+// diagnostic count against a reduced report.
 async function assertPoolPages(browser, url) {
   const logicalCores = os.cpus().length;
-  const growth = await assertPoolMode(browser, url, {
-    cores: 1,
-    // Half the machine's logical processors is far more than one and far less
-    // than the policy actually reaches, so it fails only on a real stall. The
-    // floor of 3 is the one step every pool takes without needing evidence.
-    minWorkers: Math.max(3, Math.ceil(logicalCores / 2)),
-    label: 'under-report growth'
+  // The reduced-report page only covers what it is here for if this browser answers
+  // truthfully in worker scope; say so out loud instead of passing silently.
+  const reduced = await assertPoolMode(browser, url, {
+    pageCores: Math.max(1, Math.min(4, logicalCores - 1)),
+    label: 'reduced page report'
   });
-  const accurate = logicalCores >= 1 && logicalCores < 128
-    ? await assertPoolMode(browser, url, { cores: logicalCores, minWorkers: 0, label: 'accurate report' })
-    : { skipped: true, logicalCores };
-  return { growth, accurate };
+  if (reduced.workerReport <= reduced.pageReport) {
+    console.log(`NOTE: this engine reports ${reduced.workerReport} in worker scope and ${reduced.pageReport} in `
+      + 'window scope, so the reduced-report case could not be exercised here.');
+  }
+  const unmodified = await assertPoolMode(browser, url, { label: 'unmodified report' });
+  const exact = await assertPoolMode(browser, url, { pageCores: 12, exactWorkers: 32, label: 'exact 32 over report 12' });
+  return { reduced, unmodified, exact };
 }
 
 async function main() {
@@ -376,7 +407,8 @@ async function main() {
       await page.addInitScript((force) => {
         Object.defineProperty(navigator, 'hardwareConcurrency', { value: 2, configurable: true });
         // Exact-count hook: these pages assert geometry, backends and per-worker
-        // progress, so the automatic pool must not be resizing underneath them.
+        // progress, so the pool is pinned to a count they can predict rather than
+        // following whatever this machine reports.
         window.__OD_STRESS_TEST_WORKERS__ = 2;
         if (force !== 'auto') Object.defineProperty(navigator, 'gpu', { value: undefined, configurable: true });
         const original = HTMLCanvasElement.prototype.getContext;
@@ -402,7 +434,7 @@ async function main() {
         await page.waitForFunction(value => Number(document.querySelector('#stressTestApp').dataset.stressLatestPrime) > Number(value), first);
         await readPrime(page);
         assert.equal(await page.locator('#stressWorkerActivity > span').count(), 2);
-        cpuRuns.push({ mode: 'cpu', ...await assertCpuPipeline(page) });
+        cpuRuns.push({ mode: 'cpu', ...await assertCpuPipeline(page, 2) });
         await assertDesktopSizes(page, 'cpu:running');
         await page.screenshot({ path: path.join(output, 'stress-prime-desktop.png') });
         await page.click('#stressStopBtn');
@@ -446,7 +478,7 @@ async function main() {
         await page.click('#stressStartBtn');
         await page.waitForFunction(() => { const data = document.querySelector('#stressTestApp').dataset; return Number(data.stressTotalRenderedFrames) > 3 && Number(data.stressLatestPrime) > 1; });
         await readPrime(page);
-        cpuRuns.push({ mode: 'both', ...await assertCpuPipeline(page) });
+        cpuRuns.push({ mode: 'both', ...await assertCpuPipeline(page, 2) });
         await assertDesktopSizes(page, 'both:running');
         await page.screenshot({ path: path.join(output, 'stress-both-desktop.png') });
         const beforeResize = Number(await page.locator('#stressTestApp').getAttribute('data-stress-total-rendered-frames'));

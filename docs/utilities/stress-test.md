@@ -4,53 +4,127 @@ The utility runs sustained CPU prime searches and an interactive GPU sculpture, 
 
 ## CPU prime search
 
-Every searched integer is tested in a module worker. The main thread creates
-workers, hands each one a range of the number line, and aggregates what comes
-back; it runs no search itself, which is what lets the pool be resized at any
-moment and lets Stop work by termination alone.
+Every searched integer is tested in a module worker. The main thread creates the
+workers, tells each one which lane of the number line it owns, and aggregates what
+comes back; it runs no search itself, allocates no work during the run, and stops the
+pool by termination alone.
 
 ### How many workers run
 
-A browser cannot measure CPU utilisation, and `navigator.hardwareConcurrency` is
-a hint rather than a fact: privacy modes round it down to physical cores or cap
-it deliberately, and an OS may reserve cores (for example virtualization-based
-security), which on multithreaded CPUs leaves simultaneous-multithreading
-siblings or whole cores idle (historically Firefox capped the value at 16 via
-`dom.maxHardwareConcurrency` until Firefox 139 raised the default to 128; privacy
-modes can still report less than the real capability). The pool therefore treats
-the report as a starting point and recovers what it missed by measuring
-scheduling:
+One long-lived worker per logical processor the browser will account for. The page
+reads the report, validates it, creates exactly that many workers, and changes the
+pool by nothing except Stop: no growth, no shrink, no processor held back for the
+main thread (the main thread is kept light instead), and no simultaneous-multithreading
+multiplier — an "always 2×" rule is a guess about hardware, and a pool that sizes
+itself on a measurement is a pool that can stop early.
 
-1. **Start at the whole report.** No halving, no core held back for the main
-   thread (it stays light instead), and no automatic simultaneous-multithreading
-   multiplier — an "always 2×" rule is as much a guess about hardware as the
-   report it tries to correct.
-2. **Grow while no worker is losing its processor.** Each worker runs a slice whose
-   budget is 8ms of wall clock and checks that same clock between segments, so a
-   slice that takes 1.5× its budget was demonstrably descheduled while it ran. Once
-   per second the page takes that share across the whole pool, and while it stays
-   below `CPU_POOL_CONTENTION_SHARE` the pool adds half again as many workers (at
-   least two).
-3. **Stop when a clear share of slices is being taken off the processor**, which is
-   the pool having more workers than the machine can run at once.
-4. **Never shrink.** A worker is only ever removed by Stop.
+#### Reading the report in both scopes
 
-The window that contains a spawn is not judged: it holds the spawn's own
-main-thread work and the new workers' boot, either of which would be read as
-capacity or as contention.
+`navigator.hardwareConcurrency` is a hint, not a measurement: privacy modes round it
+down to physical cores, and fingerprint protection replaces it outright (historically
+Firefox capped the value at 16 via `dom.maxHardwareConcurrency` until Firefox 139
+raised the default to 128). The value is therefore read in both scopes a static page
+can reach — the window, and a dedicated worker — and the pool is sized from the
+larger of the two valid reports, because they are the same API asked the same
+question. The pool size is whatever a `navigator.hardwareConcurrency` call actually
+returned.
 
-That share is only trusted at or above the worker count the browser's own report
-asked for, because it appears only well past the machine (see the sweep below).
-Below the report the report is the authority and the pool grows anyway. That
-ordering is the whole reason an under-reporting browser still reaches full load: no
-window the pool cannot attribute can stop it short.
+This exists because of a measured case. On a 32-thread host (AMD Ryzen 9 7950X,
+`Win32_Processor.NumberOfLogicalProcessors = 32`, `os.availableParallelism() = 32`),
+the Helium browser (Chromium 154) reported **12, 14 or 16** logical processors in
+window scope — varying from launch to launch, consistent with anti-fingerprint
+randomisation — while a dedicated worker created by that same browser reported **32**
+every time. Reproduced with a fresh temporary profile and with a copy of the real
+profile of the user who reported the bug; the browser's own history confirmed the
+pages tested. Playwright Chromium, installed Google Chrome and Playwright Firefox all
+reported 32 in both scopes.
 
-**Why not throughput.** Throughput was the previous rule, and it under-loaded the
-machine it was given. On a 16-core/32-thread host, growing from 4 to 128 workers
-moved the pool's aggregate candidate rate by under +18% — while the
-operating-system load of the very same run went from 25% to 100%:
+So the 12 the page started with was not arithmetic in this repository's code, not a
+clamp in a test or check script, not the browser-launch harness, and not a stale
+bundle: the browser answered a different question in window scope, and the true count
+was reachable in worker scope the whole time. Taking the worker's answer is not a
+12-to-32 conversion — there is no arithmetic applied to the page's number, no
+host-specific table, and no timing heuristic. Both readings are published
+(`data-stress-cpu-report-page`, `data-stress-cpu-report-worker`) so which one the pool
+used, and what the browser actually said, are visible on the page.
 
-| workers | OS CPU (all logical CPUs) | aggregate candidates/s | candidate rate per worker |
+A browser that reduces *both* scopes is a boundary this page cannot cross, and it is
+stated rather than patched: a static page in a browser that exposes no OS-query API
+cannot know its own runtime is lying about the window scope and the worker scope
+alike. Such a browser gets the reduced pool, and the published report shows the
+reduced number instead of a plausible one.
+
+The worker-scope count is read by a one-shot report probe: a dedicated module worker
+whose entire script posts the number and stops, asked at the same moment as the pool's
+first worker, and the first answer wins within a bounded wait
+(`CPU_POOL_REPORT_TIMEOUT_MS`, 2 s). The probe exists because this measurement has to
+be fast as well as correct. On the browser above, the workload worker *did* report 32 —
+but only after the bounded wait had already sized the pool from the window number, so
+the page built the reduced pool the user reported while the true count arrived a moment
+too late to be used. A worker with nothing to import answers in milliseconds instead.
+The probe is not part of the workload: it computes nothing, it is terminated as the plan
+is made, and it is never counted as a pool worker (`data-stress-worker-count` counts
+workers that were given a lane). A browser that blocks blob workers leaves the probe
+silent, and the page then sizes from the workload worker's answer or from the window
+scope, as it would anyway.
+
+#### What the plan does, and what it refuses
+
+| Input | Pool | `data-stress-cpu-pool-source` |
+|-------|------|-------------------------------|
+| page 32, worker 32 | 32 | `report` |
+| page 12, worker 32 | 32 | `report` |
+| page 24, worker 8 | 24 | `report` |
+| any report, `__OD_STRESS_TEST_WORKERS__ = 32` | 32 | `exact` |
+| nothing usable | 4 (`CPU_POOL_FALLBACK_WORKERS`) | `fallback` |
+
+A report is used only if it is a positive safe integer at or below
+`CPU_POOL_TRUSTED_REPORT_MAX` (4096). A "report" above that is not hardware, and
+honouring it literally would mean creating millions of workers, so it is discarded and
+the run says it has no usable report. Nothing clamps a legitimate high count to a
+historical limit: a browser that honestly reports 128 logical processors gets 128
+workers, and one that reports 4 gets 4.
+
+When neither scope reports anything, the run starts the documented fallback pool of 4
+workers and publishes `data-stress-cpu-report = 0` with source `fallback`. A fallback
+is never presented as a processor count.
+
+Worker creation can genuinely fail (quota, memory pressure). The workers that did get
+created keep computing, `data-stress-cpu-pool-limitation` says how many are running
+and why, the summary line reads `CPU · 3 workers (3 of 4 requested)`, and the run is
+not described as the pool that was asked for. A pool with no workers is an error: the
+run ends in `error` with the failure message, and in combined mode the GPU keeps
+running while the CPU workload says it died.
+
+A worker that faults is replaced once at its own lane, so the pool keeps the count it
+requested and never exceeds it. Replacement is bounded per run
+(`CPU_POOL_MAX_REPLACEMENTS`, 8): a worker script that dies as it loads cannot be
+chased with an endless stream of new workers, and when the budget runs out the
+shortfall is published rather than hidden.
+
+`window.__OD_STRESS_TEST_WORKERS__ = N` is the exact-count diagnostic hook: it requests
+precisely N workers, takes precedence over both reports, may exceed them, and enables
+nothing adaptive — there is nothing left for it to enable. A value that is not a usable
+processor count is ignored, and the published source says `report` rather than
+pretending the hook was honoured. The former
+`__OD_STRESS_TEST_MAX_WORKERS__` ceiling is gone with the growth policy it capped.
+
+**Why the pool no longer resizes.** Two adaptive policies were built, measured, and
+removed. Growing on aggregate throughput under-loaded the machine it was given: on
+this 32-thread host a pool pinned from 4 to 128 workers moved the *aggregate*
+candidate rate by under +18% (889 M/s at 4, 1,063 M/s at 32, 1,106 M/s at 48) while
+operating-system load went from 25% to 100%, because a bigger pool buys processors,
+not a cheaper sieve. A previous design grew on the share of compute slices that were
+demonstrably descheduled mid-slice; that share measured 0% up to the thread count, 1%
+at twice it, 25% at three times and 100% at eight times, and the duty-cycle alternative
+read a flat 100% from 4 workers to 256 — on this browser and OS a worker whose slice ends is handed a processor again immediately, so the queueing the page
+wanted to measure never happens. Both rules therefore landed anywhere between 6 and
+128 workers on identical runs of the same build, which is the failure the user saw.
+Pinned counts measured against the operating system on this host, with the self-pacing
+loop that existed then (its per-worker rates are not comparable to the loop described
+below):
+
+| workers | OS CPU (all 32 logical CPUs) | aggregate candidates/s | candidate rate per worker |
 |--------:|--------------------------:|-----------------------:|--------------------------:|
 | 4 | 25% | 889 M | 222 M |
 | 14 | 56% | 795 M | 57 M |
@@ -58,152 +132,54 @@ operating-system load of the very same run went from 25% to 100%:
 | 48 | 100% | 1,106 M | 23 M |
 | 128 | 100% | 1,046 M | 8 M |
 
-Aggregate throughput saturates long before the CPUs do, because a bigger pool
-buys processors, not a cheaper sieve — memory bandwidth, cache pressure, and a
-deeper search frontier eat what the extra threads could have added. Inside a run
-the rate also sags 2–6% per second on its own (boost-clock recovery, thermal
-state, background load), which is the same size as the differences a
-window-to-window rule tries to read. A rule that grows on throughput therefore
-stops with most of the machine idle: two runs of the same build on the same host
-produced 128 workers in one and 6 in the other, at 100% and 27% load.
+That table is the reason a count, not a measurement, is the right control: from 32
+workers up the machine is fully loaded, and past it the extra workers only cost sieve
+throughput. The pool now asks the browser for the count once, at the start, and never
+reconsiders — which is also the only behaviour that can be described as "exactly N
+workers" and checked by a test.
 
-**Why not the pool's own scheduling.** Two candidates were built, measured, and one
-was thrown away. A compute slice that runs 1.5× its own wall-clock budget was
-demonstrably descheduled mid-slice; and `busyMs / (busyMs + idleMs)` — how much of
-the wall clock a worker spends sieving rather than waiting to be handed a processor
-again — was expected to fall as the pool passed the thread count. Both are measured
-per worker, so neither cares what the work costs, how deep the search has gone, or
-how far the clocks have sagged. Pinned worker counts, Chromium, 20–22 s runs
-averaged over the steady seconds, with the operating-system load read at the same
-time:
+With the fixed pool and the self-driven worker loop, the same host measured by
+`scripts/stress-load-harness.js`: the page driving real workers while the operating
+system's own per-logical-processor counters are sampled outside the browser.
 
-| workers | OS CPU (all 32 logical CPUs) | page duty cycle | slices descheduled mid-slice |
-|--------:|---------------------------:|----------------:|-----------------------------:|
-| 4 | 15.8% | 100% | 0% |
-| 16 | 53.5% | 100% | 0% |
-| 24 | 78.4% | 100% | 0% |
-| 32 | 100.0% | 100% | 0% |
-| 36 | 100.0% | 100% | 0% |
-| 40 | 100.0% | 100% | 0% |
-| 48 | 100.0% | 100% | 0% |
-| 64 (2× threads) | 100.0% | 100% | 1% |
-| 96 (3×) | 100.0% | 100% | **25%** |
-| 128 (4×) | 100.0% | 100% | 8% |
-| 256 (8×) | 100.0% | 100% | **100%** |
+| run | window report | worker report | pool | OS CPU (mean of `_Total`) | idle logical CPUs | candidates/s |
+|-----|--------------:|--------------:|-----:|--------------------------:|:------------------|-------------:|
+| Chromium, CPU-only, nothing modified | 32 | 32 | 32 | 100.0% | none | 2,602 M |
+| Chromium, CPU-only, exact request of 32 | 32 | — | 32 (exact) | 100.0% | none | 2,589 M |
+| Chromium, CPU-only, window scope mocked to 12 | 12 | 32 | 32 | 100.0% | none | 2,607 M |
+| Chromium, combined mode, visuals on | 32 | 32 | 32 | 100.0% | none | 2,549 M |
+| The reported browser, CPU-only, nothing modified | 16 | 32 | 32 | 100.0% | none | 2,655 M |
+| The reported browser, combined mode, visuals on | 14 | 32 | 32 | 100.0% | none | 2,635 M |
+| Installed Google Chrome, combined mode, visuals on | 32 | 32 | 32 | 100.0% | none | 2,632 M |
 
-The duty cycle is the one that failed: flat at 100% from 4 workers to 256. On this
-browser and operating system a worker whose slice ends is handed a processor again
-immediately, so the queueing a page would like to measure never happens, and a rule
-that stopped on it never stopped at all. It is still measured and published
-(`data-stress-cpu-busy`), because it does separate a pool that cannot get integers to
-sieve from one that cannot get processors — and `data-stress-cpu-band-wait` is kept
-apart from it so the two are never confused.
+Every run held its 32 workers for its whole duration — the pool dataset was published
+once and never changed — had the whole pool live 410–450 ms after Start, and released the
+machine on Stop (1.7% CPU measured four seconds after a Stop clicked mid-run). In
+combined mode the visual lane kept its own rate (111 batches/s on the WebGL2 lane, 52/s
+on the WebGPU lane, which differ in GPU cost rather than in anything the sieve gives up)
+with at most one callback gap in 22 seconds, so the main thread stayed free to accept a
+Stop at any moment.
 
-That separation also settles where the shortage actually is. Across every run recorded
-in this document the band wait measured 0%: a worker finished its slice, was handed a
-processor again, and was handed more integers to sieve without measurable waiting.
-Under-loading was never the pool running out of work to do, and the page keeping up
-with the pool is therefore something the load harness checks on every run rather than
-something assumed.
-
-The mid-slice share is the signal that moves, and it moves steeply: nothing until
-well past the thread count, 1% at twice the thread count, then 25% and 100%.
-`CPU_POOL_CONTENTION_SHARE = 0.1` sits inside the measured gap between 1% and 25%, so
-ordinary scheduling noise cannot stop growth short, and the landing point on this host
-is past 64 workers — past the count that fills the machine, with margin, rather than
-the exact thread count the page cannot observe.
-
-Oversubscription is cheap, so the pool is grow-only and lands *past* the thread count
-rather than hunting for it. On this 32-thread host every pool from 32 to 256 workers
-holds 100% operating-system load; what oversubscription costs is sieve throughput,
-which peaks around 56–72 workers (2.52 G candidates/s measured) and falls to 2.35 G at
-96, 2.20 G at 128 and 1.90 G at 256. So landing between 48 and 108 workers — the range
-the automatic policy landed in across the runs recorded above — costs nothing to 5% of
-throughput while every one of those pools is fully loaded, whereas stopping one step
-short leaves 25–45% of the machine idle, which is the actual product failure. A worker
-cannot be removed without abandoning the band of integers it owns, which makes
-grow-only the only honest option anyway.
-
-Growth ends at the plan's ceiling, after 24 rounds, or when five consecutive
-windows report no progress at all (a stalled pool is not a capacity probe, and an
-idle worker has no queueing for the same reason it has no work — so an
-evidence-free window is never a reason to grow). The
-ceiling is the larger of the browser's report and 128 workers, so the guard is a
-runaway limit and never truncates a machine that legitimately reports more; a
-"report" above 4096 logical processors is not hardware and is discarded as
-unusable, because honouring it literally would mean creating millions of
-workers. `data-stress-cpu-reported` publishes the hint the policy was given and
-`data-stress-cpu-pool` its verdict: `growing`, then `settled`, `capped`, or
-`pinned`. If a worker cannot be created during growth, the run keeps the workers
-that did start, growth ends, and `data-stress-cpu-pool-limitation` says why —
-the page never keeps quiet and pretends the requested pool is running. An
-initial wave that cannot be built fails the start visibly instead of reporting a
-workload that is not running.
-
-Every input to that decision is published, because a worker count on its own
-cannot be audited and a policy that "converged" is not evidence that the machine
-is loaded:
+The published datasets are what make a run auditable:
 
 | Dataset | What it measures |
 |---------|------------------|
-| `data-stress-cpu-reported` | the `hardwareConcurrency` hint the policy was given |
-| `data-stress-cpu-pool` | `growing` → `settled` / `capped` / `pinned` |
-| `data-stress-cpu-slice-slow` | percent of the last second's compute slices that were descheduled mid-slice — the share the growth rule decides on |
-| `data-stress-cpu-pool-windows` | JSON of the recent windows: pool size, work, rate, per-worker rate, slices, mid-slice share, duty cycle, and the decision each produced |
-| `data-stress-cpu-busy` | percent of wall time the workers spent sieving rather than waiting to be handed a processor again — audit, not a decision input (it reads 100% on machines that never queue their workers) |
-| `data-stress-cpu-band-wait` | percent of wall time spent waiting for the page to hand out integers: a page-side limit, never read as the machine being full |
+| `data-stress-cpu-report-page` | `navigator.hardwareConcurrency` in window scope (0 = nothing usable) |
+| `data-stress-cpu-report-worker` | the same API as read inside a dedicated worker (0 = no worker answered in time) |
+| `data-stress-cpu-report` | the count the pool was sized from |
+| `data-stress-cpu-pool-size` | the worker count the run asked for |
+| `data-stress-cpu-pool-source` | `exact` / `report` / `fallback` |
+| `data-stress-cpu-pool-limitation` | present only when the running pool is short of the request, with the reason |
+| `data-stress-cpu-blocks` | blocks of the number line searched across the pool; a stalled lane is one lagging number |
+| `data-stress-worker-count` | workers actually running, decremented on every removal |
 
-What the automatic policy does on this host, run end to end against the served page
-with real workers (`--report=N` mocks only the browser's hint):
-
-| run | hint | workers | verdict | OS CPU mean/min/max | logical CPUs idle | full pool at |
-|-----|-----:|--------:|---------|--------------------:|------------------:|-------------:|
-| default | 32 | 108 | settled | 100.0 / 100.0 / 100.0% | none | 7.6 s |
-| under-report | 4 | 72 | settled | 100.0 / 100.0 / 100.0% | none | 15.4 s |
-| under-report (repeat) | 4 | 108 | settled | 100.0 / 100.0 / 100.0% | none | 17.5 s |
-| single processor claimed | 1 | 93 | settled | 99.2 / 91.7 / 100.0% | none | 19.4 s |
-| CPU + GPU | 32 | 48 | settled | 100.0 / 100.0 / 100.0% | none | 3.0 s |
-| CPU + GPU, visuals on | 32 | 48 | settled | 100.0 / 100.0 / 100.0% | none | 3.4 s |
-| Stop pressed under load | 32 | 48 | settled | 100.0 / 100.0 / 100.0% loaded; 3.5% after Stop | none | 3.4 s |
-| Firefox | 32 | 48 | settled | 100.0 / 100.0 / 100.0% | none | 3.3 s |
-| WebKit | 32 | 128 | **capped** | 96.9 / 93.9 / 99.0% | none | 15.6 s |
-
-WebKit is the honest exception: it grew to the 128-worker ceiling without ever
-measuring 10% mid-slice preemption, and its load sat at 96.9% mean with every logical
-processor between 94% and 98% — fully occupied on the harness's test (no logical
-processor persistently idle, aggregate above 95%), but short of the flat 100% Chromium
-and Firefox reach. The combined-mode rows also carry the GPU promise: 120.9 and
-120.6 rendered frames per second across the steady seconds with ~50–108 CPU workers
-running, so the CPU pool does not starve the GPU lane.
-
-The pool does not always reach the same size, and the recorded spread is 48–108
-workers: the one-second window that follows a spawn wave contains that wave's own
-scheduling churn, so a window can measure the threshold earlier than the steady state
-would. On this host the earliest settlement seen was 41 workers, which is still 1.3×
-the thread count and measured 100% load in the pinned sweep above — the policy is
-tuned so that even its early landing is a loaded machine, and only its late landing
-costs sieve throughput. `scripts/stress-test-check.js` asserts the settlement itself
-came from measurement: the last recorded window must carry a mid-slice share at or
-above the threshold, so a pool that stopped because it ran out of growth rounds or hit
-the ceiling fails that check rather than passing on a plausible-looking count.
-
-Two hooks exist for tests and diagnosis, and they mean different things:
-`window.__OD_STRESS_TEST_WORKERS__ = N` requests exactly N workers and does not
-grow (the request may exceed the report, which is how a specific count is tested
-on any machine), while `window.__OD_STRESS_TEST_MAX_WORKERS__ = N` is a ceiling
-on the automatic pool and never asks for workers. `scripts/stress-test-check.js`
-runs the automatic policy against real cores on dedicated pages — one claiming a
-single logical processor on a many-core host, where the pool must grow far past
-that claim before it settles, and one reporting the host's true logical CPU
-count — and asserts the final count, the verdict transitions and the number of
-workers actually constructed, so a policy that merely stays alive at the
-reported count fails. `scripts/stress-load-harness.js` (development only, never
-shipped) drives that real page and real workers while sampling operating-system
-per-logical-CPU counters, prints the pool's own window trace alongside the preemption
-share, duty cycle and band wait it published, and reports the load actually observed;
-`--pin=N` holds a specific count still, which is how the sweep above was measured, and
-`--report=N` mocks the browser's hint, which is how an under-reporting browser is
-tested on a machine that reports correctly.
+`scripts/stress-test-check.js` asserts the plan end to end against real workers —
+report, pool size, source, the count actually constructed, one activity bar per
+worker, and the exact-count hook overriding a mocked report — and
+`scripts/stress-load-harness.js` (development only, never shipped) drives that real
+page and real workers while sampling operating-system per-logical-CPU counters, with
+`--workers=N` for the exact-count hook and `--report=N` to mock the window-scope hint
+so an under-reporting browser can be tested on a machine that reports correctly.
 
 Each worker runs an odd-only segmented sieve of Eratosthenes using a reused 32 KiB
 marking buffer. Base primes are cached and extended geometrically with a separate
@@ -213,47 +189,51 @@ even past the small-integer range, where the native floating remainder operator
 costs several times more and would collapse throughput at the 2^31 frontier.
 There is no repeated trial division or artificial CPU busy work.
 
-Work is divided by position rather than tracked in blocks: the *n*-th worker
-created owns the band of `2^31` consecutive integers beginning at `n × 2^31`, and
-when it drains that band it asks for the next serial in spawn order. Bands are
-contiguous and disjoint, so the ranges the workers report cover a contiguous
-stretch of the number line with no gaps and no overlap, and nothing has to be
-bookkept to prove it — a worker that starts or stops simply covers or uncovers
-its own band. Requesting a band that would leave the safe-integer range is
-refused rather than wrapped or truncated. The search starts at 1 (rejected), and
-the number 2 is counted exactly once — by the single band that contains it.
+Work is divided by position rather than handed out: lane `i` of a pool of N workers
+sieves blocks `i`, `i + N`, `i + 2N` … of a tiling of `2^31` consecutive integers, and
+each worker derives the next block itself. Blocks are contiguous and disjoint, so the
+ranges the workers report cover a contiguous stretch of the number line with no gaps
+and no overlap, nothing has to be bookkept to prove it, two workers can never sieve
+the same integer, and a replacement worker resumes the lane its predecessor owned.
+Requesting a block that would leave the safe-integer range is a reported failure rather
+than a wrap-around. The search starts at 1 (rejected), and the number 2 is counted
+exactly once — by the single block that contains it.
 
-A worker yields through a MessageChannel after roughly 8ms of useful computation;
-there is no timer sleep and no refresh-rate pacing between chunks. Cumulative
-heartbeats are throttled to about 140ms, so the main thread aggregates tens of
-messages a second instead of thousands, and diagnostic DOM writes happen in the
-throttled metric loop rather than per message. Run IDs and worker indices reject
-messages from a superseded run and from a record already stopped; a band request
-carries a supply id, so a duplicated or out-of-order request cannot hand out the
-same range twice. A worker that drains its band asks again, retries on a
-watchdog, and waits instead of spinning while it has no work. Stopping is
-`terminate()` — a worker is never asked to stop politely and expected to
-acknowledge, so no stop path can be ignored.
+A worker computes in a plain loop: sieve a segment, take the next segment, take the
+next block when the block is drained. Nothing in that loop waits on the main thread, a
+timer, a MessageChannel yield, or the display refresh rate, and it allocates nothing
+per iteration; the only thing leaving the worker is a cumulative progress message
+throttled to about 250ms per worker. That replaced an 8ms MessageChannel chunk yield
+with a main-thread band allocator, which was the design where CPU work could stall on
+the page — the review kept it only if it earned its cost, and it did not: a
+self-driving worker needs no range replenishment, and one message per worker per
+quarter-second keeps the main thread free for Stop and for GPU submission. Run IDs and
+worker indices reject messages from a superseded run and from a record already
+stopped. Stopping is `terminate()` — a worker is never asked to stop politely and
+expected to acknowledge, so no stop path can be ignored, and a worker deep in the
+compute loop can be torn down at any moment. Abandoning the ranges a worker had not
+reached is expected; the search is a stress workload, not a proof.
 
 The large display is the largest prime any worker actually reported. It is not a
-claim that every smaller band has finished: bands run in parallel and the widest
+claim that every smaller block has finished: blocks run in parallel and the widest
 one is still being searched. "Candidates tested" counts odd sieve candidates plus
 2, while the found count reports actual primes; nothing is interpolated or
-extrapolated. Each worker bar reports that worker's own cumulative candidates and
-the low end of the region it is currently sieving. Stop preserves the result, and
-a new run resets it. Worker bars and candidate counts are throughput readings, not
-OS utilization — a page cannot read utilization counters, which is exactly why
-`scripts/stress-load-harness.js` samples them from outside the browser.
+extrapolated. Each worker bar reports that worker's own cumulative candidates, the
+low end of the region it is currently sieving, and how many blocks it has taken. Stop
+preserves the result, and a new run resets it. Worker bars and candidate counts are
+throughput readings, not OS utilization — a page cannot read utilization counters,
+which is exactly why `scripts/stress-load-harness.js` samples them from outside the
+browser.
 
 The summary's `candidates/s` reading is a moving average intended for comparing
 CPU throughput across machines: actual cumulative candidates tested divided by
 the actual elapsed time over the trailing 5,000 ms window, with the window edge
 linearly interpolated between the two actual samples that bracket it. Because
-heartbeats are throttled to about 140ms, a single-tick delta would report
-delivery jitter instead of throughput; the fixed interpolated window keeps the
-window length constant and lets a stalled CPU decay out of the average smoothly.
-Nothing is reported until the measured span reaches 1,000ms, and worker startup
-leaves the window once a run is 5 seconds old. The integer is also exposed as
+progress is throttled to about 250ms, a single-tick delta would report delivery
+jitter instead of throughput; the fixed interpolated window keeps the window length
+constant and lets a stalled CPU decay out of the average smoothly. Nothing is
+reported until the measured span reaches 1,000ms, and worker startup leaves the window
+once a run is 5 seconds old. The integer is also exposed as
 `data-stress-candidates-per-second` for automated comparison. It measures
 delivered actual work in the browser, so thermals, browser scheduling and
 competing applications affect it like any whole-machine benchmark. Actual
@@ -321,47 +301,45 @@ Adapter and workload information appears in the scene footer. The six readings b
 
 A browser cannot guarantee 100% CPU utilization, select every installed GPU, or set/read GPU board power. A 600 W draw on a particular card must be verified with external hardware monitoring on that machine. Thermal throttling, browser scheduling, power settings, and competing applications affect results. This tool does not change GPU power limits or overclock settings.
 
-The worker pool inherits the same limits. It grows while its workers keep their
-processors, so it reaches full load by arriving at a pool that saturates the machine,
-not by computing the machine's thread count: on the host measured above it lands past
-the logical CPU count, which is the intended landing point and costs no measurable
-load. Two things it cannot do, both from the same platform gap — a page has no
-utilization reading for its own machine:
+The worker pool inherits the same limits, and the ones that matter here are about the
+count rather than the work:
 
-- A measured share of descheduled slices has two causes, and the pool cannot tell
-  them apart: it has more workers than processors, or something *else* is using the
-  processors and taking them mid-slice. A heavily loaded host, an aggressive
-  scheduler, or a container with a CPU quota can therefore stop the pool at the
-  reported count and leave it under-loaded. That is why the share is only trusted at
-  or above the reported count: below it the pool ignores the measurement and grows
-  anyway, which is what protects the case that matters — a browser that reports too
-  few processors.
-- A browser that over-reports logical processors cannot be corrected either. A
-  worker already searching cannot be removed without abandoning the band of integers
-  it covers, so the pool only ever grows, and an over-report leaves it oversized
-  (measured cost of the 128-worker ceiling on a 32-thread host: about 12% of sieve
-  throughput, none of the load).
-
-The published datasets above are what make both cases diagnosable from the page: a
-pool that stopped early shows a high mid-slice share at a small worker count in
-`data-stress-cpu-pool-windows`, and `data-stress-cpu-band-wait` high against a
-`data-stress-cpu-busy` of 100% means the page, not the machine, was the limit.
+- The pool is only as large as the browser admits. A browser that reduces
+  `navigator.hardwareConcurrency` in *both* window and worker scope yields the reduced
+  pool, because a static page cannot query the operating system and no arithmetic
+  correction is applied to a wrong number. The measured Helium case is fixed — the
+  true count is available in worker scope, so the pool gets 32 there — but this is a
+  statement about reading the same API in a scope that answers truthfully, not about
+  overcoming a browser that hides the count everywhere.
+- Over-reporting is equally uncorrected, and now deliberately so: a browser that
+  claims more logical processors than exist gets that many workers, which costs sieve
+  throughput (about 12% at four times the thread count on the host above) and no load. The
+  page does not second-guess the report in either direction.
+- A pool cannot be observed to be loaded from inside the page. Worker counts,
+  candidates per second and per-lane block counts show that N workers are computing and
+  how fast; whether the operating system handed all N of them a processor is only
+  visible outside the browser, which is what `scripts/stress-load-harness.js` measures.
+- Nothing here changes what the browser's own process limits do to a worker: a browser
+  or extension that throttles background tabs, or an OS scheduler that gives the
+  browser's process fewer processors than it claims, produces a running pool on a
+  partially loaded machine. The harness's per-logical-CPU readings are how that is
+  told apart from the pool being too small.
 
 ## Implementation
 
 | File | Responsibility |
 |------|----------------|
-| `utilities-src/src/stressTestController.ts` | Session lifecycle, UI, pool sizing and spawning, worker aggregation, interaction |
-| `utilities-src/src/stressTest.worker.ts` | Sustained CPU work, band requests, heartbeat scheduling |
+| `utilities-src/src/stressTestController.ts` | Session lifecycle, UI, pool reports and spawning, worker aggregation and replacement, interaction |
+| `utilities-src/src/stressTest.worker.ts` | Sustained self-driven CPU work, throttled progress reporting |
 | `utilities-src/src/stressTestPrimes.ts` | Reusable segmented sieve and cached base primes |
-| `utilities-src/src/stressTestPrimeRanges.ts` | Disjoint, contiguous band tiling of the number line per worker |
+| `utilities-src/src/stressTestPrimeRanges.ts` | Disjoint, contiguous block tiling of the number line, strided per lane |
 | `utilities-src/src/stressTestWorkerTypes.ts` | Worker messages |
 | `utilities-src/src/stressTestGpu.ts` | GPU backends, adaptive scaling, resource lifecycle |
 | `utilities-src/src/stressTestGpuShaders.ts` | Shared scene design in WGSL and GLSL; compute shader |
-| `utilities-src/src/stressTestCore.ts` | Mode/state helpers, pool plan, measured growth rule |
+| `utilities-src/src/stressTestCore.ts` | Mode/state helpers, report validation, fixed pool plan |
 | `pages/utilities/index.html`, `css/utilities.css` | Workbench display and responsive layout |
 
-Run `npm run utilities:check`, `npm run utilities:build`, and `node scripts/stress-test-check.js` (Chrome by default; override with `STRESS_BROWSER_CHANNEL`) after changing these files. `npm run serve` rebuilds the utilities and verifies the bundle graph before serving, so a preview never runs stale code. Test shader compilation and stop/restart on actual browser GPU backends; mocks alone cannot validate shaders or hardware load. Whole-machine load is measured outside the page with `node scripts/stress-load-harness.js --mode=cpu` (development only; it samples operating-system counters while driving the real page).
+Run `npm run utilities:check`, `npm run utilities:build`, and `node scripts/stress-test-check.js` (Chrome by default; override with `STRESS_BROWSER_CHANNEL`) after changing these files. `npm run serve` rebuilds the utilities and verifies the bundle graph before serving, so a preview never runs stale code. Test shader compilation and stop/restart on actual browser GPU backends; mocks alone cannot validate shaders or hardware load. Whole-machine load is measured outside the page with `node scripts/stress-load-harness.js --mode=cpu` (development only; it samples operating-system counters while driving the real page), and `node scripts/stress-report-trace.js` (development only) prints what the browser reports for logical processors in page and worker scope, which is how the reduced-report case above was identified.
 
 Browser capability references: [reported logical processors](https://developer.mozilla.org/en-US/docs/Web/API/Navigator/hardwareConcurrency) and [GPU adapter selection](https://developer.mozilla.org/en-US/docs/Web/API/GPU/requestAdapter).
 

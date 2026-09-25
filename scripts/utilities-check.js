@@ -1274,7 +1274,8 @@ async function main() {
       window.__OD_RETRO_VM_TEST_MODE__ = true;
       Object.defineProperty(navigator, 'hardwareConcurrency', { value: 2, configurable: true });
       // This page asserts a specific worker count while it exercises layout and
-      // interaction, so the automatic pool is pinned rather than left resizing.
+      // interaction, so the pool is pinned to a count it can predict instead of
+      // following whatever the host reports.
       window.__OD_STRESS_TEST_WORKERS__ = 2;
     });
 

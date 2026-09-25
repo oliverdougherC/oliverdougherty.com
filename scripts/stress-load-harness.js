@@ -14,22 +14,48 @@
  * writing to a CSV file). Nothing reads OS counters inside the browser.
  *
  * Usage (repository root):
- *   node scripts/stress-load-harness.js --mode=cpu --pin=32 --duration=15000
+ *   node scripts/stress-load-harness.js --mode=cpu --workers=32 --duration=15000
  *   node scripts/stress-load-harness.js --mode=cpu --report=12 --duration=45000
- *   node scripts/stress-load-harness.js --mode=both --report=1 --duration=60000 --browser=firefox
+ *   node scripts/stress-load-harness.js --mode=both --duration=60000 --browser=firefox
+ *   node scripts/stress-load-harness.js --mode=cpu --duration=30000 \
+ *     --executable="C:\path\to\browser.exe" --profile="C:\path\to\profile-copy"
  *
  * Flags:
  *   --mode=cpu|gpu|both                 UI mode selected before Start (default cpu)
- *   --pin=N                             request exactly N workers through the page's
- *                                       test hooks (exact request AND ceiling), and
- *                                       report N as the browser's logical-processor
- *                                       count. Diagnostics only: the pool is pinned.
- *   --report=N                          mock ONLY navigator.hardwareConcurrency, so
- *                                       the page's automatic policy must reach full
- *                                       load from a wrong hint. Never pass the real
- *                                       host count here unless that is the point.
+ *   --workers=N                         request exactly N workers through the page's
+ *                                       exact-count hook. This does NOT touch the
+ *                                       browser's reported processor count, so the
+ *                                       run shows both numbers: what the browser
+ *                                       said, and the pinned pool that was requested.
+ *   --report=N                          mock ONLY window-scope
+ *                                       navigator.hardwareConcurrency, which is how a
+ *                                       browser that under-reports in window scope is
+ *                                       reproduced on a host that reports correctly.
+ *                                       A worker's own scope keeps the real value.
  *   --duration=ms                       run time after Start (default 15000)
  *   --browser=chromium|firefox|webkit   default chromium
+ *   --channel=NAME                      Playwright browser channel, e.g. `chrome`, to
+ *                                       drive an installed browser instead of the
+ *                                       bundled one
+ *   --executable=PATH                   launch this browser binary (an installed
+ *                                       Chromium build that Playwright does not know)
+ *   --profile=DIR                       launch with a persistent profile directory.
+ *                                       Give it a COPY of a real profile: a live
+ *                                       profile is locked by the running browser, and
+ *                                       the run writes to whatever directory it uses.
+ *   --headed                            show the browser window
+ *   --no-software-gl                    do not force SwiftShader; use the browser's
+ *                                       own GPU selection (implied by --channel,
+ *                                       --executable and --profile)
+ *   --keep-visible=false                do NOT ask the browser to keep an occluded or
+ *                                       backgrounded window computing. By default the
+ *                                       harness passes those flags for Chromium,
+ *                                       because a window the compositor has hidden
+ *                                       stops the workload (the page stops on
+ *                                       visibility change) and the measurement would
+ *                                       then be of a hidden tab. Each sample records
+ *                                       `document.visibilityState`, so this is always
+ *                                       visible in the output rather than assumed.
  *   --stop-at=ms                        click Stop at this elapsed time and verify
  *                                       teardown (workers, bars, idle state)
  *   --steady-after=ms                   samples at/after this elapsed time count as
@@ -43,6 +69,7 @@
  */
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const assert = require('node:assert/strict');
@@ -54,18 +81,25 @@ const COUNTER = '\\Processor Information(*)\\% Processor Time';
 
 function parseArgs(argv) {
   const options = {
-    mode: 'cpu', pin: null, report: null, duration: 15_000, browser: 'chromium',
-    stopAt: null, steadyAfter: 5000, reducedMotion: true, label: '', keepQuiet: false
+    mode: 'cpu', workers: null, report: null, duration: 15_000, browser: 'chromium',
+    channel: null, executable: null, profile: null, headed: false, softwareGl: null,
+    keepVisible: true, stopAt: null, steadyAfter: 5000, reducedMotion: true, label: '', keepQuiet: false
   };
   for (const argument of argv) {
     const [flag, raw] = argument.split('=');
     if (raw === undefined) throw new Error(`Expected --flag=value, got ${argument}`);
     switch (flag) {
       case '--mode': options.mode = raw; break;
-      case '--pin': options.pin = Number(raw); break;
+      case '--workers': options.workers = Number(raw); break;
       case '--report': options.report = Number(raw); break;
       case '--duration': options.duration = Number(raw); break;
       case '--browser': options.browser = raw; break;
+      case '--channel': options.channel = raw; break;
+      case '--executable': options.executable = raw; break;
+      case '--profile': options.profile = raw; break;
+      case '--headed': options.headed = raw !== 'false'; break;
+      case '--no-software-gl': options.softwareGl = raw === 'false'; break;
+      case '--keep-visible': options.keepVisible = raw !== 'false'; break;
       case '--stop-at': options.stopAt = Number(raw); break;
       case '--steady-after': options.steadyAfter = Number(raw); break;
       case '--reduced-motion': options.reducedMotion = raw !== 'false'; break;
@@ -76,10 +110,14 @@ function parseArgs(argv) {
   }
   assert(['cpu', 'gpu', 'both'].includes(options.mode), `Unknown mode ${options.mode}`);
   assert(['chromium', 'firefox', 'webkit'].includes(options.browser), `Unknown browser ${options.browser}`);
-  assert(!options.pin || !options.report, '--pin and --report are mutually exclusive (pinning is not an automatic run)');
-  for (const key of ['pin', 'report', 'duration', 'steadyAfter']) {
+  for (const key of ['workers', 'report', 'duration', 'steadyAfter']) {
     if (options[key] !== null && !Number.isFinite(options[key])) throw new Error(`--${key} must be a number`);
   }
+  // A real installed browser with its own GPU and extensions is a different test from
+  // the pinned software-rendering bundle, so it never silently inherits SwiftShader.
+  const realBrowser = Boolean(options.channel || options.executable || options.profile);
+  options.softwareGl = options.softwareGl ?? !realBrowser;
+  if (options.executable) assert.ok(fs.existsSync(options.executable), `--executable not found: ${options.executable}`);
   return options;
 }
 
@@ -173,8 +211,12 @@ function quantile(values, fraction) {
   return sorted[Math.min(sorted.length - 1, Math.floor(fraction * (sorted.length - 1)))];
 }
 
+/** Distinct readings in sample order, dropping the "not published yet" sentinel. */
+function distinctSample(values) {
+  return [...new Set(values.filter(value => Number.isFinite(value) && value >= 0))];
+}
+
 function summarise(counters, samples, options) {
-  const finalWorkers = samples.reduce((best, sample) => Math.max(best, sample.workers), 0);
   const steady = samples.filter(sample => sample.elapsed * 1000 >= options.steadyAfter && sample.state === 'running');
   const steadyCounters = counters.filter(counter => counter.elapsed * 1000 >= options.steadyAfter
     // With --stop-at, the operating-system counters keep being sampled after the
@@ -194,15 +236,20 @@ function summarise(counters, samples, options) {
     .map(([instance, median]) => `${instance}:${median.toFixed(0)}%`);
   const totalValues = steadyCounters.map(row => row.total);
   const throughput = steady.filter(sample => sample.candidatesPerSecond > 0);
-  // Combined mode has a second promise to keep: a big CPU pool must not starve the
+  // Combined mode has a second promise to keep: a full CPU pool must not starve the
   // GPU lane. Frames rendered per second across the steady seconds is that check,
   // read from the page's own cumulative frame counter rather than inferred.
   const renderSteady = steady.filter(sample => sample.renderedFrames >= 0);
   const renderSpan = renderSteady.length > 1 ? renderSteady.at(-1).elapsed - renderSteady[0].elapsed : 0;
   const renderRates = steady.map(sample => sample.renderRate).filter(value => value >= 0);
   const stallSamples = steady.map(sample => sample.callbackStalls).filter(value => value >= 0);
+  const poolSizes = [...new Set(samples.map(sample => sample.poolSize).filter(value => value > 0))];
+  const requestedPool = poolSizes.at(-1) ?? 0;
+  const workerCounts = [...new Set(steady.map(sample => sample.workers))];
+  // A fixed pool has exactly one size for the whole run; anything else is a finding,
+  // not a rounding detail, so the harness states it instead of averaging it away.
+  const firstComplete = samples.find(sample => sample.workers >= requestedPool && requestedPool > 0);
   return {
-    finalWorkers,
     sampleCount: samples.length,
     counterSamples: counters.length,
     steadySeconds: steadyCounters.length,
@@ -215,7 +262,32 @@ function summarise(counters, samples, options) {
     idleLogicalProcessors: idleLogical,
     candidatesPerSecondMean: throughput.length
       ? throughput.reduce((sum, sample) => sum + sample.candidatesPerSecond, 0) / throughput.length : 0,
-    steadyWorkerCounts: [...new Set(steady.map(sample => sample.workers))],
+    // What the page said and did, kept separate because they are different facts:
+    // the browser's two reports, the pool that was sized from them, and the number
+    // of workers that were actually running. Samples taken before the plan exists
+    // report nothing, which is not a reading of -1 and is not listed.
+    pageReports: distinctSample(samples.map(sample => sample.reportPage)),
+    workerReports: distinctSample(samples.map(sample => sample.reportWorker)),
+    reports: distinctSample(samples.map(sample => sample.report)),
+    poolSizes,
+    poolSources: [...new Set(samples.map(sample => sample.poolSource).filter(Boolean))],
+    limitations: [...new Set(samples.map(sample => sample.poolLimitation).filter(Boolean))],
+    steadyWorkerCounts: workerCounts,
+    poolStable: workerCounts.length === 1,
+    blocksMax: Math.max(0, ...samples.map(sample => sample.blocks)),
+    poolCompleteMs: firstComplete ? Math.round(firstComplete.elapsed * 1000) : null,
+    visibilityStates: [...new Set(samples.map(sample => sample.visibility))],
+    // When the page stopped computing before the harness stopped it. The workload ends
+    // on a visibility change, so a run that reads low has to be explainable as a hidden
+    // page rather than silently mistaken for a pool that was too small.
+    stoppedEarlyMs: (() => {
+      const complete = samples.findIndex(sample => sample.workers > 0);
+      if (complete < 0) return null;
+      const bound = options.stopAt;
+      const early = samples.findIndex((sample, index) => index > complete && sample.state !== 'running'
+        && (bound === null || sample.elapsed * 1000 < bound));
+      return early < 0 ? null : Math.round(samples[early].elapsed * 1000);
+    })(),
     // Load after Stop was pressed: the promise is that the machine is released.
     cpuTotalAfterStopMean: idleCounters.length
       ? idleCounters.reduce((sum, row) => sum + row.total, 0) / idleCounters.length : null,
@@ -225,17 +297,42 @@ function summarise(counters, samples, options) {
     gpuRenderRateMean: renderRates.length ? renderRates.reduce((a, b) => a + b, 0) / renderRates.length : null,
     // Highest count of stalled rendering callbacks seen, i.e. times the page failed
     // to get a frame callback at all while the CPU pool was running.
-    callbackStallsMax: stallSamples.length ? Math.max(...stallSamples) : null,
-    // First time the pool reached its largest observed size, and when the page's
-    // own pool verdict said it was done growing.
-    growToFullLoadMs: samples.find(sample => sample.workers >= finalWorkers)?.elapsed ? Math.round(samples.find(sample => sample.workers >= finalWorkers).elapsed * 1000) : null,
-    poolVerdicts: samples.map(sample => sample.pool).filter((value, index, all) => value !== all[index - 1])
+    callbackStallsMax: stallSamples.length ? Math.max(...stallSamples) : null
   };
+}
+
+async function openBrowser(options) {
+  const launch = { headless: !options.headed };
+  if (options.browser === 'chromium') {
+    if (options.channel) launch.channel = options.channel;
+    if (options.executable) launch.executablePath = options.executable;
+    const args = [];
+    if (options.softwareGl) args.push('--enable-webgl', '--ignore-gpu-blocklist', '--use-angle=swiftshader');
+    // A window the compositor considers hidden makes the page stop its workload (the
+    // controller stops on visibility change), which would measure a hidden tab rather
+    // than the pool. Each sample still records the real visibility state.
+    if (options.keepVisible) {
+      args.push('--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding',
+        '--disable-background-timer-throttling');
+    }
+    if (args.length) launch.args = args;
+  }
+  if (!options.profile) {
+    return { browser: await playwright[options.browser].launch(launch) };
+  }
+  // A persistent profile is the only way to run the browser with the extensions and
+  // settings of the installation being investigated. It returns a context, not a
+  // browser, so the caller owns whichever handle comes back.
+  const context = await playwright[options.browser].launchPersistentContext(options.profile, launch);
+  return { context };
 }
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const label = options.label || `${options.mode}-${options.pin ? `pin${options.pin}` : `report${options.report ?? 'auto'}`}`;
+  const label = options.label || [options.mode,
+    options.workers ? `workers${options.workers}` : '',
+    options.report ? `report${options.report}` : '',
+    options.channel || (options.executable ? path.basename(options.executable) : '')].filter(Boolean).join('-');
   const baseUrl = process.env.LOAD_HARNESS_URL || 'http://127.0.0.1:4191';
   const server = await startLocalStaticServer({ url: baseUrl, cwd: ROOT, skip: Boolean(process.env.LOAD_HARNESS_URL) });
   const url = server?.url || baseUrl;
@@ -243,30 +340,38 @@ async function main() {
   fs.mkdirSync(outputDir, { recursive: true });
   const csvPath = path.join(outputDir, `${label}.csv`);
 
-  const launch = { headless: true };
-  if (options.browser === 'chromium') {
-    launch.args = ['--enable-webgl', '--ignore-gpu-blocklist', '--use-angle=swiftshader'];
-  }
-  const browser = await playwright[options.browser].launch(launch);
-  const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: options.reducedMotion ? 'reduce' : 'no-preference' });
+  const { browser, context: ownedContext } = await openBrowser(options);
+  const context = ownedContext ?? await browser.newContext({
+    viewport: { width: 1280, height: 800 }, reducedMotion: options.reducedMotion ? 'reduce' : 'no-preference'
+  });
   const pageErrors = [];
-  await context.addInitScript(({ pin, report }) => {
+  await context.addInitScript(({ workers, report }) => {
     if (report !== null) Object.defineProperty(navigator, 'hardwareConcurrency', { value: report, configurable: true });
-    if (pin !== null) {
-      Object.defineProperty(navigator, 'hardwareConcurrency', { value: pin, configurable: true });
-      // Exact request and ceiling: understood by the current worker policy, and
-      // the legacy build's cap hook pins the same count for before/after runs.
-      window.__OD_STRESS_TEST_WORKERS__ = pin;
-      window.__OD_STRESS_TEST_MAX_WORKERS__ = pin;
-    }
-  }, { pin: options.pin, report: options.report });
-  const page = await context.newPage();
+    // The exact-count hook is a request for N workers and nothing else: it does not
+    // change what the browser reports, so the run still shows the real report next to
+    // the pool it was forced to.
+    if (workers !== null) window.__OD_STRESS_TEST_WORKERS__ = workers;
+  }, { workers: options.workers, report: options.report });
+  const page = context.pages().length ? context.pages()[0] : await context.newPage();
+  if (ownedContext) await page.setViewportSize({ width: 1280, height: 800 });
   page.on('pageerror', error => pageErrors.push(`pageerror: ${error.message}`));
   page.on('console', message => { if (message.type() === 'error') pageErrors.push(`console: ${message.text()}`); });
 
   await page.goto(`${url}/pages/utilities/index.html#stress-test`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('#stressTestApp[data-stress-state="idle"]', { timeout: 30_000 });
+  // The idle dataset is in the static HTML, so it does not prove the controller has
+  // booted; clicking before it binds its handlers is a click into the void. Wait for
+  // the first metric frame, which only the controller publishes.
+  await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressTotalRenderedFrames !== undefined,
+    null, { timeout: 30_000 });
   await page.click(`[data-stress-mode-option="${options.mode}"]`);
+  // What this browser's own scopes report, read before Start, with nothing mocked
+  // beyond the flags above: the ground truth the pool's numbers are compared against.
+  const scopeReports = await page.evaluate(() => ({
+    page: navigator.hardwareConcurrency ?? null,
+    userAgent: navigator.userAgent,
+    deviceMemory: navigator.deviceMemory ?? null
+  }));
 
   const counters = startCounterStream(csvPath, options.duration);
   const countersWallStart = counters.wallStart;
@@ -282,6 +387,10 @@ async function main() {
       const data = root.dataset;
       return {
         state: data.stressState,
+        // Whether the browser considers this page visible. The workload stops when it
+        // is not, so a low-load run has to be explainable as a hidden page or as a
+        // pool that was too small — never silently one or the other.
+        visibility: document.visibilityState,
         workers: Number(data.stressWorkerCount ?? '0'),
         candidatesPerSecond: Number(data.stressCandidatesPerSecond ?? '0'),
         candidates: Number(data.stressCandidates ?? '0'),
@@ -291,13 +400,13 @@ async function main() {
         renderedFrames: Number(data.stressTotalRenderedFrames ?? '-1'),
         renderRate: Number(data.stressRenderRate ?? '-1'),
         callbackStalls: Number(data.stressCallbackStalls ?? '-1'),
-        reported: Number(data.stressCpuReported ?? '-1'),
-        pool: data.stressCpuPool ?? '',
+        reportPage: Number(data.stressCpuReportPage ?? '-1'),
+        reportWorker: Number(data.stressCpuReportWorker ?? '-1'),
+        report: Number(data.stressCpuReport ?? '-1'),
+        poolSize: Number(data.stressCpuPoolSize ?? '0'),
+        poolSource: data.stressCpuPoolSource ?? '',
         poolLimitation: data.stressCpuPoolLimitation ?? '',
-        busy: Number(data.stressCpuBusy ?? '-1'),
-        sliceSlow: Number(data.stressCpuSliceSlow ?? '-1'),
-        bandWait: Number(data.stressCpuBandWait ?? '-1'),
-        windows: data.stressCpuPoolWindows ?? '[]',
+        blocks: Number(data.stressCpuBlocks ?? '0'),
         bars: document.querySelectorAll('#stressWorkerActivity > span').length
       };
     });
@@ -310,28 +419,19 @@ async function main() {
     await new Promise(resolve => setTimeout(resolve, 400));
   }
 
-  // The page publishes the growth rule's own measurement windows. The page keeps
-  // only a bounded history, so the harness collects them on every sample and
-  // merges them: the whole run's decisions must be auditable after the fact.
-  const windowTrace = [...new Map(samples.flatMap(sample => {
-    try {
-      return JSON.parse(sample.windows).map(window => [window.at, window]);
-    } catch (_error) {
-      return [];
-    }
-  })).values()].sort((a, b) => a.at - b.at);
-
   if (!stopped) {
     await page.click('#stressStopBtn');
     await page.waitForSelector('#stressTestApp[data-stress-state="idle"]', { timeout: 15_000 });
   }
   const teardown = await page.evaluate(() => ({
     bars: document.querySelectorAll('#stressWorkerActivity > span').length,
-    workers: Number(document.getElementById('stressTestApp').dataset.stressWorkerCount ?? '-1')
+    workers: Number(document.getElementById('stressTestApp').dataset.stressWorkerCount ?? '-1'),
+    poolSize: document.getElementById('stressTestApp').dataset.stressCpuPoolSize ?? null
   }));
   counters.stop();
   const counterRows = await counters.collect();
-  await browser.close();
+  if (ownedContext) await ownedContext.close();
+  else await browser.close();
   server?.kill();
 
   // Counter rows share the wall clock with the page samples: rebase them onto
@@ -341,11 +441,14 @@ async function main() {
   const result = {
     label, options, url,
     startedAt: new Date(startedAt).toISOString(),
+    // Operating-system ground truth, for comparison with what the browser reported.
+    // It is context for reading the run, never an input to the page.
+    host: { oscpus: os.cpus().length, availableParallelism: os.availableParallelism?.() ?? null,
+      model: os.cpus()[0]?.model ?? '' },
+    scopeReports,
     teardown,
     pageErrors,
-    // The window strings are merged into `windowTrace`; per-sample copies are noise.
-    samples: samples.map(({ windows: _windows, ...rest }) => rest),
-    windowTrace,
+    samples,
     counters: rebased.map(row => ({
       elapsed: Number(row.elapsed.toFixed(1)),
       total: Number(row.total.toFixed(1)),
@@ -359,8 +462,14 @@ async function main() {
   const jsonPath = path.join(outputDir, `${label}.json`);
   fs.writeFileSync(jsonPath, JSON.stringify(result, null, 2));
 
-  console.log(`Harness: ${label} (${options.browser}, mode=${options.mode}, `
-    + `${options.pin ? `pinned ${options.pin}` : `report hint ${options.report ?? 'unmocked'}`})`);
+  console.log(`Harness: ${label} (${options.browser}${options.channel ? `/${options.channel}` : ''}`
+    + `${options.executable ? `/${path.basename(options.executable)}` : ''}, mode=${options.mode}, `
+    + `${options.workers ? `exact ${options.workers} workers` : 'automatic sizing'}`
+    + `${options.report ? `, window report mocked to ${options.report}` : ', window report unmocked'})`);
+  console.log(`  host: ${result.host.model.trim()} · os.cpus() ${result.host.oscpus} · `
+    + `availableParallelism() ${result.host.availableParallelism} · browser page scope ${scopeReports.page}`);
+  console.log(`  page plan: window report ${summary.pageReports.join('/')} · worker report ${summary.workerReports.join('/')} `
+    + `→ sized from ${summary.reports.join('/')} (${summary.poolSources.join('/')}) · pool ${summary.poolSizes.join('/')}`);
   console.log(`  steady-state OS CPU (_Total): mean ${summary.cpuTotalMean?.toFixed(1)}% `
     + `min ${summary.cpuTotalMin?.toFixed(1)}% max ${summary.cpuTotalMax?.toFixed(1)}% over ${summary.steadySeconds} samples`);
   console.log(`  per-logical-processor medians: min ${summary.perLogicalMedianMin?.toFixed(0)}% `
@@ -369,45 +478,21 @@ async function main() {
   if (summary.cpuTotalAfterStopMean !== null) {
     console.log(`  OS CPU after Stop (≥4 s later): mean ${summary.cpuTotalAfterStopMean.toFixed(1)}% — the machine must be released`);
   }
-  console.log(`  page: workers ${summary.steadyWorkerCounts.join('/')} · ${Math.round(summary.candidatesPerSecondMean).toLocaleString()} candidates/s steady`);
+  console.log(`  page: workers ${summary.steadyWorkerCounts.join('/')} `
+    + `(${summary.poolStable ? 'stable' : 'CHANGED DURING RUN'}) · pool complete at `
+    + `${summary.poolCompleteMs ?? 'n/a'} ms · ${summary.blocksMax} blocks searched`);
+  console.log(`  page visibility: ${summary.visibilityStates.join('/')}`
+    + (summary.stoppedEarlyMs === null ? ''
+      : ` · the workload ENDED ON ITS OWN at ${summary.stoppedEarlyMs} ms — the load above is not a full-run measurement`));
+  console.log(`  throughput: ${Math.round(summary.candidatesPerSecondMean).toLocaleString()} candidates/s steady`);
+  if (summary.limitations.length) console.log(`  pool limitation published: ${summary.limitations.join(' | ')}`);
   if (summary.gpuBackend && summary.gpuBackend !== 'none') {
     // The CPU pool is only allowed to be this big if the GPU lane still renders.
     console.log(`  gpu: backend ${summary.gpuBackend} · ${summary.gpuFramesPerSecond?.toFixed(1) ?? 'n/a'} frames/s steady `
       + `· render rate ${summary.gpuRenderRateMean?.toFixed(1) ?? 'n/a'}/s · callback stalls ${summary.callbackStallsMax ?? 'n/a'}`);
   }
-  console.log(`  growth verdicts: ${summary.poolVerdicts.join(' → ') || 'none'} (full pool at ${summary.growToFullLoadMs ?? 'n/a'} ms)`);
-  const busySteady = samples.filter(sample => sample.elapsed * 1000 >= options.steadyAfter && sample.state === 'running');
-  if (busySteady.length) {
-    const busyValues = busySteady.map(sample => sample.busy).filter(value => value >= 0);
-    const slowValues = busySteady.map(sample => sample.sliceSlow).filter(value => value >= 0);
-    const bandValues = busySteady.map(sample => sample.bandWait).filter(value => value >= 0);
-    console.log(`  pool duty cycle (page-measured, audit only): mean ${Math.round(busyValues.reduce((a, b) => a + b, 0) / busyValues.length)}% `
-      + `min ${Math.min(...busyValues)}% max ${Math.max(...busyValues)}% `
-      + `(sieving time over sieving plus waiting-to-run; not a growth input — it stays at 100% even at 8× oversubscription)`);
-    if (bandValues.length) {
-      console.log(`  waiting for integers to sieve: mean `
-        + `${Math.round(bandValues.reduce((a, b) => a + b, 0) / bandValues.length)}% (page-side supply, not machine load)`);
-    }
-    if (slowValues.length) {
-      // The share the growth rule actually decides on, printed from outside so the
-      // threshold can be checked against a real machine rather than asserted.
-      console.log(`  mid-slice preemption share (growth rule input): mean ${Math.round(slowValues.reduce((a, b) => a + b, 0) / slowValues.length)}% `
-        + `min ${Math.min(...slowValues)}% max ${Math.max(...slowValues)}% `
-        + `(slices descheduled while running)`);
-    }
-  }
-  if (windowTrace.length) {
-    console.log('  growth windows (what the pool measured, as the decision saw it):');
-    for (const window of windowTrace) {
-      console.log(`    ${String(window.at).padStart(7)}ms ${String(window.workers).padStart(4)} workers `
-        + `${String(Math.round(window.rate * 1000).toLocaleString('en-US')).padStart(17)} cand/s `
-        + `${window.duty === null ? '   duty n/a' : `duty ${(window.duty * 100).toFixed(1).padStart(5)}%`} `
-        + `${String(window.slices).padStart(7)} slices `
-        + `${window.slowShare === null ? '     n/a' : `${(window.slowShare * 100).toFixed(1).padStart(6)}%`} `
-        + `${window.gain === null ? '   baseline' : `${(window.gain * 100).toFixed(1).padStart(9)}%`}  → ${window.action}`);
-    }
-  }
-  console.log(`  teardown: state idle, ${teardown.bars} bars, worker count ${teardown.workers}`);
+  console.log(`  teardown: state idle, ${teardown.bars} bars, worker count ${teardown.workers}, `
+    + `pool dataset ${teardown.poolSize ?? 'cleared'}`);
   console.log(`  page errors: ${pageErrors.length ? pageErrors.join(' | ') : 'none'}`);
   console.log(`  detail: ${path.relative(ROOT, jsonPath)} (+ ${path.relative(ROOT, csvPath)})`);
   if (!options.keepQuiet) {
