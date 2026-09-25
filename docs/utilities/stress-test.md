@@ -145,27 +145,28 @@ system's own per-logical-processor counters are sampled outside the browser.
 
 | run | window report | worker report | pool | OS CPU (mean of `_Total`) | idle logical CPUs | candidates/s |
 |-----|--------------:|--------------:|-----:|--------------------------:|:------------------|-------------:|
-| Chromium, CPU-only, nothing modified | 32 | 32 | 32 | 100.0% | none | 2,602 M |
-| Chromium, CPU-only, exact request of 32 | 32 | — | 32 (exact) | 100.0% | none | 2,589 M |
-| Chromium, CPU-only, window scope mocked to 12 | 12 | 32 | 32 | 100.0% | none | 2,607 M |
-| Chromium, combined mode, visuals on | 32 | 32 | 32 | 100.0% | none | 2,549 M |
+| Chromium, CPU-only, nothing modified | 32 | 32 | 32 | 100.0% | none | 2,622 M |
+| Chromium, CPU-only, exact request of 32 | 32 | — | 32 (exact) | 100.0% | none | 2,609 M |
+| Chromium, CPU-only, window scope mocked to 12 | 12 | 32 | 32 | 100.0% | none | 2,621 M |
+| Chromium, combined mode, visuals on | 32 | 32 | 32 | 100.0% | none | 2,551 M |
 | The reported browser, CPU-only, nothing modified | 16 | 32 | 32 | 100.0% | none | 2,655 M |
 | The reported browser, combined mode, visuals on | 14 | 32 | 32 | 100.0% | none | 2,635 M |
 | Installed Google Chrome, combined mode, visuals on | 32 | 32 | 32 | 100.0% | none | 2,632 M |
 
 Every run held its 32 workers for its whole duration — the pool dataset was published
 once and never changed — had the whole pool live 410–450 ms after Start, and released the
-machine on Stop (1.7% CPU measured four seconds after a Stop clicked mid-run). In
-combined mode the visual lane kept its own rate (111 batches/s on the WebGL2 lane, 52/s
+machine on Stop (3.5% CPU measured from four seconds after a Stop clicked mid-run). In
+combined mode the visual lane kept its own rate (108 batches/s on the WebGL2 lane, 52/s
 on the WebGPU lane, which differ in GPU cost rather than in anything the sieve gives up)
 with at most one callback gap in 22 seconds, so the main thread stayed free to accept a
 Stop at any moment.
 
 The same harness measured the previous build with its pool pinned to exactly 32 workers,
 with identical browser flags: 100.0% load, all 32 processors at 100%, 1,902 M candidates/s
-— so the old worker loop was not failing to saturate the machine once it was given the
-right count; the sizing was the whole failure. The self-driven loop adds about 37% more
-sieve work at that same load, and the reason to prefer it is not the number but what it
+against the 2,622 M above — so the old worker loop was not failing to saturate the
+machine once it was given the right count; the sizing was the whole failure. The
+self-driven loop adds about 38% more sieve work at that same load, and the reason to
+prefer it is not the number but what it
 no longer depends on: no main-thread range supply, no message round trip per block, and
 no pacing timer of any kind between a worker and its next block.
 
