@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StressTestController } from '../src/stressTestController';
+import { CPU_POOL_GROWTH_WINDOW_MS, CPU_POOL_TRUSTED_REPORT_MAX, CPU_SLICE_OVERRUN_FACTOR } from '../src/stressTestCore';
 import { startAdaptiveGpuStress, type StressGpuStressCallbacks, type StressGpuStressHandle } from '../src/stressTestGpu';
 import type { StartCpuStressRequest, StressTestWorkerResponse } from '../src/stressTestWorkerTypes';
 
@@ -29,7 +30,13 @@ class MockWorker {
   readonly terminate = vi.fn();
   // Running heartbeat counters the test driver maintains per worker.
   cum = 0;
-  benchWork = 0;
+  cursor = 1;
+  supplies = 0;
+  busyMs = 0;
+  idleMs = 0;
+  bandWaitMs = 0;
+  slices = 0;
+  slowSlices = 0;
 
   constructor(url?: unknown) {
     if (typeof url !== 'string' && ++MockWorker.realSpawns > MockWorker.failRealAfter) {
@@ -47,18 +54,34 @@ class MockWorker {
   removeEventListener(type: string, listener: EventListener) { this.listeners.get(type)?.delete(listener); }
 
   get request(): StartCpuStressRequest { return this.postMessage.mock.calls[0][0]; }
+  get terminated() { return this.terminate.mock.calls.length > 0; }
 
   receive(data: StressTestWorkerResponse) {
     for (const listener of this.listeners.get('message') ?? []) listener(new MessageEvent('message', { data }));
   }
 
-  heartbeat(latestPrime: number, primesFound: number, iterations: number, workUnits = iterations) {
+  heartbeat(latestPrime: number, primesFound: number, candidates: number, rangeLow = this.cursor,
+    busyMs = this.busyMs, idleMs = this.idleMs, bandWaitMs = this.bandWaitMs,
+    slices = this.slices, slowSlices = this.slowSlices) {
     const data: StressTestWorkerResponse = {
       type: 'cpu-stress-heartbeat', requestId: this.request.requestId,
-      workerIndex: this.request.workerIndex, latestPrime, primesFound, iterations, checksum: .25, workUnits
+      workerIndex: this.request.workerIndex, latestPrime, primesFound, candidates, checksum: .25, rangeLow,
+      busyMs, idleMs, bandWaitMs, slices, slowSlices
     };
     this.receive(data);
     return data;
+  }
+
+  /** Asks for the band after the one it owns, the way a running worker prefetches. */
+  askForBand(supplyId = ++this.supplies, overrides: Record<string, unknown> = {}) {
+    this.receive({ type: 'cpu-stress-work-request', requestId: this.request.requestId,
+      workerIndex: this.request.workerIndex, supplyId, ...overrides } as StressTestWorkerResponse);
+  }
+
+  /** The `continue-cpu-stress` reply the controller sent for a given supply. */
+  supply(supplyId: number) {
+    return this.postMessage.mock.calls.map(call => call[0]).find(message => message.type === 'continue-cpu-stress'
+      && message.supplyId === supplyId);
   }
 }
 
@@ -88,6 +111,61 @@ describe('stress test controller lifecycle', () => {
     const pending = [...frames.values()];
     frames.clear();
     for (const callback of pending) callback(now);
+  }
+
+  // The automatic pool runs on real timers, so the suite captures them instead of
+  // waiting: a growth window becomes a deliberate test step. Sub-passes exist
+  // because a growth wave that needs more than one spawn burst queues follow-up
+  // bursts behind the tick that started it, and only the growth tick's own
+  // â‰¥ CPU_POOL_GROWTH_WINDOW_MS guard decides when a window actually closes.
+  let timers: Map<number, () => void>;
+  let timerId = 0;
+
+  function fireTimers(elapsedMs: number) {
+    now += elapsedMs;
+    const due = [...timers.values()];
+    timers.clear();
+    for (const callback of due) callback();
+  }
+
+  /** Live workers only: a terminated one never reports again in a real browser. */
+  const liveWorkers = () => MockWorker.instances.filter(worker => worker.postMessage.mock.calls.length > 0 && !worker.terminated);
+
+  /**
+   * One window of work from a machine with `threads` logical processors. A worker
+   * that has a processor to itself spends the whole window sieving and is handed
+   * its next slice immediately; a pool that has to share splits each worker's
+   * window into sieving time and waiting-to-run time in proportion, which is what
+   * the pool's duty cycle reads. A bigger pool on a small machine therefore
+   * delivers about the same aggregate work either way — the property that makes
+   * throughput useless for sizing this pool — while its duty cycle falls.
+   */
+  function beatPool(workPerWorker = 1000, threads = Number.POSITIVE_INFINITY) {
+    const workers = liveWorkers();
+    const share = Number.isFinite(threads) ? Math.min(1, threads / Math.max(1, workers.length)) : 1;
+    const oversubscribed = Number.isFinite(threads) && workers.length / threads >= CPU_SLICE_OVERRUN_FACTOR;
+    const window = CPU_POOL_GROWTH_WINDOW_MS + 200; // the window tick plus the metrics frame
+    for (const worker of workers) {
+      worker.cum += workPerWorker * share;
+      worker.busyMs += window * share;
+      worker.idleMs += window * (1 - share);
+      // Roughly one 8ms slice per 8ms of wall clock, as the real worker reports.
+      worker.slices += 125;
+      if (oversubscribed) worker.slowSlices += 125;
+      worker.heartbeat(1_000_000_000_003, 0, Math.round(worker.cum));
+    }
+  }
+
+  /**
+   * One measurement window: its work, then exactly one tick of the pool's
+   * measurement timer, then a metrics refresh. Advancing `now` by precisely
+   * CPU_POOL_GROWTH_WINDOW_MS keeps one closed window per call, so every window
+   * the growth policy judges contains exactly the work this call just reported.
+   */
+  function measureWindow(threads = 8, workPerWorker = 1000) {
+    beatPool(workPerWorker, threads);
+    fireTimers(CPU_POOL_GROWTH_WINDOW_MS);
+    advanceFrame();
   }
 
   async function start(mode: 'cpu' | 'gpu' | 'both' = 'both') {
@@ -141,6 +219,16 @@ describe('stress test controller lifecycle', () => {
       return frameId;
     });
     vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => { frames.delete(id); });
+    timers = new Map();
+    timerId = 0;
+    vi.spyOn(window, 'setTimeout').mockImplementation(((callback: () => void) => {
+      timerId += 1;
+      timers.set(timerId, callback);
+      return timerId;
+    }) as unknown as typeof window.setTimeout);
+    vi.spyOn(window, 'clearTimeout').mockImplementation(((id?: number) => {
+      if (id) timers.delete(id);
+    }) as unknown as typeof window.clearTimeout);
     const context = {
       clearRect: vi.fn(), fillRect: vi.fn(), fillStyle: '',
       createLinearGradient: () => ({ addColorStop: vi.fn() })
@@ -156,6 +244,7 @@ describe('stress test controller lifecycle', () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     Reflect.deleteProperty(window, '__OD_STRESS_TEST_MAX_WORKERS__');
+    Reflect.deleteProperty(window, '__OD_STRESS_TEST_WORKERS__');
     document.body.innerHTML = '';
   });
 
@@ -166,17 +255,17 @@ describe('stress test controller lifecycle', () => {
     const [first, second] = workloadWorkers();
     expect(workloadWorkers()).toHaveLength(2);
     expect(first.request.workerIndex).toBe(0);
-    expect(first.request.blocks).toHaveLength(4);
-    expect(first.request.blocks[0].low).toBe(1);
+    expect(first.request.low).toBe(1);
     expect(second.request.workerIndex).toBe(1);
-    expect(second.request.blocks[0].low).toBe(first.request.blocks.at(-1)!.high + 1);
+    // Each worker owns a disjoint band, so nothing needs to be de-duplicated.
+    expect(second.request.low).toBe(first.request.limit + 1);
     first.heartbeat(1_000_000_000_103, 3, 100);
     second.heartbeat(1_000_000_000_039, 2, 70);
     advanceFrame();
     expect(root.dataset.stressLatestPrime).toBe('1000000000103');
     expect(document.getElementById('stressLatestPrime')!.textContent).toBe('1,000,000,000,103');
     expect(root.dataset.stressPrimesFound).toBe('5');
-    expect(root.dataset.stressIterations).toBe('170');
+    expect(root.dataset.stressCandidates).toBe('170');
 
     first.heartbeat(1_000_000_000_163, 5, 150);
     first.heartbeat(1_000_000_000_163, 5, 150);
@@ -184,7 +273,7 @@ describe('stress test controller lifecycle', () => {
     advanceFrame();
     expect(root.dataset.stressLatestPrime).toBe('1000000000163');
     expect(root.dataset.stressPrimesFound).toBe('7');
-    expect(root.dataset.stressIterations).toBe('220');
+    expect(root.dataset.stressCandidates).toBe('220');
     expect(document.getElementById('stressPrimeSummary')!.textContent).toContain('7 primes found');
   });
 
@@ -199,7 +288,7 @@ describe('stress test controller lifecycle', () => {
       second.heartbeat(1_000_000_000_009, 1, tick * 500);
       advanceFrame();
     }
-    expect(root.dataset.stressIterations).toBe('10000');
+    expect(root.dataset.stressCandidates).toBe('10000');
     expect(root.dataset.stressCandidatesPerSecond).toBe('5000');
     expect(document.getElementById('stressPrimeSummary')!.textContent).toContain('5,000 candidates/s');
 
@@ -257,61 +346,103 @@ describe('stress test controller lifecycle', () => {
     expect(root.dataset.stressGpuCanvasActive).toBe('true');
   });
 
-  it('refills the worker that asks first with unique blocks and ignores duplicate or stale demands', async () => {
+  it('answers the worker that asks first with the next disjoint band and ignores duplicate or stale demands', async () => {
     await start('cpu');
     const [first, second] = workloadWorkers();
-    const initialEnd = second.request.blocks.at(-1)!.high;
-    const demand = { type: 'cpu-stress-work-request' as const, requestId: second.request.requestId,
-      workerIndex: 1, supplyId: 1, count: 2 };
-    second.receive(demand);
-    second.receive(demand);
-    second.receive({ ...demand, supplyId: 3 });
-    second.receive({ ...demand, requestId: demand.requestId - 1, supplyId: 2 });
-    expect(second.postMessage).toHaveBeenCalledTimes(2);
-    const supply = second.postMessage.mock.calls[1][0];
-    expect(supply).toMatchObject({ type: 'supply-cpu-stress-work', supplyId: 1, workerIndex: 1 });
-    expect(supply.blocks[0].low).toBe(initialEnd + 1);
-    first.receive({ ...demand, workerIndex: 0 });
-    expect(first.postMessage.mock.calls[1][0].blocks[0].low).toBe(supply.blocks.at(-1)!.high + 1);
-    advanceFrame();
+    const initialEnd = second.request.limit;
+    second.askForBand(1);
+    second.askForBand(1); // duplicate
+    second.askForBand(3); // never requested
+    second.askForBand(1, { requestId: second.request.requestId - 1 }); // previous run
+    expect(second.postMessage).toHaveBeenCalledTimes(2); // only the valid demand answered
+    const supply = second.supply(1);
+    expect(supply).toMatchObject({ type: 'continue-cpu-stress', supplyId: 1, workerIndex: 1 });
+    expect(supply.low).toBe(initialEnd + 1);
+    expect(supply.limit).toBeGreaterThan(supply.low);
+    // The answer does not wait for a frame: a starving worker is refilled inside
+    // the message that asked, so a busy main thread cannot starve the pool.
+    first.askForBand(1);
+    const firstSupply = first.supply(1);
+    expect(firstSupply.low).toBe(supply.limit + 1); // still one tiling, no overlap
     expect(root.dataset.stressCpuAlgorithm).toBe('segmented-sieve');
-    expect(root.dataset.stressCpuBlocksAssigned).toBe('12');
-    expect(root.dataset.stressCpuRefills).toBe('2');
+    advanceFrame();
     const activity = document.getElementById('stressWorkerActivity')!;
-    expect((activity.children[1] as HTMLElement).dataset.blocksAssigned).toBe('6');
-    expect((activity.children[1] as HTMLElement).dataset.refills).toBe('1');
+    expect((activity.children[1] as HTMLElement).dataset.rangeLow).toBe(String(supply.low));
   });
 
   it('uses all 128 advertised threads and tears every worker down', async () => {
     vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(128);
     await start('cpu');
     const workers = workloadWorkers();
+    // The whole report becomes workers at once: no halving, no reserved core, and
+    // at 128 the pool already sits at the growth guard, so nothing else is added.
     expect(workers).toHaveLength(128);
-    const blocks = workers.flatMap(worker => worker.request.blocks);
-    expect(new Set(blocks.map(block => block.id)).size).toBe(512);
-    for (let index = 1; index < blocks.length; index += 1) expect(blocks[index].low).toBe(blocks[index - 1].high + 1);
+    expect(root.dataset.stressCpuReported).toBe('128');
+    expect(root.dataset.stressCpuPool).toBe('capped');
+    const bands = workers.map(worker => worker.request);
+    expect(new Set(bands.map(band => band.low)).size).toBe(128);
+    for (let index = 1; index < bands.length; index += 1) {
+      expect(bands[index].low).toBe(bands[index - 1].limit + 1);
+    }
     click('stressStopBtn');
     for (const worker of workers) expect(worker.terminate).toHaveBeenCalledOnce();
   });
 
-  it('honors the explicit test-worker override and resets allocation on restart', async () => {
+  it('pins the exact diagnostic worker count and resets band allocation on restart', async () => {
     vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(128);
-    Object.assign(window, { __OD_STRESS_TEST_MAX_WORKERS__: 2 });
+    Object.assign(window, { __OD_STRESS_TEST_WORKERS__: 2 });
     await start('cpu');
     const previous = workloadWorkers();
     expect(previous).toHaveLength(2);
+    expect(root.dataset.stressCpuPool).toBe('pinned');
     const oldListener = [...previous[0].listeners.get('message')!][0];
     click('stressStopBtn');
     await start('cpu');
     const current = workloadWorkers().slice(2);
     expect(current).toHaveLength(2);
-    expect(current[0].request.blocks[0]).toMatchObject({ id: 0, low: 1 });
-    const oldDemand: StressTestWorkerResponse = { type: 'cpu-stress-work-request', requestId: previous[0].request.requestId,
-      workerIndex: 0, supplyId: 1, count: 2 };
+    expect(current[0].request).toMatchObject({ low: 1 });
+    const oldDemand: StressTestWorkerResponse = { type: 'cpu-stress-work-request',
+      requestId: previous[0].request.requestId, workerIndex: 0, supplyId: 1 };
     oldListener(new MessageEvent('message', { data: oldDemand }));
-    expect(previous[0].postMessage).toHaveBeenCalledTimes(1);
-    expect(current[0].postMessage).toHaveBeenCalledTimes(1);
-    expect(root.dataset.stressCpuRefills).toBe('0');
+    expect(previous[0].postMessage).toHaveBeenCalledTimes(1); // stale demand dropped
+    expect(current[0].postMessage).toHaveBeenCalledTimes(1); // no unsolicited supply
+    advanceFrame();
+    expect(root.dataset.stressCpuPool).toBe('pinned'); // and a pinned pool never grows
+  });
+
+  it('treats the max-workers hook as a ceiling on the automatic pool, never a request', async () => {
+    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(128);
+    Object.assign(window, { __OD_STRESS_TEST_MAX_WORKERS__: 4 });
+    await start('cpu');
+    // A ceiling is a limit, not a way to make the page use more workers than the
+    // browser reports, and it stops growth dead at the limit.
+    expect(workloadWorkers()).toHaveLength(4);
+    expect(root.dataset.stressCpuPool).toBe('capped');
+    for (let window = 0; window < 6; window += 1) measureWindow(128);
+    expect(workloadWorkers()).toHaveLength(4);
+  });
+
+  it('honours an exact request above the reported count for diagnosis', async () => {
+    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(2);
+    Object.assign(window, { __OD_STRESS_TEST_WORKERS__: 9 });
+    await start('cpu');
+    // Testing a specific count is the point of the hook, so it is not clamped to
+    // the (possibly wrong) report, and it stays exactly there.
+    expect(workloadWorkers()).toHaveLength(9);
+    expect(root.dataset.stressCpuReported).toBe('2');
+    expect(root.dataset.stressCpuPool).toBe('pinned');
+    for (let window = 0; window < 6; window += 1) measureWindow(2);
+    expect(workloadWorkers()).toHaveLength(9);
+  });
+
+  it('ignores a diagnostic hook that asks for an absurd worker count', async () => {
+    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(4);
+    Object.assign(window, { __OD_STRESS_TEST_WORKERS__: CPU_POOL_TRUSTED_REPORT_MAX + 1 });
+    await start('cpu');
+    // Refusing to spawn millions of workers, and staying visibly automatic
+    // instead of pretending to be pinned at a number nobody asked for.
+    expect(workloadWorkers()).toHaveLength(4);
+    expect(root.dataset.stressCpuPool).toBe('growing');
   });
 
   it('stops all workloads when the page becomes hidden', async () => {
@@ -546,331 +677,257 @@ describe('stress test controller lifecycle', () => {
     expect(canvas.width).toBe(1200);
   });
 
-  // Advances the probe by one 600ms measurement window: after `openFrames`
-  // 200ms frames (4 past the 700ms spawn/keep/revert settles, 2 past the
-  // 300ms pause/resume settles, 0 when a window directly follows another
-  // window's close) an opening beat starts the window; 200ms later all delta
-  // beats report work (absorbed, too early to close); 600ms after the opening
-  // a zero-delta beat closes it. Production workers beat on every phase,
-  // each adding `delta` work per window to its running counter; bench workers
-  // beat only when listed, mirroring the pause flip: a paused wave is silent.
-  function smtWindow(
-    permanent: readonly MockWorker[],
-    bench: readonly MockWorker[],
-    delta: number,
-    benchDelta = 0,
-    openFrames = 0
-  ) {
-    for (let frame = 0; frame < openFrames; frame += 1) advanceFrame();
-    for (const worker of permanent) worker.heartbeat(7, 2, worker.cum); // opening beat
-    advanceFrame();
-    for (const worker of bench) {
-      worker.benchWork += benchDelta;
-      worker.heartbeat(7, 0, worker.benchWork);
-    }
-    for (const worker of permanent) {
-      worker.cum += delta;
-      worker.heartbeat(7, 2, worker.cum);
-    }
-    for (let frame = 0; frame < 2; frame += 1) advanceFrame();
-    for (const worker of permanent) worker.heartbeat(7, 2, worker.cum); // closing beat
-  }
+  // Everything below drives the automatic pool. `measureWindow` states the
+  // machine under test: a host with `threads` logical processors, where each live
+  // worker sieves its fair share of that machine's capacity and only starts
+  // overrunning its slice budget once the pool shares threads past
+  // CPU_SLICE_OVERRUN_FACTOR, followed by the pool's own measurement tick.
 
-  // Runs one interleaved trial against the live paused wave: an off window
-  // (clearing the spawn settle), then on/off/on flips. The keep signal is the
-  // permanent workers' rate under the wave versus the bracketing off windows
-  // (`onProdDelta < prodDelta` simulates thread oversubscription slowing them).
-  function smtTrial(
-    permanent: readonly MockWorker[],
-    bench: readonly MockWorker[],
-    benchDelta: number,
-    prodDelta = 300,
-    onProdDelta = prodDelta
-  ) {
-    smtWindow(permanent, [], prodDelta, 0, 4); // off window after the spawn settle → resume
-    smtWindow(permanent, bench, onProdDelta, benchDelta, 2); // on window after the flip settle → pause
-    smtWindow(permanent, [], prodDelta, 0, 2); // bracketing off window → resume
-    smtWindow(permanent, bench, onProdDelta, benchDelta, 2); // second on window → decision
-  }
-
-  // Starts CPU stress and drives heartbeats through the two pre-spawn off
-  // windows until the probe spawns its first (paused) benchmark wave; returns
-  // the permanent workers. Production beats 300 work units per worker per
-  // window (aggregate rate 1.0 work/ms).
-  async function startCpuThroughProbeSpawn() {
+  it('grows a browser that under-reports until its workers start sharing threads', async () => {
+    // The requirement this policy exists to meet. A browser that reports 2 of
+    // this machine's 8 logical processors must still end up loading all 8, and
+    // the assertion that matters is on the pool the run FINISHED with — a policy
+    // that simply stays alive at the reported count fails here.
+    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(2);
     await start('cpu');
-    const [first, second] = workloadWorkers();
-    first.heartbeat(7, 1, 100); first.cum = 100;
-    second.heartbeat(7, 1, 150); second.cum = 150; // anchors the initial settle
-    smtWindow([first, second], [], 300, 0, 4); // off window 1 (opens after the warmup)
-    smtWindow([first, second], [], 300); // off window 2 → spawn the paused wave
-    return { first, second };
-  }
+    expect(workloadWorkers()).toHaveLength(2);
+    expect(root.dataset.stressCpuReported).toBe('2');
+    expect(root.dataset.stressCpuPool).toBe('growing');
 
-  // Regression: a wave seeded at a fixed range measures the range's cheapness,
-  // not the work the next permanent workers would really do — work units at a
-  // stale cheap frontier made the old aggregate metric fake capacity gains on
-  // pinned CPUs, and cheap seeded waves would also under-contend the trial's
-  // threads. Every disposable wave must seed exactly at the production
-  // frontier current when that wave spawns.
-  it('seeds every disposable probe wave at the live production frontier', async () => {
+    const sizes: number[] = [];
+    for (let window = 0; window < 14; window += 1) {
+      measureWindow(8);
+      sizes.push(liveWorkers().length);
+    }
+
+    const final = liveWorkers().length;
+    expect(final).toBeGreaterThan(2); // never stopped at the report
+    expect(final).toBeGreaterThanOrEqual(8); // reached the machine's capacity
+    expect(root.dataset.stressCpuPool).toBe('settled');
+    expect(root.dataset.stressWorkerCount).toBe(String(final));
+    // Grow-only: the pool got there by adding workers, never by replacing them.
+    expect(MockWorker.instances.filter(worker => worker.terminated)).toHaveLength(0);
+    expect(sizes).toEqual([...sizes].sort((left, right) => left - right));
+  });
+
+  it('never shrinks the pool, whatever the work-rate does afterwards', async () => {
+    // Boost-clock recovery, thermal state and background load all make the same
+    // pool measure slower a few seconds later. That sag is why a slowdown-based
+    // policy threw workers away and under-loaded the machine, so the pool is
+    // grow-only and a sagging rate is not a reason to remove anything.
+    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(4);
     await start('cpu');
-    const [first, second] = workloadWorkers();
-    // Advance the production frontier well past its spawn fill before probing.
-    first.receive({ type: 'cpu-stress-work-request', requestId: first.request.requestId,
-      workerIndex: 0, supplyId: 1, count: 4 });
-    second.receive({ type: 'cpu-stress-work-request', requestId: second.request.requestId,
-      workerIndex: 1, supplyId: 1, count: 4 });
-    const frontier = second.postMessage.mock.calls[1][0].blocks.at(-1).high + 1;
-    first.heartbeat(7, 1, 100); first.cum = 100;
-    second.heartbeat(7, 1, 150); second.cum = 150; // anchors the initial settle
-    smtWindow([first, second], [], 300, 0, 4); // off window 1
-    smtWindow([first, second], [], 300); // off window 2 → spawn the paused wave
-    const [, , benchA, benchB] = workloadWorkers();
-    expect(benchA.request.blocks[0].low).toBe(frontier); // the advanced frontier, not a constant
-    expect(benchB.request.blocks[0].low).toBe(benchA.request.blocks.at(-1)!.high + 1);
-    // Production resumption is unaffected: its next block starts at exactly
-    // the frontier the wave was seeded from.
-    first.receive({ type: 'cpu-stress-work-request', requestId: first.request.requestId,
-      workerIndex: 0, supplyId: 2, count: 2 });
-    expect(first.postMessage.mock.calls[2][0].blocks[0].low).toBe(frontier);
+    for (let window = 0; window < 4; window += 1) measureWindow(16);
+    const grown = liveWorkers().length;
+    expect(grown).toBeGreaterThan(4);
+
+    for (let step = 1; step <= 6; step += 1) measureWindow(16, 1000 * (1 - step * 0.03));
+    expect(liveWorkers().length).toBeGreaterThanOrEqual(grown); // never shrank
+    expect(MockWorker.instances.filter(worker => worker.terminated)).toHaveLength(0);
+
+    // Growth ends when the workers start displacing each other, and the pool that
+    // got there is then simply left alone.
+    for (let window = 0; window < 10; window += 1) measureWindow(4);
+    expect(root.dataset.stressCpuPool).toBe('settled');
+    const settled = liveWorkers().length;
+    for (let window = 0; window < 6; window += 1) measureWindow(4);
+    expect(liveWorkers()).toHaveLength(settled);
   });
 
-  it('reverts the benchmark probe wave on stalled throughput and keeps production coverage gapless', async () => {
-    const { first, second } = await startCpuThroughProbeSpawn();
-    expect(root.dataset.stressCpuSmtProbe).toBe('probing');
-    expect(workloadWorkers()).toHaveLength(4);
-    const [, , benchA, benchB] = workloadWorkers();
-    // The disposable wave seeds at the live production frontier and sieves
-    // its own allocator: it never consumes nor skips any production block.
-    expect(benchA.request.blocks[0].low).toBe(second.request.blocks.at(-1)!.high + 1);
-    expect(benchB.request.blocks[0].low).toBe(benchA.request.blocks.at(-1)!.high + 1);
+  it('spawns one growth step in bursts so a big step cannot block the page', async () => {
+    // Constructing a worker is main-thread work. A single step that adds nine
+    // workers arrives as two bursts, so combined mode keeps submitting GPU work
+    // and the control panel keeps responding while the pool grows.
+    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(12);
+    await start('cpu');
+    for (let window = 0; window < 3; window += 1) measureWindow(64);
+    expect(liveWorkers()).toHaveLength(18); // 12 + the first bounded step
 
-    const permanent = [first, second];
-    // The bench workers' on windows slow the permanent workers to ~67% — the
-    // trial's threads no longer fit — so the trial reverts.
-    smtTrial(permanent, [benchA, benchB], 300, 300, 200);
-
-    expect(root.dataset.stressCpuSmtProbe).toBe('reverted');
-    expect(benchA.terminate).toHaveBeenCalledOnce();
-    expect(benchB.terminate).toHaveBeenCalledOnce();
-    expect(first.terminate).not.toHaveBeenCalled();
-    expect(second.terminate).not.toHaveBeenCalled();
-    expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(2);
-    advanceFrame();
-    expect(root.dataset.stressWorkerCount).toBe('2');
-
-    // Regression: a refill after a revert must continue the production frontier.
-    // Consuming production blocks for disposable probe work used to skip them.
-    first.receive({ type: 'cpu-stress-work-request', requestId: first.request.requestId,
-      workerIndex: 0, supplyId: 1, count: 2 });
-    const supply = first.postMessage.mock.calls[1][0];
-    expect(supply.blocks[0]).toMatchObject({ id: 8, low: second.request.blocks.at(-1)!.high + 1 });
-    advanceFrame();
-    expect(root.dataset.stressCpuBlocksAssigned).toBe('10');
+    beatPool(2000);
+    fireTimers(CPU_POOL_GROWTH_WINDOW_MS); // skipped: this window held the spawn itself
+    expect(liveWorkers()).toHaveLength(18);
+    beatPool(2000); // still one worker per available thread
+    fireTimers(CPU_POOL_GROWTH_WINDOW_MS); // the tick decides and starts spawning
+    expect(liveWorkers()).toHaveLength(26); // eight now, the rest on a follow-up
+    fireTimers(0);
+    expect(liveWorkers()).toHaveLength(27);
   });
 
-  it('converts kept probe waves into permanent workers and iterates until growth stalls', async () => {
-    const { first, second } = await startCpuThroughProbeSpawn();
-    const [, , benchA, benchB] = workloadWorkers();
-    const permanent = [first, second];
-
-    // The wave costs the permanent workers nothing (their on-window rate is
-    // unchanged) → keep converts the entire wave.
-    smtTrial(permanent, [benchA, benchB], 300);
-
-    // The disposable wave is traded for permanent workers fed by the production allocator.
-    expect(benchA.terminate).toHaveBeenCalledOnce();
-    expect(benchB.terminate).toHaveBeenCalledOnce();
-    expect(workloadWorkers()).toHaveLength(6);
-    const [third, fourth] = workloadWorkers().slice(4);
-    expect(third.request.workerIndex).toBe(2);
-    expect(fourth.request.workerIndex).toBe(3);
-    expect(third.request.blocks[0].id).toBe(8);
-    expect(third.request.blocks[0].low).toBe(second.request.blocks.at(-1)!.high + 1);
-    expect(fourth.request.blocks[0].low).toBe(third.request.blocks.at(-1)!.high + 1);
-    expect(root.dataset.stressCpuSmtProbe).toBe('probing'); // another exponential trial is pending
-    advanceFrame();
-    expect(root.dataset.stressIterations).toBe('3850'); // benchmark iterations never counted
-    expect(root.dataset.stressPrimesFound).toBe('4'); // benchmark primes never counted
-    expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(4);
-
-    // Wave two re-baselines at the kept four workers and spawns the trial-8
-    // wave of four disposable benchmark workers.
-    const grown = [first, second, third, fourth];
-    smtWindow(grown, [], 300, 0, 4); // re-baseline off window 1
-    smtWindow(grown, [], 300); // off window 2 → spawn
-    expect(workloadWorkers()).toHaveLength(10); // four disposable benchmark workers
-    const waveTwo = workloadWorkers().slice(6);
-    // Wave two re-seeds at the frontier the kept permanent replacements just
-    // advanced; a stale seed would compare mismatched-cost ranges.
-    expect(waveTwo[0].request.blocks[0].low).toBe(fourth.request.blocks.at(-1)!.high + 1);
-    for (let index = 1; index < waveTwo.length; index += 1) {
-      expect(waveTwo[index].request.blocks[0].low).toBe(waveTwo[index - 1].request.blocks.at(-1)!.high + 1);
-    }
-    expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(8);
-
-    // Wave two's on windows slow the permanent workers to ~67% — those trial
-    // threads do not fit → revert. Because an earlier wave was kept,
-    // the search is not over: the slowed trial becomes the failed bound and
-    // the probe re-baselines to bisect the bracket.
-    smtTrial(grown, waveTwo, 300, 300, 200);
-    for (const worker of waveTwo) expect(worker.terminate).toHaveBeenCalledOnce();
-    expect(root.dataset.stressCpuSmtProbe).toBe('probing'); // refining the bracket [4, 8] now
-    expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(4);
-
-    // The refinement trial bisects to six, so its disposable wave has two
-    // members, not the exponential phase's four.
-    smtWindow(grown, [], 300, 0, 4); // re-baseline off window 1
-    smtWindow(grown, [], 300); // off window 2 → spawn two
-    const refinementWave = workloadWorkers().slice(10);
-    expect(refinementWave).toHaveLength(2);
-    expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(6);
-
-    // The refinement trial slows workers to ~67% too; the bracket [4, 6] is
-    // inside the tolerance, so the search ends with the overall grown count.
-    smtTrial(grown, refinementWave, 300, 300, 200);
-
-    expect(root.dataset.stressCpuSmtProbe).toBe('kept'); // capacity still grew overall
-    for (const worker of refinementWave) expect(worker.terminate).toHaveBeenCalledOnce();
-    expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(4);
-    advanceFrame();
-    expect(root.dataset.stressWorkerCount).toBe('4');
-
-    // Coverage stays gapless across every keep and revert: the frontier is the last
-    // permanent replacement's final block, with benchmark waves never consuming it.
-    third.receive({ type: 'cpu-stress-work-request', requestId: third.request.requestId,
-      workerIndex: 2, supplyId: 1, count: 2 });
-    const supply = third.postMessage.mock.calls[1][0];
-    expect(supply.blocks[0]).toMatchObject({ id: 16, low: fourth.request.blocks.at(-1)!.high + 1 });
-  });
-
-  it('keeps a wave on rising scan work even as candidate throughput decays with the frontier', async () => {
-    const { first, second } = await startCpuThroughProbeSpawn();
-    const [, , benchA, benchB] = workloadWorkers();
-    // The bench workers report pure scan work and zero candidates, and the
-    // production set itself slows down as the frontier advances (300 → 200
-    // units per window). A candidate-based or time-sequential metric sees
-    // attenuating windows and would revert; the interleaved comparison sees
-    // the same slowdown in on and off windows alike, measures the wave as
-    // costing the permanent workers nothing, and converts it in full.
-    smtTrial([first, second], [benchA, benchB], 900, 200);
-    expect(root.dataset.stressCpuSmtProbe).toBe('probing'); // keep decided; next trial pending
-    expect(benchA.terminate).toHaveBeenCalledOnce();
-    expect(benchB.terminate).toHaveBeenCalledOnce();
-    expect(workloadWorkers()).toHaveLength(6); // permanent replacements installed
-    click('stressStopBtn');
-    expect(root.dataset.stressState).toBe('idle');
-  });
-
-  it('isolates a probe worker error to the probe wave', async () => {
-    const { first, second } = await startCpuThroughProbeSpawn();
-    const [, , benchA] = workloadWorkers();
-    const utilityErrors: Event[] = [];
-    const onUtilityError = (event: Event) => utilityErrors.push(event);
-    window.addEventListener('utility-load-error', onUtilityError);
-    try {
-      for (const listener of benchA.listeners.get('error')!) {
-        listener(new ErrorEvent('error', { message: 'probe worker exploded' }));
-      }
-      expect(root.dataset.stressState).toBe('running');
-      expect(root.dataset.stressCpuSmtProbe).toBe('reverted');
-      expect(first.terminate).not.toHaveBeenCalled();
-      expect(second.terminate).not.toHaveBeenCalled();
-      expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(2);
-      expect(utilityErrors).toHaveLength(0);
-      advanceFrame();
-      expect(root.dataset.stressWorkerCount).toBe('2');
-    } finally {
-      window.removeEventListener('utility-load-error', onUtilityError);
-    }
-  });
-
-  it('treats a reported probe worker failure as a wave revert, not a run failure', async () => {
-    const { first, second } = await startCpuThroughProbeSpawn();
-    const [, , benchA] = workloadWorkers();
-    benchA.receive({ type: 'cpu-stress-error', requestId: benchA.request.requestId,
-      workerIndex: benchA.request.workerIndex, message: 'benchmark sieve fault' });
-    expect(root.dataset.stressState).toBe('running');
-    expect(root.dataset.stressCpuSmtProbe).toBe('reverted');
-    expect(first.terminate).not.toHaveBeenCalled();
-    expect(second.terminate).not.toHaveBeenCalled();
-  });
-
-  it('rolls back a partially constructed probe wave without orphan bars', async () => {
-    MockWorker.failRealAfter = 3; // the second benchmark worker's constructor throws
-    const { first, second } = await startCpuThroughProbeSpawn();
-    expect(root.dataset.stressState).toBe('running');
-    expect(root.dataset.stressCpuSmtProbe).toBe('reverted');
-    expect(first.terminate).not.toHaveBeenCalled();
-    expect(second.terminate).not.toHaveBeenCalled();
-    expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(2);
-    const partial = workloadWorkers().at(-1)!; // the half-wave that did get constructed
-    expect(partial.terminate).toHaveBeenCalledOnce();
-    first.receive({ type: 'cpu-stress-work-request', requestId: first.request.requestId,
-      workerIndex: 0, supplyId: 1, count: 2 });
-    const supply = first.postMessage.mock.calls[1][0];
-    expect(supply.blocks[0].low).toBe(second.request.blocks.at(-1)!.high + 1);
-  });
-
-  it('reclaims production blocks when a permanent replacement wave fails partway', async () => {
-    // Regression: a kept wave trades disposable workers for permanent ones.
-    // The first replacement consumes four production blocks before the second
-    // replacement's constructor throws; the rollback must rewind the frontier
-    // so surviving workers resume gaplessly instead of skipping the blocks.
-    MockWorker.failRealAfter = 5; // the second permanent replacement throws
-    const { first, second } = await startCpuThroughProbeSpawn();
-    const [, , benchA, benchB] = workloadWorkers();
-    smtTrial([first, second], [benchA, benchB], 300); // 2× ratio → keep → replacements spawn
+  it('keeps the run and reports the shortfall when a growth wave cannot start', async () => {
+    // Worker creation can genuinely fail (quota, memory pressure) after the pool
+    // is already loaded. Bounded recovery: the workers that run keep running,
+    // growth stops, and the reason is published instead of quietly ignored.
+    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(2);
+    await start('cpu');
+    measureWindow(8);
+    measureWindow(8);
+    measureWindow(8); // first step: 2 → 4 workers
+    measureWindow(8); // the window that contained that spawn is not judged
+    MockWorker.failRealAfter = MockWorker.realSpawns;
+    measureWindow(8); // next step cannot be built
 
     expect(root.dataset.stressState).toBe('running');
-    expect(root.dataset.stressCpuSmtProbe).toBe('reverted'); // probe ends with no extra capacity
-    expect(benchA.terminate).toHaveBeenCalledOnce();
-    const replacement = workloadWorkers().at(-1)!; // the half-spawned permanent worker
-    expect(replacement.terminate).toHaveBeenCalledOnce();
-    expect(first.terminate).not.toHaveBeenCalled();
-    expect(second.terminate).not.toHaveBeenCalled();
-    expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(2);
-    advanceFrame();
-    expect(root.dataset.stressWorkerCount).toBe('2');
-    expect(root.dataset.stressCpuBlocksAssigned).toBe('8'); // replacement blocks reclaimed
-
-    // The frontier is exact: the next refill resumes after the last block the
-    // surviving permanent workers ever received.
-    first.receive({ type: 'cpu-stress-work-request', requestId: first.request.requestId,
-      workerIndex: 0, supplyId: 1, count: 2 });
-    const supply = first.postMessage.mock.calls[1][0];
-    expect(supply.blocks[0]).toMatchObject({ id: 8, low: second.request.blocks.at(-1)!.high + 1 });
+    expect(liveWorkers()).toHaveLength(4); // kept the pool that was already working
+    expect(root.dataset.stressCpuPool).toBe('settled');
+    expect(root.dataset.stressCpuPoolLimitation).toContain('Simulated worker quota exceeded');
+    // And it does not keep trying: no restart loop behind the reported failure.
+    const attempts = MockWorker.realSpawns;
+    for (let window = 0; window < 4; window += 1) measureWindow(8);
+    expect(MockWorker.realSpawns).toBe(attempts);
   });
 
-  it('unwinds a partially constructed baseline wave on start failure', async () => {
-    MockWorker.failRealAfter = 1;
+  it('fails the start and unwinds the pool when the initial wave cannot be built', async () => {
+    // The difference between the two cases is honesty about what is running: no
+    // workers means no workload, so the run reports an error rather than idling.
+    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(6);
+    MockWorker.failRealAfter = 3;
     await start('cpu');
     expect(root.dataset.stressState).toBe('error');
     expect(document.getElementById('stressWorkerActivity')!.children).toHaveLength(0);
-    const only = workloadWorkers();
-    expect(only).toHaveLength(1);
-    expect(only[0].terminate).toHaveBeenCalledOnce();
+    const spawned = workloadWorkers();
+    expect(spawned).toHaveLength(3);
+    for (const worker of spawned) expect(worker.terminate).toHaveBeenCalledOnce();
     advanceFrame();
     expect(root.dataset.stressWorkerCount).toBe('0');
+    expect(root.dataset.stressCpuPool).toBeUndefined();
   });
 
-  it('skips the SMT probe entirely when the explicit worker cap is set', async () => {
-    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(128);
-    Object.assign(window, { __OD_STRESS_TEST_MAX_WORKERS__: 2 });
+  it('fails the run when a worker reports a fault, whatever wave grew it', async () => {
+    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(2);
     await start('cpu');
-    expect(workloadWorkers()).toHaveLength(2);
-    const [first, second] = workloadWorkers();
+    measureWindow(8);
+    measureWindow(8);
+    measureWindow(8);
+    const grown = liveWorkers();
+    expect(grown.length).toBeGreaterThan(2);
+    const last = grown.at(-1)!;
+    last.receive({ type: 'cpu-stress-error', requestId: last.request.requestId, workerIndex: last.request.workerIndex,
+      message: 'simulated sieve fault' });
+    expect(root.dataset.stressState).toBe('error');
+    expect(root.dataset.stressGpuLastError).toContain('simulated sieve fault');
+  });
 
-    first.heartbeat(7, 1, 1000);
-    second.heartbeat(7, 1, 1000);
-    for (let step = 0; step < 12; step += 1) {
-      advanceFrame();
-      first.heartbeat(7, step + 2, 1000 + step * 5000);
-      second.heartbeat(7, step + 2, 1000 + step * 5000);
+  it('ends growth with the run and never spawns into a later one', async () => {
+    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(2);
+    await start('cpu');
+    measureWindow(8);
+    measureWindow(8);
+    measureWindow(8);
+    expect(liveWorkers().length).toBeGreaterThan(2);
+
+    click('stressStopBtn');
+    expect(timers.size).toBe(0); // no growth or spawn timer survived the stop
+    const spawned = MockWorker.instances.length;
+    for (let pass = 0; pass < 8; pass += 1) fireTimers(CPU_POOL_GROWTH_WINDOW_MS);
+    expect(MockWorker.instances.length).toBe(spawned);
+
+    // A restart is a fresh plan, not a continuation of the old pool's decisions.
+    await start('cpu');
+    expect(root.dataset.stressCpuPool).toBe('growing');
+    expect(liveWorkers()).toHaveLength(2); // a new run starts from the report again
+  });
+
+  it('keeps every worker fed with its own band while the pool grows', async () => {
+    // Disjoint bands are what makes a growing pool safe: a worker added later
+    // must never be handed integers another worker is already sieving, or the
+    // displayed prime list would contain duplicates.
+    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(2);
+    await start('cpu');
+    for (let window = 0; window < 6; window += 1) {
+      for (const worker of liveWorkers()) worker.askForBand();
+      measureWindow(8);
     }
+    const workers = liveWorkers();
+    expect(workers.length).toBeGreaterThan(2);
+    const lows: number[] = [];
+    for (const worker of workers) {
+      lows.push(worker.request.low);
+      for (const call of worker.postMessage.mock.calls.slice(1)) lows.push(call[0].low);
+    }
+    expect(new Set(lows).size).toBe(lows.length); // no integer range issued twice
+    for (const worker of workers) {
+      for (const call of worker.postMessage.mock.calls.slice(1)) {
+        expect(call[0].type).toBe('continue-cpu-stress');
+        expect(call[0].limit).toBeGreaterThan(call[0].low);
+      }
+    }
+  });
 
-    expect(workloadWorkers()).toHaveLength(2);
-    expect(root.dataset.stressCpuSmtProbe).toBeUndefined();
+  it('publishes the measurement windows behind each growth decision', async () => {
+    // A worker count cannot be audited after the fact; the windows the decision
+    // was made from can. Without this, a pool that grew on noise and a pool that
+    // grew on real capacity look identical from the outside.
+    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(2);
+    await start('cpu');
+    for (let window = 0; window < 4; window += 1) measureWindow(8);
+    const windows: Array<{ workers: number; rate: number; perWorker: number; action: string }> =
+      JSON.parse(root.dataset.stressCpuPoolWindows ?? '[]');
+    expect(windows.length).toBeGreaterThanOrEqual(3);
+    expect(windows.every(window => window.workers >= 2 && window.rate > 0 && window.perWorker > 0
+      && typeof window.action === 'string')).toBe(true);
+    expect(windows.some(window => window.action === 'grow')).toBe(true);
+    expect(windows.some(window => window.workers > 2)).toBe(true);
+    expect(windows.at(-1)!.workers).toBeLessThanOrEqual(Number(root.dataset.stressWorkerCount));
+  });
+
+  it('publishes the pool\'s compute duty cycle, which falls when workers queue for processors', async () => {
+    // Aggregate work-rate is blind to the difference between "the machine has no
+    // more capacity" and "these workers are not getting work": both read as a
+    // plateau. How much of the wall clock a worker spends sieving versus waiting
+    // to be scheduled again is not, and it is what the growth rule stops on.
+    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(2);
+    Object.assign(window, { __OD_STRESS_TEST_WORKERS__: 2 });
+    await start('cpu');
+    measureWindow(8);
+    measureWindow(8);
+    expect(Number(root.dataset.stressCpuBusy)).toBeGreaterThanOrEqual(95);
+
+    const waiting = liveWorkers()[0];
+    for (let window = 0; window < 8; window += 1) {
+      for (const worker of liveWorkers()) {
+        worker.cum += 1000;
+        // The waiting worker reports no new sieving time and a full window of
+        // time between slices: it is runnable and not being handed a processor.
+        if (worker !== waiting) worker.busyMs += CPU_POOL_GROWTH_WINDOW_MS + 200;
+        else worker.idleMs += CPU_POOL_GROWTH_WINDOW_MS + 200;
+        worker.heartbeat(1_000_000_000_003, 0, Math.round(worker.cum), worker.cursor,
+          Math.round(worker.busyMs), Math.round(worker.idleMs));
+      }
+      fireTimers(CPU_POOL_GROWTH_WINDOW_MS);
+      advanceFrame();
+    }
+    expect(Number(root.dataset.stressCpuBusy)).toBeLessThan(80);
+  });
+
+  it('keeps band starvation out of the duty cycle and publishes it separately', async () => {
+    // The distinction the growth rule depends on. A worker with no integers to
+    // sieve is the page being slow to hand work over; reading that as a full
+    // machine would stop growth for the wrong reason, so the worker books the gap
+    // as a band wait and the duty cycle never sees it.
+    vi.spyOn(navigator, 'hardwareConcurrency', 'get').mockReturnValue(2);
+    Object.assign(window, { __OD_STRESS_TEST_WORKERS__: 2 });
+    await start('cpu');
+    measureWindow(8);
+    measureWindow(8);
+
+    const starved = liveWorkers()[0];
+    for (let window = 0; window < 8; window += 1) {
+      for (const worker of liveWorkers()) {
+        if (worker !== starved) {
+          worker.cum += 1000;
+          worker.busyMs += CPU_POOL_GROWTH_WINDOW_MS + 200;
+        } else {
+          // No new work, no new sieving time, and the gap booked as waiting for
+          // the page — which must not drag the duty cycle down with it.
+          worker.bandWaitMs += CPU_POOL_GROWTH_WINDOW_MS + 200;
+        }
+        worker.heartbeat(1_000_000_000_003, 0, Math.round(worker.cum), worker.cursor,
+          Math.round(worker.busyMs), Math.round(worker.idleMs), Math.round(worker.bandWaitMs));
+      }
+      fireTimers(CPU_POOL_GROWTH_WINDOW_MS);
+      advanceFrame();
+    }
+    expect(Number(root.dataset.stressCpuBusy)).toBeGreaterThanOrEqual(95);
+    expect(Number(root.dataset.stressCpuBandWait)).toBeGreaterThanOrEqual(40);
   });
 });

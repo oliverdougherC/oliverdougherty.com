@@ -57,8 +57,12 @@ function shouldSkipDirectory(relativePath) {
   const base = path.basename(relativePath);
   if (SKIP_DIRECTORIES.has(base)) return true;
 
+  // Skip prefixes are written with '/'; a Windows checkout reports relative paths
+  // with '\', so compare on one separator or the generated trees below them get
+  // scanned, and a tool's own build output then fails the format check.
+  const normalized = relativePath.split(path.sep).join('/');
   return SKIP_PREFIXES.some((prefix) =>
-    relativePath === prefix || relativePath.startsWith(`${prefix}${path.sep}`)
+    normalized === prefix || normalized.startsWith(`${prefix}/`)
   );
 }
 

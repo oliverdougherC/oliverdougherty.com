@@ -1,7 +1,16 @@
 import {
-  CpuSmtProbe,
+  CpuPoolGrowth,
+  CPU_POOL_CONTENTION_SHARE,
+  CPU_POOL_GROWTH_WINDOW_MS,
+  CPU_POOL_MAX_GROWTH_ROUNDS,
+  CPU_POOL_MAX_IDLE_WINDOWS,
+  CPU_POOL_MAX_WORKERS,
+  CPU_POOL_MIN_WINDOW_SLICES,
+  CPU_POOL_TRUSTED_REPORT_MAX,
+  CPU_POOL_WINDOW_HISTORY,
   formatStressElapsed,
-  resolveCpuWorkerCount,
+  nextCpuWorkerCount,
+  planCpuPool,
   resolveGpuBackend,
   resolveGpuBackendFallbacks,
   shouldStressCpu,
@@ -9,64 +18,89 @@ import {
   transitionStressState
 } from '@utilities/stressTestCore';
 
-// Drives the heartbeat-only probe through interleaved trials without timers.
-// A window closes on a heartbeat ≥600ms after the window opened; every action
-// settles first, so a window is opened by a beat clearing the settle warmup
-// and closed 600ms later. Production off windows default to 600 work units
-// (rate 1.0); the keep decision compares production on-window rates against
-// the bracketing off windows — bench deltas ride along for the liveness guard.
-function probeDriver(probe: CpuSmtProbe) {
-  let now = 400;
-  let work = 100;
-  let bench = 0;
-  const beat = (dt: number, delta: number, benchDelta = 0) => {
-    now += dt;
-    work += delta;
-    bench += benchDelta;
-    return probe.observe(now, work, bench);
-  };
-  const open = (warmupMs: number) => beat(warmupMs + 100, 0);
-  const close = (delta: number, benchDelta = 0) => beat(600, delta, benchDelta);
-  return {
-    now: () => now,
-    beat,
-    // The first heartbeat anchors the initial settle warmup.
-    anchor() {
-      beat(1, 1);
-    },
-    // Two pre-spawn off windows; the second close decides the spawn. The
-    // first close may already revert via the idle guard.
-    baseline(offDelta = 600) {
-      open(700);
-      const first = close(offDelta);
-      if (first.action !== 'none') return first;
-      return close(offDelta);
-    },
-    // One full trial flip: off3 → resume, on1 → pause, off4 → resume,
-    // on2 → keep/revert decision. `onDelta` is the permanent workers' rate
-    // under the wave; bench workers report `benchDelta` per on window.
-    trial(onDelta: number, offDelta = 600, benchDelta = 600) {
-      open(700);
-      expect(close(offDelta)).toEqual({ action: 'resume' });
-      open(300);
-      expect(close(onDelta, benchDelta)).toEqual({ action: 'pause' });
-      open(300);
-      expect(close(offDelta)).toEqual({ action: 'resume' });
-      open(300);
-      return close(onDelta, benchDelta);
-    }
-  };
+/**
+ * Feeds the pool-growth state machine synthetic measurement windows, one
+ * CPU_POOL_GROWTH_WINDOW_MS apart. Each step states the pool size that was live
+ * during the window, how many candidates it completed, and what the pool's own
+ * scheduling counters said over it: `duty` is the share of wall time spent
+ * sieving rather than waiting to run, and `slow` of `slices` compute slices lost
+ * their thread mid-slice. A test therefore describes a machine's behaviour rather
+ * than the policy's internals, and the defaults are a pool that has a processor
+ * each: `duty: 1`, no overruns.
+ */
+function windows(growth: CpuPoolGrowth, steps: Array<{
+  workers: number; work: number; slices?: number; slow?: number; duty?: number;
+}>) {
+  let at = 0;
+  let total = 0;
+  return steps.map(step => {
+    at += CPU_POOL_GROWTH_WINDOW_MS;
+    total += step.work;
+    const slices = step.slices ?? 1000;
+    const slow = step.slow ?? 0;
+    return growth.observe(at, total, step.workers, {
+      duty: step.duty ?? 1,
+      slowShare: slices > 0 ? slow / slices : 0,
+      slices
+    });
+  });
 }
 
 describe('stress test core helpers', () => {
-  it('resolves CPU worker count from hardware concurrency without a production cap', () => {
-    expect(resolveCpuWorkerCount({ hardwareConcurrency: 8 })).toBe(8);
-    expect(resolveCpuWorkerCount({ hardwareConcurrency: 0 })).toBe(1);
-    expect(resolveCpuWorkerCount({ hardwareConcurrency: 128 })).toBe(128);
-    expect(resolveCpuWorkerCount({ hardwareConcurrency: 16, maxWorkers: 2 })).toBe(2);
-    expect(resolveCpuWorkerCount({ hardwareConcurrency: NaN })).toBe(4);
-    expect(resolveCpuWorkerCount({ hardwareConcurrency: Infinity })).toBe(4);
-    expect(resolveCpuWorkerCount({ hardwareConcurrency: Number.MAX_SAFE_INTEGER })).toBe(4);
+  it('plans the whole reported logical-processor hint as the initial pool', () => {
+    // No halving, no reserved core, no automatic SMT multiplier: the report is
+    // the starting workload, and growth beyond it is bounded but allowed.
+    expect(planCpuPool({ hardwareConcurrency: 8 })).toEqual({ reported: 8, initial: 8, ceiling: CPU_POOL_MAX_WORKERS, pinned: false });
+    expect(planCpuPool({ hardwareConcurrency: 32 }).initial).toBe(32);
+    expect(planCpuPool({ hardwareConcurrency: 1 }).initial).toBe(1);
+  });
+
+  it('never lets the growth bound truncate a valid higher report', () => {
+    // The cap is a runaway guard for growth, not a hardware claim: a browser
+    // that really reports more than the guard still gets its own count.
+    expect(planCpuPool({ hardwareConcurrency: 256 })).toEqual({ reported: 256, initial: 256, ceiling: 256, pinned: false });
+    expect(nextCpuWorkerCount(256, 256)).toBe(256);
+  });
+
+  it('falls back to a small pool when the report is unusable', () => {
+    expect(planCpuPool({ hardwareConcurrency: 0 }).initial).toBe(4);
+    expect(planCpuPool({ hardwareConcurrency: -8 }).initial).toBe(4);
+    expect(planCpuPool({ hardwareConcurrency: Number.NaN }).initial).toBe(4);
+    expect(planCpuPool({ hardwareConcurrency: Number.POSITIVE_INFINITY }).initial).toBe(4);
+    expect(planCpuPool({ hardwareConcurrency: Number.MAX_SAFE_INTEGER }).initial).toBe(4);
+    expect(planCpuPool({}).initial).toBe(4);
+    expect(planCpuPool({ hardwareConcurrency: 8.9 }).initial).toBe(8);
+    // The largest real configuration is honoured; beyond it a "count" is not
+    // hardware, and honouring it would mean spawning workers by the million.
+    expect(planCpuPool({ hardwareConcurrency: CPU_POOL_TRUSTED_REPORT_MAX }).initial).toBe(CPU_POOL_TRUSTED_REPORT_MAX);
+    expect(planCpuPool({ hardwareConcurrency: CPU_POOL_TRUSTED_REPORT_MAX + 1 }).initial).toBe(4);
+    // An absurd diagnostic override is not honoured either, and the pool stays
+    // visibly automatic instead of silently pinning a nonsense count.
+    expect(planCpuPool({ hardwareConcurrency: 8, exactWorkers: CPU_POOL_TRUSTED_REPORT_MAX + 1 }).pinned).toBe(false);
+  });
+
+  it('separates an exact diagnostic request from a ceiling', () => {
+    // Exact request: this many workers, no growth, and it may exceed the report.
+    expect(planCpuPool({ hardwareConcurrency: 4, exactWorkers: 64 }))
+      .toEqual({ reported: 4, initial: 64, ceiling: 64, pinned: true });
+    expect(planCpuPool({ hardwareConcurrency: 4, exactWorkers: 1 }))
+      .toEqual({ reported: 4, initial: 1, ceiling: 1, pinned: true });
+    // Ceiling: a limit on the automatic pool, never a request for workers.
+    expect(planCpuPool({ hardwareConcurrency: 32, maxWorkers: 2 }))
+      .toEqual({ reported: 32, initial: 2, ceiling: 2, pinned: false });
+    expect(planCpuPool({ hardwareConcurrency: 4, maxWorkers: 64 }).ceiling).toBe(64);
+    // Exact wins over the ceiling hook: the request is what the diagnosis asked for.
+    expect(planCpuPool({ hardwareConcurrency: 4, exactWorkers: 12, maxWorkers: 2 }).initial).toBe(12);
+  });
+
+  it('grows in coarse bounded steps and stops at the ceiling', () => {
+    expect(nextCpuWorkerCount(1, 128)).toBe(3);
+    expect(nextCpuWorkerCount(2, 128)).toBe(4);
+    expect(nextCpuWorkerCount(12, 128)).toBe(18);
+    expect(nextCpuWorkerCount(32, 128)).toBe(48);
+    expect(nextCpuWorkerCount(47, 128)).toBe(71);
+    expect(nextCpuWorkerCount(120, 128)).toBe(128); // clamped, one bounded step
+    expect(nextCpuWorkerCount(128, 128)).toBe(128); // already at the ceiling
   });
 
   it('maps modes to the correct workload lanes', () => {
@@ -113,168 +147,213 @@ describe('stress test core helpers', () => {
     expect(formatStressElapsed(3_661_000)).toBe('1:01:01');
     expect(formatStressElapsed(100 * 60 * 60 * 1000)).toBe('4d 4:00:00');
   });
+});
 
-  it('rejects an unusable reported worker count or cap', () => {
-    expect(() => new CpuSmtProbe(0)).toThrow('reported worker count');
-    expect(() => new CpuSmtProbe(1.5)).toThrow('reported worker count');
-    expect(() => new CpuSmtProbe(Number.NaN)).toThrow('reported worker count');
-    expect(() => new CpuSmtProbe(64, 32)).toThrow('worker cap');
+describe('automatic CPU pool growth', () => {
+  it('rejects a meaningless growth ceiling', () => {
+    expect(() => new CpuPoolGrowth(0)).toThrow('growth ceiling');
+    expect(() => new CpuPoolGrowth(1.5)).toThrow('growth ceiling');
+    expect(() => new CpuPoolGrowth(Number.NaN)).toThrow('growth ceiling');
+    expect(() => new CpuPoolGrowth(8, -1)).toThrow('growth floor');
   });
 
-  it('doubles the exponential phase and converts kept waves in full', () => {
-    const probe = new CpuSmtProbe(3);
-    const driver = probeDriver(probe);
-    driver.anchor();
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 3 }); // trial 6
-    expect(driver.trial(600)).toEqual({ action: 'keep', convert: 3 }); // no slowdown → capacity ≥ 6
-    expect(probe.registerKeep(driver.now())).toBe(false);
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 6 }); // trial 12
-    expect(driver.trial(600)).toEqual({ action: 'keep', convert: 6 });
-    expect(probe.registerKeep(driver.now())).toBe(false);
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 12 }); // trial 24
+  it('skips the window that contains its own startup before deciding anything', () => {
+    const growth = new CpuPoolGrowth(128);
+    const actions = windows(growth, [
+      { workers: 4, work: 4000 }, // primes the window
+      { workers: 4, work: 4000 }, // contains worker spawn and first-slice ramp
+      { workers: 4, work: 4000 }
+    ]);
+    expect(actions).toEqual(['none', 'none', 'grow']);
+    expect(growth.done).toBe(false);
   });
 
-  it('converts a slowed SMT-region trial in full instead of trimming it', () => {
-    // Reported 12 on a 16-physical/32-logical machine: the 48-total trial
-    // shares some permanent workers with SMT siblings and measures 0.8 —
-    // threads still exist, so the wave converts in full. Trimming keeps by a
-    // fair-sharing capacity estimate was the old bug: it read this
-    // sharing-caused slowdown as oversubscription, converted only part of the
-    // wave, and capped the search below the machine's real capacity.
-    const probe = new CpuSmtProbe(12);
-    const driver = probeDriver(probe);
-    driver.anchor();
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 12 }); // trial 24
-    expect(driver.trial(600)).toEqual({ action: 'keep', convert: 12 }); // full 2× wave
-    expect(probe.registerKeep(driver.now())).toBe(false);
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 24 }); // trial 48
-    expect(driver.trial(480)).toEqual({ action: 'keep', convert: 24 }); // 0.8×: SMT sharing, not time-slicing
-    expect(probe.registerKeep(driver.now())).toBe(false);
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 48 }); // trial 96
+  it('keeps growing while every worker is handed a processor straight away', () => {
+    // A duty cycle of 1 means no worker ever waited between slices, which is what
+    // a pool that still has free logical processors to claim looks like.
+    const growth = new CpuPoolGrowth(128);
+    const actions = windows(growth, [
+      { workers: 4, work: 4000 }, // primes
+      { workers: 4, work: 4000 }, // startup window, skipped
+      { workers: 4, work: 4000 }, // free capacity → step
+      { workers: 6, work: 6000 }, // window containing the spawn, skipped
+      { workers: 6, work: 6000 }, // still free capacity → step
+      { workers: 9, work: 9000 } // skipped again after the second step
+    ]);
+    expect(actions).toEqual(['none', 'none', 'grow', 'none', 'grow', 'none']);
+    expect(growth.done).toBe(false);
   });
 
-  it('refines by bisecting between the last grown and first oversubscribed trial', () => {
-    // Reported 12 on a simulated 32-thread machine: a trial total T above the
-    // thread count reads ≈ 32 ÷ T permanent-worker slowdown (pure
-    // time-slicing). 48 slows to 0.67 → revert; 36 (0.89) and 42 (0.76) stay
-    // within the keep ratio → convert; 45 (0.71) reverts inside tolerance.
-    const probe = new CpuSmtProbe(12);
-    const driver = probeDriver(probe);
-    driver.anchor();
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 12 }); // trial 24
-    expect(driver.trial(600)).toEqual({ action: 'keep', convert: 12 });
-    expect(probe.registerKeep(driver.now())).toBe(false);
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 24 }); // trial 48
-    expect(driver.trial(400)).toEqual({ action: 'revert' }); // 0.67 < 0.75
-    expect(probe.registerRevert(driver.now())).toBe(false); // bracket [24, 48]
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 12 }); // trial 36
-    expect(driver.trial(533)).toEqual({ action: 'keep', convert: 12 }); // 0.89
-    expect(probe.registerKeep(driver.now())).toBe(false); // bracket [36, 48]
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 6 }); // trial 42
-    expect(driver.trial(457)).toEqual({ action: 'keep', convert: 6 }); // 0.76
-    expect(probe.registerKeep(driver.now())).toBe(false); // bracket [42, 48]
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 3 }); // trial 45
-    expect(driver.trial(426)).toEqual({ action: 'revert' }); // 0.71
-    // Bracket [42, 45] is inside tolerance: the run keeps the proven 42.
-    expect(probe.registerRevert(driver.now())).toBe(true);
+  it('records a duty cycle without letting it decide anything', () => {
+    // Measured on a 16-core/32-thread host, the pool's compute duty cycle stayed at
+    // 99–100% from 4 workers to 256 on 32 threads: this browser and operating system
+    // hand a worker a processor the instant its slice ends, so queueing a page can
+    // see never happens. A stop rule built on it therefore never stopped. The ratio
+    // is still recorded in every window, because it is what tells a pool that cannot
+    // get integers to sieve apart from one that cannot get processors.
+    const growth = new CpuPoolGrowth(128);
+    const actions = windows(growth, [
+      { workers: 4, work: 4000, duty: 0.2 },
+      { workers: 4, work: 4000, duty: 0.2 },
+      { workers: 4, work: 4000, duty: 0.2 }, // "queueing", and no slice lost → step
+      { workers: 6, work: 6000, duty: 0.05 }, // skipped
+      { workers: 6, work: 6000, duty: 0.05 } // still no lost slices → step again
+    ]);
+    expect(actions).toEqual(['none', 'none', 'grow', 'none', 'grow']);
+    expect(growth.done).toBe(false);
+    expect(growth.windows.at(-1)!.duty).toBeCloseTo(0.05, 6);
   });
 
-  it('measures each on window against bracketing off windows, immune to drift', () => {
-    // The regression this protocol exists for: CPU boost sag and frontier
-    // decay cut every worker's rate ~30% between the pre-spawn windows and
-    // the trial. A sequential comparison would read the on windows against
-    // the earlier (faster-clock) baseline as a 30% slowdown and revert a
-    // wave that never touched existing workers; the interleaved ratio
-    // compares same-moment rates, measures 1.0, and converts the whole wave.
-    const probe = new CpuSmtProbe(12);
-    const driver = probeDriver(probe);
-    driver.anchor();
-    expect(driver.baseline(960)).toEqual({ action: 'spawn', extra: 12 }); // trial 24
-    expect(driver.trial(672, 672)).toEqual({ action: 'keep', convert: 12 }); // on/off = 1.0
-    expect(probe.registerKeep(driver.now())).toBe(false); // capacity not yet bounded
+  it('stops growing when slices start losing their thread', () => {
+    // The stop condition, and the only one the platform answers with: enough
+    // workers that the scheduler is demonstrably taking processors away from them
+    // mid-slice. Threshold sits in the measured gap between 1% (2× the thread count,
+    // already fully loaded) and 25% (3×), so noise cannot stop growth short.
+    const growth = new CpuPoolGrowth(128);
+    const actions = windows(growth, [
+      { workers: 4, work: 4000 },
+      { workers: 4, work: 4000 },
+      { workers: 4, work: 4000 }, // no overruns → step
+      { workers: 6, work: 6000 }, // skipped
+      { workers: 6, work: 6000, slow: Math.ceil(1000 * CPU_POOL_CONTENTION_SHARE) } // → stop
+    ]);
+    expect(actions).toEqual(['none', 'none', 'grow', 'none', 'settled']);
+    expect(growth.done).toBe(true);
   });
 
-  it('reverts when a silent benchmark wave makes the trial unmeasurable', () => {
-    const probe = new CpuSmtProbe(2);
-    const driver = probeDriver(probe);
-    driver.anchor();
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 2 });
-    // Permanent workers are unimpeded (ratio 1.0) but the wave itself did no
-    // work during either on window — nothing was measured, nothing is kept.
-    expect(driver.trial(600, 600, 0)).toEqual({ action: 'revert' });
-    expect(probe.registerRevert(driver.now())).toBe(true); // report never grew
+  it('never stops below the reported processor count on a measured share', () => {
+    // The guard that keeps an under-reporting browser growing. The share only
+    // appears well past the machine, and where it does appear below the count the
+    // browser itself asked for it cannot be attributed to this pool — so the report
+    // is the authority there, and one window of it is not enough to stop the pool.
+    const growth = new CpuPoolGrowth(128, 32);
+    const preempted = Math.ceil(1000 * CPU_POOL_CONTENTION_SHARE);
+    const actions = windows(growth, [
+      { workers: 4, work: 4000, slow: preempted },
+      { workers: 4, work: 4000, slow: preempted },
+      { workers: 4, work: 4000, slow: preempted }, // far below the report → still grows
+      { workers: 6, work: 6000, slow: preempted }, // skipped
+      { workers: 6, work: 6000, slow: preempted } // still below the report → grows
+    ]);
+    expect(actions).toEqual(['none', 'none', 'grow', 'none', 'grow']);
+    expect(growth.done).toBe(false);
+    // At the report, the same reading does end growth.
+    expect(windows(new CpuPoolGrowth(128, 6), [
+      { workers: 6, work: 6000 },
+      { workers: 6, work: 6000 },
+      { workers: 6, work: 6000, slow: preempted }
+    ])[2]).toBe('settled');
   });
 
-  it('stops after one failed wave when the browser report never grew', () => {
-    // A correctly reported machine must pay exactly one disposable wave and
-    // keep its reported workers — no refinement churn.
-    const probe = new CpuSmtProbe(32);
-    const driver = probeDriver(probe);
-    driver.anchor();
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 32 });
-    expect(driver.trial(30)).toEqual({ action: 'revert' });
-    expect(probe.registerRevert(driver.now())).toBe(true);
-    driver.anchor();
-    expect(driver.baseline()).toEqual({ action: 'none' });
+  it('grows even when the candidate rate falls, because work-rate is not the signal', () => {
+    // The reason this policy does not decide on throughput, measured on a
+    // 16-core/32-thread host: 4 → 128 workers moved the pool's aggregate rate by
+    // under +18% while operating-system load went from 25% to 100%, and inside a
+    // run the rate sags several percent per second on its own. A pool that grew on
+    // rate therefore stops with most of the machine idle. A worker that is handed
+    // its next slice immediately remains the evidence that another processor is
+    // free, whatever the sieve's throughput happens to be doing.
+    const growth = new CpuPoolGrowth(128);
+    const actions = windows(growth, [
+      { workers: 8, work: 8000 },
+      { workers: 8, work: 8000 },
+      { workers: 8, work: 8000 }, // free capacity → step
+      { workers: 12, work: 7000 }, // skipped
+      { workers: 12, work: 4800 } // −31% aggregate, duty still 1 → still step
+    ]);
+    expect(actions).toEqual(['none', 'none', 'grow', 'none', 'grow']);
+    expect(growth.windows.at(-1)!.gain).toBeLessThan(-0.25);
   });
 
-  it('stops at the total-worker cap', () => {
-    const probe = new CpuSmtProbe(100, 128);
-    const driver = probeDriver(probe);
-    driver.anchor();
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 28 }); // capped trial 128
-    expect(driver.trial(600)).toEqual({ action: 'keep', convert: 28 });
-    expect(probe.registerKeep(driver.now())).toBe(true); // cap reached
+  it('ends growth at the runaway ceiling instead of claiming a hardware count', () => {
+    const growth = new CpuPoolGrowth(4);
+    const actions = windows(growth, [
+      { workers: 4, work: 4000 },
+      { workers: 4, work: 4000 },
+      { workers: 4, work: 4000 } // would grow, but 4 is already the ceiling
+    ]);
+    expect(actions[2]).toBe('capped');
+    expect(growth.done).toBe(true);
   });
 
-  it('keeps waves slowed up to the keep ratio and reverts slower ones', () => {
-    const kept = new CpuSmtProbe(2);
-    const keptDriver = probeDriver(kept);
-    keptDriver.anchor();
-    expect(keptDriver.baseline()).toEqual({ action: 'spawn', extra: 2 });
-    expect(keptDriver.trial(450)).toEqual({ action: 'keep', convert: 2 }); // exactly 0.75: SMT-region sharing
-    const reverted = new CpuSmtProbe(2);
-    const revertedDriver = probeDriver(reverted);
-    revertedDriver.anchor();
-    expect(revertedDriver.baseline()).toEqual({ action: 'spawn', extra: 2 });
-    expect(revertedDriver.trial(435)).toEqual({ action: 'revert' }); // 0.725: time-slicing began
+  it('stops probing a pool that reports no progress at all', () => {
+    // Zero work is not evidence about capacity, and a window with almost no
+    // slices measures no contention either — an idle worker has zero overruns for
+    // the same reason it has zero work. Growing on either would inflate a stalled
+    // pool, so a bounded run of evidence-free windows ends growth.
+    const growth = new CpuPoolGrowth(128);
+    const actions = windows(growth, [
+      { workers: 2, work: 2000 },
+      { workers: 2, work: 0 },
+      ...Array.from({ length: CPU_POOL_MAX_IDLE_WINDOWS - 1 }, () => ({ workers: 2, work: 0 }))
+    ]);
+    expect(actions.filter(action => action === 'settled')).toHaveLength(1);
+    expect(actions.at(-1)).toBe('settled');
+    expect(growth.done).toBe(true);
   });
 
-  it('re-baselines after a keep and refines after the next wave slows workers', () => {
-    const probe = new CpuSmtProbe(2);
-    const driver = probeDriver(probe);
-    driver.anchor();
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 2 }); // trial 4
-    expect(driver.trial(600)).toEqual({ action: 'keep', convert: 2 });
-    expect(probe.registerKeep(driver.now())).toBe(false);
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 4 }); // trial 8
-    expect(driver.trial(30)).toEqual({ action: 'revert' });
-    expect(probe.registerRevert(driver.now())).toBe(false); // bracket [4, 8]
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 2 }); // trial 6
-    expect(driver.trial(30)).toEqual({ action: 'revert' });
-    expect(probe.registerRevert(driver.now())).toBe(true); // bracket [4, 6] inside tolerance
+  it('treats a window with too few slices to measure contention as no evidence', () => {
+    const growth = new CpuPoolGrowth(128);
+    const actions = windows(growth, Array.from({ length: CPU_POOL_MAX_IDLE_WINDOWS + 1 }, () => ({
+      workers: 2, work: 500, slices: CPU_POOL_MIN_WINDOW_SLICES - 1
+    })));
+    expect(actions.every(action => action === 'none' || action === 'settled')).toBe(true);
+    expect(actions.at(-1)).toBe('settled');
+    expect(growth.done).toBe(true);
   });
 
-  it('rejects keep and revert recorded outside their decisions', () => {
-    const probe = new CpuSmtProbe(2);
-    expect(() => probe.registerKeep(500)).toThrow('outside a keep decision');
-    expect(() => probe.registerRevert(500)).toThrow('outside a revert decision');
-    const driver = probeDriver(probe);
-    driver.anchor();
-    expect(driver.baseline()).toEqual({ action: 'spawn', extra: 2 });
-    expect(() => probe.registerKeep(driver.now())).toThrow('outside a keep decision');
-    expect(driver.trial(600)).toEqual({ action: 'keep', convert: 2 });
-    expect(probe.registerKeep(driver.now())).toBe(false);
-    expect(() => probe.registerRevert(driver.now())).toThrow('outside a revert decision');
+  it('bounds growth rounds when the signal never settles', () => {
+    // A machine that never queuees and never loses a slice must still end up with
+    // a fixed pool. The worker ceiling is far away on purpose, so only the round
+    // bound can stop this.
+    const growth = new CpuPoolGrowth(1_000_000);
+    let at = 0;
+    let total = 0;
+    let live = 2;
+    const seen: string[] = [];
+    while (at < CPU_POOL_GROWTH_WINDOW_MS * (CPU_POOL_MAX_GROWTH_ROUNDS * 4 + 20)) {
+      at += CPU_POOL_GROWTH_WINDOW_MS;
+      total += live * 1000;
+      const action = growth.observe(at, total, live, { duty: 1, slowShare: 0, slices: 1000 });
+      seen.push(action);
+      if (action === 'grow') live = nextCpuWorkerCount(live, 1_000_000);
+      if (action === 'settled' || action === 'capped') break;
+    }
+    expect(seen.filter(action => action === 'grow')).toHaveLength(CPU_POOL_MAX_GROWTH_ROUNDS);
+    expect(live).toBeLessThan(1_000_000); // the round bound fired, not the ceiling
+    expect(seen.at(-1)).toBe('settled');
+    expect(growth.done).toBe(true);
   });
 
-  it('reverts without spawning when the first off window reports no progress', () => {
-    const probe = new CpuSmtProbe(4);
-    const driver = probeDriver(probe);
-    driver.anchor();
-    expect(driver.baseline(0)).toEqual({ action: 'revert' });
-    expect(probe.registerRevert(driver.now())).toBe(true);
-    driver.anchor();
-    expect(driver.baseline(1200)).toEqual({ action: 'none' });
+  it('records the numbers behind each decision, bounded to the recent history', () => {
+    const growth = new CpuPoolGrowth(1_000_000);
+    windows(growth, Array.from({ length: CPU_POOL_WINDOW_HISTORY + 6 }, (_unused, index) => ({
+      workers: 4 + index, work: (4 + index) * 1000, slow: 0, duty: 0.95
+    })));
+    expect(growth.windows).toHaveLength(CPU_POOL_WINDOW_HISTORY);
+    for (const window of growth.windows) {
+      expect(window.workers).toBeGreaterThan(0);
+      expect(window.rate).toBeGreaterThan(0);
+      expect(window.perWorker).toBeGreaterThan(0);
+      expect(window.slices).toBe(1000);
+      expect(window.slowShare).toBe(0);
+      expect(window.duty).toBeCloseTo(0.95, 6);
+      expect(['none', 'grow', 'settled', 'capped']).toContain(window.action);
+    }
+    // The ring keeps the newest windows, which is the range a decision uses.
+    expect(growth.windows.at(-1)!.workers).toBeGreaterThan(growth.windows[0].workers);
+  });
+
+  it('ignores incoherent observations and windows shorter than the measurement', () => {
+    const growth = new CpuPoolGrowth(128);
+    expect(growth.observe(Number.NaN, 10, 2)).toBe('none');
+    expect(growth.observe(1000, Number.NaN, 2)).toBe('none');
+    expect(growth.observe(1000, 10, 0)).toBe('none');
+    expect(growth.observe(1000, 10, 1.5)).toBe('none');
+    expect(growth.observe(1000, 10, 2, { duty: 1, slowShare: 0, slices: 1000 })).toBe('none'); // primes
+    expect(growth.observe(1000 + CPU_POOL_GROWTH_WINDOW_MS - 1, 20, 2, { duty: 1, slowShare: 0, slices: 1000 })).toBe('none');
+    // Earliest real window: still skipped as startup, whatever it says.
+    expect(growth.observe(1000 + CPU_POOL_GROWTH_WINDOW_MS, 20, 2, { duty: 1, slowShare: 0, slices: 1000 })).toBe('none');
+    expect(growth.done).toBe(false);
   });
 });

@@ -2,9 +2,23 @@ export type StressMode = 'cpu' | 'gpu' | 'both';
 export type StressState = 'idle' | 'starting' | 'running' | 'stopping' | 'unsupported' | 'error';
 export type StressGpuBackend = 'webgpu-compute' | 'webgl2-fragment' | 'webgl1-fragment' | 'none';
 
-export interface CpuWorkerResolutionInput {
+export interface CpuPoolPlanInput {
   hardwareConcurrency?: number | null;
+  /** Diagnostic request for an exact pool size. It may exceed the reported count. */
+  exactWorkers?: number | null;
+  /** Diagnostic ceiling on the automatic pool. It is a limit, never a request. */
   maxWorkers?: number | null;
+}
+
+export interface CpuPoolPlan {
+  /** Sanitized `hardwareConcurrency`: a logical-processor hint, not a core count. */
+  reported: number;
+  /** Workers spawned immediately at Start, before any measurement exists. */
+  initial: number;
+  /** Growth never passes this. Never below `reported`, so a valid higher report survives. */
+  ceiling: number;
+  /** True for an exact diagnostic request: the pool is pinned and never grows. */
+  pinned: boolean;
 }
 
 export interface GpuBackendSupportInput {
@@ -15,7 +29,122 @@ export interface GpuBackendSupportInput {
 
 export type StressEvent = 'start' | 'running' | 'stop' | 'stopped' | 'unsupported' | 'error' | 'reset' | 'retry';
 
+export type CpuPoolGrowthAction = 'none' | 'grow' | 'settled' | 'capped';
+
 const DEFAULT_CPU_WORKERS = 4;
+
+// Hard ceiling on the AUTOMATIC pool. It is a runaway guard against unbounded
+// worker creation and the memory each worker's sieve costs — not a claim about
+// how many threads a machine has. It never truncates a browser that legitimately
+// reports more, because the effective ceiling is `max(reported, this)`.
+export const CPU_POOL_MAX_WORKERS = 128;
+// One growth step adds half the current pool again (at least two workers), so a
+// heavily under-reporting browser reaches capacity in a handful of steps. Coarse
+// on purpose: fine-grained steps only add rounds, and every step is a real
+// measurement rather than a guess about processor topology.
+export const CPU_POOL_GROWTH_STEP_DIVISOR = 2;
+export const CPU_POOL_GROWTH_STEP_MIN = 2;
+// Evaluation window for the growth signal. Short enough that a machine reporting
+// one thread reaches full load in seconds, long enough that hundreds of worker
+// heartbeats fill every window (workers report every ~140ms).
+export const CPU_POOL_GROWTH_WINDOW_MS = 1000;
+// Windows skipped after each step before the next judgement, so a spawn's own
+// cost and a new worker's boot are never read as capacity or as contention.
+export const CPU_POOL_GROWTH_SETTLE_WINDOWS = 1;
+// Windows that report no progress at all are not evidence about capacity, they
+// are evidence that nothing is running. Bounded so a stalled pool stops being
+// probed instead of ticking forever.
+export const CPU_POOL_MAX_IDLE_WINDOWS = 5;
+// Upper bound on growth rounds, so a machine whose signal never settles still
+// ends up with a fixed pool. The worker ceiling usually binds first.
+export const CPU_POOL_MAX_GROWTH_ROUNDS = 24;
+// Largest logical-processor count a real configuration reports today (a
+// two-socket 128-core part is 4096 threads). A "hint" beyond it is not a
+// processor count — it is spoofed, virtualised nonsense, or a bug — and taking
+// it literally would mean creating millions of workers, which is exactly the
+// runaway this whole path has to prevent. Values inside the bound are honoured
+// in full and never rounded down to a historical guess about hardware.
+export const CPU_POOL_TRUSTED_REPORT_MAX = 4096;
+// How many closed growth windows to keep for inspection. A decision only ever
+// depends on the current and previous window, so this is audit history, not
+// state — long enough to see a run's whole growth, short enough to publish.
+export const CPU_POOL_WINDOW_HISTORY = 16;
+/**
+ * A compute slice whose wall-clock time reached this multiple of its own
+ * wall-clock budget was not running the whole time: the scheduler took the thread
+ * away mid-slice. This is real evidence of oversubscription when it happens, but
+ * it is rare — measured on a 16-core/32-thread host, 0–1% of slices overran even
+ * at 64 workers on 32 threads, because a worker that ends its 8ms slice hands its
+ * processor back voluntarily and is not preempted. So this is a secondary stop
+ * signal and a published diagnostic; the pool's duty cycle is the primary one.
+ */
+export const CPU_SLICE_OVERRUN_FACTOR = 1.5;
+/**
+ * Share of a window's compute slices that must have been descheduled mid-slice
+ * before the pool counts itself as having more workers than the machine can run.
+ * Measured on a 16-core/32-thread host (docs/utilities/stress-test.md has the
+ * sweep): 0% at up to 1.5× the thread count, 1% at 2×, 25% at 3×, 100% at 8×. The
+ * threshold sits in the gap between 1% and 25% so ordinary scheduling noise cannot
+ * stop growth early, and lands the pool past the thread count — where full load was
+ * measured to hold at no measurable throughput cost.
+ */
+export const CPU_POOL_CONTENTION_SHARE = 0.1;
+/**
+ * The pool's compute duty cycle: sieving time over sieving plus waiting-to-run
+ * time. Published as `data-stress-cpu-busy` and recorded in every growth window,
+ * because it separates a pool that cannot get integers to sieve from one that
+ * cannot get processors — but it is NOT a growth input. Measured on this same host
+ * it stayed at 99–100% from 4 workers all the way to 256 (8× the thread count):
+ * Chrome and Windows hand these worker threads a processor the moment their slice
+ * ends, so a page cannot see the queueing it would expect from oversubscription.
+ * A rule that stopped on it never stopped at all; a rule that ignored the
+ * difference would have no way to tell a starved pool from a loaded machine.
+ */
+export const CPU_POOL_MIN_WINDOW_SLICES = 8;
+// A window whose pool completed fewer slices than this measured almost nothing,
+// so it is not evidence about the machine. One worker produces roughly 125 slices
+// per second, so this floor sits two orders of magnitude below real activity and
+// only rejects a pool that is stalled or just started.
+
+/** One closed growth measurement window, as the growth rule saw it. */
+export interface CpuPoolGrowthWindow {
+  /** Milliseconds since the page's time origin when the window closed. */
+  at: number;
+  /** Pool size that produced this window's work. */
+  workers: number;
+  /** Candidates tested during the window. */
+  work: number;
+  /** Window length in milliseconds (≥ CPU_POOL_GROWTH_WINDOW_MS). */
+  elapsed: number;
+  /** Candidates per millisecond across the whole pool. */
+  rate: number;
+  /** Candidates per millisecond per worker — where SMT sharing shows up. */
+  perWorker: number;
+  /** Improvement over the previous window's rate, or null for the baseline. */
+  gain: number | null;
+  /** Compute slices the pool completed in this window. */
+  slices: number;
+  /** Share of those slices that overran their wall-clock budget. */
+  slowShare: number | null;
+  /** The pool's compute duty cycle over the window, or null if unmeasurable. */
+  duty: number | null;
+  /** The decision this window produced. */
+  action: CpuPoolGrowthAction;
+}
+
+/**
+ * One window's scheduling measurement across the whole pool: `slowShare` the
+ * fraction of compute slices descheduled mid-slice (the growth rule's input),
+ * `slices` how many slices that came from — below CPU_POOL_MIN_WINDOW_SLICES it is
+ * not evidence — and `duty`, the sieving-time-over-wall-time ratio, which is
+ * recorded with every decision for audit but does not decide anything (see
+ * CPU_POOL_MIN_WINDOW_SLICES above for the measurement that settled that).
+ */
+export interface CpuPoolSignal {
+  duty: number;
+  slowShare: number;
+  slices: number;
+}
 
 export function isStressMode(value: string | undefined): value is StressMode {
   return value === 'cpu' || value === 'gpu' || value === 'both';
@@ -29,330 +158,215 @@ export function shouldStressGpu(mode: StressMode) {
   return mode === 'gpu' || mode === 'both';
 }
 
-export function resolveCpuWorkerCount(input: CpuWorkerResolutionInput = {}) {
-  // hardwareConcurrency is an unsigned-long browser value. Honor all reported threads.
-  const raw = Number.isFinite(input.hardwareConcurrency) && Number(input.hardwareConcurrency) <= 0xffff_ffff
-    ? Number(input.hardwareConcurrency)
-    : DEFAULT_CPU_WORKERS;
-  const requested = Math.max(1, Math.floor(raw));
-  const configuredMax = Number.isFinite(input.maxWorkers)
-    ? Math.max(1, Math.floor(Number(input.maxWorkers)))
-    : requested;
-
-  return Math.min(requested, configuredMax);
+// A count outside 1…trustedMax carries no information about hardware, so the
+// caller gets its fallback instead: the default pool for a report, "hook absent"
+// for a diagnostic override (which then shows up as an automatic, non-pinned
+// pool in the diagnostics rather than silently pinning something absurd).
+function sanitizeWorkerCount(value: number | null | undefined, fallback: number, trustedMax = Number.MAX_SAFE_INTEGER) {
+  const count = Number(value);
+  if (!Number.isFinite(count) || count <= 0 || count > trustedMax) return fallback;
+  return Math.max(1, Math.floor(count));
 }
 
-export const SMT_PROBE_SAMPLE_WINDOW_MS = 600;
-export const SMT_PROBE_SPAWN_WARMUP_MS = 700;
-// Short discarded settle after a wave spawn or a pause/resume flip: in-flight
-// chunk work and already-sent heartbeats must not bleed into the next window.
-export const SMT_PROBE_TOGGLE_WARMUP_MS = 300;
-// A trial is kept while its wave has not yet squeezed the permanent workers
-// below 75% of their bracketed rate, and a kept wave ALWAYS converts in full.
-// OS scheduling gives the two overload regimes distinct signatures: sharing a
-// physical core's SMT sibling (workers still fit on logical threads) slows a
-// permanent worker only ~10–30%, while genuine oversubscription (more
-// workers than logical threads) time-slices each one to ≈ capacity ÷ workers,
-// under ~70%. Keeping at ≥0.75 therefore grows through the SMT-sharing region
-// — where every thread still exists and still adds throughput — and reverts
-// once threads run out. Converting a kept wave only partially (by a
-// `ratio × trial` capacity estimate) was the previous design's fatal flaw:
-// SMT-region slowdowns look like the time-slicing formula's input, so the
-// estimate undershot, the partial keep bounded the search below true capacity,
-// and a 32-thread machine stalled at 22.
-// The measurement is the permanent workers' rate, not aggregate throughput:
-// extra logical cores add workers at sub-linear aggregate gains (SMT siblings
-// are not full cores, and background threads steal capacity), so an aggregate
-// keep ratio would stop the search far short of the threads that exist, while
-// existing-worker slowdown pinpoints thread exhaustion.
-export const SMT_PROBE_KEEP_RATIO = 0.75;
-export const SMT_PROBE_MAX_TOTAL_WORKERS = 128;
-// Off windows measured before the trial wave spawns; the first doubles as the
-// idle guard, and together they precede the interleaved on/off measurement.
-export const SMT_PROBE_BASELINE_WINDOWS = 2;
-// Bench-on windows per trial; between them the wave is paused again so each
-// on window is bracketed by an off window at the same clock speed and
-// frontier depth (see the class documentation).
-export const SMT_PROBE_CANDIDATE_WINDOWS = 2;
-// Refinement stops once the proven/failed worker bracket is this narrow. No
-// windowed throughput comparison can resolve capacity differences finer than
-// the keep threshold, so bisecting inside this tolerance would add wave churn
-// without any trustworthy information.
-export const SMT_PROBE_REFINE_TOLERANCE_MIN = 2;
-export const SMT_PROBE_REFINE_TOLERANCE_RATIO = 0.1;
+/**
+ * Turns the browser's logical-processor hint into an initial pool plus growth
+ * bound. `hardwareConcurrency` is an unsigned hint that browsers may round down
+ * to physical cores, cap for privacy, or leave stale; it is never halved, never
+ * decremented to "reserve" a core (the main thread stays light instead), and
+ * never auto-interpreted as needing a simultaneous-multithreading multiplier.
+ * The pool starts at the whole report so the machine is loaded immediately, and
+ * whatever the report missed is recovered by growing (see CpuPoolGrowth).
+ */
+export function planCpuPool(input: CpuPoolPlanInput = {}): CpuPoolPlan {
+  const reported = sanitizeWorkerCount(input.hardwareConcurrency, DEFAULT_CPU_WORKERS, CPU_POOL_TRUSTED_REPORT_MAX);
+  const exact = sanitizeWorkerCount(input.exactWorkers, 0, CPU_POOL_TRUSTED_REPORT_MAX);
+  const ceilingHint = sanitizeWorkerCount(input.maxWorkers, 0, CPU_POOL_TRUSTED_REPORT_MAX);
+  if (exact > 0) {
+    // An exact request is for tests and diagnosis, and it is a REQUEST: asking
+    // for more workers than the browser claims is a supported diagnostic.
+    return { reported, initial: exact, ceiling: exact, pinned: true } satisfies CpuPoolPlan;
+  }
+  const guard = Math.max(reported, CPU_POOL_MAX_WORKERS);
+  const ceiling = ceilingHint > 0 ? Math.min(guard, ceilingHint) : guard;
+  return { reported, initial: Math.min(reported, ceiling), ceiling, pinned: false } satisfies CpuPoolPlan;
+}
 
-export type CpuSmtProbeAction =
-  | { action: 'none' }
-  | { action: 'spawn'; extra: number }
-  | { action: 'pause' }
-  | { action: 'resume' }
-  | { action: 'keep'; convert: number }
-  | { action: 'revert' };
+/** Pool size after one growth step, clamped to the ceiling (equal when at it). */
+export function nextCpuWorkerCount(current: number, ceiling: number) {
+  const step = Math.max(CPU_POOL_GROWTH_STEP_MIN, Math.ceil(current / CPU_POOL_GROWTH_STEP_DIVISOR));
+  return Math.min(ceiling, current + step);
+}
 
 /**
- * Closed-loop CPU capacity search driven by worker heartbeat arrivals, never
- * by timers. Browsers may under-report logical processors — rounding to
- * physical cores, capping the count, or an OS reserving cores — so the
- * reported worker count can leave simultaneous-multithreading siblings or
- * entire cores idle. Doubling alone cannot fix that: it strides over the true
- * count (12 → 24 → 48 skips 32 entirely) and a failed wave that reverts and
- * stops strands the run below saturation. So this is a converging search over
- * worker counts with proven bounds: `low` is the highest count measured to
- * keep the existing workers within the keep ratio, `high` the lowest trial
- * measured to slow them past it.
+ * Decides when the CPU pool is big enough, from one measurement: how much of the
+ * wall clock the pool's workers actually spend computing.
  *
- * Work is executed sieve work units; heartbeat gaps close the measurement
- * windows, and the caller seeds every disposable benchmark wave at the live
- * production frontier and PAUSES it (idle, queue kept) until asked to resume.
- * A trial compares interleaved windows: two off windows (wave paused) precede
- * the spawn, then the wave flips on/off/on so every on window is bracketed by
- * off windows measured moments earlier and later. Comparing rates across time
- * — any candidate window against any earlier baseline — is poisoned by drift
- * no probe can model: the per-worker sieve rate falls as the shared frontier
- * deepens (and a bigger wave advances it faster), and CPU boost clocks sag
- * seconds into a load. Both drifts are monotone over seconds but locally
- * smooth, so an on/off/off-on interleaving cancels them: a trial's ratio is
- * mean(on windows) / mean(bracketing off windows), and drift affects
- * numerator and denominator alike.
+ * The question this has to answer is "would another worker get its own logical
+ * processor?", and aggregate work-rate cannot answer it. Measured on a
+ * 16-core/32-thread host (`scripts/stress-load-harness.js`, whose output the
+ * `output/stress-load/*.json` traces in the PR come from), the pool's candidate
+ * rate moved only 889M → 1,046M/s — under +18% — while the same run's
+ * operating-system load went from 25% to 100% of the machine. Aggregate
+ * throughput saturates long before the CPUs do, because a bigger pool buys
+ * processors, not a cheaper sieve: memory bandwidth, cache pressure and a deeper
+ * search frontier eat what the extra threads could have added. A rule that grows
+ * on throughput therefore stops with most of the machine idle, which is the
+ * product failure this file exists to fix. The earlier design that read
+ * per-worker slowdown stopped even sooner, because simultaneous multithreading
+ * makes every worker slower at 24 workers on a machine that is only 80% loaded.
  *
- * The ratio signal is the PERMANENT workers' rate, not aggregate throughput.
- * Aggregate scaling is a dead end as a keep test: extra logical cores join at
- * sub-linear aggregate gain — SMT siblings add a fraction of a core, memory
- * bandwidth bends the curve, and background threads eat capacity — so on a
- * real 32-thread machine a 24-on-12 trial measures ~1.6 aggregate, below any
- * sensible aggregate keep ratio, and the search stalls near 20 while half the
- * threads spin idle. Existing-worker slowdown has no such ceiling. The two
- * overload regimes read distinctly: while the trial's workers still fit on
- * logical threads, the worst a permanent worker suffers is SMT-sibling
- * sharing — a ~10–30% slowdown — but once there are more workers than
- * logical threads, fair time-slicing drops every permanent worker to
- * ≈ capacity ÷ workers, under ~70%. The trial is kept at ≥75% of the
- * bracketed rate and ALWAYS converts in full — growth walks through the
- * SMT-sharing region (every thread there is real capacity) and stops where
- * time-slicing begins. Reported 12 on a 32-thread machine: the 24-on-12 trial
- * measures ~0.85 (threads exist, siblings shared) → keeps 24 → the 48-on-24
- * trial measures ~0.6 (real oversubscription) → reverts → bisection lands at
- * ≈32. An earlier design instead trimmed keeps with a `ratio × trial`
- * capacity estimate: SMT-region slowdowns plug that fair-sharing formula
- * with values that undershoot, the trimmed keep bounds the search below
- * capacity, and the same 32-thread machine stalled at 22.
+ * Nor can the pool watch its slices get preempted as its only cue, and it cannot
+ * watch for queueing at all. Each worker runs a slice whose budget is 8ms of wall
+ * clock, checked against that same clock between segments, so a slice that overruns
+ * that budget was demonstrably not on a processor the whole time — and that signal
+ * is real, but it only appears once the pool is well past the machine: measured at
+ * 0% up to 1.5× the thread count, 1% at 2×, 25% at 3×, 100% at 8×. The other
+ * candidate, the pool's compute duty cycle (sieving time over sieving plus
+ * waiting-to-run time), never moves at all: 99–100% from 4 workers to 256 on a
+ * 32-thread host, because a worker whose slice ends is handed a processor again
+ * immediately. Queueing that a page can measure simply does not happen here.
  *
- * The search stops when the bracket is inside the tolerance (the slowdown
- * signal's noise floor), the total-worker cap is reached, or the very first
- * trial fails against an unproven report — in which case the browser's own
- * count is trusted and the search stops after one trial, exactly as a
- * correctly reported machine needs. A first off window showing no progress
- * gives no trustworthy comparison, and a wave whose bench workers report no
- * work during either on window was never really measured: either ends the
- * search as a failed trial.
+ * So growth uses the one signal the platform answers with — the share of slices
+ * descheduled mid-slice — and stops once that share passes
+ * CPU_POOL_CONTENTION_SHARE, which lands the pool past the thread count. That is
+ * the region measured to hold full load at no measurable throughput cost, and it is
+ * the safe side of the error: the failure this file exists to fix was landing short.
  *
- * A browser that OVER-reports (more workers than hardware threads) cannot be
- * corrected here: permanent workers cannot be terminated without leaving
- * holes in the production search coverage. Real-world browser misreporting is
- * under-reporting, so the search only ever adds capacity.
+ * Because the share only appears well past the machine, growth is also bounded from
+ * stopping too early by `floor`: the share is only trusted at or above the worker
+ * count the browser's own report asked for. Below it the pool grows on the report's
+ * authority. That ordering is what keeps an under-reporting browser growing —
+ * without it, one noisy window could stop the pool at a fraction of the machine.
+ *
+ * The pool only ever grows. A worker cannot be removed without abandoning the
+ * band of integers it owns, and landing past the plateau costs nothing measured
+ * (40, 48, 64, 96, 128 and 256 workers all held 100% load on this host, with
+ * aggregate throughput within ~5% of its peak) while stopping one step short leaves
+ * 25–45% of the machine idle.
+ *
+ * Boundaries, all explicit: growth ends at the plan's ceiling (`capped`), after
+ * CPU_POOL_MAX_GROWTH_ROUNDS rounds, or when slices start losing their thread at or
+ * above the floor (`settled`). A window that produced no work, or too few slices to
+ * measure anything, is not evidence about capacity: growth waits rather than
+ * inflating, and after CPU_POOL_MAX_IDLE_WINDOWS such windows the pool is treated as
+ * stalled.
  */
-export class CpuSmtProbe {
-  // Every trial and the initial measurement begin settled (see beginSettle);
-  // the very first settle anchors its warmup on the first heartbeat.
-  private phase: 'settle' | 'off' | 'on' | 'decided' | 'finished' = 'settle';
-  private settleTarget: 'off' | 'on' = 'off';
-  private settleWarmupMs = SMT_PROBE_SPAWN_WARMUP_MS;
-  private readonly reportedWorkers: number;
-  private readonly maxTotalWorkers: number;
-  // Search bounds: highest proven-grown worker count and lowest proven-stalled
-  // trial total. The final permanent count is `low`.
-  private low: number;
-  private high: number | null = null;
-  // Total worker count of the trial whose decision is live, its wave size,
-  // and how many of that wave a keep decision converts.
-  private trialTotal = 0;
-  private trialExtra = 0;
-  private pendingConvert = 0;
-  // Whether this trial's (paused) benchmark wave is alive awaiting its flips.
-  private waveLive = false;
+export class CpuPoolGrowth {
   private windowStartAt = 0;
   private windowStartWork = 0;
-  private windowStartBench = 0;
-  private settleAt = 0;
-  // Per-trial window rates of the PERMANENT workers only (off windows: wave
-  // paused; on windows: wave measuring). The reference is the mean of the
-  // last two off windows — the pair bracketing the on windows. Bench work
-  // feeds a liveness guard, never the ratio.
-  private offRates: number[] = [];
-  private onRates: number[] = [];
-  private onBenchDeltas: number[] = [];
+  // Only kept so each window's report can show how its rate compared to the one
+  // before. It is deliberately not a decision input: window-to-window rate
+  // comparison is what left the last design under-loaded.
+  private previousRate: number | null = null;
+  // Windows to skip before judging again. The window containing a spawn also
+  // contains that spawn's main-thread work and the new workers' boot, so judging
+  // it would read a startup artefact as either capacity or contention.
+  private settleWindows = 1;
+  private idleWindows = 0;
+  private rounds = 0;
+  private finished = false;
 
-  constructor(reportedWorkers: number, maxTotalWorkers = SMT_PROBE_MAX_TOTAL_WORKERS) {
-    if (!Number.isSafeInteger(reportedWorkers) || reportedWorkers < 1) {
-      throw new Error('Invalid SMT probe reported worker count.');
-    }
-    if (!Number.isSafeInteger(maxTotalWorkers) || maxTotalWorkers < reportedWorkers) {
-      throw new Error('Invalid SMT probe worker cap.');
-    }
-    this.reportedWorkers = reportedWorkers;
-    this.maxTotalWorkers = maxTotalWorkers;
-    this.low = reportedWorkers;
+  /**
+   * @param ceiling pool size growth never passes (a runaway guard, not a hardware claim)
+   * @param floor pool size at or above which the duty-cycle reading is trusted as
+   *              evidence of a full machine; below it the pool grows on the
+   *              browser's own report instead of stopping
+   */
+  constructor(private readonly ceiling: number, private readonly floor = 0) {
+    if (!Number.isSafeInteger(ceiling) || ceiling < 1) throw new Error('Invalid CPU pool growth ceiling.');
+    if (!Number.isSafeInteger(floor) || floor < 0) throw new Error('Invalid CPU pool growth floor.');
   }
 
-  observe(now: number, productionWork: number, benchWork: number): CpuSmtProbeAction {
-    // A decision awaits the caller's registerKeep/registerRevert bookkeeping,
-    // and a finished search is inert: neither may re-enter the measurement loop.
-    if (this.phase === 'decided' || this.phase === 'finished') return { action: 'none' };
-    if (this.phase === 'settle') {
-      // Discard every window that overlaps a spawn or flip: boot work, the
-      // final in-flight chunk, and heartbeats sent before the flip must not
-      // represent the phase that follows it.
-      if (this.settleAt === 0) this.settleAt = now;
-      if (now - this.settleAt < this.settleWarmupMs) return { action: 'none' };
-      this.windowStartAt = now;
-      this.windowStartWork = productionWork;
-      this.windowStartBench = benchWork;
-      this.phase = this.settleTarget;
-      return { action: 'none' };
+  /** True once the stop rule or a bound has ended growth for this pool. */
+  get done() { return this.finished; }
+
+  /**
+   * Every closed measurement window, oldest first, so a decision can be audited
+   * against the numbers it was made from instead of being inferred from the
+   * worker count it produced. Bounded: only the most recent windows are kept,
+   * which is exactly the range a decision depends on.
+   */
+  readonly windows: CpuPoolGrowthWindow[] = [];
+
+  /**
+   * Closes one measurement window. `totalCandidates` is the pool's cumulative
+   * candidates tested, `workerCount` the live pool size, and `signal` the
+   * duty-cycle and slice-overrun reading the controller measured over its own
+   * trailing window across all workers.
+   */
+  observe(now: number, totalCandidates: number, workerCount: number,
+    signal: CpuPoolSignal = { duty: 0, slowShare: 0, slices: 0 }): CpuPoolGrowthAction {
+    if (this.finished) return 'none';
+    if (!Number.isFinite(now) || !Number.isFinite(totalCandidates) || !Number.isSafeInteger(workerCount) || workerCount < 1) {
+      return 'none';
     }
     if (this.windowStartAt === 0) {
       this.windowStartAt = now;
-      this.windowStartWork = productionWork;
-      this.windowStartBench = benchWork;
-      return { action: 'none' };
+      this.windowStartWork = totalCandidates;
+      return 'none';
     }
     const elapsed = now - this.windowStartAt;
-    if (elapsed < SMT_PROBE_SAMPLE_WINDOW_MS) return { action: 'none' };
-    const rate = (productionWork - this.windowStartWork) / elapsed;
-    const benchDelta = benchWork - this.windowStartBench;
+    if (elapsed < CPU_POOL_GROWTH_WINDOW_MS) return 'none';
+    const work = totalCandidates - this.windowStartWork;
+    const rate = work / elapsed;
     this.windowStartAt = now;
-    this.windowStartWork = productionWork;
-    this.windowStartBench = benchWork;
-    return this.phase === 'off' ? this.closeOffWindow(now, rate) : this.closeOnWindow(now, rate, benchDelta);
+    this.windowStartWork = totalCandidates;
+    // A share computed from almost no slices says nothing: an idle worker has no
+    // overruns for the same reason it has no work.
+    const measurable = Number.isFinite(signal.slowShare) && signal.slices >= CPU_POOL_MIN_WINDOW_SLICES;
+    const previousRate = this.previousRate;
+    this.previousRate = rate;
+    const record = (action: CpuPoolGrowthAction) => {
+      this.windows.push({
+        at: Math.round(now),
+        workers: workerCount,
+        work: Math.round(work),
+        elapsed: Math.round(elapsed),
+        rate: Math.round(rate),
+        perWorker: Math.round(rate / workerCount),
+        gain: previousRate && previousRate > 0 ? Number((rate / previousRate - 1).toFixed(4)) : null,
+        slices: Math.round(signal.slices),
+        slowShare: Number.isFinite(signal.slowShare) ? Number(signal.slowShare.toFixed(4)) : null,
+        duty: Number.isFinite(signal.duty) ? Number(signal.duty.toFixed(4)) : null,
+        action
+      });
+      if (this.windows.length > CPU_POOL_WINDOW_HISTORY) this.windows.shift();
+      return action;
+    };
+    if (work <= 0 || !measurable) {
+      // Nothing ran, or too little to measure anything. That is not a reason to
+      // grow — an idle pool grown on this signal would inflate forever.
+      this.idleWindows += 1;
+      if (this.idleWindows >= CPU_POOL_MAX_IDLE_WINDOWS) this.finished = true;
+      return record(this.finished ? 'settled' : 'none');
+    }
+    this.idleWindows = 0;
+    if (this.settleWindows > 0) {
+      this.settleWindows -= 1;
+      return record('none');
+    }
+    // Below the reported processor count the measured share is not trusted: it only
+    // appears well past the machine, and stopping on a reading the pool cannot
+    // attribute is exactly how an under-reporting browser stayed under-loaded.
+    if (workerCount >= this.floor && signal.slowShare >= CPU_POOL_CONTENTION_SHARE) {
+      this.finished = true;
+      return record('settled');
+    }
+    return record(this.grow(workerCount));
   }
 
-  /**
-   * Records that the caller installed permanent workers for a kept trial and
-   * advances the search. Returns true when the search is over (cap reached or
-   * bracket inside tolerance) and the caller should finalize with the current
-   * worker count.
-   */
-  registerKeep(now: number): boolean {
-    if (this.phase !== 'decided') throw new Error('SMT probe keep recorded outside a keep decision.');
-    if (!Number.isFinite(now)) throw new Error('Invalid SMT probe keep time.');
-    // Kept waves always convert in full (see closeOnWindow), so a keep never
-    // sets the upper bound; only a reverting trial does.
-    this.low += this.pendingConvert;
-    return this.advanceSearch(now);
-  }
-
-  /**
-   * Records that the caller discarded a failed trial and advances the search.
-   * Returns true when the search is over and the caller should finalize with
-   * the current worker count.
-   */
-  registerRevert(now: number): boolean {
-    if (this.phase !== 'decided') throw new Error('SMT probe revert recorded outside a revert decision.');
-    if (!Number.isFinite(now)) throw new Error('Invalid SMT probe revert time.');
-    if (this.high === null && this.low === this.reportedWorkers) {
-      // Nothing ever grew beyond the browser's own report: the report already
-      // matches measurable capacity, so trust it and stop without refinement.
-      this.phase = 'finished';
-      return true;
+  private grow(workerCount: number): CpuPoolGrowthAction {
+    if (this.rounds >= CPU_POOL_MAX_GROWTH_ROUNDS) {
+      this.finished = true;
+      return 'settled';
     }
-    this.high = this.high === null ? this.trialTotal : Math.min(this.high, this.trialTotal);
-    return this.advanceSearch(now);
-  }
-
-  private closeOffWindow(now: number, rate: number): CpuSmtProbeAction {
-    this.offRates.push(rate);
-    if (this.offRates.length === 1 && rate <= 0) {
-      // An idle or stalled machine gives no trustworthy comparison; a failed
-      // trial against the current count ends the search with what it proves.
-      this.trialTotal = this.low;
-      this.trialExtra = 0;
-      this.phase = 'decided';
-      return { action: 'revert' };
+    if (nextCpuWorkerCount(workerCount, this.ceiling) <= workerCount) {
+      this.finished = true;
+      return 'capped';
     }
-    if (!this.waveLive) {
-      if (this.offRates.length < SMT_PROBE_BASELINE_WINDOWS) return { action: 'none' };
-      this.trialTotal = this.nextTrialTotal();
-      this.trialExtra = this.trialTotal - this.low;
-      if (this.trialExtra <= 0) {
-        // Unreachable while registerKeep/registerRevert gate continuation on
-        // the tolerance and cap; treat it as a failed trial so the search can
-        // still terminate cleanly.
-        this.phase = 'decided';
-        return { action: 'revert' };
-      }
-      this.waveLive = true;
-      this.beginSettle('off', SMT_PROBE_SPAWN_WARMUP_MS, now);
-      // The caller spawns the wave paused; it contributes nothing until the
-      // resume flip, so this trial's off windows continue seamlessly.
-      return { action: 'spawn', extra: this.trialExtra };
-    }
-    if (this.onRates.length < SMT_PROBE_CANDIDATE_WINDOWS) {
-      this.beginSettle('on', SMT_PROBE_TOGGLE_WARMUP_MS, now);
-      return { action: 'resume' };
-    }
-    // Unreachable: the trial decides on the last on window's close.
-    return { action: 'none' };
-  }
-
-  private closeOnWindow(now: number, rate: number, benchDelta: number): CpuSmtProbeAction {
-    this.onRates.push(rate);
-    this.onBenchDeltas.push(benchDelta);
-    if (this.onRates.length < SMT_PROBE_CANDIDATE_WINDOWS) {
-      this.beginSettle('off', SMT_PROBE_TOGGLE_WARMUP_MS, now);
-      return { action: 'pause' };
-    }
-    if (this.onBenchDeltas.every(delta => delta <= 0)) {
-      // The wave contributed no work during either on window — a wave that
-      // stalled, starved, or never really resumed. Nothing was measured, so
-      // treat it as a failed trial rather than a slowdown of 1.0.
-      this.phase = 'decided';
-      return { action: 'revert' };
-    }
-    const bracket = this.offRates.slice(-SMT_PROBE_BASELINE_WINDOWS);
-    const reference = bracket.reduce((sum, value) => sum + value, 0) / bracket.length;
-    const ratio = reference > 0 ? (this.onRates.reduce((sum, value) => sum + value, 0) / this.onRates.length) / reference : 0;
-    this.phase = 'decided';
-    if (ratio >= SMT_PROBE_KEEP_RATIO) {
-      // Threads still absorb the wave (unshared or only SMT-shared): every
-      // trial worker becomes permanent. No capacity estimate trims the keep —
-      // SMT-region slowdowns read like the fair-sharing formula's input and
-      // would undershoot, and a trimmed keep bounds the search below capacity.
-      this.pendingConvert = this.trialExtra;
-      return { action: 'keep', convert: this.trialExtra };
-    }
-    return { action: 'revert' };
-  }
-
-  private beginSettle(target: 'off' | 'on', warmupMs: number, now: number) {
-    this.phase = 'settle';
-    this.settleTarget = target;
-    this.settleWarmupMs = warmupMs;
-    this.settleAt = now;
-    this.windowStartAt = 0;
-  }
-
-  private advanceSearch(now: number): boolean {
-    if (this.low >= this.maxTotalWorkers || (this.high !== null && this.high - this.low <= this.refineTolerance())) {
-      this.phase = 'finished';
-      return true;
-    }
-    this.waveLive = false;
-    this.offRates = [];
-    this.onRates = [];
-    this.onBenchDeltas = [];
-    // The caller discarded (or converted) the wave and installed permanent
-    // replacements, so the next trial needs the full spawn warmup settle.
-    this.beginSettle('off', SMT_PROBE_SPAWN_WARMUP_MS, now);
-    return false;
-  }
-
-  private refineTolerance() {
-    return Math.max(SMT_PROBE_REFINE_TOLERANCE_MIN, Math.ceil(this.low * SMT_PROBE_REFINE_TOLERANCE_RATIO));
-  }
-
-  private nextTrialTotal() {
-    if (this.high === null) return Math.min(this.low * 2, this.maxTotalWorkers);
-    return this.low + Math.floor((this.high - this.low) / 2);
+    this.rounds += 1;
+    this.settleWindows = CPU_POOL_GROWTH_SETTLE_WINDOWS;
+    return 'grow';
   }
 }
 

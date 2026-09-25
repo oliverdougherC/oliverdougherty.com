@@ -428,7 +428,7 @@ async function assertControlPanelGeometry(page, utilityId, label) {
       'stress-test': [
         '[data-stress-mode-option]', '#stressStartBtn', '#stressStopBtn',
         '#stressElapsed', '#stressWorkerCount', '#stressGpuBackend', '#stressRenderRate',
-        '#stressCallbackStalls', '#stressIterations', '#stressSceneTitle'
+        '#stressCallbackStalls', '#stressCandidates', '#stressSceneTitle'
       ]
     };
     if (id === 'stress-test') {
@@ -1273,6 +1273,9 @@ async function main() {
     await page.addInitScript(() => {
       window.__OD_RETRO_VM_TEST_MODE__ = true;
       Object.defineProperty(navigator, 'hardwareConcurrency', { value: 2, configurable: true });
+      // This page asserts a specific worker count while it exercises layout and
+      // interaction, so the automatic pool is pinned rather than left resizing.
+      window.__OD_STRESS_TEST_WORKERS__ = 2;
     });
 
     const precomputedTransformRequests = [];
@@ -1945,7 +1948,7 @@ async function main() {
     }));
 
     assert(stressRunningState.state === 'running', 'Stress Test should enter running state after Start.');
-    assert(stressRunningState.workers === '2', 'Stress Test browser check should honor the worker-count test cap.');
+    assert(stressRunningState.workers === '2', 'Stress Test browser check should honor the exact worker-count test hook.');
     assert(stressRunningState.backend === 'none', 'CPU-only Stress Test should not start GPU work.');
     assert(stressRunningState.stopDisabled === false, 'Stress Test stop should enable while running.');
     await page.waitForFunction(() => {
@@ -1962,7 +1965,8 @@ async function main() {
       const app = document.getElementById('stressTestApp');
       const workers = Array.from(document.querySelectorAll('#stressWorkerActivity > span'));
       return app.dataset.stressCpuAlgorithm === 'segmented-sieve' && workers.length === 2 &&
-        workers.every(worker => Number(worker.dataset.iterations) > 0 && Number(worker.dataset.refills) > 0);
+        workers.every(worker => Number(worker.dataset.candidates) > 0 && Number(worker.dataset.primesFound) > 0
+          && Number(worker.dataset.rangeLow) > 0);
     }, null, { timeout: 15000 });
     await assertStressLayout(page, 'stress:desktop:cpu-running', { requirePanelFit: true });
     await runUtilitySection(utilitySectionFailures, 'Stress Running Geometry', async () => {
