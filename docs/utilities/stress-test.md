@@ -99,6 +99,13 @@ that stopped on it never stopped at all. It is still measured and published
 sieve from one that cannot get processors — and `data-stress-cpu-band-wait` is kept
 apart from it so the two are never confused.
 
+That separation also settles where the shortage actually is. Across every run recorded
+in this document the band wait measured 0%: a worker finished its slice, was handed a
+processor again, and was handed more integers to sieve without measurable waiting.
+Under-loading was never the pool running out of work to do, and the page keeping up
+with the pool is therefore something the load harness checks on every run rather than
+something assumed.
+
 The mid-slice share is the signal that moves, and it moves steeply: nothing until
 well past the thread count, 1% at twice the thread count, then 25% and 100%.
 `CPU_POOL_CONTENTION_SHARE = 0.1` sits inside the measured gap between 1% and 25%, so
