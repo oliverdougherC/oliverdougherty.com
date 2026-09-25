@@ -121,8 +121,9 @@ read a flat 100% from 4 workers to 256 — on this browser and OS a worker whose
 wanted to measure never happens. Both rules therefore landed anywhere between 6 and
 128 workers on identical runs of the same build, which is the failure the user saw.
 Pinned counts measured against the operating system on this host, with the self-pacing
-loop that existed then (its per-worker rates are not comparable to the loop described
-below):
+loop that existed then (that sweep ran on an earlier build of this branch, so its
+candidate-rate column is not comparable to the loop described below; the load column is
+what the point of the table is):
 
 | workers | OS CPU (all 32 logical CPUs) | aggregate candidates/s | candidate rate per worker |
 |--------:|--------------------------:|-----------------------:|--------------------------:|
@@ -159,6 +160,14 @@ combined mode the visual lane kept its own rate (111 batches/s on the WebGL2 lan
 on the WebGPU lane, which differ in GPU cost rather than in anything the sieve gives up)
 with at most one callback gap in 22 seconds, so the main thread stayed free to accept a
 Stop at any moment.
+
+The same harness measured the previous build with its pool pinned to exactly 32 workers,
+with identical browser flags: 100.0% load, all 32 processors at 100%, 1,902 M candidates/s
+— so the old worker loop was not failing to saturate the machine once it was given the
+right count; the sizing was the whole failure. The self-driven loop adds about 37% more
+sieve work at that same load, and the reason to prefer it is not the number but what it
+no longer depends on: no main-thread range supply, no message round trip per block, and
+no pacing timer of any kind between a worker and its next block.
 
 The published datasets are what make a run auditable:
 
