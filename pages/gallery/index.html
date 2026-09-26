@@ -72,7 +72,7 @@
       </div>
     </header>
 
-    <section class="gallery-status-section hero-deferred">
+    <section class="gallery-status-section">
       <div class="container-wide">
         <div class="gallery-loading" id="galleryLoading">
           <div class="loading-spinner"></div>
@@ -92,7 +92,7 @@
           <p class="empty-copy" id="galleryEmptyCopy">The archive does not contain any published photographs yet.</p>
         </div>
 
-        <div class="gallery-empty gallery-empty--error" id="galleryError" hidden>
+        <div class="gallery-empty gallery-empty--error" id="galleryError" role="alert" hidden>
           <div class="empty-icon">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
               stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -105,9 +105,11 @@
           <p class="empty-copy" id="galleryErrorCopy">
             The archive data could not be loaded. Refresh the page or try again later.
           </p>
+          <a class="gallery-error-retry" href="">Retry gallery</a>
         </div>
 
         <noscript>
+          <style>#galleryLoading { display: none !important; }</style>
           <div class="gallery-empty gallery-empty--noscript">
             <h2 class="empty-title">JavaScript required</h2>
             <p class="empty-copy">This gallery uses client-side image metadata and needs JavaScript enabled.</p>
@@ -190,7 +192,7 @@
 
   <script src="../../js/year.js?v=20260315" defer></script>
   <script src="../../js/main.js?v=20260315" defer></script>
-  <script src="../../js/gallery.js?v=20260916-mosaic6" defer></script>
+  <script src="../../js/gallery.js?v=20260916-mosaic6" defer onerror="document.getElementById('galleryLoading').hidden = true; document.getElementById('galleryError').hidden = false"></script>
 
 </body>
 
