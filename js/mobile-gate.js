@@ -4,6 +4,7 @@
  */
 
 (function mobileGate() {
+  if (window.__mobileGateRedirecting) return;
   const searchParams = new URLSearchParams(window.location.search);
   if (searchParams.get('full') === '1') return;
   if (window.location.pathname.includes('/mobile/')) return;
@@ -15,6 +16,7 @@
   const path = window.location.pathname;
   const explicitTarget = document.currentScript?.dataset?.mobileTarget;
   if (explicitTarget) {
+    window.__mobileGateRedirecting = true;
     window.location.replace(new URL(explicitTarget, window.location.href).href);
     return;
   }
@@ -23,5 +25,6 @@
   const siteRoot = pagesIndex >= 0 ? path.slice(0, pagesIndex) : '';
   const mobileHome = `${siteRoot}/mobile/`;
 
+  window.__mobileGateRedirecting = true;
   window.location.replace(mobileHome);
 })();

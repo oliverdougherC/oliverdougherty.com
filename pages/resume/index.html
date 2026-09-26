@@ -15,8 +15,40 @@
   <meta name="twitter:title" content="Oliver Dougherty Resume">
   <meta name="twitter:description" content="Electrical and Computer Engineering student focused on systems, signal processing, and creative technical work.">
   <meta name="twitter:image" content="https://oliverdougherty.com/assets/images/blueprint-david.jpg">
-  <script src="../../js/mobile-gate.js" data-mobile-target="../../mobile/resume/"></script>
-  <script src="../../js/page-animations.js" data-page-id="resume"></script>
+  <script src="../../js/mobile-gate.js" data-mobile-target="../../mobile/resume/" async></script>
+  <script>
+    (() => {
+      if (window.__mobileGateRedirecting) return;
+      if (new URLSearchParams(location.search).get('full') === '1' || location.pathname.includes('/mobile/')) return;
+      if (!matchMedia('(pointer: coarse) and (max-width: 900px)').matches && !matchMedia('(max-width: 760px)').matches) return;
+      const target = document.currentScript.previousElementSibling?.dataset.mobileTarget;
+      const pagesIndex = location.pathname.indexOf('/pages/');
+      const root = pagesIndex >= 0 ? location.pathname.slice(0, pagesIndex) : '';
+      window.__mobileGateRedirecting = true;
+      location.replace(target ? new URL(target, location.href).href : `${root}/mobile/`);
+    })();
+  </script>
+  <script data-page-id="resume">
+    (() => {
+      const id = document.currentScript.dataset.pageId;
+      let skip = false;
+      try {
+        const seen = JSON.parse(sessionStorage.getItem('od-page-animations-seen') || '{}');
+        skip = seen[id] === true;
+        if (!skip && id) {
+          seen[id] = true;
+          sessionStorage.setItem('od-page-animations-seen', JSON.stringify(seen));
+        }
+      } catch (_) { /* Storage may be unavailable; the visible page still works. */ }
+      if (skip) {
+        document.documentElement.classList.add('skip-page-animation');
+        document.documentElement.dataset.pageId = id;
+      }
+      // Controllers can read the initial decision even if the optional script stalls.
+      window.pageAnimations = { pageId: id, shouldSkip: () => skip, markSeen() {} };
+    })();
+  </script>
+  <script src="../../js/page-animations.js" data-page-id="resume" async></script>
   <link rel="icon" type="image/svg+xml" href="/assets/tab-icons/favicon-happy.svg?v=face-6" id="favicon">
   <link rel="alternate icon" href="/assets/tab-icons/favicon-happy.ico?v=face-6" id="favicon-fallback">
   <script src="../../js/favicon-swap.js" defer></script>
