@@ -1,7 +1,7 @@
 /**
  * Once-per-visit page animation gate.
- * Loaded synchronously in <head> before stylesheets so CSS autoplay
- * animations can be suppressed on revisit within the same tab session.
+ * The tiny inline head bootstrap applies revisit classes before stylesheets.
+ * The asynchronous script maintains the session state and public API.
  */
 (function () {
   'use strict';
@@ -91,10 +91,13 @@
   }
 
   let skipApplied = false;
+  const headDecision = window.pageAnimations?.pageId === pageId
+    ? window.pageAnimations.shouldSkip?.()
+    : undefined;
 
   if (pageId && VALID_PAGE_IDS.has(pageId)) {
     clearPageOnReload(pageId);
-    if (isPageSeen(pageId)) {
+    if (headDecision === true || (headDecision === undefined && isPageSeen(pageId))) {
       applySkipFlags(pageId);
       skipApplied = true;
     } else {
