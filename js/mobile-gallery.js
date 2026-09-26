@@ -15,6 +15,21 @@
   const MEDIUM_BASE = ASSET_BASE + 'medium/';
   const LARGE_BASE = ASSET_BASE + 'large/';
   const SWIPE_THRESHOLD = 50;
+  // Issue #40: bound every fetch so a stalled optional sequence falls back to
+  // manifest order quickly and a stalled required manifest lands in a visible,
+  // retryable error state instead of an endless spinner. Test hook mirrors the
+  // desktop one so suites can shorten the waits deterministically.
+  var GALLERY_FETCH_TIMEOUTS = (function () {
+    var configured = (typeof window !== 'undefined' && window.__MOBILE_GALLERY_FETCH_TIMEOUTS__) || {};
+    var pick = function (value, fallback) {
+      return Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : fallback;
+    };
+    return {
+      manifest: pick(configured.manifest, 8000),
+      sequence: pick(configured.sequence, 3000)
+    };
+  })();
+  var GALLERY_RETRY_COPY = 'Gallery data could not be loaded. Check your connection and try again.';
 
   let entries = [];
   let currentIndex = -1;
@@ -27,6 +42,10 @@
   let pendingTargetIndex = -1;
   let lastTriggerElement = null;
   let inertElements = [];
+  // Issue #40 fresh-attempt bookkeeping: bumping `loadAttempt` invalidates
+  // prior in-flight work; `loadController` cancels it. See runLoad().
+  let loadAttempt = 0;
+  let loadController = null;
 
   function prefersReducedMotion() {
     return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -140,30 +159,68 @@
 
   /* ---- Data loading ---- */
 
-  async function loadData() {
-    var manifestResp, sequenceResp;
-    try {
-      manifestResp = await fetch(MANIFEST_PATH);
-      if (!manifestResp.ok) throw new Error('Manifest fetch failed: ' + manifestResp.status);
-    } catch (e) {
-      console.error('Failed to load photo manifest:', e);
-      throw e;
+  // Issue #40: one AbortController bounds BOTH the request and its body read;
+  // the deadline abort covers a response whose JSON body never completes, and
+  // `cancelSignal` (the current attempt's controller) lets a retry abandon
+  // stale work outright. Required fetches reject; optional fetches resolve to
+  // null so a hung/absent sequence degrades to manifest order, never a stall.
+  function createMobileAbortError(kind) {
+    if (typeof DOMException === 'function') {
+      return new DOMException('Gallery request ' + kind, kind === 'timeout' ? 'TimeoutError' : 'AbortError');
     }
+    var error = new Error('Gallery request ' + kind);
+    error.name = kind === 'timeout' ? 'TimeoutError' : 'AbortError';
+    return error;
+  }
 
-    var manifest = await manifestResp.json();
-    var photos = manifest.photos || [];
-
-    var sequenceItems = [];
-    try {
-      sequenceResp = await fetch(SEQUENCE_PATH);
-      if (sequenceResp.ok) {
-        var sequence = await sequenceResp.json();
-        sequenceItems = sequence.items || [];
+  async function fetchJsonBounded(path, required, timeoutMs, cancelSignal) {
+    var controller = new AbortController();
+    var timedOut = false;
+    var timer = window.setTimeout(function () {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    var abortFromOuter = function () { controller.abort(); };
+    if (cancelSignal) {
+      if (cancelSignal.aborted) {
+        window.clearTimeout(timer);
+        if (required) throw createMobileAbortError('cancelled');
+        return null;
       }
-    } catch (e) {
-      console.warn('Sequence file not found or failed to load; using manifest order:', e);
+      cancelSignal.addEventListener('abort', abortFromOuter, { once: true });
     }
+    var aborted = new Promise(function (resolve, reject) {
+      controller.signal.addEventListener('abort', function () {
+        reject(createMobileAbortError(timedOut ? 'timeout' : 'cancelled'));
+      }, { once: true });
+    });
+    try {
+      var response = await Promise.race([fetch(path, { signal: controller.signal }), aborted]);
+      if (!response.ok) {
+        if (required) throw new Error('Manifest fetch failed: ' + response.status);
+        return null;
+      }
+      return await Promise.race([response.json(), aborted]);
+    } catch (e) {
+      if (required) throw e;
+      return null;
+    } finally {
+      window.clearTimeout(timer);
+      if (cancelSignal) cancelSignal.removeEventListener('abort', abortFromOuter);
+    }
+  }
 
+  async function loadData(cancelSignal) {
+    var results = await Promise.all([
+      fetchJsonBounded(MANIFEST_PATH, true, GALLERY_FETCH_TIMEOUTS.manifest, cancelSignal),
+      fetchJsonBounded(SEQUENCE_PATH, false, GALLERY_FETCH_TIMEOUTS.sequence, cancelSignal)
+    ]);
+    var manifest = results[0];
+    if (!manifest || !Array.isArray(manifest.photos)) {
+      throw new Error('Invalid gallery manifest schema.');
+    }
+    var photos = manifest.photos;
+    var sequenceItems = results[1] && Array.isArray(results[1].items) ? results[1].items : [];
     return { photos: photos, sequenceItems: sequenceItems };
   }
 
@@ -552,42 +609,95 @@
     }
   }
 
-  function showError(msg) {
+  function showError(msg, retryable) {
     var error = document.getElementById('mobileGalleryError');
     var loading = document.getElementById('mobileGalleryLoading');
+    if (!error) return;
     if (msg) {
       var p = error.querySelector('p');
       if (p) p.textContent = msg;
     }
-    if (error) error.removeAttribute('hidden');
+    // Announce the failure and offer recovery only when retrying can help;
+    // the button is created here (not in HTML) so it only exists when needed.
+    error.setAttribute('role', 'alert');
+    error.removeAttribute('hidden');
     if (loading) loading.setAttribute('hidden', '');
+    var retry = error.querySelector('button');
+    if (retryable) {
+      if (!retry) {
+        retry = document.createElement('button');
+        retry.type = 'button';
+        retry.id = 'mobileGalleryRetryButton';
+        retry.className = 'btn btn-secondary mobile-gallery-retry';
+        retry.textContent = 'Try again';
+        retry.addEventListener('click', function () { runLoad(); });
+        error.appendChild(retry);
+      }
+      if (typeof retry.focus === 'function') retry.focus();
+    } else if (retry) {
+      retry.remove();
+    }
   }
 
-  async function init() {
+  function hideError() {
+    var error = document.getElementById('mobileGalleryError');
+    if (error) error.setAttribute('hidden', '');
+  }
+
+  // Each load is a fresh attempt: the previous attempt's in-flight requests
+  // are aborted, and the attempt token discards any completion that lands
+  // after a newer attempt started, so a late response cannot overwrite newer
+  // state.
+  async function runLoad() {
+    var grid = document.getElementById('mobileGalleryGrid');
+    if (!grid) return;
+    var attempt = ++loadAttempt;
+    if (loadController) loadController.abort();
+    var controller = new AbortController();
+    loadController = controller;
+    showLoading(true);
+
+    var nextEntries;
+    try {
+      var data = await loadData(controller.signal);
+      nextEntries = buildEntries(data.photos, data.sequenceItems);
+    } catch (e) {
+      if (attempt !== loadAttempt) return; // superseded by a newer retry
+      loadController = null;
+      console.error('Mobile gallery load failed:', e);
+      showError(GALLERY_RETRY_COPY, true);
+      return;
+    }
+
+    if (attempt !== loadAttempt) return; // late completion, newer attempt wins
+    loadController = null;
+    entries = nextEntries;
+    hideError();
+    showLoading(false);
+
+    if (!entries.length) {
+      showError('No photographs found.', false);
+      return;
+    }
+
+    grid.textContent = '';
+    renderGrid(grid, entries);
+  }
+
+  function init() {
     var grid = document.getElementById('mobileGalleryGrid');
     if (!grid) return;
 
     bindLightboxEvents();
-
-    try {
-      var data = await loadData();
-      entries = buildEntries(data.photos, data.sequenceItems);
-    } catch (e) {
-      console.error('Mobile gallery init failed:', e);
-      showError('Gallery data could not be loaded.');
-      return;
-    }
-
-    showLoading(false);
-
-    if (!entries.length) {
-      showError('No photographs found.');
-      return;
-    }
-
-    renderGrid(grid, entries);
+    // Delegated clicks bind once; re-renders on retry reuse the listener.
     bindGridClicks(grid);
+
+    runLoad();
   }
+
+  // Issue #40 test seam: trigger a fresh attempt deterministically without
+  // waiting for the error-state button to exist.
+  window.__mobileGalleryRetry = runLoad;
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
