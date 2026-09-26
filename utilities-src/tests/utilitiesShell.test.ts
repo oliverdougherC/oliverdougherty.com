@@ -10,7 +10,7 @@ const tools = [
 ];
 const instances: JSDOM[] = [];
 
-function setup(hash = '') {
+function setup(hash = '', beforeEval?: (window: JSDOM['window']) => void) {
   const dom = new JSDOM(`<!doctype html><title>Utilities — Oliver Dougherty</title>
     <main id="utilitiesTitleView" class="utilities-view--active">
       <h1 class="utilities-title">Utilities</h1>
@@ -36,6 +36,7 @@ function setup(hash = '') {
       events.push(`${type}:${(event.target as HTMLElement).closest<HTMLElement>('[data-utility-id]')?.dataset.utilityId}`);
     });
   });
+  beforeEval?.(window);
   window.eval(shell);
   const query = <T extends HTMLElement = HTMLElement>(selector: string) =>
     window.document.querySelector<T>(selector)!;
@@ -155,5 +156,246 @@ describe('utilities shell', () => {
     query('[data-utility-id="stress-test"] [data-utility-root]').addEventListener('utility-deactivate', stop);
     query('.nav-back-btn').click();
     expect(stop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('utilities shell readiness (issue #42)', () => {
+  interface ManualTimers {
+    fireAll: () => void;
+    restore: () => void;
+  }
+  // Captures the shell's watchdog callbacks so deadline tests fire
+  // deterministically instead of waiting on wall-clock time.
+  function manualTimers(window: JSDOM['window']): ManualTimers {
+    const pending = new Map<number, () => void>();
+    let next = 1;
+    const realSetTimeout = window.setTimeout.bind(window);
+    const realClearTimeout = window.clearTimeout.bind(window);
+    window.setTimeout = ((handler: () => void) => {
+      const id = next++;
+      pending.set(id, handler);
+      return id;
+    }) as typeof window.setTimeout;
+    window.clearTimeout = ((id: number) => {
+      pending.delete(id);
+    }) as typeof window.clearTimeout;
+    return {
+      fireAll: () => {
+        const callbacks = [...pending.values()];
+        pending.clear();
+        callbacks.forEach(cb => cb());
+      },
+      restore: () => {
+        window.setTimeout = realSetTimeout;
+        window.clearTimeout = realClearTimeout;
+      },
+    };
+  }
+
+  function fireReadiness(
+    window: JSDOM['window'],
+    root: HTMLElement,
+    type: 'utility-ready' | 'utility-failed',
+    detail?: Record<string, unknown>,
+  ) {
+    root.dispatchEvent(new window.CustomEvent(type, { detail }));
+  }
+
+  it('marks the stage loading and inert until the controller reports ready', () => {
+    const { window, query } = setup('#stress-test');
+    const stage = query('[data-utility-id="stress-test"]');
+    const root = query('[data-utility-id="stress-test"] [data-utility-root]');
+    expect(stage.dataset.utilityReady).toBe('loading');
+    expect(stage.getAttribute('aria-busy')).toBe('true');
+    expect(root.hasAttribute('inert')).toBe(true);
+    const status = query('.utility-stage-status');
+    expect(status.hidden).toBe(false);
+    expect(status.getAttribute('role')).toBe('status');
+    expect(status.textContent).toContain('Stress Test');
+    // Index chrome stays interactive: inert only wraps the controller root.
+    expect(query('#utilitiesTitleView').hasAttribute('inert')).toBe(false);
+    expect(query('.nav-back-btn').hasAttribute('inert')).toBe(false);
+
+    fireReadiness(window, root, 'utility-ready');
+    expect(stage.dataset.utilityReady).toBe('ready');
+    expect(stage.getAttribute('aria-busy')).toBe('false');
+    expect(root.hasAttribute('inert')).toBe(false);
+    expect(status.hidden).toBe(true);
+  });
+
+  it('surfaces a reload-only outcome when the chunk import failed', () => {
+    const { window, query } = setup('#stress-test');
+    const stage = query('[data-utility-id="stress-test"]');
+    const root = query('[data-utility-id="stress-test"] [data-utility-root]');
+    fireReadiness(window, root, 'utility-failed', {
+      utilityId: 'stress-test',
+      reason: 'import-failed',
+      retryable: false,
+      retryMode: 'reload',
+      message: 'Stress Test could not be loaded.',
+    });
+    expect(stage.dataset.utilityReady).toBe('error');
+    expect(root.hasAttribute('inert')).toBe(true);
+    const status = query('.utility-stage-status');
+    expect(status.getAttribute('role')).toBe('alert');
+    expect(status.textContent).toContain('could not be loaded');
+    const button = status.querySelector('button')!;
+    expect(button.hidden).toBe(false);
+    expect(button.textContent).toBe('Reload tools');
+    expect(button.dataset.utilityRetryMode).toBe('reload');
+  });
+
+  it('uses the existing recovery banner as the sole reload control', () => {
+    const { window, query } = setup('#stress-test');
+    const banner = window.document.createElement('div');
+    banner.id = 'utilityLoadRecovery';
+    banner.innerHTML = '<button>Reload tools</button>';
+    window.document.body.append(banner);
+    fireReadiness(window, query('[data-utility-id="stress-test"] [data-utility-root]'),
+      'utility-failed', { retryMode: 'reload', message: 'Could not load.' });
+    expect(query('.utility-stage-status button').hidden).toBe(true);
+    expect(banner.querySelector('button')?.hidden).toBe(false);
+  });
+
+  it('hides a stage reload control when a recovery banner appears later in the same event', async () => {
+    const { window, query } = setup('#stress-test');
+    window.addEventListener('utility-load-error', () => {
+      const banner = window.document.createElement('div');
+      banner.id = 'utilityLoadRecovery';
+      banner.innerHTML = '<button>Reload tools</button>';
+      window.document.body.append(banner);
+    }, { once: true });
+    window.dispatchEvent(new window.Event('utility-load-error'));
+    await Promise.resolve();
+    expect(query('.utility-stage-status button').hidden).toBe(true);
+    expect(query('#utilityLoadRecovery button').hidden).toBe(false);
+  });
+
+  it('re-activates on retry when the failure is retryable', () => {
+    const { window, query, events } = setup('#stress-test');
+    const root = query('[data-utility-id="stress-test"] [data-utility-root]');
+    fireReadiness(window, root, 'utility-failed', {
+      utilityId: 'stress-test',
+      reason: 'init-failed',
+      retryable: true,
+      retryMode: 'retry',
+      message: 'Stress Test failed to initialize.',
+    });
+    const button = query('.utility-stage-status button');
+    expect(button.textContent).toBe('Retry');
+    button.click();
+    expect(query('[data-utility-id="stress-test"]').dataset.utilityReady).toBe('loading');
+    expect(events.filter(event => event === 'utility-activate:stress-test').length).toBe(2);
+  });
+
+  it('bounds a stalled load: the watchdog marks it errored and reload-only', () => {
+    let timers!: ManualTimers;
+    const { window, query } = setup('#stress-test', w => {
+      timers = manualTimers(w);
+    });
+    const stage = query('[data-utility-id="stress-test"]');
+    expect(stage.dataset.utilityReady).toBe('loading');
+    timers.fireAll();
+    expect(stage.dataset.utilityReady).toBe('error');
+    expect(query('.utility-stage-status').textContent).toContain('took too long');
+    const button = query('.utility-stage-status button');
+    // Entry never executed → an in-page retry cannot reach any listener.
+    expect(button.dataset.utilityRetryMode).toBe('reload');
+    expect(query('[data-utility-id="stress-test"] [data-utility-root]').hasAttribute('inert')).toBe(true);
+    // A late success from the still-pending load recovers the stage.
+    fireReadiness(window, query('[data-utility-id="stress-test"] [data-utility-root]'), 'utility-ready');
+    expect(stage.dataset.utilityReady).toBe('ready');
+    timers.restore();
+  });
+
+  it('offers an in-page retry once the entry module has executed', () => {
+    let timers!: ManualTimers;
+    const { window, query, events } = setup('#stress-test', w => {
+      timers = manualTimers(w);
+      (w as unknown as Record<string, unknown>).__utilitiesEntryExecuted__ = true;
+    });
+    timers.fireAll();
+    expect(query('[data-utility-id="stress-test"]').dataset.utilityReady).toBe('loading');
+    fireReadiness(window, query('[data-utility-id="stress-test"] [data-utility-root]'), 'utility-failed', {
+      utilityId: 'stress-test', reason: 'deadline', retryable: true, retryMode: 'retry',
+      message: 'Stress Test took too long to load.'
+    });
+    const button = query('.utility-stage-status button');
+    expect(button.dataset.utilityRetryMode).toBe('retry');
+    button.click();
+    expect(query('[data-utility-id="stress-test"]').dataset.utilityReady).toBe('loading');
+    expect(events.filter(event => event === 'utility-activate:stress-test').length).toBe(2);
+    timers.restore();
+  });
+
+  it('falls back to reload if the entry executed but no controller deadline event arrives', () => {
+    let timers!: ManualTimers;
+    const { query } = setup('#stress-test', w => {
+      timers = manualTimers(w);
+      (w as unknown as Record<string, unknown>).__utilitiesEntryExecuted__ = true;
+    });
+    timers.fireAll();
+    expect(query('[data-utility-id="stress-test"]').dataset.utilityReady).toBe('loading');
+    timers.fireAll();
+    expect(query('[data-utility-id="stress-test"]').dataset.utilityReady).toBe('error');
+    expect(query('.utility-stage-status button').dataset.utilityRetryMode).toBe('reload');
+    timers.restore();
+  });
+
+  it('disables the shell watchdog when its configured deadline is zero', () => {
+    let timers!: ManualTimers;
+    const { query } = setup('#stress-test', w => {
+      timers = manualTimers(w);
+      (w as unknown as Record<string, unknown>).__OD_UTILITIES_INIT_TIMEOUT_MS = 0;
+    });
+    timers.fireAll();
+    expect(query('[data-utility-id="stress-test"]').dataset.utilityReady).toBe('loading');
+    timers.restore();
+  });
+
+  it('rebinds the retry control once when the shell script is re-evaluated', () => {
+    const { window, query, events } = setup('#stress-test');
+    const root = query('[data-utility-id="stress-test"] [data-utility-root]');
+    fireReadiness(window, root, 'utility-failed', { retryable: true, message: 'Retry needed.' });
+    const button = query('.utility-stage-status button');
+    window.eval(shell);
+    fireReadiness(window, root, 'utility-failed', { retryable: true, message: 'Retry still needed.' });
+    const before = events.filter(event => event === 'utility-activate:stress-test').length;
+    button.click();
+    expect(events.filter(event => event === 'utility-activate:stress-test')).toHaveLength(before + 1);
+  });
+
+  it('keeps per-stage readiness independent across rapid switching', () => {
+    const { window, query } = setup('#image-transform');
+    const image = query('[data-utility-id="image-transform"]');
+    const audio = query('[data-utility-id="audio-fourier"]');
+    window.location.hash = '#audio-fourier';
+    window.dispatchEvent(new window.Event('hashchange'));
+    expect(audio.dataset.utilityReady).toBe('loading');
+    expect(image.dataset.utilityReady).toBe('loading');
+    fireReadiness(window, audio.querySelector('[data-utility-root]')!, 'utility-ready');
+    expect(audio.dataset.utilityReady).toBe('ready');
+    expect(image.dataset.utilityReady).toBe('loading');
+    // Re-entering a settled stage must not drop it back to loading.
+    window.location.hash = '#audio-fourier';
+    window.dispatchEvent(new window.Event('hashchange'));
+    window.location.hash = '#image-transform';
+    window.dispatchEvent(new window.Event('hashchange'));
+    expect(image.dataset.utilityReady).toBe('loading');
+    fireReadiness(window, image.querySelector('[data-utility-root]')!, 'utility-ready');
+    window.location.hash = '#audio-fourier';
+    window.dispatchEvent(new window.Event('hashchange'));
+    expect(audio.dataset.utilityReady).toBe('ready');
+  });
+
+  it('errors pending stages on entry load failure without touching ready stages', () => {
+    const { window, query } = setup('#audio-fourier');
+    const audio = query('[data-utility-id="audio-fourier"]');
+    const image = query('[data-utility-id="image-transform"]');
+    fireReadiness(window, image.querySelector('[data-utility-root]')!, 'utility-ready');
+    window.dispatchEvent(new window.Event('utility-load-error'));
+    expect(audio.dataset.utilityReady).toBe('error');
+    expect(query('[data-utility-id="audio-fourier"] .utility-stage-status button').dataset.utilityRetryMode).toBe('reload');
+    expect(image.dataset.utilityReady).toBe('ready');
   });
 });

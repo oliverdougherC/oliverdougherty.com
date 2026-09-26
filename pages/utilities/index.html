@@ -14,7 +14,7 @@
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;800&amp;display=swap" rel="stylesheet"></noscript>
   <link rel="stylesheet" href="../../css/design-system.css?v=20260315">
   <link rel="stylesheet" href="../../css/schematic.css">
-  <link rel="stylesheet" href="../../css/utilities.css?v=workbench-7">
+  <link rel="stylesheet" href="../../css/utilities.css?v=workbench-8">
   <link rel="stylesheet" href="../../css/cursor.css?v=20260315">
 </head>
 <body class="page-utilities schematic-mode">
@@ -50,7 +50,7 @@
 
       <div class="utility-stage-wrapper">
         <div class="utility-stage" data-utility-id="image-transform" data-utility-title="Image Transform" data-utility-number="01" hidden="">
-          <section class="utility-shell" id="utilitiesApp" data-utility-root="image-transform" aria-label="Image Transform">
+          <section class="utility-shell" id="utilitiesApp" data-utility-root="image-transform" aria-label="Image Transform" inert>
             <div class="utility-layout utility-layout--image-transform">
               <div class="utility-rail utility-rail--minimal">
                 <div class="utility-toolbar">
@@ -113,7 +113,7 @@
         </div>
 
         <div class="utility-stage" data-utility-id="audio-fourier" data-utility-title="Fourier Reconstruction" data-utility-number="02" hidden="">
-          <section class="utility-shell utility-shell--audio" id="audioFourierApp" data-utility-root="audio-fourier" data-audio-state="idle" aria-label="Audio Fourier Reconstruction">
+          <section class="utility-shell utility-shell--audio" id="audioFourierApp" data-utility-root="audio-fourier" data-audio-state="idle" aria-label="Audio Fourier Reconstruction" inert>
             <p id="audioFourierStatusText" aria-live="polite" class="sr-only">Ready.</p>
             <div class="utility-layout utility-layout--audio">
               <div class="utility-rail utility-rail--minimal">
@@ -197,7 +197,7 @@
                   </section>
         </div>
 <div class="utility-stage" data-utility-id="stress-test" data-utility-title="Stress Test" data-utility-number="03" hidden="">
-          <section class="utility-shell utility-shell--stress" id="stressTestApp" data-utility-root="stress-test" aria-label="Stress Test" data-stress-state="idle" data-stress-mode="both" data-stress-worker-count="0" data-stress-gpu-backend="none">
+          <section class="utility-shell utility-shell--stress" id="stressTestApp" data-utility-root="stress-test" aria-label="Stress Test" data-stress-state="idle" data-stress-mode="both" data-stress-worker-count="0" data-stress-gpu-backend="none" inert>
             <div class="stress-layout">
               <div class="stress-control-panel utility-rail">
 
@@ -225,12 +225,12 @@
   </main>
   <footer class="utilities-footer"><span>© <span data-current-year="">2026</span> Oliver Dougherty</span></footer>
   <script src="../../js/year.js" defer=""></script>
-  <script src="../../js/utilities-shell.js?v=workbench-2" defer=""></script>
+  <script src="../../js/utilities-shell.js?v=workbench-3" defer=""></script>
   <div id="utilityEntryError" class="utility-load-recovery" role="alert" hidden>
     <p>The tools could not load. Check your connection or reload for the latest version.</p>
     <button type="button" onclick="window.location.reload()">Reload tools</button>
   </div>
-  <script type="module" src="./assets/utilities-app.js?v=workbench-1" onerror="document.getElementById('utilityEntryError').hidden = false"></script>
+  <script type="module" src="./assets/utilities-app.js?v=workbench-1" onerror="document.getElementById('utilityEntryError').hidden = false; window.dispatchEvent(new Event('utility-load-error'))"></script>
 
 
 </body></html>

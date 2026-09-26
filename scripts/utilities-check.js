@@ -399,6 +399,187 @@ async function assertWorkbenchShell(browser, baseUrl) {
   }
 }
 
+// Issue #42: the packaged browser suite must prove the readiness contract with
+// public signals only (data-utility-ready, status overlay, inert) — never by
+// waiting on a private controller dataset before every click.
+function holdRequests(page, pattern) {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let released = false;
+  page.route(pattern, async route => {
+    if (!released) await gate;
+    await route.continue();
+  });
+  return { release: () => { released = true; release(); } };
+}
+
+async function waitForStageState(page, utilityId, expected, timeout = 20000) {
+  await page.waitForFunction(
+    ([id, want]) => document.querySelector(`[data-utility-id="${id}"]`)?.dataset.utilityReady === want,
+    [utilityId, expected],
+    { timeout }
+  );
+}
+
+async function readStageStatus(page, utilityId) {
+  return page.evaluate(id => {
+    const status = document.querySelector(`[data-utility-id="${id}"] .utility-stage-status`);
+    const button = status?.querySelector('button');
+    const root = document.querySelector(`[data-utility-id="${id}"] [data-utility-root]`);
+    return {
+      ready: document.querySelector(`[data-utility-id="${id}"]`)?.dataset.utilityReady ?? '',
+      busy: document.querySelector(`[data-utility-id="${id}"]`)?.getAttribute('aria-busy') ?? '',
+      statusVisible: Boolean(status) && getComputedStyle(status).display !== 'none' && !status.hidden,
+      statusText: status?.textContent?.trim() ?? '',
+      statusRole: status?.getAttribute('role') ?? '',
+      buttonVisible: Boolean(button) && !button.hidden,
+      buttonText: button?.textContent?.trim() ?? '',
+      retryMode: button?.dataset.utilityRetryMode ?? '',
+      rootInert: root?.inert === true,
+      rootAttributeInert: root?.hasAttribute('inert') === true
+    };
+  }, utilityId);
+}
+
+async function clickByMouse(page, selector) {
+  const box = await page.locator(selector).boundingBox();
+  assert(box, `Expected ${selector} to have a bounding box.`);
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
+
+async function assertUtilityReadinessContract(browser, baseUrl) {
+  const chunkPattern = /\/assets\/(?:stressTestController|audioFourierController)-[\w-]+\.js/;
+  const entryPattern = /\/assets\/utilities-app(?:-[\w-]+)?\.js/;
+  const utilitiesUrl = `${baseUrl}/pages/utilities/index.html`;
+
+  // Held lazy chunks: no silent input drop, bounded recovery, retry, and
+  // rapid switching without duplicate/stale installs.
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.addInitScript(() => {
+      window.__OD_UTILITIES_INIT_TIMEOUT_MS = 2500;
+      window.__readyCounts = {};
+      document.addEventListener('utility-ready', event => {
+        const id = event.detail?.utilityId;
+        if (id) window.__readyCounts[id] = (window.__readyCounts[id] || 0) + 1;
+      }, true);
+    });
+    const held = holdRequests(page, chunkPattern);
+    try {
+      await page.goto(`${utilitiesUrl}#stress-test`, { waitUntil: 'domcontentloaded' });
+      await waitForStageState(page, 'stress-test', 'loading', 10000);
+      const loading = await readStageStatus(page, 'stress-test');
+      assert(loading.statusVisible && loading.statusRole === 'status', 'Held chunk should show a visible status immediately.');
+      assert(/Stress Test/.test(loading.statusText), 'Status should name the tool being loaded.');
+      assert(loading.rootAttributeInert && loading.rootInert, 'Controller-dependent controls must be inert while loading.');
+      assert(loading.busy === 'true', 'Loading stage should be aria-busy.');
+      // The first action arrives during the hold: inert blocks it, the state
+      // machine must stay idle (no queued/dropped start, no acknowledged input).
+      await clickByMouse(page, '#stressStartBtn');
+      assert(await page.evaluate(() => document.getElementById('stressTestApp')?.dataset.stressState ?? 'idle') === 'idle',
+        'Clicking Start while the controller chunk is held must not partially start.');
+      // Index navigation stays available throughout.
+      assert(await page.locator('.nav-back-btn').isEnabled(), 'Index control should stay enabled during loading.');
+
+      // Bounded recovery: the watchdog bounds the stall without releasing.
+      await waitForStageState(page, 'stress-test', 'error', 10000);
+      const stalled = await readStageStatus(page, 'stress-test');
+      assert(/took too long/i.test(stalled.statusText), 'Stalled chunk should announce a bounded timeout.');
+      assert(stalled.statusRole === 'alert', 'Stalled chunk error should be announced accessibly.');
+      assert(stalled.buttonVisible && stalled.retryMode === 'retry', 'Stall after entry execution should offer an in-page Retry.');
+
+      // Leave and re-enter: re-entry restarts a fresh bounded attempt.
+      await page.click('.nav-back-btn');
+      assert(await page.locator('#utilitiesTitleView').isVisible(), 'Index should be reachable while a chunk is stalled.');
+      await page.click('.utilities-buttons [data-utility="stress-test"]');
+      await waitForStageState(page, 'stress-test', 'loading', 10000);
+      await waitForStageState(page, 'stress-test', 'error', 10000);
+
+      // Start a fresh held attempt, leave it inactive, then release both
+      // chunks. The inactive stress attempt must not install a controller.
+      await page.click('[data-utility-id="stress-test"] .utility-stage-status button');
+      await waitForStageState(page, 'stress-test', 'loading', 10000);
+      await page.selectOption('#utilitySwitcher', 'audio-fourier');
+      await waitForStageState(page, 'audio-fourier', 'loading', 10000);
+      held.release();
+      await waitForStageState(page, 'audio-fourier', 'ready', 20000);
+      const inactiveCounts = await page.evaluate(() => window.__readyCounts);
+      assert(!inactiveCounts['stress-test'], 'An inactive timed-out chunk installed a stale controller.');
+      await page.selectOption('#utilitySwitcher', 'stress-test');
+      await waitForStageState(page, 'stress-test', 'ready', 20000);
+      const ready = await readStageStatus(page, 'stress-test');
+      assert(!ready.statusVisible && !ready.rootAttributeInert && !ready.rootInert, 'Ready stage should clear the overlay and inert gate.');
+      const readyCounts = await page.evaluate(() => window.__readyCounts);
+      assert(readyCounts['stress-test'] === 1, `Stale/duplicate ready announcements should not repeat (got ${readyCounts['stress-test']}).`);
+
+      // The first post-ready click is honored exactly once.
+      await page.click('#stressStartBtn');
+      await page.waitForFunction(() => ['starting', 'running'].includes(document.getElementById('stressTestApp')?.dataset.stressState), null, { timeout: 15000 });
+      await page.click('#stressStopBtn');
+      await page.waitForFunction(() => document.getElementById('stressTestApp')?.dataset.stressState === 'idle', null, { timeout: 15000 });
+      assert(errors.length === 0, `Readiness flow should not produce browser errors: ${errors.join('; ')}`);
+    } finally {
+      held.release();
+      await page.close();
+    }
+  }
+
+  // Rejected chunk: visible reload-only outcome, global banner stays quiet.
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    try {
+      await page.route(chunkPattern, route => route.fulfill({ status: 404, body: 'not found' }));
+      await page.goto(`${utilitiesUrl}#stress-test`, { waitUntil: 'domcontentloaded' });
+      await waitForStageState(page, 'stress-test', 'error', 20000);
+      const failed = await readStageStatus(page, 'stress-test');
+      assert(failed.statusVisible && /could not be loaded/i.test(failed.statusText), 'Rejected chunk should announce a visible failure.');
+      assert(failed.statusRole === 'alert', 'Rejected chunk error should be announced accessibly.');
+      assert(failed.retryMode === 'reload' && failed.buttonText === 'Reload tools',
+        'Poisoned module URLs require an explicit reload, not an in-page retry.');
+      assert(failed.rootAttributeInert, 'Failed stage should stay gated.');
+      assert(await page.evaluate(() => document.getElementById('utilityEntryError')?.hidden === true),
+        'A single failed chunk should not trigger the global entry banner.');
+      assert(await page.locator('.nav-back-btn').isVisible(), 'Index should stay available after a chunk failure.');
+    } finally {
+      await page.close();
+    }
+  }
+
+  // Held entry script: entry delay is distinct from controller delay; a late
+  // entry still initializes and recovers the errored stage.
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.addInitScript(() => {
+      window.__OD_UTILITIES_INIT_TIMEOUT_MS = 2500;
+    });
+    const held = holdRequests(page, entryPattern);
+    try {
+      await page.goto(`${utilitiesUrl}#stress-test`, { waitUntil: 'commit' });
+      await waitForStageState(page, 'stress-test', 'loading', 10000);
+      assert(await page.locator('.nav-back-btn').isVisible(), 'Index control should render while the entry script is delayed.');
+      await waitForStageState(page, 'stress-test', 'error', 10000);
+      const stalled = await readStageStatus(page, 'stress-test');
+      assert(stalled.retryMode === 'reload' && !await page.evaluate(() => window.__utilitiesEntryExecuted__ === true),
+        'While the entry module has not executed, recovery must be a reload.');
+      held.release();
+      await waitForStageState(page, 'stress-test', 'ready', 20000);
+      const ready = await readStageStatus(page, 'stress-test');
+      assert(!ready.statusVisible && !ready.rootInert, 'A late entry script should recover the stage to ready.');
+      await page.click('#stressStartBtn');
+      await page.waitForFunction(() => ['starting', 'running'].includes(document.getElementById('stressTestApp')?.dataset.stressState), null, { timeout: 15000 });
+      await page.click('#stressStopBtn');
+      assert(errors.length === 0, `Delayed entry flow should not produce browser errors: ${errors.join('; ')}`);
+    } finally {
+      held.release();
+      await page.close();
+    }
+  }
+}
+
 const CONTROL_PANEL_VIEWPORTS = [
   { width: 1440, height: 900 },
   { width: 1280, height: 720 },
@@ -1265,6 +1446,10 @@ async function main() {
 
     await runUtilitySection(utilitySectionFailures, 'Desktop Workbench Shell', async () => {
       await assertWorkbenchShell(browser, baseUrl);
+    });
+
+    await runUtilitySection(utilitySectionFailures, 'Utility Readiness Contract', async () => {
+      await assertUtilityReadinessContract(browser, baseUrl);
     });
 
     const page = await browser.newPage({
