@@ -77,11 +77,11 @@ async function main() {
     assert.equal((await fetch(`${server.url}/assets/art/nighthawks-binary.txt`)).status, 404, 'Authoring asset must not be served');
     const env = { STATIC_ROOT: DIST, REQUIRE_DEPLOY_ARTIFACT: '1', BASE_URL: server.url,
       HOME_CHECK_URL: server.url, NAV_CHECK_URL: server.url, MOBILE_CHECK_URL: server.url,
-      GALLERY_CHECK_URL: server.url, UTILITIES_CHECK_URL: server.url, STRESS_CHECK_URL: server.url };
+      GALLERY_CHECK_URL: server.url, GALLERY_STATUS_URL: server.url, UTILITIES_CHECK_URL: server.url, STRESS_CHECK_URL: server.url };
     results.push(await run('cache-releases', 'cache-release-check.js', env));
     for (const browser of browsers) {
       const browserEnv = { ...env, BROWSER: browser, HOME_CHECK_BROWSERS: browser, UTILITIES_BROWSER: browser };
-      for (const [name, script] of [['nav', 'nav-overlay-check.js'], ['gallery-release', 'gallery-release-check.js'], ['artifact', 'artifact-browser-check.js']]) {
+      for (const [name, script] of [['nav', 'nav-overlay-check.js'], ['gallery-release', 'gallery-release-check.js'], ['gallery-status', 'gallery-status-check.js'], ['artifact', 'artifact-browser-check.js']]) {
         const result = await run(`${browser}-${name}`, script, browserEnv);
         if (name === 'gallery-release') {
           const summary = path.join(OUTPUT, `gallery-release-check-${browser}.json`);

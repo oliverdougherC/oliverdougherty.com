@@ -310,6 +310,17 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
   text-align: center;
 }
 
+.gallery-error-retry {
+  color: #004ba8;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.gallery-error-retry:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
+}
+
 .gallery-loading[hidden],
 .gallery-empty[hidden] {
   display: none;
