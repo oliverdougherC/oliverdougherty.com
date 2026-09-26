@@ -10,11 +10,6 @@
   function showFallback() {
     if (artwork.dataset.renderMode === 'text') return;
     characters.hidden = true;
-    for (const source of fallback.querySelectorAll('source[data-srcset]')) {
-      source.srcset = source.dataset.srcset;
-    }
-    const image = fallback.querySelector('img');
-    if (!image.hasAttribute('src')) image.src = image.dataset.src;
     fallback.hidden = false;
     artwork.dataset.renderMode = 'fallback';
   }
@@ -43,18 +38,16 @@
     colorMap.onerror = () => reject(new Error('Artwork color map unavailable'));
     colorMap.src = artwork.dataset.colorMap;
   });
-  // WebKit may finish these resources before deferred styles apply. Measuring
-  // then yields auto dimensions and would briefly expose an unscaled text grid.
-  const layoutReady = document.readyState === 'complete' ? Promise.resolve()
-    : new Promise((resolve) => window.addEventListener('load', resolve, { once: true }));
-  // A stalled resource must not leave an empty hero indefinitely.
-  const fallbackTimer = window.setTimeout(showFallback, 2500);
-
-  Promise.all([fontReady, colorsReady, layoutReady])
-    .then(([face]) => {
+  Promise.all([fontReady, colorsReady])
+    .then(async ([face]) => {
       if (face.status !== 'loaded') {
         throw new Error('Artwork font unavailable');
       }
+      // A frame applies the artwork's own styles before measurement. Unrelated
+      // images and scripts may still be loading; the fallback is already visible.
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const bounds = artwork.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) throw new Error('Artwork layout unavailable');
       const context = document.createElement('canvas').getContext('2d');
       if (!context) throw new Error('Font measurement unavailable');
       context.font = font;
@@ -84,6 +77,5 @@
       fallback.hidden = true;
       artwork.dataset.renderMode = 'text';
     })
-    .catch(showFallback)
-    .finally(() => window.clearTimeout(fallbackTimer));
+    .catch(showFallback);
 })();

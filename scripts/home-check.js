@@ -316,6 +316,59 @@ async function checkCohesionInteractions(browser, name, touch) {
   }
 }
 
+async function checkArtworkBeforeWindowLoad(browser, name) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  let releaseScript;
+  const heldScript = new Promise((resolve) => { releaseScript = resolve; });
+  await context.route('**/js/main.js*', async (route) => {
+    await heldScript;
+    await route.continue();
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto(`${baseUrl}/index.html?full=1`, { waitUntil: 'commit' });
+    await page.waitForFunction(() => document.querySelector('#nighthawksArtwork')?.dataset.renderMode === 'text');
+    const state = await page.evaluate(() => ({
+      readyState: document.readyState,
+      firstVisibleArtworkMs: performance.now(),
+      loadMs: performance.getEntriesByType('navigation')[0]?.loadEventEnd || null
+    }));
+    assert.notEqual(state.readyState, 'complete', `${name}: artwork waited for unrelated deferred script`);
+    assert.equal(state.loadMs, null, `${name}: artwork appeared only after window load`);
+    console.log(`${name}: artwork visible at ${state.firstVisibleArtworkMs.toFixed(0)} ms while document load was pending.`);
+  } finally {
+    releaseScript();
+    await context.close();
+  }
+}
+
+async function checkVisibleBaselineWhileFontWaits(browser, name) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  let releaseFont;
+  const heldFont = new Promise((resolve) => { releaseFont = resolve; });
+  await context.route('**/assets/fonts/nighthawks-mono-bold.ttf', async (route) => {
+    await heldFont;
+    await route.continue();
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto(`${baseUrl}/index.html?full=1`, { waitUntil: 'commit' });
+    await page.waitForFunction(() => {
+      const artwork = document.querySelector('#nighthawksArtwork');
+      const image = artwork?.querySelector('.nighthawks-fallback img');
+      return artwork?.dataset.renderMode === 'fallback' && image?.complete && image.naturalWidth > 0
+        && image.getBoundingClientRect().width > 0;
+    });
+    const baselineMs = await page.evaluate(() => performance.now());
+    releaseFont();
+    await page.waitForFunction(() => document.querySelector('#nighthawksArtwork')?.dataset.renderMode === 'text');
+    console.log(`${name}: fallback visible at ${baselineMs.toFixed(0)} ms while artwork font was pending.`);
+  } finally {
+    releaseFont();
+    await context.close();
+  }
+}
+
 async function run() {
   validateBinaryText(SOURCE_TEXT);
   const { data: colors, info } = await sharp(path.join(ROOT, 'assets/art/nighthawks-colors.png'))
@@ -365,17 +418,21 @@ async function run() {
             }
           }
           assert.deepEqual(errors, [], `${name}: uncaught homepage errors`);
-          assert.deepEqual(paintingRequests, [], `${name}: successful text rendering downloaded a painting raster`);
+          assert(paintingRequests.length <= 2, `${name}: successful text rendering fetched multiple fallback resolutions per page`);
           await context.close();
         }
+        await checkArtworkBeforeWindowLoad(browser, name);
+        await checkVisibleBaselineWhileFontWaits(browser, name);
         const conditions = [
           { label: 'no-javascript', settings: { javaScriptEnabled: false }, mode: 'fallback', noJavaScript: true },
           { label: 'reduced-motion', settings: { reducedMotion: 'reduce' }, mode: 'text' },
+          { label: 'no-fontface', initScript: () => { Object.defineProperty(window, 'FontFace', { value: undefined }); }, mode: 'fallback' },
           { label: 'font-failure', block: (request) => request.url().includes('/assets/fonts/nighthawks-mono-bold.ttf'), mode: 'fallback' },
           { label: 'colormap-failure', block: (request) => request.url().includes('/nighthawks-colors.png'), mode: 'fallback' }
         ];
         for (const condition of conditions) {
           const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ...condition.settings });
+          if (condition.initScript) await context.addInitScript(condition.initScript);
           if (condition.block) {
             await context.route('**/*', (route) => condition.block(route.request()) ? route.abort() : route.continue());
           }
@@ -383,15 +440,16 @@ async function run() {
           const paintingRequests = [];
           page.on('request', (request) => { if (isPaintingRequest(request.url())) paintingRequests.push(request.url()); });
           for (const route of ['/index.html?full=1', '/mobile/']) {
+            console.log(`Checking ${name}-${condition.label}-${route}`);
             await checkHome(page, route, `${name}-${condition.label}-${route}`, condition);
           }
-          if (condition.mode === 'text') assert.deepEqual(paintingRequests, [], `${name}: reduced motion fetched painting raster`);
-          else assert(paintingRequests.length > 0, `${name}: fallback never fetched its painting`);
+          assert(paintingRequests.length > 0 && paintingRequests.length <= 2,
+            `${name}: baseline fallback should fetch one responsive painting per page`);
           await context.close();
         }
         await checkCohesionInteractions(browser, name, false);
         await checkCohesionInteractions(browser, name, true);
-        console.log(`Verified ${name}: exact text grid, font/color map, no normal painting fetch, desktop/mobile sizing and resize, 200% viewport-equivalent and CSS zoom, credits, immediate introduction, no-JS and failure fallbacks, reduced motion, four readable project stories, responsive text columns, sticky navigation, keyboard/touch contact interactions, and clipboard outcomes.`);
+        console.log(`Verified ${name}: exact text grid, font/color map, single responsive baseline image, desktop/mobile sizing and resize, 200% viewport-equivalent and CSS zoom, credits, immediate introduction, no-JS and failure fallbacks, reduced motion, four readable project stories, responsive text columns, sticky navigation, keyboard/touch contact interactions, and clipboard outcomes.`);
       } finally {
         await browser.close();
       }
