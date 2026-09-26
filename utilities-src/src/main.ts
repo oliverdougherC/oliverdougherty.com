@@ -55,9 +55,40 @@ interface ActiveTransform {
 }
 
 const MAX_IMAGE_FILE_BYTES = 20 * 1024 * 1024;
+const PRECOMPUTED_ASSET_TIMEOUT_MS = 8_000;
+const IMAGE_LOAD_TIMEOUT_MS = 12_000;
 const TARGET_ANIMATION_FRAME_MS = 1000 / 60;
 const TRANSFORM_SPEED_STEPS = [0.1, 0.25, 0.5, 1, 1.5, 2];
 const DEFAULT_TRANSFORM_SPEED_INDEX = 3;
+
+async function withAbortDeadline<T>(
+  parentSignal: AbortSignal,
+  timeoutMs: number,
+  timeoutMessage: string,
+  operation: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  if (parentSignal.aborted) throw new DOMException('Image preparation cancelled.', 'AbortError');
+  const controller = new AbortController();
+  let rejectAbort!: (reason: Error) => void;
+  let settled = false;
+  const aborted = new Promise<never>((_resolve, reject) => { rejectAbort = reject; });
+  const fail = (reason: Error) => {
+    if (settled) return;
+    settled = true;
+    rejectAbort(reason);
+    controller.abort();
+  };
+  const onAbort = () => fail(new DOMException('Image preparation cancelled.', 'AbortError'));
+  parentSignal.addEventListener('abort', onAbort, { once: true });
+  const timeout = window.setTimeout(() => fail(new Error(timeoutMessage)), timeoutMs);
+  try {
+    return await Promise.race([operation(controller.signal), aborted]);
+  } finally {
+    settled = true;
+    window.clearTimeout(timeout);
+    parentSignal.removeEventListener('abort', onAbort);
+  }
+}
 
 class UtilitiesApp {
   private reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -106,13 +137,13 @@ class UtilitiesApp {
   private readonly resultPanel: HTMLElement;
   private readonly demoButtons: HTMLButtonElement[];
   private readonly builtInTransformCache = new Map<string, CachedBuiltInTransform>();
-  private readonly builtInTransformAssetPromises = new Map<string, Promise<SerializedPrecomputedBuiltInTransform>>();
 
   private sourceSelection: ImageSelection | null = null;
   private targetSelection: ImageSelection | null = null;
   private worker: Worker | null = null;
   private activeRequestId = 0;
   private activeWorkerRequestId = 0;
+  private preparationController: AbortController | null = null;
   private activeTransform: ActiveTransform | null = null;
   private animationState: TransformAnimationState | null = null;
   private animationFramePixels: Uint8ClampedArray | null = null;
@@ -471,7 +502,7 @@ class UtilitiesApp {
     this.presetSelect.disabled = isProcessing;
     this.generateButton.disabled = !hasBothSelections || isProcessing;
     this.swapButton.disabled = !hasBothSelections || isProcessing;
-    this.resetButton.disabled = isProcessing && !hasResult;
+    this.resetButton.disabled = false;
     this.timeline.disabled = !hasResult || isProcessing;
     if (this.timeline.disabled) this.syncTimeline(0);
   }
@@ -545,6 +576,10 @@ class UtilitiesApp {
   }
 
   private abandonActiveComputation() {
+    if (this.preparationController) {
+      this.preparationController.abort();
+      this.preparationController = null;
+    }
     if (this.activeWorkerRequestId > 0) {
       this.cancelActiveRequest(this.activeWorkerRequestId);
       this.activeWorkerRequestId = 0;
@@ -554,6 +589,10 @@ class UtilitiesApp {
       this.worker.terminate();
       this.worker = null;
     }
+  }
+
+  private clearPreparationController(controller: AbortController) {
+    if (this.preparationController === controller) this.preparationController = null;
   }
 
   private clearAllCanvases() {
@@ -647,39 +686,33 @@ class UtilitiesApp {
   }
 
   private async loadPrecomputedBuiltInTransformAsset(
-    presetId: TransformPresetId
+    presetId: TransformPresetId,
+    signal: AbortSignal
   ): Promise<SerializedPrecomputedBuiltInTransform | null> {
-    const cacheKey = this.getBuiltInTransformCacheKey(presetId);
     const assetUrl = this.getPrecomputedBuiltInTransformAssetUrl(presetId);
-    if (!cacheKey || !assetUrl) {
-      return null;
-    }
+    if (!assetUrl) return null;
 
-    let assetPromise = this.builtInTransformAssetPromises.get(cacheKey);
-    if (!assetPromise) {
-      assetPromise = fetch(assetUrl).then(async (response) => {
+    // Cache only completed transforms. A pending optional fetch belongs to one
+    // attempt, so Reset or retry never reuses a promise that can hang forever.
+    return withAbortDeadline(signal, PRECOMPUTED_ASSET_TIMEOUT_MS, 'Precomputed demo asset timed out.',
+      async (fetchSignal) => {
+        const response = await fetch(assetUrl, { signal: fetchSignal });
         if (!response.ok) {
           throw new Error(`Unable to load precomputed built-in transform asset: ${response.status}`);
         }
-
         return (await response.json()) as SerializedPrecomputedBuiltInTransform;
       });
-      this.builtInTransformAssetPromises.set(cacheKey, assetPromise);
-    }
-
-    try {
-      return await assetPromise;
-    } catch (error) {
-      this.builtInTransformAssetPromises.delete(cacheKey);
-      throw error;
-    }
   }
 
   private async restorePrecomputedBuiltInTransform(
     requestId: number,
-    presetId: TransformPresetId
+    presetId: TransformPresetId,
+    signal: AbortSignal
   ) {
-    const serialized = await this.loadPrecomputedBuiltInTransformAsset(presetId);
+    const sourceSelection = this.sourceSelection;
+    const targetSelection = this.targetSelection;
+    if (!sourceSelection || !targetSelection) return null;
+    const serialized = await this.loadPrecomputedBuiltInTransformAsset(presetId, signal);
     if (!serialized) {
       return null;
     }
@@ -689,8 +722,8 @@ class UtilitiesApp {
 
     try {
       const settled = await Promise.allSettled([
-        this.selectionToBitmap(this.sourceSelection as ImageSelection),
-        this.selectionToBitmap(this.targetSelection as ImageSelection)
+        this.selectionToBitmap(sourceSelection, signal),
+        this.selectionToBitmap(targetSelection, signal)
       ]);
       const sourceResult = settled[0];
       const targetResult = settled[1];
@@ -796,6 +829,10 @@ class UtilitiesApp {
       return;
     }
 
+    const preparationController = new AbortController();
+    this.preparationController = preparationController;
+    const preparationSignal = preparationController.signal;
+
     if (!options?.forceMainThread) {
       const precomputedBuiltInTransformUrl = this.getPrecomputedBuiltInTransformAssetUrl(preset.id);
       if (precomputedBuiltInTransformUrl) {
@@ -803,9 +840,10 @@ class UtilitiesApp {
         this.setProgress(0.08, 'Loading precomputed demo asset…', `${preset.label} preset · shipped demo cache`);
 
         try {
-          const precomputedBuiltInTransform = await this.restorePrecomputedBuiltInTransform(requestId, preset.id);
+          const precomputedBuiltInTransform = await this.restorePrecomputedBuiltInTransform(requestId, preset.id, preparationSignal);
           if (!this.isCurrentRequest(requestId)) return;
           if (precomputedBuiltInTransform) {
+            this.clearPreparationController(preparationController);
             this.setProgress(0.98, 'Restoring precomputed built-in transform…', `${preset.label} preset · shipped demo cache`);
             this.applyTransformSuccess(precomputedBuiltInTransform.message, precomputedBuiltInTransform.renderPlan);
             return;
@@ -834,8 +872,8 @@ class UtilitiesApp {
     let targetBitmap: ImageBitmap | null = null;
     try {
       const bitmapResults = await Promise.allSettled([
-        this.selectionToBitmap(this.sourceSelection),
-        this.selectionToBitmap(this.targetSelection)
+        this.selectionToBitmap(this.sourceSelection, preparationSignal),
+        this.selectionToBitmap(this.targetSelection, preparationSignal)
       ]);
       const sourceResult = bitmapResults[0];
       const targetResult = bitmapResults[1];
@@ -864,6 +902,8 @@ class UtilitiesApp {
         targetBitmap.close();
         return;
       }
+
+      this.clearPreparationController(preparationController);
 
       if (options?.forceMainThread || this.workerUnavailable || typeof Worker === 'undefined') {
         await this.runOnMainThread(requestId, sourceBitmap, targetBitmap);
@@ -902,6 +942,7 @@ class UtilitiesApp {
       this.activeWorkerRequestId = requestId;
       worker.postMessage(request, [prepared.source.pixels, prepared.target.pixels]);
     } catch (error) {
+      this.clearPreparationController(preparationController);
       sourceBitmap?.close();
       targetBitmap?.close();
       if (!this.isCurrentRequest(requestId)) {
@@ -1479,18 +1520,28 @@ class UtilitiesApp {
     await this.generateTransform();
   }
 
-  private async selectionToBitmap(selection: ImageSelection): Promise<ImageBitmap> {
-    if (selection.kind === 'file' && selection.file) {
-      return createImageBitmap(selection.file);
+  private async selectionToBitmap(selection: ImageSelection, signal: AbortSignal): Promise<ImageBitmap> {
+    const file = selection.file;
+    if (selection.kind === 'file' && file) {
+      return withAbortDeadline(signal, IMAGE_LOAD_TIMEOUT_MS, 'Image decoding timed out.', async (decodeSignal) => {
+        const bitmap = createImageBitmap(file);
+        void bitmap.then((value) => { if (decodeSignal.aborted) value.close(); }, () => {});
+        return bitmap;
+      });
     }
 
-    if (selection.kind === 'demo' && selection.url) {
-      const response = await fetch(selection.url, { mode: 'same-origin' });
-      if (!response.ok) {
-        throw new Error(`Unable to load demo asset: ${selection.label}`);
-      }
-      const blob = await response.blob();
-      return createImageBitmap(blob);
+    const url = selection.url;
+    if (selection.kind === 'demo' && url) {
+      return withAbortDeadline(signal, IMAGE_LOAD_TIMEOUT_MS, `Demo image ${selection.label} timed out.`,
+        async (fetchSignal) => {
+          const response = await fetch(url, { mode: 'same-origin', signal: fetchSignal });
+          if (!response.ok) throw new Error(`Unable to load demo asset: ${selection.label}`);
+          const blob = await response.blob();
+          if (fetchSignal.aborted) throw new DOMException('Image preparation cancelled.', 'AbortError');
+          const bitmap = createImageBitmap(blob);
+          void bitmap.then((value) => { if (fetchSignal.aborted) value.close(); }, () => {});
+          return bitmap;
+        });
     }
 
     throw new Error('The selected image could not be decoded.');
