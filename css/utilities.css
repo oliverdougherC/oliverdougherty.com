@@ -300,3 +300,14 @@ html[data-active-utility] .page-utilities { height: 100dvh; min-height: 0; displ
 .utility-load-recovery { position: fixed; top: 48px; right: 20px; z-index: 100; max-width: min(360px, calc(100vw - 40px)); padding: 16px; border: 1px solid var(--workbench-accent); background: #fff; color: #111; font: 14px/1.5 var(--workbench-ui); }
 .utility-load-recovery p { margin: 0 0 12px; }
 .utility-load-recovery button { padding: 8px 12px; border: 1px solid #7050c0; background: #7050c0; color: #fff; }
+
+/* Per-stage readiness overlay (issue #42): visible loading/error state while
+   the controller-dependent UI is inert. */
+.utility-stage { position: relative; }
+.utility-stage-status { position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; background: var(--workbench-paper); color: var(--workbench-ink); font: 500 13px/1.5 var(--workbench-ui); text-align: center; }
+.utility-stage-status[hidden] { display: none; }
+.utility-stage-status::before { content: ''; width: 18px; height: 18px; border: 2px solid var(--workbench-rule); border-top-color: var(--workbench-accent); border-radius: 50%; animation: utility-stage-status-spin 900ms linear infinite; }
+.utility-stage[data-utility-ready="error"] .utility-stage-status::before { animation: none; border-top-color: var(--workbench-rule); }
+.utility-stage-status button { padding: 8px 14px; border: 1px solid var(--workbench-accent); background: var(--workbench-accent); color: #fff; font: 500 12px/1.4 var(--workbench-ui); cursor: pointer; }
+@keyframes utility-stage-status-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .utility-stage-status::before { animation: none; } }

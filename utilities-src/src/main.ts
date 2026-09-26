@@ -35,6 +35,7 @@ import {
   type TransformAnimationState
 } from './transformAnimation';
 import { resolveOutputDimensions, transformPreparedImages } from './transformCore';
+import type { ReadinessDetail } from './readiness';
 import type { PreparedImageTransfer, TransformMetadata, TransformPresetId } from './types';
 import { DEMOS, type ImageSelection, type SelectionKind, type StateKind } from './uiState';
 import type { WorkerRequest, WorkerResponse, WorkerSuccessMessage } from './workerTypes';
@@ -1550,113 +1551,237 @@ class UtilitiesApp {
   }
 }
 
+// Set the moment the entry module evaluates: the shell then knows its
+// activation watchdog covers controller stalls, not a missing entry listener.
+(window as unknown as Record<string, unknown>).__utilitiesEntryExecuted__ = true;
+
+// Shares the shell's override so tests (and emergency cache-busting) can
+// shorten both watchdogs together; 0 disables.
+const UTILITY_INIT_TIMEOUT_MS = (() => {
+  const override = (window as unknown as Record<string, unknown>).__OD_UTILITIES_INIT_TIMEOUT_MS;
+  return typeof override === 'number' && Number.isFinite(override) && override >= 0 ? override : 20000;
+})();
+
+interface BranchResult {
+  ok: boolean;
+  skipped: boolean;
+  reason?: ReadinessDetail['reason'];
+  message?: string;
+  retryable?: boolean;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const initializedUtilities = new Set<string>();
   const initializationPromises = new Map<string, Promise<void>>();
+  const attemptTokens = new Map<string, number>();
+  let attemptSeq = 0;
 
-  async function initializeUtility(utilityId: string) {
+  function announceReadiness(
+    utilityId: string,
+    status: 'ready' | 'error',
+    detail: { reason?: ReadinessDetail['reason']; retryable?: boolean; message?: string } = {},
+  ) {
+    const stage = document.querySelector<HTMLElement>(`[data-utility-id="${utilityId}"]`);
+    const root = stage?.querySelector<HTMLElement>('[data-utility-root]') || stage;
+    if (!root) {
+      return;
+    }
+    root.dataset.controllerReady = status === 'ready' ? 'true' : 'false';
+    const type = status === 'ready' ? 'utility-ready' : 'utility-failed';
+    root.dispatchEvent(new CustomEvent(type, {
+      detail: {
+        utilityId,
+        reason: detail.reason || (status === 'ready' ? 'initialized' : 'init-failed'),
+        retryable: status === 'error' ? detail.retryable !== false : false,
+        retryMode: status === 'error' ? (detail.retryable ? 'retry' : 'reload') : 'none',
+        message: detail.message || (status === 'ready' ? '' : 'The tool could not be loaded.'),
+      } satisfies ReadinessDetail,
+    }));
+  }
+
+  async function initializeBranch(utilityId: string, isCurrent: () => boolean): Promise<BranchResult> {
+    if (utilityId === 'image-transform') {
+      const transformRoot = document.getElementById('utilitiesApp');
+      if (!transformRoot) {
+        return { ok: true, skipped: true };
+      }
+      try {
+        new UtilitiesApp(transformRoot).init();
+        return { ok: true, skipped: false };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Utilities failed to initialize.';
+        transformRoot.dataset.transformStatusMessage = message;
+        return { ok: false, skipped: false, message, retryable: false };
+      }
+    }
+
+    // Each lazy branch: dynamic import failure poisons the module URL, and a
+    // half-constructed controller may leave listeners behind. Both need reload.
+    const lazy: { label: string; load: () => Promise<(() => void) | null> } | null =
+      utilityId === 'audio-fourier'
+        ? {
+            label: 'Audio Fourier',
+            load: async () => {
+              const root = document.getElementById('audioFourierApp');
+              if (!root) {
+                return null;
+              }
+              const { AudioFourierController } = await import('./audioFourierController');
+              return () => {
+                new AudioFourierController(root).init();
+              };
+            },
+          }
+        : utilityId === 'stress-test'
+          ? {
+              label: 'Stress Test',
+              load: async () => {
+                const root = document.getElementById('stressTestApp');
+                if (!root) {
+                  return null;
+                }
+                const { StressTestController } = await import('./stressTestController');
+                return () => {
+                  new StressTestController(root).init();
+                };
+              },
+            }
+          : utilityId === 'virtual-machine'
+            ? {
+                label: 'Retro VM',
+                load: async () => {
+                  const root = document.getElementById('retroVmApp');
+                  if (!root) {
+                    return null;
+                  }
+                  const { RetroVmController } = await import('./retroVmController');
+                  return () => {
+                    new RetroVmController(root).init();
+                  };
+                },
+              }
+            : null;
+
+    if (!lazy) {
+      return { ok: true, skipped: true };
+    }
+
+    let construct: (() => void) | null = null;
+    try {
+      construct = await lazy.load();
+    } catch {
+      // A failed chunk fetch poisons the module map for this URL; a fresh
+      // document load is the only reliable retry.
+      return { ok: false, skipped: false, reason: 'import-failed', message: `${lazy.label} could not be loaded.`, retryable: false };
+    }
+    if (construct === null) {
+      return { ok: true, skipped: true };
+    }
+    if (!isCurrent()) {
+      // Late chunk release after a timeout: never install a stale controller.
+      return { ok: false, skipped: true };
+    }
+    try {
+      construct();
+    } catch {
+      // A half-constructed controller may hold partial listeners; only a fresh
+      // document can retry safely without duplicating listeners.
+      return { ok: false, skipped: false, reason: 'init-failed', message: `${lazy.label} failed to initialize.`, retryable: false };
+    }
+    return { ok: true, skipped: false };
+  }
+
+  function ensureUtility(utilityId: string): Promise<void> {
+    const existing = initializationPromises.get(utilityId);
+    if (existing) {
+      return existing;
+    }
     if (initializedUtilities.has(utilityId)) {
-      return;
+      return Promise.resolve();
     }
+    const attempt = ++attemptSeq;
+    attemptTokens.set(utilityId, attempt);
+    let timedOut = false;
+    const work = (async () => {
+      // Executor form: tsconfig lib is ES2022, so Promise.withResolvers is
+      // unavailable without widening the shared compiler config.
+      let markTimedOut!: () => void;
+      const timedOutPromise = new Promise<null>(resolve => {
+        markTimedOut = () => resolve(null);
+      });
+      const timeoutHandle = UTILITY_INIT_TIMEOUT_MS > 0 ? window.setTimeout(() => {
+        timedOut = true;
+        markTimedOut();
+      }, UTILITY_INIT_TIMEOUT_MS) : null;
+      try {
+        const result = await Promise.race([
+          initializeBranch(utilityId, () => attemptTokens.get(utilityId) === attempt && !timedOut),
+          timedOutPromise,
+        ]);
+        if (result === null) {
+          if (attemptTokens.get(utilityId) !== attempt) return;
+          // Invalidates the stalled attempt so its late resolution installs
+          // nothing, and frees the slot so an explicit retry starts fresh.
+          attemptTokens.set(utilityId, ++attemptSeq);
+          initializationPromises.delete(utilityId);
+          announceReadiness(utilityId, 'error', {
+            reason: 'deadline',
+            retryable: true,
+            message: 'took too long to load',
+          });
+          return;
+        }
+        if (attemptTokens.get(utilityId) !== attempt) {
+          return;
+        }
+        if (result.ok) {
+          if (!result.skipped) {
+            initializedUtilities.add(utilityId);
+          }
+          announceReadiness(utilityId, 'ready');
+        } else if (!result.skipped) {
+          announceReadiness(utilityId, 'error', {
+            reason: result.reason || 'init-failed',
+            retryable: result.retryable,
+            message: result.message,
+          });
+        }
+      } finally {
+        if (timeoutHandle !== null) window.clearTimeout(timeoutHandle);
+        if (attemptTokens.get(utilityId) === attempt) {
+          initializationPromises.delete(utilityId);
+        }
+      }
+    })();
+    initializationPromises.set(utilityId, work);
+    return work;
+  }
 
-    const pending = initializationPromises.get(utilityId);
-    if (pending) {
-      await pending;
-      return;
+  function activateUtility(stage: HTMLElement) {
+    const utilityId = stage.dataset.utilityId;
+    if (utilityId) {
+      void ensureUtility(utilityId);
     }
-
-    const promise = (async () => {
-      if (utilityId === 'image-transform') {
-        const transformRoot = document.getElementById('utilitiesApp');
-        if (!transformRoot) {
-          return;
-        }
-        try {
-          new UtilitiesApp(transformRoot).init();
-          initializedUtilities.add(utilityId);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Utilities failed to initialize.';
-          const statusText = document.getElementById('transformStatusText');
-          if (statusText) {
-            statusText.textContent = message;
-          }
-          transformRoot.dataset.transformStatusMessage = message;
-        }
-        return;
-      }
-
-      if (utilityId === 'audio-fourier') {
-        const audioFourierRoot = document.getElementById('audioFourierApp');
-        if (!audioFourierRoot) {
-          return;
-        }
-        try {
-          const { AudioFourierController } = await import('./audioFourierController');
-          new AudioFourierController(audioFourierRoot).init();
-          initializedUtilities.add(utilityId);
-        } catch (error) {
-          const statusText = document.getElementById('audioFourierStatusText');
-          if (statusText) {
-            statusText.textContent = error instanceof Error ? error.message : 'Audio Fourier utility failed to initialize.';
-          }
-        }
-        return;
-      }
-
-      if (utilityId === 'virtual-machine') {
-        const vmRoot = document.getElementById('retroVmApp');
-        if (!vmRoot) {
-          return;
-        }
-        try {
-          const { RetroVmController } = await import('./retroVmController');
-          new RetroVmController(vmRoot).init();
-          initializedUtilities.add(utilityId);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Retro VM failed to initialize.';
-          const statusText = document.getElementById('retroVmStatusText');
-          if (statusText) {
-            statusText.textContent = message;
-          }
-          vmRoot.dataset.vmStatusMessage = message;
-        }
-        return;
-      }
-
-      if (utilityId === 'stress-test') {
-        const stressRoot = document.getElementById('stressTestApp');
-        if (!stressRoot) {
-          return;
-        }
-        try {
-          const { StressTestController } = await import('./stressTestController');
-          new StressTestController(stressRoot).init();
-          initializedUtilities.add(utilityId);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : 'Stress Test failed to initialize.';
-          stressRoot.dataset.stressStatusMessage = message;
-          stressRoot.dataset.stressState = 'error';
-        }
-      }
-    })().finally(() => {
-      initializationPromises.delete(utilityId);
-    });
-
-    initializationPromises.set(utilityId, promise);
-    await promise;
   }
 
   document.addEventListener('utility-activate', (event) => {
     const stage = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-utility-id]') : null;
-    const utilityId = stage?.dataset.utilityId;
-    if (utilityId) {
-      void initializeUtility(utilityId);
+    if (stage) {
+      activateUtility(stage);
     }
   });
 
-  document.querySelectorAll<HTMLElement>('.utility-stage.is-active[data-utility-id]').forEach((stage) => {
-    if (stage.dataset.utilityId) {
-      void initializeUtility(stage.dataset.utilityId);
-    }
+  document.addEventListener('utility-deactivate', (event) => {
+    const stage = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-utility-id]') : null;
+    const utilityId = stage?.dataset.utilityId;
+    if (!utilityId || initializedUtilities.has(utilityId)) return;
+    // A hidden, still-pending import has no user-visible controller to keep.
+    // Let re-entry start a fresh attempt while its old promise settles safely.
+    attemptTokens.set(utilityId, ++attemptSeq);
+    initializationPromises.delete(utilityId);
   });
+
+  // DCL sweep: covers stages activated before this listener existed (the shell
+  // activates during its own eval, which precedes main.ts execution).
+  document.querySelectorAll<HTMLElement>('.utility-stage.is-active[data-utility-id]').forEach(activateUtility);
 });
