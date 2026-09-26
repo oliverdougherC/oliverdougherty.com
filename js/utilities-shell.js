@@ -153,6 +153,21 @@
     ui.button.hidden = false;
     ui.button.dataset.utilityRetryMode = detail.retryable ? 'retry' : 'reload';
     ui.button.textContent = detail.retryable ? 'Retry' : 'Reload tools';
+    if (!detail.retryable && globalReloadVisible()) ui.button.hidden = true;
+  }
+
+  function globalReloadVisible() {
+    const recovery = document.getElementById('utilityLoadRecovery');
+    const entry = document.getElementById('utilityEntryError');
+    return Boolean(recovery && !recovery.hidden) || Boolean(entry && !entry.hidden);
+  }
+
+  function hideRedundantReloadButtons() {
+    if (!globalReloadVisible()) return;
+    stages.forEach(stage => {
+      const button = stage.querySelector('.utility-stage-status button[data-utility-retry-mode="reload"]');
+      if (button) button.hidden = true;
+    });
   }
 
   function applyReady(stage) {
@@ -304,6 +319,9 @@
       if (!tools.has(stage.dataset.utilityId) || stage.dataset.utilityReady !== 'loading') return;
       applyError(stage, { message: 'The tools could not load. Reload for the latest version.', retryable: false });
     });
+    // The global recovery banner may be appended by another listener on this
+    // same event, so suppress duplicate stage reload buttons afterwards.
+    queueMicrotask(hideRedundantReloadButtons);
   });
 
   function destroy() {

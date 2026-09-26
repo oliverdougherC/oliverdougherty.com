@@ -245,6 +245,32 @@ describe('utilities shell readiness (issue #42)', () => {
     expect(button.dataset.utilityRetryMode).toBe('reload');
   });
 
+  it('uses the existing recovery banner as the sole reload control', () => {
+    const { window, query } = setup('#stress-test');
+    const banner = window.document.createElement('div');
+    banner.id = 'utilityLoadRecovery';
+    banner.innerHTML = '<button>Reload tools</button>';
+    window.document.body.append(banner);
+    fireReadiness(window, query('[data-utility-id="stress-test"] [data-utility-root]'),
+      'utility-failed', { retryMode: 'reload', message: 'Could not load.' });
+    expect(query('.utility-stage-status button').hidden).toBe(true);
+    expect(banner.querySelector('button')?.hidden).toBe(false);
+  });
+
+  it('hides a stage reload control when a recovery banner appears later in the same event', async () => {
+    const { window, query } = setup('#stress-test');
+    window.addEventListener('utility-load-error', () => {
+      const banner = window.document.createElement('div');
+      banner.id = 'utilityLoadRecovery';
+      banner.innerHTML = '<button>Reload tools</button>';
+      window.document.body.append(banner);
+    }, { once: true });
+    window.dispatchEvent(new window.Event('utility-load-error'));
+    await Promise.resolve();
+    expect(query('.utility-stage-status button').hidden).toBe(true);
+    expect(query('#utilityLoadRecovery button').hidden).toBe(false);
+  });
+
   it('re-activates on retry when the failure is retryable', () => {
     const { window, query, events } = setup('#stress-test');
     const root = query('[data-utility-id="stress-test"] [data-utility-root]');
