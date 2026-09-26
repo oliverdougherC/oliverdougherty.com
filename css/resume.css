@@ -235,6 +235,7 @@ html.skip-page-animation[data-page-id="resume"] .redact-target::after {
 html.skip-page-animation[data-page-id="resume"] .resume-hidden {
   opacity: 1 !important;
   pointer-events: auto !important;
+  transition: none !important;
 }
 
 /* ========================================
