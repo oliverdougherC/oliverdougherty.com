@@ -76,7 +76,8 @@ async function main() {
     assert.equal((await fetch(`${server.url}/package.json`)).status, 404, 'Source root must not be served');
     assert.equal((await fetch(`${server.url}/assets/art/nighthawks-binary.txt`)).status, 404, 'Authoring asset must not be served');
     const env = { STATIC_ROOT: DIST, REQUIRE_DEPLOY_ARTIFACT: '1', BASE_URL: server.url,
-      HOME_CHECK_URL: server.url, NAV_CHECK_URL: server.url, RESUME_CHECK_URL: server.url, MOBILE_CHECK_URL: server.url,
+      HOME_CHECK_URL: server.url, NAV_CHECK_URL: server.url, NAV_STABILITY_URL: server.url,
+      RESUME_CHECK_URL: server.url, MOBILE_CHECK_URL: server.url,
       GALLERY_CHECK_URL: server.url, GALLERY_HEADING_URL: server.url, GALLERY_PREFETCH_URL: server.url,
       GALLERY_STATUS_URL: server.url, GALLERY_DATA_URL: server.url,
       UTILITIES_CHECK_URL: server.url, TRANSFORM_PREPARATION_URL: server.url,
@@ -84,7 +85,7 @@ async function main() {
     results.push(await run('cache-releases', 'cache-release-check.js', env));
     for (const browser of browsers) {
       const browserEnv = { ...env, BROWSER: browser, HOME_CHECK_BROWSERS: browser, UTILITIES_BROWSER: browser };
-      for (const [name, script] of [['nav', 'nav-overlay-check.js'], ['gallery-release', 'gallery-release-check.js'], ['gallery-heading', 'gallery-heading-check.js'], ['gallery-prefetch', 'gallery-prefetch-check.js'], ['gallery-status', 'gallery-status-check.js'], ['artifact', 'artifact-browser-check.js']]) {
+      for (const [name, script] of [['nav', 'nav-overlay-check.js'], ['nav-stability', 'navigation-stability-check.js'], ['gallery-release', 'gallery-release-check.js'], ['gallery-heading', 'gallery-heading-check.js'], ['gallery-prefetch', 'gallery-prefetch-check.js'], ['gallery-status', 'gallery-status-check.js'], ['artifact', 'artifact-browser-check.js']]) {
         const result = await run(`${browser}-${name}`, script, browserEnv);
         if (name === 'gallery-release') {
           const summary = path.join(OUTPUT, `gallery-release-check-${browser}.json`);
