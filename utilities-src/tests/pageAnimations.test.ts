@@ -41,9 +41,22 @@ describe('page animation reload behavior', () => {
     });
     dom.window.eval(scriptSource);
     expect(dom.window.pageAnimations.shouldSkip()).toBe(false);
-    dom.window.eval(scriptSource);
-    expect(dom.window.pageAnimations.shouldSkip()).toBe(true);
-    expect(dom.window.document.documentElement.classList.contains('skip-page-animation')).toBe(true);
+    const seen = dom.window.sessionStorage.getItem('od-page-animations-seen');
+    expect(seen).not.toBeNull();
     dom.window.close();
+
+    const reloaded = new JSDOM('<script data-page-id="gallery"></script>', {
+      url: 'https://example.test/pages/gallery/index.html',
+      runScripts: 'outside-only'
+    });
+    Object.defineProperty(reloaded.window.document, 'currentScript', {
+      configurable: true,
+      get: () => reloaded.window.document.querySelector('script')
+    });
+    reloaded.window.sessionStorage.setItem('od-page-animations-seen', seen!);
+    reloaded.window.eval(scriptSource);
+    expect(reloaded.window.pageAnimations.shouldSkip()).toBe(true);
+    expect(reloaded.window.document.documentElement.classList.contains('skip-page-animation')).toBe(true);
+    reloaded.window.close();
   });
 });
