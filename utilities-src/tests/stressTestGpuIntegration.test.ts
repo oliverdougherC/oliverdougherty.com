@@ -18,13 +18,28 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+/**
+ * Stand-in worker for GPU-composition tests. It only has to be a plausible CPU
+ * worker: the point of this suite is what the page and the graphics backend do, so
+ * the worker answers the controller's startup handshake with the count its own scope
+ * reports — a worker that never answered would leave the run waiting for a report.
+ */
 class MockWorker {
   static instances: MockWorker[] = [];
+  static workerReport: number | null = 2;
   readonly listeners = new Map<string, Set<EventListener>>();
   readonly postMessage = vi.fn();
-  readonly terminate = vi.fn();
+  stopped = false;
+  readonly terminate = vi.fn(() => { this.stopped = true; });
 
-  constructor() { MockWorker.instances.push(this); }
+  constructor() {
+    MockWorker.instances.push(this);
+    const report = MockWorker.workerReport;
+    if (report === null) return;
+    void Promise.resolve().then(() => {
+      if (!this.stopped) this.receive({ type: 'cpu-stress-ready', hardwareConcurrency: report });
+    });
+  }
 
   addEventListener(type: string, listener: EventListener) {
     const listeners = this.listeners.get(type) ?? new Set<EventListener>();
@@ -33,6 +48,10 @@ class MockWorker {
   }
 
   removeEventListener(type: string, listener: EventListener) { this.listeners.get(type)?.delete(listener); }
+
+  receive(data: Record<string, unknown>) {
+    for (const listener of this.listeners.get('message') ?? []) listener(new MessageEvent('message', { data }));
+  }
 }
 
 class ResizeObserverStub {

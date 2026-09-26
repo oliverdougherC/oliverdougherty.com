@@ -1,24 +1,118 @@
+import * as stressTestCore from '@utilities/stressTestCore';
 import {
-  CpuSmtProbe,
+  CPU_POOL_FALLBACK_WORKERS,
+  CPU_POOL_TRUSTED_REPORT_MAX,
   formatStressElapsed,
-  resolveCpuWorkerCount,
+  planCpuPool,
   resolveGpuBackend,
   resolveGpuBackendFallbacks,
-  resolveSmtProbeExtraWorkers,
+  sanitizeLogicalProcessorReport,
   shouldStressCpu,
   shouldStressGpu,
   transitionStressState
 } from '@utilities/stressTestCore';
 
 describe('stress test core helpers', () => {
-  it('resolves CPU worker count from hardware concurrency without a production cap', () => {
-    expect(resolveCpuWorkerCount({ hardwareConcurrency: 8 })).toBe(8);
-    expect(resolveCpuWorkerCount({ hardwareConcurrency: 0 })).toBe(1);
-    expect(resolveCpuWorkerCount({ hardwareConcurrency: 128 })).toBe(128);
-    expect(resolveCpuWorkerCount({ hardwareConcurrency: 16, maxWorkers: 2 })).toBe(2);
-    expect(resolveCpuWorkerCount({ hardwareConcurrency: NaN })).toBe(4);
-    expect(resolveCpuWorkerCount({ hardwareConcurrency: Infinity })).toBe(4);
-    expect(resolveCpuWorkerCount({ hardwareConcurrency: Number.MAX_SAFE_INTEGER })).toBe(4);
+  it('plans the whole reported logical-processor count, unchanged', () => {
+    // No halving, no reserved core, no rounding to a topology the browser did not
+    // report, no automatic SMT multiplier: the report IS the pool.
+    expect(planCpuPool({ pageReport: 1 })).toEqual({
+      pageReport: 1, workerReport: 0, reported: 1, workers: 1, source: 'report'
+    });
+    for (const count of [2, 3, 4, 6, 7, 8, 12, 14, 16, 24, 32, 48, 64, 96, 128, 256]) {
+      expect(planCpuPool({ pageReport: count }).workers, String(count)).toBe(count);
+    }
+  });
+
+  it.each([
+    [6, 6], [12, 12], [14, 14], [22, 22], [32, 32], [48, 48], [96, 96]
+  ])('sizes the pool at the full report for %i logical processors', (reported) => {
+    // Non-powers of two included on purpose: nothing here prefers a "nice" number.
+    const plan = planCpuPool({ pageReport: reported, workerReport: reported });
+    expect(plan.workers).toBe(reported);
+    expect(plan.reported).toBe(reported);
+    expect(plan.source).toBe('report');
+  });
+
+  it('keeps a count a browser reported only in worker scope', () => {
+    // Measured on the affected host: a browser with fingerprint protection reported
+    // 12/14/16 in window scope, varying per launch, while a worker it created
+    // reported the machine's real 32. The pool is sized for the threads the workers
+    // actually run on — by reading the count, never by scaling the page's number.
+    expect(planCpuPool({ pageReport: 12, workerReport: 32 }))
+      .toEqual({ pageReport: 12, workerReport: 32, reported: 32, workers: 32, source: 'report' });
+    expect(planCpuPool({ pageReport: 14, workerReport: 32 }).workers).toBe(32);
+    // The other direction: a report reduced only in worker scope still gets the
+    // count the window stated. The larger number is the one the browser is willing
+    // to state, and it is chosen between two reports, never computed from either.
+    expect(planCpuPool({ pageReport: 24, workerReport: 8 }).workers).toBe(24);
+    // Equal reports agree, and one missing report is not a reason to size down.
+    expect(planCpuPool({ pageReport: 32, workerReport: 32 }).workers).toBe(32);
+    expect(planCpuPool({ pageReport: 32 }).workers).toBe(32);
+    expect(planCpuPool({ workerReport: 32 }).workers).toBe(32);
+  });
+
+  it('honours an exact diagnostic request above the browser report', () => {
+    // The regression this branch exists for: a browser reporting 12, asked for 32,
+    // gets exactly 32 — and the plan still records what the browser actually said.
+    expect(planCpuPool({ pageReport: 12, workerReport: 12, exactWorkers: 32 })).toEqual({
+      pageReport: 12, workerReport: 12, reported: 32, workers: 32, source: 'exact'
+    });
+    expect(planCpuPool({ pageReport: 32, exactWorkers: 3 }).workers).toBe(3);
+    expect(planCpuPool({ pageReport: 4, exactWorkers: 1 }).workers).toBe(1);
+  });
+
+  it('rejects an unusable override instead of honouring it literally', () => {
+    // A hook value that is not a processor count diagnoses nothing; the pool falls
+    // back to the report and says so through `source`.
+    for (const exact of [0, -4, Number.NaN, CPU_POOL_TRUSTED_REPORT_MAX + 1]) {
+      expect(planCpuPool({ pageReport: 8, exactWorkers: exact }).source).toBe('report');
+      expect(planCpuPool({ pageReport: 8, exactWorkers: exact }).workers).toBe(8);
+    }
+  });
+
+  it('refuses a report beyond the largest real configuration', () => {
+    // Inside the bound a report is honoured in full; outside it the number is not a
+    // processor count, and taking it literally would spawn workers by the million.
+    expect(planCpuPool({ pageReport: CPU_POOL_TRUSTED_REPORT_MAX }).workers).toBe(CPU_POOL_TRUSTED_REPORT_MAX);
+    expect(planCpuPool({ pageReport: CPU_POOL_TRUSTED_REPORT_MAX + 1 }).source).toBe('fallback');
+    expect(planCpuPool({ pageReport: Number.MAX_SAFE_INTEGER }).workers).toBe(CPU_POOL_FALLBACK_WORKERS);
+    expect(planCpuPool({ pageReport: 8, workerReport: CPU_POOL_TRUSTED_REPORT_MAX + 1 }).workers).toBe(8);
+  });
+
+  it('falls back to a documented small pool when nothing reported', () => {
+    // A fallback is never presented as the machine's processor count: `reported`
+    // stays 0 and `source` says `fallback`.
+    expect(planCpuPool({})).toEqual({
+      pageReport: 0, workerReport: 0, reported: 0, workers: CPU_POOL_FALLBACK_WORKERS, source: 'fallback'
+    });
+    for (const value of [0, -8, Number.NaN, Number.POSITIVE_INFINITY, null, undefined]) {
+      expect(planCpuPool({ pageReport: value as number, workerReport: value as number }).source).toBe('fallback');
+    }
+    // A fractional count is a count, floored, not a rejection.
+    expect(planCpuPool({ pageReport: 8.9 }).workers).toBe(8);
+    expect(sanitizeLogicalProcessorReport(8.9)).toBe(8);
+    expect(sanitizeLogicalProcessorReport(0)).toBe(0);
+    expect(sanitizeLogicalProcessorReport('x' as unknown as number)).toBe(0);
+  });
+
+  it('produces a plan with nothing left to revise', () => {
+    // The plan is a fixed size and nothing else: no ceiling to grow toward, no step,
+    // no verdict, no counters a resizer could act on.
+    const plan = planCpuPool({ pageReport: 32, workerReport: 32 });
+    expect(Object.keys(plan).sort()).toEqual(['pageReport', 'reported', 'source', 'workerReport', 'workers']);
+    expect(plan.workers).toBe(plan.reported);
+  });
+
+  it('exports no growth or adaptive-sizing machinery', () => {
+    // A sizing policy that is no longer in the module cannot run. Growth states,
+    // step functions, measurement windows and contention thresholds are all gone
+    // rather than merely unused.
+    const adaptive = Object.keys(stressTestCore).filter(name =>
+      /GROWTH|CONTENTION|SIGNAL|SLICE|STEP|CEILING|PROBE|WINDOW/i.test(name));
+    expect(adaptive).toEqual([]);
+    expect(stressTestCore).not.toHaveProperty('nextCpuWorkerCount');
+    expect(stressTestCore).not.toHaveProperty('CpuPoolGrowth');
   });
 
   it('maps modes to the correct workload lanes', () => {
@@ -64,82 +158,5 @@ describe('stress test core helpers', () => {
     expect(formatStressElapsed(65_000)).toBe('1:05');
     expect(formatStressElapsed(3_661_000)).toBe('1:01:01');
     expect(formatStressElapsed(100 * 60 * 60 * 1000)).toBe('4d 4:00:00');
-  });
-
-  it('sizes the SMT probe wave to double the reported workers under a total cap', () => {
-    expect(resolveSmtProbeExtraWorkers(2)).toBe(2);
-    expect(resolveSmtProbeExtraWorkers(64)).toBe(64);
-    expect(resolveSmtProbeExtraWorkers(100)).toBe(28);
-    expect(resolveSmtProbeExtraWorkers(128)).toBe(0);
-    expect(resolveSmtProbeExtraWorkers(200)).toBe(0);
-    expect(resolveSmtProbeExtraWorkers(0)).toBe(0);
-    expect(resolveSmtProbeExtraWorkers(1.5)).toBe(0);
-    expect(resolveSmtProbeExtraWorkers(Number.NaN)).toBe(0);
-  });
-
-  it('keeps the probe wave only when a candidate window beats the peak baseline', () => {
-    const probe = new CpuSmtProbe();
-    expect(probe.observe(400, 50)).toBe('none'); // baseline window opens
-    expect(probe.observe(1200, 720)).toBe('none'); // w1 .8375: base-extension burst
-    expect(probe.observe(2000, 790)).toBe('none'); // w2 .0875
-    expect(probe.observe(2800, 860)).toBe('spawn'); // w3 .0875 → spawn on peak .8375
-    expect(probe.observe(3200, 930)).toBe('none'); // spawn warmup
-    expect(probe.observe(3600, 1000)).toBe('none'); // candidate window opens
-    expect(probe.observe(4400, 1790)).toBe('keep'); // .9875 ≥ .8375×1.1 despite the bursty baseline
-    expect(probe.observe(5200, 9e9)).toBe('none'); // decided
-  });
-
-  it('reverts the probe wave when no candidate window grows work throughput', () => {
-    const probe = new CpuSmtProbe();
-    expect(probe.observe(400, 50)).toBe('none');
-    expect(probe.observe(1200, 610)).toBe('none'); // w1 .7
-    expect(probe.observe(2000, 680)).toBe('none'); // w2 .0875
-    expect(probe.observe(2800, 750)).toBe('spawn'); // w3 .0875 → spawn on peak .7
-    expect(probe.observe(3200, 790)).toBe('none'); // spawn warmup
-    expect(probe.observe(3600, 830)).toBe('none'); // candidate window opens
-    expect(probe.observe(4400, 870)).toBe('none'); // .05: first miss
-    expect(probe.observe(5200, 910)).toBe('revert'); // .05: second miss
-    expect(probe.observe(9999, 9e9)).toBe('none');
-  });
-
-  it('re-baselines after a keep and spawns another wave, ending at the first stalled one', () => {
-    const probe = new CpuSmtProbe();
-    expect(probe.observe(400, 50)).toBe('none');
-    expect(probe.observe(1200, 610)).toBe('none'); // peak .7
-    expect(probe.observe(2000, 680)).toBe('none');
-    expect(probe.observe(2800, 750)).toBe('spawn');
-    expect(probe.observe(3200, 790)).toBe('none');
-    expect(probe.observe(3600, 830)).toBe('none');
-    expect(probe.observe(4400, 1600)).toBe('keep'); // .9625 ≥ .77
-    probe.registerKeep(4500);
-    expect(probe.observe(4900, 1700)).toBe('none'); // replacement-worker warmup
-    expect(probe.observe(5300, 1800)).toBe('none'); // fresh baseline window opens
-    expect(probe.observe(6100, 2360)).toBe('none'); // w1 .7
-    expect(probe.observe(6900, 2430)).toBe('none');
-    expect(probe.observe(7700, 2500)).toBe('spawn'); // w3 → spawn #2
-    expect(probe.observe(8100, 2560)).toBe('none');
-    expect(probe.observe(8500, 2620)).toBe('none'); // candidate window opens
-    expect(probe.observe(9300, 2680)).toBe('none'); // .075: miss
-    expect(probe.observe(10100, 2740)).toBe('revert'); // no marginal gain
-    expect(probe.observe(10900, 9e9)).toBe('none');
-  });
-
-  it('rejects a keep recorded outside a keep decision', () => {
-    const probe = new CpuSmtProbe();
-    expect(() => probe.registerKeep(500)).toThrow('outside a keep decision');
-    probe.observe(400, 50);
-    probe.observe(1200, 610);
-    probe.observe(2000, 680);
-    expect(probe.observe(2800, 750)).toBe('spawn');
-    expect(() => probe.registerKeep(2900)).toThrow('outside a keep decision');
-  });
-
-  it('reverts without spawning when every baseline window reports no progress', () => {
-    const probe = new CpuSmtProbe();
-    expect(probe.observe(400, 7)).toBe('none');
-    expect(probe.observe(1200, 7)).toBe('none');
-    expect(probe.observe(2000, 7)).toBe('none');
-    expect(probe.observe(2800, 7)).toBe('revert');
-    expect(probe.observe(3600, 5000)).toBe('none');
   });
 });
