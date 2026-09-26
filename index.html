@@ -49,7 +49,7 @@
     <header class="nighthawks-hero">
       <h1 class="sr-only">Oliver Dougherty</h1>
       <figure class="nighthawks-figure">
-          <span id="nighthawksArtwork" role="img" aria-label="Nighthawks by Edward Hopper, 1942, rendered in colored binary characters with white credits." data-render-mode="loading" data-font-src="assets/fonts/nighthawks-mono-bold.ttf" data-color-map="assets/art/nighthawks-colors.png">
+          <span id="nighthawksArtwork" role="img" aria-label="Nighthawks by Edward Hopper, 1942, rendered in colored binary characters with white credits." data-render-mode="fallback" data-font-src="assets/fonts/nighthawks-mono-bold.ttf" data-color-map="assets/art/nighthawks-colors.png">
             <pre id="nighthawksCharacters" class="nighthawks-characters" aria-hidden="true" hidden>11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111
@@ -113,14 +113,10 @@
 000EDWARD HOPPER, 19421100100110100100000001001110010111101010111111110111100100010000000000000000000000000001001001000011111111111111111111111111111111111111111111111111111111111111111111111111111111
 10000000000000000100101000100011111101101111111111111111101111111111111110100000000000000000000000000011000100000011111111111111111111111111111111111111111111111111111111111111111111111111111111111111
 00001000011100110100111101001000000001001111111111000111111110101011111111100000000000000000000000000000010011110001100001001011001011111100111110010111111111111111111111111111111111111111111111111111</pre>
-            <picture class="nighthawks-fallback" hidden>
-            <source type="image/webp" data-srcset="assets/art/nighthawks-credited-720.webp 720w, assets/art/nighthawks-credited-1440.webp 1440w, assets/art/nighthawks-credited-2880.webp 2880w" sizes="(max-width: 600px) calc(100vw - 16px), min(calc(100vw - 48px), 1880px, 161vh)">
-            <img data-src="assets/art/nighthawks-credited.png" width="6000" height="3274" alt="A binary ASCII reinterpretation of Edward Hopper’s Nighthawks: four figures in a brightly lit corner diner, surrounded by a dark city street.">
-          </picture>
-            <noscript><picture class="nighthawks-fallback">
+            <picture class="nighthawks-fallback">
             <source type="image/webp" srcset="assets/art/nighthawks-credited-720.webp 720w, assets/art/nighthawks-credited-1440.webp 1440w, assets/art/nighthawks-credited-2880.webp 2880w" sizes="(max-width: 600px) calc(100vw - 16px), min(calc(100vw - 48px), 1880px, 161vh)">
             <img src="assets/art/nighthawks-credited.png" width="6000" height="3274" fetchpriority="high" alt="A binary ASCII reinterpretation of Edward Hopper’s Nighthawks: four figures in a brightly lit corner diner, surrounded by a dark city street.">
-          </picture></noscript>
+          </picture>
           </span>
         <figcaption class="sr-only">NIGHTHAWKS — EDWARD HOPPER, 1942. Reinterpreted in binary ASCII.</figcaption>
       </figure>
