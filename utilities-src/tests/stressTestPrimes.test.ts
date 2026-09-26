@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PRIME_SEARCH_START, PRIME_SEGMENT_ODDS, SegmentedPrimeSieve } from '../src/stressTestPrimes';
-import { createBenchmarkPrimeAllocator, PrimeBlockAllocator, PRIME_BLOCK_ODDS, PRIME_PREFETCH_BLOCKS, PRIME_REFILL_THRESHOLD, type PrimeBlock } from '../src/stressTestPrimeScheduler';
-import type { StressTestWorkerRequest, StressTestWorkerResponse, CpuStressHeartbeatResponse } from '../src/stressTestWorkerTypes';
+import { PRIME_WORKER_BAND, primeWorkerRange } from '../src/stressTestPrimeRanges';
+import type { CpuStressProgressResponse, StressTestWorkerRequest, StressTestWorkerResponse } from '../src/stressTestWorkerTypes';
 
 function referencePrimes(limit: number) {
   const composite = new Uint8Array(limit + 1);
@@ -22,6 +22,15 @@ function countRange(sieve: SegmentedPrimeSieve, low: number, high: number) {
     latestPrime = Math.max(latestPrime, result.latestPrime);
   }
   return { primesFound, latestPrime, candidates };
+}
+
+function isPrime(value: number) {
+  if (!Number.isSafeInteger(value) || value < 2) return false;
+  if (value % 2 === 0) return value === 2;
+  for (let divisor = 3; divisor * divisor <= value; divisor += 2) {
+    if (value % divisor === 0) return false;
+  }
+  return true;
 }
 
 describe('segmented prime sieve', () => {
@@ -83,26 +92,6 @@ describe('segmented prime sieve', () => {
     }
   });
 
-  it('bounds work-unit cost drift across distant frontiers', () => {
-    // Units charge executed work, so one segment's unit count stays within
-    // 1.6× across a five-orders-of-magnitude frontier jump. A per-prime count
-    // would drift ~100× cheaper and fake capacity gains the machine never
-    // made. Exact cost parity for throughput comparisons comes from probing
-    // at aligned frontiers (see the controller frontier-seed regressions).
-    const segmentWork = (low: number) => {
-      const sieve = new SegmentedPrimeSieve();
-      const high = low + PRIME_SEGMENT_ODDS * 2 - 1;
-      sieve.sieve(low, high); // pays geometric base-cache extension
-      const before = sieve.workUnits;
-      sieve.sieve(low, high); // cache warm: exactly one segment's work
-      return sieve.workUnits - before;
-    };
-    const lowFrontier = segmentWork(10_001); // base primes up to √75,536 ≈ 274
-    const highFrontier = segmentWork(2 ** 32 + 1); // base primes up to √high = 65,536
-    expect(highFrontier).toBeGreaterThan(lowFrontier); // marking density grows with √high
-    expect(highFrontier / lowFrontier).toBeLessThan(1.6);
-  });
-
   it('rejects unsafe and oversized intervals', () => {
     const sieve = new SegmentedPrimeSieve();
     for (const [low, high] of [[0, 10], [3, 2], [1, PRIME_SEGMENT_ODDS * 2 + 1], [1, Infinity], [1, Number.MAX_SAFE_INTEGER + 1]]) {
@@ -111,164 +100,210 @@ describe('segmented prime sieve', () => {
   });
 });
 
-describe('demand-driven prime blocks', () => {
-  it.each([1, 2, 8, 128])('covers every candidate once across %i heterogeneous workers', workerCount => {
-    const allocator = new PrimeBlockAllocator(64, 100000);
-    const lanes = Array.from({ length: workerCount }, (_, index) => ({
-      queue: allocator.take(PRIME_PREFETCH_BLOCKS), sieve: new SegmentedPrimeSieve(),
-      readyAt: index % 5 + 1, speed: index % 5 + 1, completed: 0
-    }));
-    const completed: PrimeBlock[] = [];
-    let count = 0, latest = 0, candidates = 0;
-    while (lanes.some(lane => lane.queue.length > 0)) {
-      const lane = lanes.filter(item => item.queue.length).sort((a, b) => a.readyAt - b.readyAt)[0];
-      const block = lane.queue.shift()!;
-      const result = countRange(lane.sieve, block.low, block.high);
-      count += result.primesFound;
-      candidates += result.candidates;
-      latest = Math.max(latest, result.latestPrime);
-      completed.push(block);
-      lane.completed += 1;
-      lane.readyAt += lane.speed;
-      if (lane.queue.length <= PRIME_REFILL_THRESHOLD && !allocator.exhausted) {
-        lane.queue.push(...allocator.take(PRIME_PREFETCH_BLOCKS - lane.queue.length));
-      }
+describe('worker prime bands', () => {
+  it('tiles the number line so issued bands are contiguous and disjoint', () => {
+    // Disjointness by construction is what lets a pool of workers own the line
+    // between them with no allocator: band k covers [1 + k·band, (k + 1)·band].
+    let previous = primeWorkerRange(0);
+    expect(previous).toEqual({ low: 1, limit: PRIME_WORKER_BAND });
+    for (let serial = 1; serial < 8; serial += 1) {
+      const band = primeWorkerRange(serial);
+      expect(band.low % 2, String(serial)).toBe(1); // odd start: every segment starts on an odd
+      expect(band.limit % 2, String(serial)).toBe(0); // even end: the next low stays odd
+      expect(band.low, String(serial)).toBe(previous.limit + 1); // contiguous
+      expect(band.low, String(serial)).toBeGreaterThan(previous.limit); // and disjoint
+      expect(band.limit - band.low).toBe(PRIME_WORKER_BAND - 1);
+      previous = band;
     }
-    const sorted = completed.sort((a, b) => a.low - b.low);
-    expect(new Set(sorted.map(block => block.id)).size).toBe(sorted.length);
-    expect(sorted[0].low).toBe(1);
-    for (let index = 1; index < sorted.length; index += 1) expect(sorted[index].low).toBe(sorted[index - 1].high + 1);
-    expect(sorted.at(-1)?.high).toBe(100000);
-    expect(candidates).toBe(50001);
-    expect(count).toBe(9592);
-    expect(latest).toBe(99991);
-    if (workerCount > 2) expect(lanes[0].completed).toBeGreaterThan(lanes[4]?.completed ?? lanes[1].completed);
   });
 
-  it('finishes the last inclusive block without exceeding safe integers', () => {
-    const end = Number.MAX_SAFE_INTEGER;
-    const allocator = new PrimeBlockAllocator(2, end, end - 6);
-    expect(allocator.take(4)).toEqual([
-      { id: 0, low: end - 6, high: end - 3 }, { id: 1, low: end - 2, high: end }
-    ]);
-    expect(allocator.exhausted).toBe(true);
-    expect(allocator.take(4)).toEqual([]);
-    expect(() => allocator.take(5)).toThrow();
+  it('lets independent workers cover a range exactly once between them', () => {
+    // Four separate sieves, one per band — the way four workers run — must agree
+    // with the reference count for the union: no integer counted twice, none
+    // skipped at the seams.
+    const band = 64;
+    const reference = referencePrimes(4 * band);
+    let primesFound = 0;
+    let candidates = 0;
+    let latestPrime = 0;
+    for (let serial = 0; serial < 4; serial += 1) {
+      const range = primeWorkerRange(serial, band);
+      const result = countRange(new SegmentedPrimeSieve(), range.low, range.limit);
+      primesFound += result.primesFound;
+      candidates += result.candidates;
+      latestPrime = Math.max(latestPrime, result.latestPrime);
+    }
+    expect(primesFound).toBe(reference.length);
+    expect(latestPrime).toBe(reference.at(-1));
+    expect(candidates).toBe(band * 2 + 1); // odds in [1, 256] plus the even 2
   });
 
-  it('rewinds its frontier to a mark when the consuming wave fails', () => {
-    const allocator = new PrimeBlockAllocator(64, 100000);
-    const baseline = allocator.take(4);
-    const mark = allocator.mark();
-    const abandoned = allocator.take(4); // e.g. a partially failed permanent wave
-    expect(abandoned[0].low).toBe(baseline.at(-1)!.high + 1);
-    allocator.rewindTo(mark);
-    expect(allocator.take(2)).toEqual(abandoned.slice(0, 2)); // re-issued gaplessly
-    expect(() => allocator.rewindTo({ ...mark, nextId: mark.nextId + 4 })).toThrow('rollback window');
+  it('gives a lane its blocks without any allocation, so lanes never overlap', () => {
+    // A worker derives block `index + k·poolSize` from two numbers it was told once.
+    // Four lanes of a four-worker pool must therefore be four disjoint blocks, and
+    // the fifth block of lane 0 must be the block after lane 3's first — the whole
+    // line is covered exactly once, in order, with no page-side bookkeeping.
+    const poolSize = 4;
+    const first = Array.from({ length: poolSize }, (_, index) => primeWorkerRange(index + 0 * poolSize));
+    expect(first.map(block => block.low)).toEqual([1, 1 + PRIME_WORKER_BAND, 1 + 2 * PRIME_WORKER_BAND, 1 + 3 * PRIME_WORKER_BAND]);
+    expect(first[poolSize - 1].limit + 1).toBe(primeWorkerRange(0 + 1 * poolSize).low);
+    for (const block of first) {
+      expect(block.low % 2).toBe(1);
+      expect(block.limit - block.low).toBe(PRIME_WORKER_BAND - 1);
+    }
   });
 
-  it('seeds disposable benchmark coverage at an arbitrary production frontier', () => {
-    const production = new PrimeBlockAllocator();
-    production.take(PRIME_PREFETCH_BLOCKS);
-    const frontier = production.frontier;
-    const benchmark = createBenchmarkPrimeAllocator(frontier);
-    const blocks = benchmark.take(2);
-    expect(blocks[0].low).toBe(frontier); // exactly the work production performs next
-    expect(blocks[0].high - blocks[0].low).toBe(PRIME_BLOCK_ODDS * 2 - 1); // same block alignment
-    expect(blocks[1].low).toBe(blocks[0].high + 1);
-    // Seeding a probe wave consumes nothing production will ever need.
-    expect(production.take(1)[0].low).toBe(frontier);
-    expect(() => createBenchmarkPrimeAllocator(1_000_000_000)).toThrow('bounds');
+  it('refuses to wrap the number line or accept a meaningless request', () => {
+    // A stress run must never silently restart the search from 1.
+    expect(() => primeWorkerRange(2 ** 22)).toThrow('safe integer range');
+    expect(primeWorkerRange(2 ** 22 - 1).limit).toBeLessThanOrEqual(Number.MAX_SAFE_INTEGER);
+    for (const serial of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => primeWorkerRange(serial)).toThrow('Invalid prime band request');
+    }
+    for (const band of [0, 1, 3, 2.5, Number.NaN]) {
+      expect(() => primeWorkerRange(0, band)).toThrow('Invalid prime band request');
+    }
   });
 });
 
-describe('CPU prime worker queue lifecycle', () => {
+describe('CPU prime worker compute loop', () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
 
-  async function harness() {
+  /**
+   * Drives the real worker module against a stubbed worker global.
+   *
+   * The module's compute loop is continuous — it ends when the page terminates the
+   * worker, which a unit test cannot do — so the stub clock throws once
+   * `loopBound` readings have been taken. That is the test's stand-in for
+   * termination, and it doubles as the way a runtime failure inside the loop looks
+   * to the page: reported as `cpu-stress-error`, never silence. `clockStep` is the
+   * milliseconds one segment of work is assumed to take, so the number of progress
+   * messages a bounded loop produces is predictable.
+   */
+  async function harness(options: { hardwareConcurrency?: number | null; loopBound?: number; clockStep?: number } = {}) {
+    const { hardwareConcurrency = 32, loopBound = 24, clockStep = 60 } = options;
     const messages: StressTestWorkerResponse[] = [];
-    const tasks: Array<() => void> = [];
+    let readings = 0;
+    let clock = 0;
     const scope = {
       onmessage: null as ((event: { data: StressTestWorkerRequest }) => void) | null,
-      postMessage: (message: StressTestWorkerResponse) => messages.push(message)
+      postMessage: (message: StressTestWorkerResponse) => { messages.push(message); }
     };
-    let clock = 0;
     vi.stubGlobal('self', scope);
-    vi.stubGlobal('performance', { now: () => { clock += 50; return clock; } });
-    vi.stubGlobal('MessageChannel', class {
-      port1 = { onmessage: null as ((event: { data: number }) => void) | null };
-      port2 = { postMessage: (data: number) => tasks.push(() => this.port1.onmessage?.({ data })) };
+    vi.stubGlobal('navigator', hardwareConcurrency === null ? {} : { hardwareConcurrency });
+    vi.stubGlobal('performance', {
+      now: () => {
+        readings += 1;
+        if (readings > loopBound) throw new Error('harness loop bound');
+        clock += clockStep;
+        return clock;
+      }
     });
     await import('../src/stressTest.worker');
-    return { messages, tasks, send: (data: StressTestWorkerRequest) => scope.onmessage!({ data }) };
+    return {
+      messages,
+      send: (data: StressTestWorkerRequest) => scope.onmessage!({ data }),
+      ready: () => messages.find(message => message.type === 'cpu-stress-ready'),
+      progress: () => messages.filter((message): message is CpuStressProgressResponse => message.type === 'cpu-stress-progress'),
+      lastProgress: () => messages.filter((message): message is CpuStressProgressResponse => message.type === 'cpu-stress-progress').at(-1)
+    };
   }
 
-  it('computes real small primes, requests ahead, and never advances after stop', async () => {
-    const { messages, tasks, send } = await harness();
-    const allocator = new PrimeBlockAllocator(32);
-    send({ type: 'start-cpu-stress', requestId: 1, workerIndex: 0, blocks: allocator.take(4), exhausted: false });
-    expect(messages).toHaveLength(0);
-    tasks.shift()!();
-    expect(messages.find(message => message.type === 'cpu-stress-heartbeat')).toMatchObject({
-      iterations: 33, latestPrime: 61, primesFound: 18
-    });
-    tasks.shift()!();
-    expect(messages.find(message => message.type === 'cpu-stress-work-request')).toMatchObject({ supplyId: 1, count: 2 });
-    expect(tasks).toHaveLength(1); // Useful prefetched work remains while the reply travels.
-    send({ type: 'stop-cpu-stress', requestId: 1 });
-    const stoppedLength = messages.length;
-    while (tasks.length) tasks.shift()!();
-    send({ type: 'stop-cpu-stress', requestId: 1 });
-    expect(messages).toHaveLength(stoppedLength);
-    expect(messages.filter(message => message.type === 'cpu-stress-stopped')).toHaveLength(1);
+  it('announces the processor count its own scope reports, before it computes', async () => {
+    // This is how the page learns the count where the workload runs. It has to be
+    // the worker's own navigator: on the affected host the page-scope value is
+    // spoofed by the browser's fingerprint protection while this one is not.
+    const { messages, ready } = await harness({ hardwareConcurrency: 32 });
+    expect(ready()).toEqual({ type: 'cpu-stress-ready', hardwareConcurrency: 32 });
+    expect(messages).toHaveLength(1); // nothing computes before it is started
   });
 
-  it('accepts each supply once, ignores stale/out-of-order replies, and drains exact totals', async () => {
-    const { messages, tasks, send } = await harness();
-    const allocator = new PrimeBlockAllocator(32, 1000);
-    send({ type: 'start-cpu-stress', requestId: 1, workerIndex: 0, blocks: allocator.take(4), exhausted: false });
-    let cursor = 0;
-    for (let turn = 0; turn < 100 && tasks.length; turn += 1) {
-      tasks.shift()!();
-      const incoming = messages.slice(cursor);
-      cursor = messages.length;
-      for (const message of incoming) {
-        if (message.type !== 'cpu-stress-work-request') continue;
-        const blocks = allocator.take(message.count);
-        const reply = { type: 'supply-cpu-stress-work' as const, requestId: 1, workerIndex: 0,
-          supplyId: message.supplyId, blocks, exhausted: allocator.exhausted };
-        send({ ...reply, supplyId: message.supplyId + 1 });
-        send({ ...reply, requestId: 99 });
-        send(reply);
-        send(reply);
-      }
-    }
-    const last = messages.filter((message): message is CpuStressHeartbeatResponse => message.type === 'cpu-stress-heartbeat').at(-1)!;
-    expect(last).toMatchObject({ iterations: 501, primesFound: 168, latestPrime: 997 });
-    expect(last.checksum).toBeGreaterThanOrEqual(0);
-    expect(last.checksum).toBeLessThan(1);
-    expect(Number.isSafeInteger(last.workUnits)).toBe(true);
-    expect(last.workUnits).toBeGreaterThan(0);
-    expect(messages.filter(message => message.type === 'cpu-stress-exhausted')).toHaveLength(1);
-    expect(messages.some(message => message.type === 'cpu-stress-error')).toBe(false);
+  it('reports a null count rather than inventing one when its scope has no number', async () => {
+    const { ready } = await harness({ hardwareConcurrency: null });
+    expect(ready()).toEqual({ type: 'cpu-stress-ready', hardwareConcurrency: null });
   });
 
-  it('resets on restart without letting old tasks or supplies advance the new run', async () => {
-    const { messages, tasks, send } = await harness();
-    const first = new PrimeBlockAllocator(32);
-    send({ type: 'start-cpu-stress', requestId: 1, workerIndex: 0, blocks: first.take(4), exhausted: false });
-    tasks.shift()!(); tasks.shift()!();
-    const next = new PrimeBlockAllocator(32);
-    send({ type: 'start-cpu-stress', requestId: 2, workerIndex: 0, blocks: next.take(4), exhausted: false });
+  it('computes continuously and reports progress without ever asking for work', async () => {
+    const { messages, send, progress } = await harness({ loopBound: 24, clockStep: 60 });
     messages.length = 0;
-    send({ type: 'stop-cpu-stress', requestId: 1 });
-    send({ type: 'supply-cpu-stress-work', requestId: 1, workerIndex: 0, supplyId: 1, blocks: first.take(2), exhausted: false });
-    tasks.shift()!(); // Stale generation task.
-    expect(messages).toHaveLength(0);
-    tasks.shift()!();
-    expect(messages.find(message => message.type === 'cpu-stress-heartbeat')).toMatchObject({
-      requestId: 2, iterations: 33, primesFound: 18, latestPrime: 61
+    send({ type: 'start-cpu-stress', requestId: 7, workerIndex: 3, poolSize: 8 });
+    const beats = progress();
+    expect(beats.length).toBeGreaterThan(1); // progress is periodic, not one-shot
+    for (const beat of beats) {
+      expect(beat).toMatchObject({ requestId: 7, workerIndex: 3 });
+    }
+    // Work actually accumulates between reports, and every number is a delta the
+    // page can trust: candidates only ever grow.
+    expect(beats.at(-1)!.candidates).toBeGreaterThan(beats[0].candidates);
+    expect(beats.at(-1)!.primesFound).toBeGreaterThan(0);
+    expect(beats.at(-1)!.blocks).toBe(1); // one block, derived locally, never requested
+    // Nothing here asks the page for anything: no work request exists in the protocol.
+    expect(messages.some(message => (message as { type: string }).type === 'cpu-stress-work-request')).toBe(false);
+  });
+
+  it('sieves the block its lane number says it should, from the first segment', async () => {
+    // Worker `i` of `N` owns block `i + k·N`. Worker 3 of 8 therefore starts at
+    // 3·2^31 + 1 — a starting point the page never sent it, and which no other
+    // lane of the same pool occupies.
+    const { send, lastProgress } = await harness();
+    send({ type: 'start-cpu-stress', requestId: 1, workerIndex: 3, poolSize: 8 });
+    const beat = lastProgress()!;
+    expect(beat.rangeLow).toBeGreaterThan(primeWorkerRange(3).low);
+    expect(beat.rangeLow).toBeLessThanOrEqual(primeWorkerRange(3).low + 24 * PRIME_SEGMENT_ODDS * 2);
+    expect(beat.rangeLow).toBeLessThanOrEqual(primeWorkerRange(3).limit);
+    expect(beat.blocks).toBe(1);
+  });
+
+  it('finds primes that are actually prime, deep in its lane', async () => {
+    const { send, progress } = await harness({ loopBound: 12 });
+    send({ type: 'start-cpu-stress', requestId: 1, workerIndex: 0, poolSize: 1 });
+    const beats = progress();
+    expect(beats.length).toBeGreaterThan(0);
+    const prime = beats.at(-1)!.latestPrime;
+    expect(prime).toBeGreaterThan(2);
+    expect(isPrime(prime)).toBe(true);
+    // Progress is throttled, not spammed: a bounded loop yields a handful of reports.
+    expect(beats.length).toBeLessThan(12);
+  });
+
+  it('reports a fault inside its compute loop instead of going quiet', async () => {
+    // The loop is not interruptible by message, so the page's only knowledge of a
+    // worker that stopped computing is this message. A swallowed error here is a
+    // worker that looks busy forever.
+    const { messages, send } = await harness({ loopBound: 3 });
+    messages.length = 0;
+    send({ type: 'start-cpu-stress', requestId: 4, workerIndex: 1, poolSize: 2 });
+    expect(messages.at(-1)).toMatchObject({
+      type: 'cpu-stress-error', requestId: 4, workerIndex: 1, message: 'harness loop bound'
     });
-    send({ type: 'stop-cpu-stress', requestId: 2 });
+  });
+
+  it.each([
+    ['a lane index outside the pool', { requestId: 1, workerIndex: 4, poolSize: 4 }],
+    ['a negative lane', { requestId: 1, workerIndex: -1, poolSize: 4 }],
+    ['a pool size of zero', { requestId: 1, workerIndex: 0, poolSize: 0 }],
+    ['a fractional pool size', { requestId: 1, workerIndex: 0, poolSize: 2.5 }]
+  ])('refuses %s rather than sieving a lane the page did not ask for', async (_label, assignment) => {
+    const { messages, send } = await harness();
+    messages.length = 0;
+    send({ type: 'start-cpu-stress', ...assignment } as StressTestWorkerRequest);
+    expect(messages).toEqual([
+      { type: 'cpu-stress-error', requestId: assignment.requestId, workerIndex: assignment.workerIndex,
+        message: 'Invalid CPU worker assignment.' }
+    ]);
+  });
+
+  it('ignores a start for a run it is not part of', async () => {
+    // The controller creates fresh workers per run and terminates the old ones, so
+    // a second start on a live worker is always stale: it must not restart counting.
+    const { messages, send, progress } = await harness({ loopBound: 6 });
+    messages.length = 0;
+    send({ type: 'start-cpu-stress', requestId: 2, workerIndex: 0, poolSize: 1 });
+    const beats = progress().length;
+    expect(beats).toBeGreaterThan(0);
+    messages.length = 0;
+    send({ type: 'start-cpu-stress', requestId: 1, workerIndex: 0, poolSize: 1 }); // older run
+    send({ type: 'start-cpu-stress', requestId: 2, workerIndex: 0, poolSize: 1 }); // same run
+    expect(messages).toHaveLength(0);
   });
 });
