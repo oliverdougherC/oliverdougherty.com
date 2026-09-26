@@ -7,7 +7,19 @@
   <link rel="icon" type="image/svg+xml" href="/assets/tab-icons/favicon-happy.svg?v=face-6" id="favicon">
   <link rel="alternate icon" href="/assets/tab-icons/favicon-happy.ico?v=face-6" id="favicon-fallback">
   <script src="../../js/favicon-swap.js" defer=""></script>
-  <script src="../../js/mobile-gate.js"></script>
+  <script src="../../js/mobile-gate.js" async></script>
+  <script>
+    (() => {
+      if (window.__mobileGateRedirecting) return;
+      if (new URLSearchParams(location.search).get('full') === '1' || location.pathname.includes('/mobile/')) return;
+      if (!matchMedia('(pointer: coarse) and (max-width: 900px)').matches && !matchMedia('(max-width: 760px)').matches) return;
+      const target = document.currentScript.previousElementSibling?.dataset.mobileTarget;
+      const pagesIndex = location.pathname.indexOf('/pages/');
+      const root = pagesIndex >= 0 ? location.pathname.slice(0, pagesIndex) : '';
+      window.__mobileGateRedirecting = true;
+      location.replace(target ? new URL(target, location.href).href : `${root}/mobile/`);
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;800&amp;display=swap" rel="stylesheet" media="print" onload="this.media='all'">
