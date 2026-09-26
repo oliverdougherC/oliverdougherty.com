@@ -84,15 +84,24 @@ async function checkPrecomputedTimeout(browser, baseUrl) {
 }
 
 async function startBodyStallProxy(baseUrl) {
+  const upstreamUrl = new URL(baseUrl);
+  assert(upstreamUrl.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(upstreamUrl.hostname),
+    'Body-stall proxy requires a local HTTP server');
   let held = false;
   const proxy = http.createServer((request, response) => {
-    if (/\/pattern-face-balanced[^/]*\.json$/.test(new URL(request.url, baseUrl).pathname)) {
+    const requestPath = request.url || '';
+    if (!requestPath.startsWith('/') || requestPath.startsWith('//') || requestPath.includes('\\')) {
+      response.writeHead(400);
+      response.end('Invalid proxy path');
+      return;
+    }
+    if (/\/pattern-face-balanced[^/]*\.json$/.test(new URL(requestPath, upstreamUrl).pathname)) {
       held = true;
       response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       response.write('{"metadata":');
       return;
     }
-    const upstream = http.get(`${baseUrl}${request.url}`, received => {
+    const upstream = http.get({ hostname: '127.0.0.1', port: upstreamUrl.port, path: requestPath }, received => {
       response.writeHead(received.statusCode, received.headers);
       received.pipe(response);
     });
