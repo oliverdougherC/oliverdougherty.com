@@ -30,7 +30,6 @@ const gallery = {
   inertFallbackState: new Map(),
   lightboxFocusables: [],
   supportsScrollIntoViewInline: null,
-  preloadImages: [],
   heroRevealTimers: [],
   heroRevealComplete: false,
   heroRevealScrollHandler: null,
@@ -1331,8 +1330,6 @@ function renderLightboxEntry(entry) {
     }
   });
   refreshLightboxFocusables();
-
-  preloadAdjacentEntries(gallery.currentIndex);
 }
 
 function buildLightboxMeta(entry) {
@@ -1710,18 +1707,6 @@ function resumeGalleryRuntime(event) {
     scheduleArchiveLayout({ force: true });
     syncGalleryFromUrl();
   }
-}
-
-function preloadAdjacentEntries(index) {
-  gallery.preloadImages = [];
-  [index - 1, index + 1].forEach((targetIndex) => {
-    const entry = gallery.entries[(targetIndex + gallery.entries.length) % gallery.entries.length];
-    const source = entry?.assets?.largeJpg || entry?.assets?.mediumJpg;
-    if (!source) return;
-    const image = new Image();
-    image.src = source;
-    gallery.preloadImages.push(image);
-  });
 }
 
 function getEntryById(entryId) {
