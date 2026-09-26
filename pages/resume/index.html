@@ -39,6 +39,8 @@
         opacity: 1 !important;
         transform: none !important;
       }
+      .resume-hidden { opacity: 1 !important; pointer-events: auto !important; }
+      .redact-target::after { transform: scaleX(0) !important; transition: none !important; }
     </style>
   </noscript>
 </head>
@@ -234,6 +236,6 @@
 
   <script src="../../js/year.js" defer></script>
   <script src="../../js/main.js" defer></script>
-  <script src="../../js/resume-typing.js" defer></script>
+  <script src="../../js/resume-typing.js" defer onerror="document.documentElement.classList.add('skip-page-animation'); document.documentElement.dataset.pageId = 'resume'"></script>
 </body>
 </html>

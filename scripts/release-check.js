@@ -76,7 +76,7 @@ async function main() {
     assert.equal((await fetch(`${server.url}/package.json`)).status, 404, 'Source root must not be served');
     assert.equal((await fetch(`${server.url}/assets/art/nighthawks-binary.txt`)).status, 404, 'Authoring asset must not be served');
     const env = { STATIC_ROOT: DIST, REQUIRE_DEPLOY_ARTIFACT: '1', BASE_URL: server.url,
-      HOME_CHECK_URL: server.url, NAV_CHECK_URL: server.url, MOBILE_CHECK_URL: server.url,
+      HOME_CHECK_URL: server.url, NAV_CHECK_URL: server.url, RESUME_CHECK_URL: server.url, MOBILE_CHECK_URL: server.url,
       GALLERY_CHECK_URL: server.url, UTILITIES_CHECK_URL: server.url, STRESS_CHECK_URL: server.url };
     results.push(await run('cache-releases', 'cache-release-check.js', env));
     for (const browser of browsers) {
@@ -90,7 +90,7 @@ async function main() {
         results.push(result);
       }
       if (browser === 'chromium') {
-        for (const [name, script] of [['home', 'home-check.js'], ['mobile', 'mobile-site-check.js'], ['gallery', 'gallery-dropdown-check.js'], ['utilities', 'utilities-check.js'], ['stress', 'stress-test-check.js']]) {
+        for (const [name, script] of [['home', 'home-check.js'], ['mobile', 'mobile-site-check.js'], ['resume-lifecycle', 'resume-lifecycle-check.js'], ['gallery', 'gallery-dropdown-check.js'], ['utilities', 'utilities-check.js'], ['stress', 'stress-test-check.js']]) {
           const result = await run(`${browser}-${name}`, script, browserEnv);
         if (name === 'gallery-release') {
           const summary = path.join(OUTPUT, `gallery-release-check-${browser}.json`);
