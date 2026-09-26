@@ -2117,53 +2117,144 @@ async function main() {
 
     });
 
-    await runUtilitySection(utilitySectionFailures, 'Image Transform Worker Fallback', async () => {
-      const noWorkerPage = await browser.newPage({
-        viewport: { width: 1440, height: 1100 }
-      });
+    await runUtilitySection(utilitySectionFailures, 'Image Transform Worker Failure Recovery', async () => {
+      const noWorkerPage = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
       try {
         await noWorkerPage.addInitScript(() => {
-          Object.defineProperty(window, 'Worker', {
-            configurable: true,
-            writable: true,
-            value: undefined
-          });
+          window.__nativeTransformWorker = window.Worker;
+          Object.defineProperty(window, 'Worker', { configurable: true, writable: true, value: undefined });
         });
-        await loadUtilitiesPage(
-          noWorkerPage,
-          pageUrl,
-          'Built-in pair selected|Ready for input',
-          15000,
-          'main-thread fallback initial state'
-        );
+        await loadUtilitiesPage(noWorkerPage, pageUrl, 'Built-in pair selected|Ready for input', 15000, 'worker failure initial state');
+        await noWorkerPage.click('#transformGenerateBtn');
+        await waitForStatusMatch(noWorkerPage, 'Transform ready|Animation complete|Reduced motion', 30000,
+          'precomputed demo without workers');
         await noWorkerPage.setInputFiles('#transformSourceInput', sourcePath);
         await noWorkerPage.setInputFiles('#transformTargetInput', targetPath);
         await noWorkerPage.click('#transformGenerateBtn');
-        await waitForStatusMatch(noWorkerPage, 'Preparing|Analyzing|Assigning|Animating', 7000, 'main-thread fallback start');
-        await waitForStatusMatch(
-          noWorkerPage,
-          'Transform ready|Animation complete|Reduced motion',
-          30000,
-          'main-thread fallback complete'
-        );
+        await waitForStatusMatch(noWorkerPage, 'worker unavailable', 5000, 'unsupported worker outcome');
+        assert(await noWorkerPage.locator('#transformGenerateBtn').isEnabled(), 'Generate must offer a retry after worker failure.');
+        assert(await noWorkerPage.locator('#transformResetBtn').isEnabled(), 'Reset must remain available after worker failure.');
+        assert(await noWorkerPage.evaluate(() => document.getElementById('utilitiesApp')?.dataset.transformStatusChip === 'Error'),
+          'Worker failure must show an error state rather than a completed transform.');
 
-        const noWorkerState = await noWorkerPage.evaluate(() => ({
-          status: (() => {
-            const app = document.getElementById('utilitiesApp');
-            const fromData = app?.dataset?.transformStatusMessage?.trim() ?? '';
-            const fromLegacy = document.getElementById('transformStatusText')?.textContent?.trim() ?? '';
-            return fromData || fromLegacy;
-          })(),
-          outputSize: document.getElementById('transformOutputSize')?.textContent?.trim(),
-          matcherStrategy: document.getElementById('utilitiesApp')?.dataset.matcherStrategy ?? ''
-        }));
+        await noWorkerPage.evaluate(() => { window.Worker = window.__nativeTransformWorker; });
+        await noWorkerPage.click('#transformGenerateBtn');
+        await waitForStatusMatch(noWorkerPage, 'Transform ready|Animation complete|Reduced motion', 30000, 'worker recovery');
+        assert(await noWorkerPage.evaluate(() => document.getElementById('transformOutputSize')?.textContent?.trim() !== '—'),
+          'Retry with a healthy worker did not produce a result.');
 
-        assert(
-          noWorkerState.status && /Transform ready|Animation complete|Reduced motion/i.test(noWorkerState.status),
-          'Utilities page should still complete when workers are unavailable.'
-        );
-        assert(noWorkerState.outputSize && noWorkerState.outputSize !== '—', 'Main-thread fallback should still render output metrics.');
-        assert(noWorkerState.matcherStrategy === 'single-optimized', 'Main-thread fallback should preserve the optimized matcher.');
+        const workerScriptPattern = '**/transform.worker-*.js*';
+        let blockedWorkerScript = false;
+        await noWorkerPage.context().route(workerScriptPattern, route => {
+          blockedWorkerScript = true;
+          return route.abort();
+        });
+        await noWorkerPage.click('#transformGenerateBtn');
+        await waitForStatusMatch(noWorkerPage, 'worker failed', 5000, 'blocked worker script');
+        assert(blockedWorkerScript, 'The worker script request was not intercepted.');
+        assert(await noWorkerPage.locator('#transformGenerateBtn').isEnabled(), 'A blocked worker script must allow retry.');
+        await noWorkerPage.context().unroute(workerScriptPattern);
+        await noWorkerPage.click('#transformGenerateBtn');
+        await waitForStatusMatch(noWorkerPage, 'Transform ready|Animation complete|Reduced motion', 30000,
+          'worker script recovery');
+
+        let releaseWorkerScript;
+        let workerScriptHeld = false;
+        const heldWorkerScript = new Promise(resolve => { releaseWorkerScript = resolve; });
+        await noWorkerPage.context().route(workerScriptPattern, async route => {
+          workerScriptHeld = true;
+          await heldWorkerScript;
+          // The timeout may terminate the Worker and dispose this route first.
+          await route.abort().catch(() => {});
+        });
+        try {
+          await noWorkerPage.click('#transformGenerateBtn');
+          await waitForStatusMatch(noWorkerPage, 'worker did not start', 13000, 'stalled worker script');
+          assert(workerScriptHeld, 'The stalled worker script request was not intercepted.');
+          assert(await noWorkerPage.locator('#transformGenerateBtn').isEnabled(), 'Worker start timeout must allow retry.');
+        } finally {
+          releaseWorkerScript();
+          await noWorkerPage.context().unroute(workerScriptPattern);
+        }
+        await noWorkerPage.click('#transformGenerateBtn');
+        await waitForStatusMatch(noWorkerPage, 'Transform ready|Animation complete|Reduced motion', 30000,
+          'stalled worker recovery');
+
+        for (const failureEvent of ['error', 'messageerror']) {
+          await noWorkerPage.evaluate((eventName) => {
+            window.Worker = class extends EventTarget {
+              postMessage(request) {
+                if (request.type !== 'cancel') {
+                  setTimeout(() => this.dispatchEvent(new Event(eventName, { cancelable: true })), 0);
+                }
+              }
+              terminate() {}
+            };
+          }, failureEvent);
+          await noWorkerPage.evaluate(() => {
+            const probe = { last: performance.now(), maxGap: 0, active: true };
+            window.__transformFrameProbe = probe;
+            const sample = (now) => {
+              probe.maxGap = Math.max(probe.maxGap, now - probe.last);
+              probe.last = now;
+              if (probe.active) requestAnimationFrame(sample);
+            };
+            requestAnimationFrame(sample);
+          });
+          await noWorkerPage.click('#transformGenerateBtn');
+          await waitForStatusMatch(noWorkerPage, 'worker.*failed|worker communication failed', 5000,
+            `${failureEvent} worker failure`);
+          const maxGap = await noWorkerPage.evaluate(() => {
+            window.__transformFrameProbe.active = false;
+            return window.__transformFrameProbe.maxGap;
+          });
+          assert(maxGap < 1000, `${failureEvent} worker failure blocked the UI for ${maxGap.toFixed(0)}ms`);
+          assert(await noWorkerPage.locator('#transformGenerateBtn').isEnabled(), `${failureEvent}: Generate must allow retry.`);
+          await noWorkerPage.evaluate(() => { window.Worker = window.__nativeTransformWorker; });
+          await noWorkerPage.click('#transformGenerateBtn');
+          await waitForStatusMatch(noWorkerPage, 'Transform ready|Animation complete|Reduced motion', 30000,
+            `${failureEvent} recovery`);
+        }
+
+        await noWorkerPage.evaluate(() => {
+          window.Worker = class extends EventTarget {
+            postMessage(request) { if (request.type === 'cancel') throw new Error('Worker stopped accepting messages.'); }
+            terminate() {}
+          };
+        });
+        await noWorkerPage.click('#transformGenerateBtn');
+        await noWorkerPage.waitForFunction(() => document.getElementById('transformResetBtn')?.textContent === 'Cancel');
+        const indexStarted = Date.now();
+        await noWorkerPage.click('.nav-back-btn');
+        await noWorkerPage.waitForFunction(() => document.getElementById('utilitiesTitleView')?.hidden === false);
+        assert(Date.now() - indexStarted < 1000, 'Index navigation stalled while the worker was pending.');
+        await noWorkerPage.click('[data-utility="image-transform"]');
+        await noWorkerPage.waitForFunction(() => document.getElementById('utilitiesUtilityView')?.hidden === false);
+        assert(await noWorkerPage.locator('#transformGenerateBtn').isEnabled(), 'Index return lost the selected images.');
+        await noWorkerPage.click('#transformGenerateBtn');
+        await noWorkerPage.waitForFunction(() => document.getElementById('transformResetBtn')?.textContent === 'Cancel');
+        const cancelStarted = Date.now();
+        await noWorkerPage.click('#transformResetBtn');
+        await waitForStatusMatch(noWorkerPage, 'Transform cancelled', 1000, 'worker cancellation');
+        assert(Date.now() - cancelStarted < 1000, 'Cancel took more than one second to restore the UI.');
+        assert(await noWorkerPage.locator('#transformGenerateBtn').isEnabled(), 'Cancel must keep the chosen images available.');
+        assert(await noWorkerPage.locator('#transformResetBtn').textContent() === 'Reset', 'Cancel must restore Reset.');
+        await noWorkerPage.evaluate(() => { window.Worker = window.__nativeTransformWorker; });
+        await noWorkerPage.click('#transformGenerateBtn');
+        await waitForStatusMatch(noWorkerPage, 'Transform ready|Animation complete|Reduced motion', 30000,
+          'post-cancellation recovery');
+
+        await noWorkerPage.evaluate(() => {
+          window.Worker = class extends EventTarget { postMessage() {} terminate() {} };
+        });
+        await noWorkerPage.click('#transformGenerateBtn');
+        await noWorkerPage.waitForFunction(() => document.getElementById('transformResetBtn')?.textContent === 'Cancel');
+        const siteNavStarted = Date.now();
+        await Promise.all([
+          noWorkerPage.waitForURL((url) => url.pathname.endsWith('/index.html'), { waitUntil: 'commit' }),
+          noWorkerPage.locator('.nav-inline-link--home').click({ noWaitAfter: true })
+        ]);
+        assert(Date.now() - siteNavStarted < 1000, 'Site navigation stalled while the worker was pending.');
       } finally {
         await noWorkerPage.close();
       }

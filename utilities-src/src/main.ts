@@ -34,7 +34,7 @@ import {
   renderTransformAnimationPixels,
   type TransformAnimationState
 } from './transformAnimation';
-import { resolveOutputDimensions, transformPreparedImages } from './transformCore';
+import { resolveOutputDimensions } from './transformCore';
 import type { PreparedImageTransfer, TransformMetadata, TransformPresetId } from './types';
 import { DEMOS, type ImageSelection, type SelectionKind, type StateKind } from './uiState';
 import type { WorkerRequest, WorkerResponse, WorkerSuccessMessage } from './workerTypes';
@@ -55,6 +55,7 @@ interface ActiveTransform {
 }
 
 const MAX_IMAGE_FILE_BYTES = 20 * 1024 * 1024;
+const WORKER_START_TIMEOUT_MS = 10_000;
 const TARGET_ANIMATION_FRAME_MS = 1000 / 60;
 const TRANSFORM_SPEED_STEPS = [0.1, 0.25, 0.5, 1, 1.5, 2];
 const DEFAULT_TRANSFORM_SPEED_INDEX = 3;
@@ -113,6 +114,7 @@ class UtilitiesApp {
   private worker: Worker | null = null;
   private activeRequestId = 0;
   private activeWorkerRequestId = 0;
+  private workerStartTimeoutId: number | null = null;
   private activeTransform: ActiveTransform | null = null;
   private animationState: TransformAnimationState | null = null;
   private animationFramePixels: Uint8ClampedArray | null = null;
@@ -124,8 +126,6 @@ class UtilitiesApp {
   private speedIndex = DEFAULT_TRANSFORM_SPEED_INDEX;
   private backgroundDark = false;
   private state: StateKind = 'idle';
-  private workerUnavailable = false;
-  private workerFallbackScheduled = false;
   private previewUrls: Partial<Record<SelectionKind, string>> = {};
 
   constructor(root: HTMLElement) {
@@ -194,7 +194,12 @@ class UtilitiesApp {
       void this.swapSelections();
     });
     this.resetButton.addEventListener('click', () => {
-      this.resetAll();
+      if (this.state === 'processing') {
+        this.discardActiveRequest();
+        this.invalidateComputedState('Transform cancelled. Generate to try again.');
+      } else {
+        this.resetAll();
+      }
     });
     this.playButton.addEventListener('click', () => this.handlePlaybackButton());
     this.timeline.addEventListener('pointerdown', () => this.pauseAnimation());
@@ -471,7 +476,9 @@ class UtilitiesApp {
     this.presetSelect.disabled = isProcessing;
     this.generateButton.disabled = !hasBothSelections || isProcessing;
     this.swapButton.disabled = !hasBothSelections || isProcessing;
-    this.resetButton.disabled = isProcessing && !hasResult;
+    this.resetButton.disabled = false;
+    this.resetButton.textContent = isProcessing ? 'Cancel' : 'Reset';
+    this.resetButton.setAttribute('aria-label', isProcessing ? 'Cancel transform' : 'Reset');
     this.timeline.disabled = !hasResult || isProcessing;
     if (this.timeline.disabled) this.syncTimeline(0);
   }
@@ -540,11 +547,30 @@ class UtilitiesApp {
 
   private clearActiveWorkerRequest(requestId: number) {
     if (this.activeWorkerRequestId === requestId) {
+      this.clearWorkerStartTimeout();
       this.activeWorkerRequestId = 0;
     }
   }
 
+  private clearWorkerStartTimeout() {
+    if (this.workerStartTimeoutId !== null) {
+      window.clearTimeout(this.workerStartTimeoutId);
+      this.workerStartTimeoutId = null;
+    }
+  }
+
+  private armWorkerStartTimeout(worker: Worker, requestId: number) {
+    this.clearWorkerStartTimeout();
+    this.workerStartTimeoutId = window.setTimeout(() => {
+      this.workerStartTimeoutId = null;
+      if (this.worker === worker && this.activeWorkerRequestId === requestId) {
+        this.handleWorkerFailure(worker, 'Image transform worker did not start. Press Generate to retry.');
+      }
+    }, WORKER_START_TIMEOUT_MS);
+  }
+
   private abandonActiveComputation() {
+    this.clearWorkerStartTimeout();
     if (this.activeWorkerRequestId > 0) {
       this.cancelActiveRequest(this.activeWorkerRequestId);
       this.activeWorkerRequestId = 0;
@@ -756,7 +782,7 @@ class UtilitiesApp {
     }
   }
 
-  private async generateTransform(options?: { forceMainThread?: boolean; retryMessage?: string }) {
+  private async generateTransform() {
     if (!this.sourceSelection || !this.targetSelection) {
       this.setState('error', 'Choose both a source image and a target image.');
       this.setProgress(0, 'Two images are required before generating a transform.');
@@ -796,37 +822,42 @@ class UtilitiesApp {
       return;
     }
 
-    if (!options?.forceMainThread) {
-      const precomputedBuiltInTransformUrl = this.getPrecomputedBuiltInTransformAssetUrl(preset.id);
-      if (precomputedBuiltInTransformUrl) {
-        this.setState('processing', 'Loading precomputed built-in transform…');
-        this.setProgress(0.08, 'Loading precomputed demo asset…', `${preset.label} preset · shipped demo cache`);
+    const precomputedBuiltInTransformUrl = this.getPrecomputedBuiltInTransformAssetUrl(preset.id);
+    if (precomputedBuiltInTransformUrl) {
+      this.setState('processing', 'Loading precomputed built-in transform…');
+      this.setProgress(0.08, 'Loading precomputed demo asset…', `${preset.label} preset · shipped demo cache`);
 
-        try {
-          const precomputedBuiltInTransform = await this.restorePrecomputedBuiltInTransform(requestId, preset.id);
-          if (!this.isCurrentRequest(requestId)) return;
-          if (precomputedBuiltInTransform) {
-            this.setProgress(0.98, 'Restoring precomputed built-in transform…', `${preset.label} preset · shipped demo cache`);
-            this.applyTransformSuccess(precomputedBuiltInTransform.message, precomputedBuiltInTransform.renderPlan);
-            return;
-          }
-        } catch (error) {
-          if (!this.isCurrentRequest(requestId)) return;
-          this.setProgress(
-            0.12,
-            error instanceof Error
-              ? `${error.message} Falling back to live generation…`
-              : 'Precomputed demo unavailable. Falling back to live generation…',
-            `${preset.label} preset · live fallback`
-          );
+      try {
+        const precomputedBuiltInTransform = await this.restorePrecomputedBuiltInTransform(requestId, preset.id);
+        if (!this.isCurrentRequest(requestId)) return;
+        if (precomputedBuiltInTransform) {
+          this.setProgress(0.98, 'Restoring precomputed built-in transform…', `${preset.label} preset · shipped demo cache`);
+          this.applyTransformSuccess(precomputedBuiltInTransform.message, precomputedBuiltInTransform.renderPlan);
+          return;
         }
+      } catch (error) {
+        if (!this.isCurrentRequest(requestId)) return;
+        this.setProgress(
+          0.12,
+          error instanceof Error
+            ? `${error.message} Falling back to live generation…`
+            : 'Precomputed demo unavailable. Falling back to live generation…',
+          `${preset.label} preset · live fallback`
+        );
       }
+    }
+
+    if (typeof Worker === 'undefined') {
+      const message = 'Image transform worker unavailable in this browser.';
+      this.setState('error', message);
+      this.setProgress(0, message, 'Custom image processing requires Web Workers.');
+      return;
     }
 
     this.setState('processing', 'Preparing images and analyzing pixels…');
     this.setProgress(
       0.02,
-      options?.retryMessage ?? 'Loading image data…',
+      'Loading image data…',
       `${preset.label} preset · up to ${preset.maxDimension}px working size`
     );
 
@@ -865,12 +896,12 @@ class UtilitiesApp {
         return;
       }
 
-      if (options?.forceMainThread || this.workerUnavailable || typeof Worker === 'undefined') {
-        await this.runOnMainThread(requestId, sourceBitmap, targetBitmap);
-        return;
+      let worker: Worker;
+      try {
+        worker = this.getWorker();
+      } catch (_error) {
+        throw new Error('Image transform worker could not start. Press Generate to retry.');
       }
-
-      const worker = this.getWorker();
       const supportsBitmapPath = typeof OffscreenCanvas === 'function';
 
       if (supportsBitmapPath) {
@@ -884,6 +915,7 @@ class UtilitiesApp {
 
         this.activeWorkerRequestId = requestId;
         worker.postMessage(request, [sourceBitmap, targetBitmap]);
+        this.armWorkerStartTimeout(worker, requestId);
         return;
       }
 
@@ -901,115 +933,19 @@ class UtilitiesApp {
 
       this.activeWorkerRequestId = requestId;
       worker.postMessage(request, [prepared.source.pixels, prepared.target.pixels]);
+      this.armWorkerStartTimeout(worker, requestId);
     } catch (error) {
       sourceBitmap?.close();
       targetBitmap?.close();
+      if (this.activeWorkerRequestId === requestId) this.abandonActiveComputation();
       if (!this.isCurrentRequest(requestId)) {
         return;
       }
-      this.setState('error', error instanceof Error ? error.message : 'Unable to load the selected images.');
-      this.setProgress(0, 'Image preparation failed.', 'Try different files or a demo pair.');
-    }
-  }
-
-  private async runOnMainThread(requestId: number, sourceBitmap: ImageBitmap, targetBitmap: ImageBitmap) {
-    const preset = getPreset(this.selectedPreset);
-    const totalStartedAt = performance.now();
-    try {
-      const prepared = this.prepareBitmapsOnMainThread(sourceBitmap, targetBitmap, preset.maxDimension);
-      const decodeMs = performance.now() - totalStartedAt;
-      sourceBitmap.close();
-      targetBitmap.close();
-
-      const sourcePixels = new Uint8ClampedArray(prepared.source.pixels);
-      const targetPixels = new Uint8ClampedArray(prepared.target.pixels);
-      const result = transformPreparedImages(
-        {
-          width: prepared.source.width,
-          height: prepared.source.height,
-          pixels: sourcePixels
-        },
-        {
-          width: prepared.target.width,
-          height: prepared.target.height,
-          pixels: targetPixels
-        },
-        preset.quantizationBits,
-        {
-          isCancelled: () => !this.isCurrentRequest(requestId),
-          onProgress: (completed, total) => {
-            this.handleWorkerMessage({
-              type: 'progress',
-              requestId,
-              stage: 'assigning',
-              progress: completed / total,
-              message: `Assigning donors… ${completed}/${total}`
-            });
-          },
-          onStageProgress: (stage, progress, message) => {
-            this.handleWorkerMessage({
-              type: 'progress',
-              requestId,
-              stage,
-              progress,
-              message
-            });
-          }
-        }
-      );
-
-      const metadata: TransformMetadata = {
-        presetId: this.selectedPreset,
-        quantizationBits: preset.quantizationBits,
-        outputWidth: result.source.width,
-        outputHeight: result.source.height,
-        pixelCount: result.pixelCount,
-        sourceOriginalWidth: prepared.source.originalWidth,
-        sourceOriginalHeight: prepared.source.originalHeight,
-        targetOriginalWidth: prepared.target.originalWidth,
-        targetOriginalHeight: prepared.target.originalHeight,
-        sourceScaled: prepared.source.scaled,
-        targetScaled: prepared.target.scaled,
-        processingMs: decodeMs + result.timingsMs.total,
-        timingsMs: {
-          ...result.timingsMs,
-          decode: decodeMs,
-          total: decodeMs + result.timingsMs.total
-        },
-        matcherStrategy: result.matcherStrategy,
-        fallbackCount: result.matcherStats.fallbackCount,
-        shortlistHitRate: result.matcherStats.shortlistHitRate,
-        evaluatedCandidateCount: result.matcherStats.evaluatedCandidateCount,
-        evaluatedGroupCount: result.matcherStats.evaluatedGroupCount,
-        averageGroupsPerTarget: result.matcherStats.averageGroupsPerTarget,
-        workerCount: result.workerCount
-      };
-
-      if (this.isCurrentRequest(requestId)) {
-        this.handleWorkerMessage({
-          type: 'success',
-          requestId,
-          source: {
-            ...prepared.source,
-            pixels: arrayBufferLikeToArrayBuffer(sourcePixels.buffer)
-          },
-          target: {
-            ...prepared.target,
-            pixels: arrayBufferLikeToArrayBuffer(targetPixels.buffer)
-          },
-          assignment: arrayBufferLikeToArrayBuffer(result.assignment.buffer),
-          metadata
-        });
-      }
-    } catch (error) {
-      if (!this.isCurrentRequest(requestId)) {
-        return;
-      }
-      this.handleWorkerMessage({
-        type: 'error',
-        requestId,
-        message: error instanceof Error ? error.message : 'Unable to compute the transform.'
-      });
+      const message = error instanceof Error ? error.message : 'Unable to load the selected images.';
+      const workerError = message.toLowerCase().includes('worker');
+      this.setState('error', message);
+      this.setProgress(0, workerError ? message : 'Image preparation failed.',
+        workerError ? 'Press Generate to retry.' : 'Try different files or a demo pair.');
     }
   }
 
@@ -1018,46 +954,37 @@ class UtilitiesApp {
       return this.worker;
     }
 
-    this.worker = new Worker(new URL('./transform.worker.ts', import.meta.url), {
+    const worker = new Worker(new URL('./transform.worker.ts', import.meta.url), {
       type: 'module'
     });
-    this.worker.addEventListener('message', (event: MessageEvent<WorkerResponse>) => {
+    this.worker = worker;
+    worker.addEventListener('message', (event: MessageEvent<WorkerResponse>) => {
+      if (this.worker !== worker) return;
+      if (event.data.requestId === this.activeWorkerRequestId) this.clearWorkerStartTimeout();
       this.handleWorkerMessage(event.data);
     });
-    this.worker.addEventListener('error', (event) => {
+    worker.addEventListener('error', (event) => {
       event.preventDefault();
-      this.handleWorkerFailure('Worker unavailable. Retrying on the main thread…');
+      this.handleWorkerFailure(worker, 'Image transform worker failed. Press Generate to retry.');
     });
-    this.worker.addEventListener('messageerror', () => {
-      this.handleWorkerFailure('Worker communication failed. Retrying on the main thread…');
+    worker.addEventListener('messageerror', () => {
+      this.handleWorkerFailure(worker, 'Image transform worker communication failed. Press Generate to retry.');
     });
-    return this.worker;
+    return worker;
   }
 
-  private handleWorkerFailure(message: string) {
+  private handleWorkerFailure(worker: Worker, message: string) {
+    if (this.worker !== worker) return;
+    this.clearWorkerStartTimeout();
+    const requestId = this.activeWorkerRequestId;
+    worker.terminate();
+    this.worker = null;
     this.activeWorkerRequestId = 0;
-    if (this.worker) {
-      this.worker.terminate();
-      this.worker = null;
-    }
-    this.workerUnavailable = true;
-
-    if (
-      this.workerFallbackScheduled ||
-      this.state !== 'processing' ||
-      !this.sourceSelection ||
-      !this.targetSelection
-    ) {
-      return;
-    }
-
-    this.workerFallbackScheduled = true;
-    void this.generateTransform({
-      forceMainThread: true,
-      retryMessage: message
-    }).finally(() => {
-      this.workerFallbackScheduled = false;
-    });
+    if (requestId <= 0 || !this.isCurrentRequest(requestId) || this.state !== 'processing') return;
+    this.activeRequestId += 1;
+    this.clearDiagnostics();
+    this.setState('error', message);
+    this.setProgress(0, message, 'Press Generate to retry, or Reset to choose new images.');
   }
 
   private cancelActiveRequest(requestId: number = this.activeWorkerRequestId) {
@@ -1066,7 +993,11 @@ class UtilitiesApp {
         type: 'cancel',
         requestId
       };
-      this.worker.postMessage(request);
+      try {
+        this.worker.postMessage(request);
+      } catch (_error) {
+        // A failed worker may reject messages; the caller still terminates it.
+      }
     }
   }
 
