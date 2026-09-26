@@ -398,9 +398,11 @@ export async function loadDesktopGallery(options: {
       routes[key] = route;
     },
     clickRetry() {
-      const button = win.document.getElementById('galleryRetryButton') as HTMLButtonElement | null;
-      if (!button) throw new Error('Desktop retry button is not present');
-      button.click();
+      const control = win.document.querySelector<HTMLButtonElement | HTMLAnchorElement>(
+        '#galleryRetryButton, .gallery-error-retry'
+      );
+      if (!control) throw new Error('Desktop retry control is not present');
+      control.click();
     },
     setWidth(width: number) {
       currentWidth = width;
