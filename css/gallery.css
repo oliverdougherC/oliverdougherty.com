@@ -211,9 +211,9 @@ body.schematic-mode .gallery-hero-layout {
 
 /* Bespoke Optical Calibration Animation */
 .calibrate-text {
-  animation: textCalibrate 3.8s cubic-bezier(0.25, 1, 0.35, 1) 0.3s forwards;
+  animation: textCalibrate 3.8s cubic-bezier(0.25, 1, 0.35, 1) 0.3s both;
   will-change: filter, letter-spacing, opacity, transform;
-  opacity: 0;
+  opacity: 1;
 }
 
 @keyframes textCalibrate {

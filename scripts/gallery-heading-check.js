@@ -9,16 +9,18 @@ const ROOT = path.resolve(__dirname, '..');
 const requestedUrl = process.env.GALLERY_HEADING_URL || 'http://127.0.0.1:4173';
 
 async function assertHeadingVisible(page, label) {
-  const visible = await page.locator('.gallery-hero .calibrate-text').evaluate(element => {
-    if (!element.textContent.trim()) return false;
+  const state = await page.locator('.gallery-hero .calibrate-text').evaluate(element => {
+    const styles = [];
     for (let node = element; node instanceof Element; node = node.parentElement) {
       const style = getComputedStyle(node);
-      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.95) return false;
+      styles.push({ tag: node.tagName, className: node.className, display: style.display,
+        visibility: style.visibility, opacity: style.opacity, animation: style.animationName });
     }
     const rect = element.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
+    return { visible: Boolean(element.textContent.trim()) && rect.width > 0 && rect.height > 0
+      && styles.every(style => style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) >= 0.95), styles };
   });
-  assert(visible, `${label}: Gallery heading is visually hidden`);
+  assert(state.visible, `${label}: Gallery heading is visually hidden: ${JSON.stringify(state.styles)}`);
 }
 
 async function run() {
@@ -48,6 +50,7 @@ async function run() {
     const normalPage = await normal.newPage();
     await normalPage.goto(route, { waitUntil: 'domcontentloaded' });
     await normalPage.emulateMedia({ reducedMotion: 'reduce' });
+    await normalPage.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
     await assertHeadingVisible(normalPage, 'preference changed to reduce after load');
     await normal.close();
 
