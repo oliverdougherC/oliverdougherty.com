@@ -126,7 +126,7 @@ async function checkAnimationBootstrap(browser) {
 }
 
 async function checkInlineMobileRedirect(browser) {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: process.env.BROWSER !== 'firefox', hasTouch: true });
   const page = await context.newPage();
   await context.route('**/js/mobile-gate.js*', route => route.abort());
   try {
