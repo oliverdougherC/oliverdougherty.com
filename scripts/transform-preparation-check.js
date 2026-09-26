@@ -44,7 +44,7 @@ async function checkResetAndRetry(browser, baseUrl) {
       document.getElementById('transformProgressText')?.textContent || ''));
     assert(await page.locator('#transformResetBtn').isEnabled(), 'Reset is unavailable during pending preparation');
     await page.click('#transformResetBtn');
-    await page.waitForFunction(() => /Load two images|built-in pair|Ready/i.test(
+    await page.waitForFunction(() => /Load two images|built-in pair|Ready|Transform cancelled/i.test(
       document.getElementById('utilitiesApp')?.dataset.transformStatusMessage || ''));
     await page.click('[data-demo-key="pattern-face"]');
     await page.click('#transformGenerateBtn');
