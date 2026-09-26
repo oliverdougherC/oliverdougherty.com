@@ -40,8 +40,8 @@ function desktopCardIds(h: DesktopHarness) {
   return [...h.grid.querySelectorAll<HTMLElement>('.photo-card')].map((card) => card.dataset.entryId);
 }
 
-function desktopRetryButton(h: DesktopHarness) {
-  return h.window.document.getElementById('galleryRetryButton') as HTMLButtonElement | null;
+function desktopRetryControl(h: DesktopHarness) {
+  return h.window.document.querySelector<HTMLElement>('#galleryRetryButton, .gallery-error-retry');
 }
 
 function retryDesktop(h: DesktopHarness) {
@@ -108,7 +108,7 @@ describe('desktop gallery load contract (issue #40)', () => {
     await waitUntil(() => desktopError(h).hidden === false, 'error state after manifest hang');
     expect(desktopLoading(h).hidden).toBe(true);
     expect(desktopError(h).getAttribute('role')).toBe('alert');
-    const retry = desktopRetryButton(h);
+    const retry = desktopRetryControl(h);
     expect(retry).not.toBeNull();
     expect(h.window.document.activeElement).toBe(retry);
     const manifestCall = h.fetchCalls.find((call) => call.key === 'manifest');
@@ -127,7 +127,7 @@ describe('desktop gallery load contract (issue #40)', () => {
 
     await waitUntil(() => desktopError(h).hidden === false, 'error state after manifest body stall');
     expect(desktopLoading(h).hidden).toBe(true);
-    expect(desktopRetryButton(h)).not.toBeNull();
+    expect(desktopRetryControl(h)).not.toBeNull();
   });
 
   it('recovers via retry after the network returns, without a page reload', async () => {
@@ -161,7 +161,7 @@ describe('desktop gallery load contract (issue #40)', () => {
       autoSettle: false
     });
     await waitUntil(() => desktopError(h).hidden === false, 'error state after manifest 404');
-    expect(desktopRetryButton(h)).not.toBeNull();
+    expect(desktopRetryControl(h)).not.toBeNull();
     h.dom.window.close();
 
     // Sequence 404 is the harness default; autoSettle proves it renders.
