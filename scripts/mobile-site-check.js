@@ -139,19 +139,31 @@ async function assertMobileGate(browser) {
   });
   const page = await context.newPage();
 
-  const gatedRoutes = [
-    '/pages/gallery/index.html',
-    '/pages/utilities/index.html',
-  ];
-
-  for (const route of gatedRoutes) {
+  for (const route of ['/pages/gallery/', '/pages/gallery/index.html']) {
     await page.goto(`${baseUrl}${route}`, { waitUntil: 'domcontentloaded' });
-    await page.waitForURL(/\/mobile\/?$/, { timeout: 5000 });
-    assert(page.url().endsWith('/mobile/'), `[mobile-gate] ${route} did not redirect to /mobile/`);
+    await page.waitForURL(/\/mobile\/gallery\/?$/, { timeout: 5000 });
+    assert(page.url().endsWith('/mobile/gallery/'), `[mobile-gate] ${route} lost the Gallery destination`);
   }
+
+  await page.goto(`${baseUrl}/pages/gallery/index.html#photo=example`, { waitUntil: 'domcontentloaded' });
+  await page.waitForURL(/\/mobile\/gallery\/?$/, { timeout: 5000 });
+  assert(!page.url().includes('#photo='), '[mobile-gate] unsupported photo hash should fall back to mobile Gallery index');
+
+  await page.goto(`${baseUrl}/pages/utilities/index.html`, { waitUntil: 'domcontentloaded' });
+  await page.waitForURL(/\/mobile\/?$/, { timeout: 5000 });
+  assert(page.url().endsWith('/mobile/'), '[mobile-gate] Utilities should still use the mobile Home fallback');
 
   await page.goto(`${baseUrl}/pages/gallery/index.html?full=1`, { waitUntil: 'domcontentloaded' });
   assert(page.url().includes('/pages/gallery/index.html?full=1'), '[mobile-gate] ?full=1 should bypass redirect');
+
+  await page.goto(`${baseUrl}/mobile/gallery/`, { waitUntil: 'domcontentloaded' });
+  assert(page.url().endsWith('/mobile/gallery/'), '[mobile-gate] mobile Gallery should never redirect again');
+
+  await page.goto(`${baseUrl}/mobile/`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${baseUrl}/pages/gallery/`, { waitUntil: 'domcontentloaded' });
+  await page.waitForURL(/\/mobile\/gallery\/?$/, { timeout: 5000 });
+  await page.goBack({ waitUntil: 'domcontentloaded' });
+  assert(page.url().endsWith('/mobile/'), '[mobile-gate] Back should return to the previous mobile page without looping');
 
   await context.close();
 }
@@ -160,10 +172,23 @@ async function assertDesktopBypass(browser) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
 
-  await page.goto(`${baseUrl}/pages/gallery/index.html`, { waitUntil: 'domcontentloaded' });
-  assert(page.url().includes('/pages/gallery/index.html'), '[mobile-gate] desktop viewport should not redirect Gallery');
+  for (const route of ['/pages/gallery/', '/pages/gallery/index.html']) {
+    await page.goto(`${baseUrl}${route}`, { waitUntil: 'domcontentloaded' });
+    assert(new URL(page.url()).pathname === route, `[mobile-gate] desktop viewport should not redirect ${route}`);
+  }
 
   await context.close();
+
+  // The existing gate also treats a narrow desktop window as mobile. Keep
+  // that policy explicit here while ensuring it still preserves Gallery.
+  const narrowDesktop = await browser.newContext({ viewport: { width: 700, height: 900 }, hasTouch: false });
+  const narrowPage = await narrowDesktop.newPage();
+  for (const route of ['/pages/gallery/', '/pages/gallery/index.html']) {
+    await narrowPage.goto(`${baseUrl}${route}`, { waitUntil: 'domcontentloaded' });
+    await narrowPage.waitForURL(/\/mobile\/gallery\/?$/, { timeout: 5000 });
+    assert(narrowPage.url().endsWith('/mobile/gallery/'), `[mobile-gate] narrow desktop window lost ${route} destination`);
+  }
+  await narrowDesktop.close();
 }
 
 async function run() {
