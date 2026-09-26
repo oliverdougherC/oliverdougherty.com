@@ -124,7 +124,7 @@ const GALLERY_HERO_REVEAL_MS = 4100;
 function initGalleryHeroReveal() {
   const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (prefersReduced) {
-    completeGalleryHeroReveal();
+    completeGalleryHeroReveal({ finishAnimations: true });
     return;
   }
 

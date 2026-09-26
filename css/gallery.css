@@ -1077,4 +1077,12 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
   .scanned-image {
     animation: none !important;
   }
+
+  .calibrate-text {
+    opacity: 1;
+    filter: none;
+    letter-spacing: -0.02em;
+    transform: none;
+    will-change: auto;
+  }
 }
