@@ -11,6 +11,12 @@ export interface PrimeSegmentResult {
  * Odd-only segmented Eratosthenes. The 32 KiB working set is reused, and the
  * base-prime cache grows geometrically using its own segmented sieve.
  * https://github.com/kimwalisch/primesieve/blob/master/doc/ALGORITHMS.md
+ *
+ * The sieve reports what it searched, not how hard it worked: an earlier
+ * revision also charged a synthetic "work unit" per marking store so a probe
+ * could compare throughput across search frontiers. Nothing consumes that
+ * measurement any more, so the counter and its per-store charges are gone and the
+ * marking loop is pure arithmetic again.
  */
 export class SegmentedPrimeSieve {
   private readonly composite: Uint8Array;
@@ -18,7 +24,6 @@ export class SegmentedPrimeSieve {
   private readonly basePrimes: number[] = [];
   private readonly baseInvs: number[] = [];
   private baseLimit = 2;
-  private units = 0;
 
   constructor(readonly segmentOdds = PRIME_SEGMENT_ODDS) {
     if (!Number.isSafeInteger(segmentOdds) || segmentOdds < 1 || segmentOdds > PRIME_SEGMENT_ODDS) {
@@ -27,16 +32,6 @@ export class SegmentedPrimeSieve {
     this.composite = new Uint8Array(segmentOdds);
     this.baseComposite = new Uint8Array(PRIME_SEGMENT_ODDS);
   }
-
-  /**
-   * Cumulative executed sieve work: charges every marking store, both linear
-   * buffer passes per segment, and a flat charge per executed base-prime
-   * scan. Charging executed work keeps per-unit CPU cost near-flat across
-   * frontiers, leaving rate comparisons only the precondition that the
-   * compared ranges are comparable — held exactly by probe waves seeded at
-   * the production frontier, never by a fixed-seed benchmark range.
-   */
-  get workUnits(): number { return this.units; }
 
   sieve(low: number, high: number): PrimeSegmentResult {
     if (!Number.isSafeInteger(low) || !Number.isSafeInteger(high) || low < 1 || high < low
@@ -87,22 +82,10 @@ export class SegmentedPrimeSieve {
 
   private markComposites(low: number, high: number, buffer: Uint8Array, length: number) {
     buffer.fill(0, 0, length);
-    // Charge the zeroing fill and the result scan that always follows one
-    // unit per odd: fixed per-segment passes a per-prime count would ignore.
-    this.units += 2 * length;
     for (let index = 0; index < this.basePrimes.length; index += 1) {
       const prime = this.basePrimes[index];
       const square = prime * prime;
       if (square > high) break;
-      // A work unit is one marking store plus a flat charge for the scan's
-      // reduction overhead. Marking counts come from the loop bounds computed
-      // here, so the hot marking loop itself stays untouched. Counting one
-      // unit per prime instead would make the same unit cost thousands of
-      // writes for small primes and one for large ones, so its measured rate
-      // would drift cheaper as the frontier grows — faking capacity the
-      // machine did not gain. Charging executed work keeps per-unit cost
-      // near-flat, so rate comparisons hinge only on comparable ranges.
-      this.units += 1;
       // `low % prime` on a value past the SMI range drops V8 into the slow
       // floating fmod path, a 5× throughput cliff at the 2^31 frontier. Barrett
       // reduction with the cached reciprocal keeps it exact integer arithmetic:
@@ -120,7 +103,6 @@ export class SegmentedPrimeSieve {
         first += prime;
       }
       offset = (first - low) / 2;
-      this.units += Math.ceil((length - offset) / prime);
       for (let mark = offset; mark < length; mark += prime) buffer[mark] = 1;
     }
   }

@@ -99,12 +99,12 @@ async function main() {
         results.push(result);
         }
       }
-      // The full stress run above is Chromium-only; repeat the SMT probe-mode
-      // page on every other release engine so a probe that only works in one
-      // engine's worker scheduling cannot pass the release gate.
+      // The full stress run above is Chromium-only; repeat the automatic-pool
+      // pages on every other release engine so a pool policy that only works in
+      // one engine's worker scheduling cannot pass the release gate.
       if (browser !== 'chromium') {
-        results.push(await run(`${browser}-stress-probe`, 'stress-test-check.js',
-          { ...browserEnv, STRESS_BROWSER_TYPE: browser, STRESS_PROBE_ONLY: '1' }));
+        results.push(await run(`${browser}-stress-pool`, 'stress-test-check.js',
+          { ...browserEnv, STRESS_BROWSER_TYPE: browser, STRESS_POOL_ONLY: '1' }));
       }
     }
   } finally {
