@@ -12,6 +12,21 @@
   const MANIFEST_PATH = '../../assets/photos/photos.json';
   const SEQUENCE_PATH = '../../assets/photos/gallery-sequence.json';
   const HERO_QUEUE_LIMIT = 4;
+  // Issue #40: every gallery fetch is bounded so a stalled optional file can
+  // never gate rendering and a stalled required file lands in a recoverable
+  // error state. The required manifest gets a hard deadline; the optional
+  // sequence gets a shorter one so a hung sequence falls back to manifest
+  // order quickly. A test hook lets suites shorten the waits deterministically.
+  const GALLERY_FETCH_TIMEOUTS = (() => {
+   const configured = (typeof window !== 'undefined' && window.__GALLERY_FETCH_TIMEOUTS__) || {};
+   const pick = (value, fallback) =>
+     Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : fallback;
+   return {
+     manifest: pick(configured.manifest, 8000),
+     sequence: pick(configured.sequence, 3000)
+   };
+  })();
+  const GALLERY_RETRY_COPY = 'The archive data could not be loaded. Check your connection and try again.';
 
 const gallery = {
   entries: [],
@@ -44,20 +59,25 @@ const gallery = {
     placardHeight: 34,
     placardRetuned: false
   },
-  elements: {}
+  elements: {},
+  // Fresh-attempt bookkeeping: bumping `attempt` invalidates prior in-flight
+  // work; `controller` cancels it. See startGalleryLoad().
+  load: {
+    attempt: 0,
+    controller: null
+  }
 };
 
 document.addEventListener('DOMContentLoaded', () => {
   cacheElements();
   bindStaticEvents();
   initGalleryHeroReveal();
-  initGallery().catch((error) => {
-    gallery.heroRevealTimers.forEach((t) => window.clearTimeout(t));
-    gallery.heroRevealTimers = [];
-    console.error('Gallery initialization error:', error);
-    showErrorState('The archive data could not be loaded. Refresh the page or try again later.');
-  });
+  startGalleryLoad();
 });
+
+// Issue #40 test seam: trigger a fresh attempt deterministically without
+// waiting for the error-state button to exist.
+window.__galleryRetry = startGalleryLoad;
 
 function cacheElements() {
   gallery.elements = {
@@ -266,10 +286,119 @@ function bindRuntimeListeners() {
   window.addEventListener('hashchange', handleHashChange);
 }
 
-async function initGallery() {
-  setLoadingState(true);
-  const entries = await loadGalleryEntries();
+// Issue #40: the fetch layer bounds BOTH the request and its body read with
+// one AbortController: the deadline abort covers a response whose JSON body
+// never completes, and `cancelSignal` (the current attempt's controller) lets
+// a retry abandon stale work outright. Optional fetches resolve to null on
+// timeout/cancel/rejection; required fetches reject into the retryable error
+// state. `aborted` rejects even when a mocked fetch ignores its signal, so a
+// late body can never resolve past the attempt that owns it.
+function createGalleryAbortError(kind) {
+  if (typeof DOMException === 'function') {
+    return new DOMException(`Gallery request ${kind}`, kind === 'timeout' ? 'TimeoutError' : 'AbortError');
+  }
+  const error = new Error(`Gallery request ${kind}`);
+  error.name = kind === 'timeout' ? 'TimeoutError' : 'AbortError';
+  return error;
+}
 
+async function fetchJson(path, throwOnFailure, timeoutMs, cancelSignal) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const abortFromOuter = () => controller.abort();
+  if (cancelSignal) {
+    if (cancelSignal.aborted) {
+      window.clearTimeout(timer);
+      if (throwOnFailure) {
+        throw createGalleryAbortError('cancelled');
+      }
+      return null;
+    }
+    cancelSignal.addEventListener('abort', abortFromOuter, { once: true });
+  }
+  const aborted = new Promise((resolve, reject) => {
+    controller.signal.addEventListener('abort', () => {
+      reject(createGalleryAbortError(timedOut ? 'timeout' : 'cancelled'));
+    }, { once: true });
+  });
+  try {
+    const response = await Promise.race([fetch(path, { signal: controller.signal }), aborted]);
+    if (!response.ok) {
+      if (throwOnFailure) {
+        throw new Error(`Failed to load ${path}: ${response.status}`);
+      }
+      return null;
+    }
+    return await Promise.race([response.json(), aborted]);
+  } catch (error) {
+    if (throwOnFailure) throw error;
+    return null;
+  } finally {
+    window.clearTimeout(timer);
+    if (cancelSignal) cancelSignal.removeEventListener('abort', abortFromOuter);
+  }
+}
+
+async function loadGalleryEntries(cancelSignal) {
+  const [manifestResult, sequenceResult] = await Promise.all([
+    fetchJson(MANIFEST_PATH, true, GALLERY_FETCH_TIMEOUTS.manifest, cancelSignal),
+    fetchJson(SEQUENCE_PATH, false, GALLERY_FETCH_TIMEOUTS.sequence, cancelSignal)
+  ]);
+
+  if (!Array.isArray(manifestResult?.photos)) {
+    throw new Error('Invalid gallery manifest schema');
+  }
+
+  const manifestPhotos = manifestResult.photos;
+  const sequenceItems = Array.isArray(sequenceResult?.items) ? sequenceResult.items : [];
+  const sequenceLookup = buildSequenceLookup(sequenceItems);
+
+  return manifestPhotos.map((photo, manifestIndex) =>
+    mergeGalleryEntry({
+      photo,
+      manifestIndex,
+      sequenceItems,
+      sequenceLookup
+    })
+  );
+}
+
+// Each load is a fresh attempt: the previous attempt's in-flight requests are
+// aborted, and the attempt token discards any completion that lands after a
+// newer attempt started, so a late response cannot overwrite newer state.
+async function startGalleryLoad() {
+  const attempt = ++gallery.load.attempt;
+  if (gallery.load.controller) {
+    gallery.load.controller.abort();
+  }
+  const controller = new AbortController();
+  gallery.load.controller = controller;
+  setLoadingState(true);
+
+  let entries;
+  try {
+    entries = await loadGalleryEntries(controller.signal);
+  } catch (error) {
+    if (attempt !== gallery.load.attempt) return;
+    gallery.load.controller = null;
+    console.error('Gallery initialization error:', error);
+    // The status section only becomes visible with the hero reveal; on the
+    // error path force it complete so the retry state is actually shown.
+    completeGalleryHeroReveal({ finishAnimations: true });
+    showErrorState(GALLERY_RETRY_COPY);
+    return;
+  }
+
+  if (attempt !== gallery.load.attempt) return;
+  gallery.load.controller = null;
+  renderEntries(entries);
+}
+
+function renderEntries(entries) {
   gallery.entries = entries.sort((a, b) => a.order - b.order);
   gallery.featuredEntries = gallery.entries.filter((entry) => entry.featured);
   gallery.heroEntries = gallery.entries
@@ -293,47 +422,6 @@ async function initGallery() {
   initScrollReveal();
   setLoadingState(false);
   syncGalleryFromUrl();
-
-}
-
-async function loadGalleryEntries() {
-  const [manifestResult, sequenceResult] = await Promise.all([
-    fetchJson(MANIFEST_PATH, true),
-    fetchJson(SEQUENCE_PATH, false)
-  ]);
-
-  if (!Array.isArray(manifestResult?.photos)) {
-    throw new Error('Invalid gallery manifest schema');
-  }
-
-  const manifestPhotos = manifestResult.photos;
-  const sequenceItems = Array.isArray(sequenceResult?.items) ? sequenceResult.items : [];
-  const sequenceLookup = buildSequenceLookup(sequenceItems);
-
-  return manifestPhotos.map((photo, manifestIndex) =>
-    mergeGalleryEntry({
-      photo,
-      manifestIndex,
-      sequenceItems,
-      sequenceLookup
-    })
-  );
-}
-
-async function fetchJson(path, throwOnFailure) {
-  try {
-    const response = await fetch(path);
-    if (!response.ok) {
-      if (throwOnFailure) {
-        throw new Error(`Failed to load ${path}`);
-      }
-      return null;
-    }
-    return await response.json();
-  } catch (error) {
-    if (throwOnFailure) throw error;
-    return null;
-  }
 }
 
 function buildSequenceLookup(sequenceItems) {
@@ -1210,12 +1298,48 @@ function showEmptyState(title, copy) {
   gallery.elements.emptyCopy.textContent = copy;
 }
 
+function ensureRetryButton(container, buttonId, label, onRetry) {
+  const staticLink = container.querySelector('.gallery-error-retry');
+  if (staticLink) {
+    if (!staticLink.dataset.galleryRetryBound) {
+      staticLink.addEventListener('click', (event) => {
+        event.preventDefault();
+        onRetry();
+      });
+      staticLink.dataset.galleryRetryBound = 'true';
+    }
+    return staticLink;
+  }
+  let button = document.getElementById(buttonId);
+  if (!button) {
+    button = document.createElement('button');
+    button.type = 'button';
+    button.id = buttonId;
+    button.className = 'btn btn-secondary empty-action';
+    button.setAttribute('data-cursor', 'hover');
+    button.textContent = label;
+    button.addEventListener('click', onRetry);
+    container.appendChild(button);
+  }
+  return button;
+}
+
 function showErrorState(copy) {
   gallery.elements.loading.hidden = true;
   gallery.elements.empty.hidden = true;
   if (gallery.elements.archiveSection) gallery.elements.archiveSection.hidden = true;
   gallery.elements.error.hidden = false;
+  // Announce the failure and put the user on the recovery control; the
+  // button is created here (not in HTML) so it only exists when retryable.
+  gallery.elements.error.setAttribute('role', 'alert');
   gallery.elements.errorCopy.textContent = copy;
+  const retry = ensureRetryButton(
+    gallery.elements.error,
+    'galleryRetryButton',
+    'Try again',
+    () => startGalleryLoad()
+  );
+  retry.focus?.();
 }
 
 function buildLightboxThumbStrip() {
