@@ -29,10 +29,28 @@ function fixturePage(name: string, wedged: string[]): string {
   const wedge = wedged.includes(name)
     ? '<script>window.requestAnimationFrame = () => 0;</script>'
     : '';
+  const gallery = name === 'gallery' ? `<div id="galleryLoading"${wedged.includes('gallery-loading') ? '' : ' hidden'}>Loading photographs…</div>
+<div id="galleryError"${wedged.includes('gallery-error') ? '' : ' hidden'}>Gallery unavailable</div>
+<section id="galleryArchiveSection"${wedged.includes('gallery-loading') || wedged.includes('gallery-error') ? ' hidden' : ''}>
+<div id="galleryArchiveGrid"><article class="photo-card"><button class="photo-card-button">Photo</button><img src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Photo"></article></div></section>` : '';
+  const utilities = name === 'utilities' ? `<section id="utilitiesTitleView"><nav class="utilities-buttons"><a data-utility="image-transform" href="#image-transform">Image Transform</a></nav></section>
+<section id="utilitiesUtilityView" hidden><button class="nav-back-btn">Index</button>
+<div class="utility-stage" data-utility-id="image-transform" hidden><div data-utility-root="image-transform" inert>Image Transform controls</div></div></section>
+<script>document.querySelector('[data-utility="image-transform"]').addEventListener('click', event => {
+event.preventDefault(); history.pushState({}, '', '#image-transform');
+document.querySelector('#utilitiesTitleView').hidden = true;
+document.querySelector('#utilitiesUtilityView').hidden = false;
+const stage = document.querySelector('[data-utility-id="image-transform"]'); stage.hidden = false; stage.classList.add('is-active');
+stage.dataset.utilityReady = '${wedged.includes('utility-uninitialized') ? 'loading' : 'ready'}';
+${wedged.includes('utility-uninitialized') ? '' : "stage.querySelector('[data-utility-root]').removeAttribute('inert');"}
+});
+window.addEventListener('popstate', () => { document.querySelector('#utilitiesTitleView').hidden = false; document.querySelector('#utilitiesUtilityView').hidden = true; });</script>` : '';
   return `<!doctype html><html><head><title>${name}</title></head><body>
 ${wedge}<h1 id="${selector}">${name} content</h1>
 <div class="gallery-hero"><span class="calibrate-text">calibrate</span></div>
-<nav>${nav}</nav></body></html>`;
+<div class="home-intro-copy"><p>I study engineering and mathematics and make this portfolio available for visitors.</p></div>
+<div class="education-card">Electrical and Computer Engineering</div>
+${gallery}${utilities}<nav>${nav}</nav></body></html>`;
 }
 
 async function startFixtureServer(wedged: string[]): Promise<{ server: Server; url: string }> {
@@ -146,7 +164,7 @@ probeTest('bounds a wedged animation-frame probe, prints the diagnosis, and reap
     const end = run.stderr.indexOf('\n}', start);
     expect(end, `unterminated diagnostic JSON: ${run.stderr}`).toBeGreaterThan(start);
     const diagnosis = JSON.parse(run.stderr.slice(start, end + 2));
-    expect(diagnosis).toMatchObject({ action: 'click', from: 'resume', to: 'gallery', stage: 'animation-frame' });
+    expect(diagnosis).toMatchObject({ action: 'click', from: 'home', to: 'gallery', stage: 'animation-frame' });
     expect(diagnosis.deadlineMs).toBe(deadlineMs);
     expect(diagnosis.elapsedMs).toBeGreaterThanOrEqual(deadlineMs);
     expect(diagnosis.elapsedMs).toBeLessThan(killAfterMs);
@@ -167,21 +185,45 @@ probeTest('bounds a wedged animation-frame probe, prints the diagnosis, and reap
 probeTest('still records successful transition measurements', async () => {
   const { server, url } = await startFixtureServer([]);
   try {
-    const run = await runProbe(url, { NAV_STABILITY_DEADLINE_MS: '20000' }, 90000);
+    const run = await runProbe(url, { NAV_STABILITY_TIMEOUT_MS: '5000', NAV_STABILITY_DEADLINE_MS: '20000' }, 90000);
     expect(run.harnessKilled, `probe hung; stderr: ${run.stderr}`).toBe(false);
     expect(run.code, `probe failed; stderr: ${run.stderr}`).toBe(0);
     const measurements = run.stdout.split('\n').filter(line => line.startsWith('{'))
       .map(line => JSON.parse(line));
-    // 5 cycles: 1 open + 20 clicks + 4 history transitions.
-    expect(measurements).toHaveLength(25);
+    // The covering tour adds twelve distinct directed links before the
+    // repeated browsing loop and the separate history checks.
+    expect(measurements).toHaveLength(37);
+    const expectedEdges = new Set(NAMES.flatMap(from => NAMES.filter(to => to !== from).map(to => `${from}->${to}`)));
+    const visitedEdges = new Set(measurements.filter(item => item.action === 'click').map(item => `${item.from}->${item.to}`));
+    expect(visitedEdges).toEqual(expectedEdges);
     for (const measurement of measurements) {
       expect(typeof measurement.usableMs).toBe('number');
       expect(measurement.readyState).toBe('complete');
     }
-    expect(run.stdout).toContain('PASS: 24 real-link/history transitions');
+    expect(run.stdout).toContain('PASS: 36 real-link/history transitions');
     expect(await waitForReap(run.pid, 5000), 'browser descendants survived a passing run').toEqual([]);
   } finally {
     server.close();
     server.closeAllConnections();
   }
 }, 120000);
+
+for (const [fault, expectedStage] of [
+  ['gallery-loading', 'gallery-content'],
+  ['gallery-error', 'gallery-content'],
+  ['utility-uninitialized', 'utilities-content']
+] as const) {
+  probeTest(`does not pass an unhealthy ${fault} fixture`, async () => {
+    const { server, url } = await startFixtureServer([fault]);
+    try {
+      const run = await runProbe(url, { NAV_STABILITY_TIMEOUT_MS: '1000', NAV_STABILITY_DEADLINE_MS: '2500' }, 30000);
+      expect(run.harnessKilled, `probe hung; stderr: ${run.stderr}`).toBe(false);
+      expect(run.code, `unhealthy fixture received normal PASS: ${run.stdout}`).toBe(1);
+      expect(run.stdout).not.toContain('PASS:');
+      expect(run.stderr).toContain(expectedStage);
+    } finally {
+      server.close();
+      server.closeAllConnections();
+    }
+  }, 45000);
+}

@@ -128,16 +128,18 @@ async function startLocalStaticServer({ url, cwd, skip = false, bindHost = '127.
 }
 
 async function waitForServer(url, timeoutMs = 10000) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
+  const deadline = performance.now() + timeoutMs;
+  while (performance.now() < deadline) {
+    const remainingMs = Math.max(1, Math.ceil(deadline - performance.now()));
     try {
-      const response = await fetch(url, { method: 'GET' });
+      const response = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(remainingMs) });
       if (response.ok) return;
     } catch (_error) {
       // Retry until timeout.
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 220));
+    const pauseMs = Math.min(220, Math.max(0, deadline - performance.now()));
+    if (pauseMs > 0) await new Promise((resolve) => setTimeout(resolve, pauseMs));
   }
 
   throw new Error(`Timed out waiting for server at ${url}`);
