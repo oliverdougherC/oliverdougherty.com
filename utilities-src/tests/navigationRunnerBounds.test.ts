@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -43,6 +43,55 @@ it('bounds browser startup before Playwright returns an owned process handle', (
     expect((result.error as NodeJS.ErrnoException | undefined)?.code).not.toBe('ETIMEDOUT');
     expect(result.status).not.toBe(0);
     expect(`${result.stdout}\n${result.stderr}`).toMatch(/overall deadline; terminating owned processes/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}, 5000);
+
+it('terminates a stuck Windows diagnostic using its owned worker PID', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'navigation-runner-windows-'));
+  const log = join(directory, 'taskkill.jsonl');
+  try {
+    const started = Date.now();
+    const result = spawnSync(process.execPath, ['--require', preload, runner], {
+      cwd: resolve('.'),
+      env: { ...process.env, NAV_RUNNER_HANG_MODE: 'windows-browser-launch',
+        NAV_RUNNER_WINDOWS_LOG: log, NAV_STABILITY_TOTAL_MS: '150' },
+      encoding: 'utf8', timeout: 3000
+    });
+    expect((result.error as NodeJS.ErrnoException | undefined)?.code).not.toBe('ETIMEDOUT');
+    expect(Date.now() - started).toBeLessThan(3000);
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}\n${result.stderr}`).toMatch(/overall deadline; terminating owned processes/);
+    const events = readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    const pid = events.find(event => event.kind === 'spawn')?.pid;
+    expect(Number.isInteger(pid) && pid > 0).toBe(true);
+    expect(events.filter(event => event.kind === 'taskkill').map(event => [event.command, ...event.args]))
+      .toEqual(Array(2).fill(['taskkill', '/pid', String(pid), '/t', '/f']));
+    expect(events.find(event => event.kind === 'terminated')?.pid).toBe(pid);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}, 5000);
+
+it('does not retry Windows taskkill after the owned worker closes', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'navigation-runner-windows-'));
+  const log = join(directory, 'taskkill.jsonl');
+  try {
+    const result = spawnSync(process.execPath, ['--require', preload, runner], {
+      cwd: resolve('.'),
+      env: { ...process.env, NAV_RUNNER_HANG_MODE: 'windows-browser-launch',
+        NAV_RUNNER_WINDOWS_LOG: log, NAV_RUNNER_WINDOWS_KILL_ATTEMPT: '1', NAV_STABILITY_TOTAL_MS: '150' },
+      encoding: 'utf8', timeout: 3000
+    });
+    expect((result.error as NodeJS.ErrnoException | undefined)?.code).not.toBe('ETIMEDOUT');
+    expect(result.status).toBe(1);
+    const events = readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    const pid = events.find(event => event.kind === 'spawn')?.pid;
+    expect(Number.isInteger(pid) && pid > 0).toBe(true);
+    expect(events.filter(event => event.kind === 'taskkill').map(event => [event.command, ...event.args]))
+      .toEqual([['taskkill', '/pid', String(pid), '/t', '/f']]);
+    expect(events.find(event => event.kind === 'terminated')?.pid).toBe(pid);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

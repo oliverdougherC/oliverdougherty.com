@@ -303,7 +303,7 @@ async function run() {
 // descendants of this child before terminating them; Playwright launches its
 // browser in a separate process group on Unix.
 function ownedProcesses(rootPid) {
-  if (process.platform === 'win32') return [rootPid];
+  if (process.platform === 'win32') return [[rootPid, null, null]];
   const rows = execFileSync('ps', ['-eo', 'pid=,ppid=,pgid='], { encoding: 'utf8', timeout: 2000 })
     .trim().split('\n').map(line => line.trim().split(/\s+/).map(Number));
   const owned = new Set([rootPid]);
@@ -317,7 +317,12 @@ function ownedProcesses(rootPid) {
 
 function stopOwnedProcesses(rows, signal) {
   if (process.platform === 'win32') {
-    try { execFileSync('taskkill', ['/pid', String(rows[0][0]), '/t', '/f'], { stdio: 'ignore', timeout: 2000 }); }
+    const pid = rows[0]?.[0];
+    if (!Number.isSafeInteger(pid) || pid <= 0) {
+      console.error(`WARN: invalid owned process PID: ${pid}`);
+      return;
+    }
+    try { execFileSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore', timeout: 2000 }); }
     catch (error) { if (error.status !== 128) console.error(`WARN: owned process cleanup failed: ${error}`); }
     return;
   }
@@ -342,7 +347,7 @@ async function supervise() {
     const timer = setTimeout(() => {
       timedOut = true;
       console.error(`ERROR: navigation diagnostic exceeded its ${TOTAL_MS} ms overall deadline; terminating owned processes`);
-      try { captured = ownedProcesses(child.pid); } catch (error) { console.error(`WARN: process inventory failed: ${error}`); captured = [[child.pid]]; }
+      try { captured = ownedProcesses(child.pid); } catch (error) { console.error(`WARN: process inventory failed: ${error}`); captured = [[child.pid, null, null]]; }
       stopOwnedProcesses(captured, 'SIGTERM');
       forceTimer = setTimeout(() => stopOwnedProcesses(captured, 'SIGKILL'), 1000);
     }, TOTAL_MS);
@@ -353,7 +358,9 @@ async function supervise() {
     });
     child.once('close', (code, signal) => {
       clearTimeout(timer);
-      if (!timedOut) clearTimeout(forceTimer);
+      // Windows taskkill targets this PID alone; after close it may be reused.
+      // Unix keeps the forced pass for captured descendants in other groups.
+      if (!timedOut || process.platform === 'win32') clearTimeout(forceTimer);
       if (timedOut) {
         process.exitCode = 1;
       } else {

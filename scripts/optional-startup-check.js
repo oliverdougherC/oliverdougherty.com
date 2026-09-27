@@ -20,8 +20,24 @@ async function stalledScriptProxy(upstreamUrl, script, phase) {
   let intercepted = 0;
   const openResponses = new Set();
   const upstream = new URL(upstreamUrl);
+  assert(upstream.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(upstream.hostname)
+    && !upstream.username && !upstream.password && upstream.pathname === '/' && !upstream.search && !upstream.hash,
+  'Optional startup proxy requires a local HTTP upstream origin');
+  const upstreamHostname = upstream.hostname === '[::1]' ? '::1' : upstream.hostname;
   const server = http.createServer((request, response) => {
-    if (new URL(request.url, upstream).pathname === `/js/${script}`) {
+    const target = request.url;
+    if (typeof target !== 'string' || !target.startsWith('/') || target.startsWith('//')
+      || /[\\#\x00-\x20\x7f]/.test(target) || /%(?![0-9a-f]{2})/i.test(target)) {
+      response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end('Invalid request target');
+      return;
+    }
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      response.writeHead(405, { Allow: 'GET, HEAD' });
+      response.end();
+      return;
+    }
+    if (target.split('?', 1)[0] === `/js/${script}`) {
       intercepted += 1;
       openResponses.add(response);
       response.on('close', () => openResponses.delete(response));
@@ -31,15 +47,20 @@ async function stalledScriptProxy(upstreamUrl, script, phase) {
       }
       return;
     }
-    const forwarded = http.request(new URL(request.url, upstream), {
+    const forwarded = http.request({
+      protocol: upstream.protocol,
+      hostname: upstreamHostname,
+      port: upstream.port,
+      path: target,
       method: request.method,
-      headers: { ...request.headers, host: upstream.host }
+      headers: { host: upstream.host }
     }, result => {
       response.writeHead(result.statusCode, result.headers);
       result.pipe(response);
     });
     forwarded.on('error', error => response.destroy(error));
-    request.pipe(forwarded);
+    response.on('close', () => forwarded.destroy());
+    forwarded.end();
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   return {
@@ -182,4 +203,5 @@ async function run() {
   }
 }
 
-run().catch(error => { console.error(error); process.exitCode = 1; });
+module.exports = { stalledScriptProxy };
+if (require.main === module) run().catch(error => { console.error(error); process.exitCode = 1; });
