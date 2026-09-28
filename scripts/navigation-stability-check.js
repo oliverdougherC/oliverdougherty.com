@@ -6,7 +6,7 @@
 const assert = require('node:assert/strict');
 const { chromium, firefox, webkit } = require('playwright');
 const path = require('node:path');
-const { startLocalStaticServer, waitForServer } = require('./lib/playwright-static');
+const { markAnimationsSeen, startLocalStaticServer, waitForServer } = require('./lib/playwright-static');
 
 const ROOT = path.resolve(__dirname, '..');
 const PAGES = {
@@ -86,6 +86,10 @@ async function run() {
     assert(browserType, `Unknown browser: ${process.env.BROWSER}`);
     browser = await browserType.launch({ headless: true });
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    // A cold Home visit keeps its navigation parked until the first scroll, so the
+    // link and history walk arrives as a returning visitor; home-check.js covers
+    // the first-visit stage and its scroll reveal.
+    await markAnimationsSeen(context);
     const page = await context.newPage();
     page.setDefaultTimeout(TIMEOUT_MS);
     page.setDefaultNavigationTimeout(TIMEOUT_MS);

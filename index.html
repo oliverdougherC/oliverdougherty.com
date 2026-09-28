@@ -31,6 +31,53 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=JetBrains+Mono:wght@200;400;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=JetBrains+Mono:wght@200;400;800&display=swap" rel="stylesheet"></noscript>
 
+  <!-- First-visit stage: the painting holds a viewport of black on its own and the
+       navigation arrives with the first scroll. Session state is shared with
+       js/page-animations.js (see Gallery/Resume), so a returning visit renders the
+       settled page immediately. The reveal watch lives here rather than in a
+       deferred file: the stylesheet only hides the navigation once this script has
+       armed html.home-stage, so a missing or stalled script can never strand it. -->
+  <script data-page-id="home">
+    (() => {
+      const root = document.documentElement;
+      const id = document.currentScript.dataset.pageId;
+      let skip = false;
+      try {
+        const seen = JSON.parse(sessionStorage.getItem('od-page-animations-seen') || '{}');
+        skip = seen[id] === true;
+        if (!skip && id) {
+          seen[id] = true;
+          sessionStorage.setItem('od-page-animations-seen', JSON.stringify(seen));
+        }
+      } catch (_) { /* Storage may be unavailable; the visible page still works. */ }
+      window.pageAnimations = { pageId: id, shouldSkip: () => skip, markSeen() {} };
+      if (skip) {
+        root.classList.add('skip-page-animation');
+        root.dataset.pageId = id;
+        return;
+      }
+      root.dataset.pageId = id;
+      root.classList.add('home-stage');
+      // A deliberate scroll, not a twitch, hands the page back to the navigation.
+      // The cap keeps that distance similar on very tall displays, and the narrower
+      // return threshold keeps a wheel resting on the boundary from stuttering.
+      const revealLimit = () => Math.min(200, Math.max(24, Math.round(window.innerHeight * 0.18)));
+      const sync = () => {
+        const limit = revealLimit();
+        const shown = root.classList.contains('home-nav-revealed');
+        root.classList.toggle('home-nav-revealed', window.scrollY > (shown ? limit * 0.4 : limit));
+      };
+      let frame = 0;
+      const request = () => {
+        if (frame) return;
+        frame = requestAnimationFrame(() => { frame = 0; sync(); });
+      };
+      window.addEventListener('scroll', request, { passive: true });
+      window.addEventListener('resize', request, { passive: true });
+      sync();
+    })();
+  </script>
+  <script src="js/page-animations.js" data-page-id="home" async></script>
 
   <!-- Design system reference: docs/Design.md (industrialist aesthetic, #FFFFFF/#000000 base, #FF6700 flare) -->
   <!-- Keeping base styles for layout -->
@@ -39,7 +86,7 @@
   <!-- Schematic overrides -->
   <link rel="stylesheet" href="css/schematic.css?v=nighthawks-1">
   <link rel="stylesheet" href="css/cursor.css?v=musical-5">
-  <link rel="stylesheet" href="css/home.css?v=home-copy-5">
+  <link rel="stylesheet" href="css/home.css?v=home-intro-1">
   <link rel="preload" href="assets/fonts/nighthawks-mono-bold.ttf" as="font" type="font/ttf" crossorigin>
   <link rel="preload" href="assets/art/nighthawks-colors.png" as="image">
   <script src="js/nighthawks.js" defer></script>

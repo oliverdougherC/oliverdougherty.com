@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { chromium, firefox, webkit } = require('playwright');
 const sharp = require('sharp');
-const { startLocalStaticServer, waitForServer } = require('./lib/playwright-static');
+const { markAnimationsSeen, startLocalStaticServer, waitForServer } = require('./lib/playwright-static');
 
 const ROOT = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT, 'output', 'playwright', 'home-check');
@@ -281,6 +281,7 @@ async function checkRetainedInteractions(page) {
 async function checkCohesionInteractions(browser, name, touch) {
   for (const route of ['/index.html?full=1', '/mobile/']) {
     const context = await browser.newContext({ viewport: touch ? { width: 390, height: 844 } : { width: 1440, height: 900 }, hasTouch: touch, isMobile: touch });
+    await markAnimationsSeen(context);
     const page = await context.newPage();
     const label = `${name}-${touch ? 'touch' : 'keyboard'}-${route}`;
     await page.goto(`${baseUrl}${route}`, { waitUntil: 'load' });
@@ -369,6 +370,129 @@ async function checkVisibleBaselineWhileFontWaits(browser, name) {
   }
 }
 
+/**
+ * Cold visit: the painting owns a viewport of black on its own, the navigation
+ * stays parked until the first deliberate scroll, and a second visit in the same
+ * session renders the settled page with no entrance at all.
+ */
+async function checkFirstVisitStage(browser, name) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  const label = `${name}-first-visit-stage`;
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const perceptibleInPage = (element) => {
+    for (let node = element; node instanceof Element; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.99) return false;
+    }
+    return element.getBoundingClientRect().height > 0;
+  };
+  try {
+    await page.goto(`${baseUrl}/index.html?full=1`, { waitUntil: 'load' });
+    await page.waitForFunction(() => document.querySelector('#nighthawksArtwork')?.dataset.renderMode === 'text');
+    assert(await page.evaluate(() => {
+      const root = document.documentElement;
+      return root.classList.contains('home-stage')
+        && !root.classList.contains('skip-page-animation')
+        && JSON.parse(window.sessionStorage.getItem('od-page-animations-seen') || '{}').home === true;
+    }), `${label}: the cold visit did not arm the stage`);
+
+    const stage = await page.evaluate(() => {
+      const perceptible = (element) => {
+        for (let node = element; node instanceof Element; node = node.parentElement) {
+          const style = getComputedStyle(node);
+          if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) < 0.99) return false;
+        }
+        return element.getBoundingClientRect().height > 0;
+      };
+      const header = document.querySelector('.home-header');
+      const hero = document.querySelector('.nighthawks-hero').getBoundingClientRect();
+      const artwork = document.querySelector('#nighthawksArtwork').getBoundingClientRect();
+      return {
+        canvas: getComputedStyle(document.body).backgroundColor,
+        viewportHeight: innerHeight,
+        heroTop: hero.top,
+        heroHeight: hero.height,
+        artworkHeight: artwork.height,
+        centreOffset: Math.abs(artwork.top + artwork.height / 2 - innerHeight / 2),
+        headerPosition: getComputedStyle(header).position,
+        headerShown: perceptible(header),
+        navShown: Array.from(document.querySelectorAll('.nav-inline-link')).some(perceptible),
+        entrance: getComputedStyle(document.querySelector('.nighthawks-figure')).animationName,
+        overflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) > innerWidth + 1
+      };
+    });
+    assert(stage.canvas === 'rgb(0, 0, 0)', `${label}: the stage canvas is not black`);
+    assert(stage.heroTop <= 0.5 && stage.heroHeight >= stage.viewportHeight - 1, `${label}: the stage does not fill the viewport`);
+    assert(stage.centreOffset <= 1, `${label}: the painting is not vertically centred`);
+    assert(stage.artworkHeight <= stage.viewportHeight * 0.85, `${label}: the painting crowds the surrounding black`);
+    assert(stage.headerPosition === 'fixed', `${label}: the parked navigation should leave the flow`);
+    assert(!stage.headerShown && !stage.navShown, `${label}: navigation is visible on the stage`);
+    assert(stage.entrance === 'paintingEmerge', `${label}: the painting has no first-visit entrance`);
+    assert(!stage.overflow, `${label}: the stage overflows horizontally`);
+
+    await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState === 'finished'),
+      null, { timeout: 8000 });
+    assert(await page.locator('#nighthawksCharacters').evaluate(perceptibleInPage),
+      `${label}: the entrance leaves the painting faded`);
+
+    await page.evaluate(() => window.scrollTo(0, Math.round(window.innerHeight * 0.45)));
+    await page.waitForFunction(() => {
+      const header = document.querySelector('.home-header');
+      if (!document.documentElement.classList.contains('home-nav-revealed')) return false;
+      for (let node = header; node instanceof Element; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (style.visibility === 'hidden' || Number(style.opacity) < 0.99) return false;
+      }
+      return Math.abs(header.getBoundingClientRect().top) < 0.5;
+    }, null, { timeout: 5000 });
+    assert(await page.locator('.nav-inline-link--resume').evaluate(perceptibleInPage),
+      `${label}: navigation stays hidden after the first scroll`);
+    await page.locator('.nav-inline-link--resume').click({ trial: true });
+    await page.locator('[data-flashlight-toggle]').click({ trial: true });
+
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await page.waitForFunction(() => Math.abs(document.querySelector('.home-header').getBoundingClientRect().top) < 0.5,
+      null, { timeout: 5000 });
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForFunction(() => !document.documentElement.classList.contains('home-nav-revealed'), null, { timeout: 5000 });
+    // The header slides up first and only leaves the tab order once it is off screen.
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('.home-header')).visibility === 'hidden',
+      null, { timeout: 5000 });
+    assert(await page.locator('.home-header').evaluate((header) => {
+      const box = header.getBoundingClientRect();
+      return Number(getComputedStyle(header).opacity) < 0.01 && box.top <= -box.height + 1;
+    }), `${label}: navigation should park above the stage`);
+    await page.screenshot({ path: path.join(OUTPUT_DIR, `${label}-stage.png`) });
+
+    await page.reload({ waitUntil: 'load' });
+    const revisit = await page.evaluate(() => {
+      const header = document.querySelector('.home-header');
+      const headerStyle = getComputedStyle(header);
+      return {
+        intro: document.documentElement.classList.contains('home-stage'),
+        skip: document.documentElement.classList.contains('skip-page-animation'),
+        headerPosition: headerStyle.position,
+        headerTop: header.getBoundingClientRect().top,
+        headerShown: headerStyle.visibility !== 'hidden' && Number(headerStyle.opacity) > 0.99,
+        heroHeight: document.querySelector('.nighthawks-hero').getBoundingClientRect().height,
+        entrance: getComputedStyle(document.querySelector('.nighthawks-figure')).animationName
+      };
+    });
+    assert(!revisit.intro && revisit.skip, `${label}: the returning visit replayed the stage`);
+    assert(revisit.headerPosition === 'sticky' && Math.abs(revisit.headerTop) < 0.5 && revisit.headerShown,
+      `${label}: the returning visit lost its navigation`);
+    assert(revisit.entrance === 'none', `${label}: the returning visit replayed the entrance`);
+    assert(revisit.heroHeight < 900, `${label}: the returning visit kept the full-viewport stage`);
+    assert.deepEqual(errors, [], `${label}: uncaught errors on the stage`);
+    console.log(`${name}: first-visit stage holds the painting alone and hands the page to the navigation on scroll.`);
+  } finally {
+    await context.close();
+  }
+}
+
 async function run() {
   validateBinaryText(SOURCE_TEXT);
   const { data: colors, info } = await sharp(path.join(ROOT, 'assets/art/nighthawks-colors.png'))
@@ -394,6 +518,7 @@ async function run() {
       try {
         for (const viewport of VIEWPORTS) {
           const context = await browser.newContext({ viewport });
+          await markAnimationsSeen(context);
           const page = await context.newPage();
           const errors = [];
           const paintingRequests = [];
@@ -423,6 +548,7 @@ async function run() {
         }
         await checkArtworkBeforeWindowLoad(browser, name);
         await checkVisibleBaselineWhileFontWaits(browser, name);
+        await checkFirstVisitStage(browser, name);
         const conditions = [
           { label: 'no-javascript', settings: { javaScriptEnabled: false }, mode: 'fallback', noJavaScript: true },
           { label: 'reduced-motion', settings: { reducedMotion: 'reduce' }, mode: 'text' },
@@ -432,6 +558,7 @@ async function run() {
         ];
         for (const condition of conditions) {
           const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ...condition.settings });
+          await markAnimationsSeen(context);
           if (condition.initScript) await context.addInitScript(condition.initScript);
           if (condition.block) {
             await context.route('**/*', (route) => condition.block(route.request()) ? route.abort() : route.continue());
@@ -449,7 +576,7 @@ async function run() {
         }
         await checkCohesionInteractions(browser, name, false);
         await checkCohesionInteractions(browser, name, true);
-        console.log(`Verified ${name}: exact text grid, font/color map, single responsive baseline image, desktop/mobile sizing and resize, 200% viewport-equivalent and CSS zoom, credits, immediate introduction, no-JS and failure fallbacks, reduced motion, four readable project stories, responsive text columns, sticky navigation, keyboard/touch contact interactions, and clipboard outcomes.`);
+        console.log(`Verified ${name}: exact text grid, font/color map, single responsive painting per page, first-visit black stage with scroll-gated navigation, desktop/mobile sizing and resize, 200% viewport-equivalent and CSS zoom, credits, immediate introduction, no-JS and failure fallbacks, reduced motion, four readable project stories, responsive text columns, sticky navigation, keyboard/touch contact interactions, and clipboard outcomes.`);
       } finally {
         await browser.close();
       }
