@@ -930,7 +930,12 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
   opacity: 1;
 }
 
+.lightbox-thumb picture {
+  display: block;
+}
+
 .lightbox-thumb img {
+  display: block;
   width: 100%;
   aspect-ratio: 1;
   border-radius: calc(var(--radius-lg) + 2px);

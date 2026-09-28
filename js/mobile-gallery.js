@@ -330,15 +330,17 @@
     if (assets.mediumWebp) webpSrcsetCandidates.push(assets.mediumWebp + ' ' + assets.mediumWidth + 'w');
     if (assets.largeWebp) webpSrcsetCandidates.push(assets.largeWebp + ' ' + assets.largeWidth + 'w');
 
-    if (el.sourceAvif && avifSrcsetCandidates.length) {
+    if (el.sourceAvif) {
       el.sourceAvif.srcset = avifSrcsetCandidates.join(', ');
       el.sourceAvif.sizes = '100vw';
     }
-    if (el.sourceWebp && webpSrcsetCandidates.length) {
+    if (el.sourceWebp) {
       el.sourceWebp.srcset = webpSrcsetCandidates.join(', ');
       el.sourceWebp.sizes = '100vw';
     }
 
+    el.image.srcset = jpgSrcset;
+    el.image.sizes = '100vw';
     el.image.src = assets.largeJpg || assets.mediumJpg || '';
     el.image.alt = entry.displayTitle || 'Photograph';
     el.image.style.opacity = '1';
@@ -356,8 +358,6 @@
       if (el.close) el.close.focus();
     }
 
-    // Preload adjacent entries
-    preloadAdjacent(index);
   }
 
   // F08: with the dialog modal, background content must not be interactive.
@@ -457,27 +457,6 @@
         }
       });
     });
-  }
-
-  function preloadAdjacent(index) {
-    var prevIndex = index - 1;
-    var nextIndex = index + 1;
-
-    if (prevIndex >= 0) {
-      var prevJpg = entries[prevIndex].assets.mediumJpg;
-      if (prevJpg) {
-        var prevImg = new Image();
-        prevImg.src = prevJpg;
-      }
-    }
-
-    if (nextIndex < entries.length) {
-      var nextJpg = entries[nextIndex].assets.mediumJpg;
-      if (nextJpg) {
-        var nextImg = new Image();
-        nextImg.src = nextJpg;
-      }
-    }
   }
 
   /* ---- Event binding ---- */

@@ -15,6 +15,11 @@ const PAGES = {
   gallery: '/pages/gallery/index.html',
   utilities: '/pages/utilities/index.html'
 };
+const MOBILE_PAGES = {
+  'mobile-home': '/mobile/',
+  'mobile-resume': '/mobile/resume/',
+  'mobile-gallery': '/mobile/gallery/'
+};
 
 async function stalledScriptProxy(upstreamUrl, script, phase) {
   let intercepted = 0;
@@ -140,6 +145,72 @@ async function checkPage(browser, upstreamUrl, pageName, script, phase) {
   }
 }
 
+async function checkMobileYear(browser, upstreamUrl, pageName, phase) {
+  const proxy = await stalledScriptProxy(upstreamUrl, 'year.js', phase);
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await context.newPage();
+  const label = `${pageName}: year.js ${phase} stalled`;
+  await context.addInitScript(() => {
+    window.__startupDOMContentLoaded = false;
+    document.addEventListener('DOMContentLoaded', () => { window.__startupDOMContentLoaded = true; }, { once: true });
+  });
+  try {
+    await page.goto(`${proxy.url}${MOBILE_PAGES[pageName]}`, { waitUntil: 'commit', timeout: 10000 });
+    await page.waitForFunction(() => document.querySelector('.mobile-nav-link')?.getBoundingClientRect().width > 0,
+      null, { timeout: 5000 });
+    if (pageName === 'mobile-gallery') {
+      await page.locator('#mobileGalleryGrid button.mobile-photo-button').first().waitFor({ timeout: 7000 });
+      await page.locator('#mobileGalleryGrid button.mobile-photo-button').first().click();
+      await page.locator('#mobileLightbox').waitFor({ state: 'visible', timeout: 5000 });
+      assert.equal(await page.locator('#mobileGalleryError').isVisible(), false, `${label}: gallery error`);
+      await page.locator('#mobileLightboxClose').click();
+    } else if (pageName === 'mobile-home') {
+      await page.locator('button[data-copy-email]').click({ timeout: 5000 });
+      await page.waitForFunction(() => Boolean(document.querySelector('[data-copy-status]')?.textContent),
+        null, { timeout: 5000 });
+      await page.locator('.osu-trigger').click({ timeout: 5000 });
+      assert.equal(await page.locator('.osu-trigger').getAttribute('aria-pressed'), 'true',
+        `${label}: main.js interaction did not initialize`);
+      assert.equal(await page.locator('#home-intro-title').isVisible(), true, label);
+    } else {
+      assert.match(await page.locator('main h1').textContent(), /Oliver Dougherty/, label);
+      assert.equal(await page.locator('#resume-education-title').isVisible(), true, label);
+      assert.equal(await page.locator('html').getAttribute('data-disable-color-mode'), '', `${label}: theme opt-out lost`);
+      assert.equal(await page.locator('body').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(255, 255, 255)',
+        `${label}: résumé theme changed while year.js was stalled`);
+    }
+    assert(proxy.intercepted > 0, `${label}: script was not intercepted`);
+    assert.equal(await page.evaluate(() => window.__startupDOMContentLoaded), true,
+      `${label}: DOMContentLoaded waited for optional year.js`);
+    await page.locator('[data-current-year]').evaluate(el => { el.textContent = '1900'; });
+    proxy.release();
+    await page.waitForFunction(() => document.querySelector('[data-current-year]')?.textContent === String(new Date().getFullYear()),
+      null, { timeout: 5000 });
+    if (pageName === 'mobile-resume') {
+      assert.equal(await page.locator('html').getAttribute('data-color-mode'), null,
+        `${label}: optional footer script overrode the résumé theme`);
+      assert.equal(await page.locator('body').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(255, 255, 255)',
+        `${label}: résumé theme changed after year.js released`);
+    }
+    console.log(`PASS ${label}`);
+  } catch (error) {
+    const state = await page.evaluate(() => ({
+      url: location.href,
+      readyState: document.readyState,
+      domContentLoaded: window.__startupDOMContentLoaded,
+      grid: document.querySelectorAll('#mobileGalleryGrid button.mobile-photo-button').length,
+      copyStatus: document.querySelector('[data-copy-status]')?.textContent
+    })).catch(() => ({}));
+    throw new Error(`${label}: ${error.message}; state=${JSON.stringify(state)}`, { cause: error });
+  } finally {
+    try {
+      await context.close();
+    } finally {
+      await proxy.close();
+    }
+  }
+}
+
 async function checkEssentialRecovery(browser, upstreamUrl) {
   const proxy = await stalledScriptProxy(upstreamUrl, 'utilities-shell.js', 'body');
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -191,6 +262,12 @@ async function run() {
         for (const phase of ['headers', 'body']) {
           await checkPage(browser, upstreamUrl, pageName, script, phase);
         }
+      }
+    }
+    for (const pageName of Object.keys(MOBILE_PAGES)) {
+      if (process.env.STARTUP_PAGE && process.env.STARTUP_PAGE !== pageName) continue;
+      for (const phase of ['headers', 'body']) {
+        await checkMobileYear(browser, upstreamUrl, pageName, phase);
       }
     }
     if (!process.env.STARTUP_PAGE || process.env.STARTUP_PAGE === 'utilities') {
