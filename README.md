@@ -95,7 +95,7 @@ Utilities is a desktop-only, curiosity-driven workbench with Image Transform, Fo
 
 ### Playwright regression
 
-- `npm run home:check` — Nighthawks artwork and introduction on both homepages, from 320px phones through 2560px desktops, including short landscape, resize, 200% CSS zoom and zoom-equivalent layout, exact character content, font/color-map failure fallbacks, no-JavaScript, reduced motion, absence of painting downloads during text rendering, four selected projects, sticky navigation, and readable project stories, responsive text columns, and keyboard/touch contact interactions. Set `HOME_CHECK_BROWSERS=chromium,firefox,webkit` to exercise all three engines. Screenshots go to `output/playwright/home-check/`.
+- `npm run home:check` — Nighthawks artwork and introduction on both homepages, from 320px phones through 2560px desktops, including short landscape, the first-visit black stage with its scroll-gated navigation and the settled-size handover once that black is out of sight, resize, 200% CSS zoom and zoom-equivalent layout, exact character content, font/color-map failure fallbacks, no-JavaScript, reduced motion, absence of painting downloads during text rendering, four selected projects, sticky navigation, and readable project stories, responsive text columns, and keyboard/touch contact interactions. Set `HOME_CHECK_BROWSERS=chromium,firefox,webkit` to exercise all three engines. Screenshots go to `output/playwright/home-check/`.
 - `npm run mobile:check` — Mobile Home/Resume/Gallery across 3 phone viewports + redirect gate
 - `npm run nav:check` — Inline desktop and mobile navigation regression
 

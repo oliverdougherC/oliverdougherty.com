@@ -493,6 +493,142 @@ async function checkFirstVisitStage(browser, name) {
   }
 }
 
+/**
+ * The black stage keeps its full-viewport size only while any of it is in sight. The
+ * moment the last of it is behind the navigation bar or above the top of the viewport,
+ * the settled layout returns at exactly the size a refresh renders — and it returns
+ * without moving anything the reader is looking at.
+ */
+async function checkStageCollapse(browser, name, options = {}) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, ...options.settings });
+  const page = await context.newPage();
+  const label = `${name}-stage-collapse${options.suffix || ''}`;
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const stageReading = () => {
+    const root = document.documentElement;
+    const header = document.querySelector('.home-header');
+    const hero = document.querySelector('.nighthawks-hero');
+    const figure = document.querySelector('.nighthawks-figure');
+    const bar = getComputedStyle(header);
+    const heroBox = hero.getBoundingClientRect();
+    return {
+      collapsed: root.classList.contains('home-stage-collapsed'),
+      revealed: root.classList.contains('home-nav-revealed'),
+      scrollY: window.scrollY,
+      heroBottom: heroBox.bottom,
+      heroHeight: heroBox.height,
+      figureWidth: figure.getBoundingClientRect().width,
+      introTop: document.querySelector('.home-intro').getBoundingClientRect().top,
+      headerBottom: header.getBoundingClientRect().bottom,
+      opacity: Number(bar.opacity),
+      visibility: bar.visibility,
+      overflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) > innerWidth + 1
+    };
+  };
+  try {
+    await page.goto(`${baseUrl}/index.html?full=1`, { waitUntil: 'load' });
+    await page.waitForFunction(() => document.querySelector('#nighthawksArtwork')?.dataset.renderMode === 'text');
+    // Walk down to the handover in small steps so the exact row that gives the size back
+    // is captured, and so a resize that jumped the page would show up as a mismatch.
+    const rows = await page.evaluate(async () => {
+      const root = document.documentElement;
+      const header = document.querySelector('.home-header');
+      const hero = document.querySelector('.nighthawks-hero');
+      const figure = document.querySelector('.nighthawks-figure');
+      const intro = document.querySelector('.home-intro');
+      const settle = () => new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      });
+      const read = (requested) => {
+        const bar = getComputedStyle(header);
+        const heroBox = hero.getBoundingClientRect();
+        return {
+          requested,
+          collapsed: root.classList.contains('home-stage-collapsed'),
+          revealed: root.classList.contains('home-nav-revealed'),
+          heroBottom: heroBox.bottom,
+          heroHeight: heroBox.height,
+          figureWidth: figure.getBoundingClientRect().width,
+          introTop: intro.getBoundingClientRect().top,
+          scrollY: window.scrollY,
+          headerBottom: header.getBoundingClientRect().bottom,
+          opacity: Number(bar.opacity),
+          visibility: bar.visibility
+        };
+      };
+      // Where the last row of black meets whatever is hiding it, at this instant, with
+      // the same margin the bootstrap waits for.
+      const boundary = () => {
+        const bar = getComputedStyle(header);
+        const cover = bar.visibility === 'visible' && Number(bar.opacity) > 0.999
+          ? Math.max(0, header.getBoundingClientRect().bottom)
+          : 0;
+        return Math.round(window.scrollY + hero.getBoundingClientRect().bottom - cover - 4);
+      };
+      const revealAt = Math.round(innerHeight * 0.45);
+      window.scrollTo(0, revealAt);
+      // The bar slides and fades in, and only an opaque one counts as covering the black.
+      const arrived = () => {
+        const bar = getComputedStyle(header);
+        return root.classList.contains('home-nav-revealed')
+          && bar.visibility === 'visible' && Number(bar.opacity) > 0.999;
+      };
+      for (let attempt = 0; attempt < 60 && !arrived(); attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      await settle();
+      const rows = [read(revealAt)];
+      for (let y = boundary() - 12; y < boundary() + 24; y += 4) {
+        window.scrollTo(0, y);
+        await settle();
+        const row = read(y);
+        rows.push(row);
+        if (row.collapsed) break;
+      }
+      return rows;
+    });
+
+    const trigger = rows[rows.length - 1];
+    const before = rows[rows.length - 2];
+    assert(rows[0].revealed && rows[0].opacity > 0.999 && !rows[0].collapsed,
+      `${label}: the navigation did not arrive before the handover`);
+    assert(before && !before.collapsed && before.heroHeight >= 899,
+      `${label}: the stage gave up its size before the black left the screen`);
+    assert(trigger.collapsed, `${label}: the stage never returned its settled size`);
+    assert(trigger.heroHeight < before.heroHeight - 40, `${label}: the stage did not shrink back`);
+    const behindTheBar = trigger.visibility === 'visible' && trigger.opacity > 0.999
+      && trigger.heroBottom <= trigger.headerBottom + 0.01;
+    assert(behindTheBar || trigger.heroBottom <= 0.01, `${label}: the stage resized with black still in view`);
+    const blackTop = before.introTop + before.scrollY;
+    // Two pixels of slack: a corrected scroll offset is rounded to a whole pixel, and
+    // Safari rounds down, which alone can leave a line of the page unaccounted for.
+    assert(Math.abs(trigger.introTop - (blackTop - trigger.requested)) <= 2,
+      `${label}: the handover moved the page under the reader`);
+    await page.screenshot({ path: path.join(OUTPUT_DIR, `${label}-handover.png`) });
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('.home-header')).visibility === 'hidden',
+      null, { timeout: 5000 });
+    const returned = await page.evaluate(stageReading);
+    assert(returned.collapsed && Math.abs(returned.heroHeight - trigger.heroHeight) <= 0.5
+      && Math.abs(returned.figureWidth - trigger.figureWidth) <= 0.5,
+      `${label}: the stage grew back once the black was in view again`);
+    assert(!returned.overflow, `${label}: the resized stage overflows horizontally`);
+
+    await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() => document.querySelector('#nighthawksArtwork')?.dataset.renderMode === 'text');
+    const settled = await page.evaluate(stageReading);
+    assert(!settled.collapsed && !settled.revealed, `${label}: the returning visit kept the stage armed`);
+    assert(Math.abs(settled.heroHeight - trigger.heroHeight) <= 1 && Math.abs(settled.figureWidth - trigger.figureWidth) <= 1,
+      `${label}: the resized stage is not the size a refresh renders`);
+    assert.deepEqual(errors, [], `${label}: uncaught errors during the handover`);
+    console.log(`${label}: the stage hands back its size the moment its black is out of sight.`);
+  } finally {
+    await context.close();
+  }
+}
+
 async function run() {
   validateBinaryText(SOURCE_TEXT);
   const { data: colors, info } = await sharp(path.join(ROOT, 'assets/art/nighthawks-colors.png'))
@@ -549,6 +685,8 @@ async function run() {
         await checkArtworkBeforeWindowLoad(browser, name);
         await checkVisibleBaselineWhileFontWaits(browser, name);
         await checkFirstVisitStage(browser, name);
+        await checkStageCollapse(browser, name);
+        await checkStageCollapse(browser, name, { suffix: '-reduced-motion', settings: { reducedMotion: 'reduce' } });
         const conditions = [
           { label: 'no-javascript', settings: { javaScriptEnabled: false }, mode: 'fallback', noJavaScript: true },
           { label: 'reduced-motion', settings: { reducedMotion: 'reduce' }, mode: 'text' },
@@ -576,7 +714,7 @@ async function run() {
         }
         await checkCohesionInteractions(browser, name, false);
         await checkCohesionInteractions(browser, name, true);
-        console.log(`Verified ${name}: exact text grid, font/color map, single responsive painting per page, first-visit black stage with scroll-gated navigation, desktop/mobile sizing and resize, 200% viewport-equivalent and CSS zoom, credits, immediate introduction, no-JS and failure fallbacks, reduced motion, four readable project stories, responsive text columns, sticky navigation, keyboard/touch contact interactions, and clipboard outcomes.`);
+        console.log(`Verified ${name}: exact text grid, font/color map, single responsive painting per page, first-visit black stage that hands back its settled size once its black is out of sight, scroll-gated navigation, desktop/mobile sizing and resize, 200% viewport-equivalent and CSS zoom, credits, immediate introduction, no-JS and failure fallbacks, reduced motion, four readable project stories, responsive text columns, sticky navigation, keyboard/touch contact interactions, and clipboard outcomes.`);
       } finally {
         await browser.close();
       }

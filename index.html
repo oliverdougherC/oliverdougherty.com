@@ -58,14 +58,48 @@
       }
       root.dataset.pageId = id;
       root.classList.add('home-stage');
+      // The stage markup is parsed after this script, so the elements are taken on demand.
+      let hero = null;
+      let header = null;
+      let watched = false;
+      const staged = () => {
+        hero = hero || document.querySelector('.nighthawks-hero');
+        header = header || document.querySelector('.home-header');
+        if (header && !watched) {
+          // The bar covers more once it has finished sliding in, so it is worth a re-check.
+          watched = true;
+          header.addEventListener('transitionend', request);
+        }
+        return Boolean(hero && header);
+      };
       // A deliberate scroll, not a twitch, hands the page back to the navigation.
       // The cap keeps that distance similar on very tall displays, and the narrower
       // return threshold keeps a wheel resting on the boundary from stuttering.
       const revealLimit = () => Math.min(200, Math.max(24, Math.round(window.innerHeight * 0.18)));
+      // The stage keeps its size only while any of its black is in sight. The moment the
+      // last of it is behind the navigation bar or above the top of the viewport, the
+      // settled layout returns at its refresh size, and the scroll position is corrected
+      // by exactly the distance the page changed so that nothing on screen moves. The
+      // margin covers the sub-pixel the corrected scroll offset rounds away, which is
+      // otherwise enough to leave a line of black under the bar in Safari.
+      const collapse = () => {
+        const before = hero.getBoundingClientRect().bottom;
+        root.classList.add('home-stage-swap', 'home-stage-collapsed');
+        const shift = hero.getBoundingClientRect().bottom - before;
+        if (shift) window.scrollTo({ left: 0, top: window.scrollY + shift, behavior: 'instant' });
+        requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('home-stage-swap')));
+      };
       const sync = () => {
         const limit = revealLimit();
         const shown = root.classList.contains('home-nav-revealed');
         root.classList.toggle('home-nav-revealed', window.scrollY > (shown ? limit * 0.4 : limit));
+        if (root.classList.contains('home-stage-collapsed') || !staged()) return;
+        // Only an opaque bar counts as covering: a sliding, half-faded one still shows black.
+        const bar = getComputedStyle(header);
+        const covered = bar.visibility === 'visible' && Number(bar.opacity) > 0.999
+          ? Math.max(0, header.getBoundingClientRect().bottom)
+          : 0;
+        if (hero.getBoundingClientRect().bottom <= covered - 4) collapse();
       };
       let frame = 0;
       const request = () => {
@@ -86,7 +120,7 @@
   <!-- Schematic overrides -->
   <link rel="stylesheet" href="css/schematic.css?v=nighthawks-1">
   <link rel="stylesheet" href="css/cursor.css?v=musical-5">
-  <link rel="stylesheet" href="css/home.css?v=home-intro-1">
+  <link rel="stylesheet" href="css/home.css?v=home-intro-2">
   <link rel="preload" href="assets/fonts/nighthawks-mono-bold.ttf" as="font" type="font/ttf" crossorigin>
   <link rel="preload" href="assets/art/nighthawks-colors.png" as="image">
   <script src="js/nighthawks.js" defer></script>

@@ -103,7 +103,9 @@
    layout above exactly as it is. The navigation is parked out of the flow until
    the first deliberate scroll hands the page back to it. The root class is named
    apart from the .home-intro section below: a class shared with an element rule
-   would style the document element as well.
+   would style the document element as well. html.home-stage-collapsed is added by
+   the same bootstrap the moment the black stage is fully out of sight, and it takes
+   the stage sizing away so the page continues at its settled, refresh size.
    ============================================================ */
 
 /* Black canvas: the stage edge and top overscroll never reveal a white seam. */
@@ -132,7 +134,7 @@ html.home-stage.home-nav-revealed .home-header {
 }
 
 /* The stage is the viewport, and the painting is the only thing in it. */
-html.home-stage .nighthawks-hero {
+html.home-stage:not(.home-stage-collapsed) .nighthawks-hero {
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -141,9 +143,29 @@ html.home-stage .nighthawks-hero {
 }
 
 /* A little more black around the composition so it reads as framed, not flush. */
-html.home-stage .nighthawks-figure {
+html.home-stage:not(.home-stage-collapsed) .nighthawks-figure {
   width: min(100%, 1880px, calc(clamp(320px, 80svh, 1026px) * 1.83262));
+}
+
+html.home-stage .nighthawks-figure {
   animation: paintingEmerge 1500ms var(--ease-smooth) 120ms both;
+}
+
+/* Once the black stage is entirely behind the navigation bar or above the top of the
+   viewport, the bootstrap drops the stage sizing and the settled layout above returns
+   at exactly its refresh size. Nothing here may animate: the swap happens out of sight.
+   Scroll anchoring is inherited off for the staged page view so that the bootstrap's own
+   scroll correction is the only one applied. */
+html.home-stage { overflow-anchor: none; }
+
+/* The reduced-motion reset hands every element a 0.01ms transition, which would leave
+   the handover laid out at its old painting size for a frame and misread as a smaller
+   change. The bootstrap freezes transitions for the frame the sizes change in. */
+html.home-stage-swap,
+html.home-stage-swap *,
+html.home-stage-swap *::before,
+html.home-stage-swap *::after {
+  transition: none !important;
 }
 
 @keyframes paintingEmerge {
