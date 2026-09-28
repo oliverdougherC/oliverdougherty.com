@@ -12,13 +12,20 @@ const COLOR_MODE_DISABLED = (() => {
 
 applyColorMode(getInitialColorMode());
 
-document.addEventListener('DOMContentLoaded', () => {
+function initializeFooterAndColorMode() {
   setCurrentYear();
   if (!COLOR_MODE_DISABLED) {
     initColorModeToggle();
     window.addEventListener('storage', handleColorModeStorageSync);
   }
-});
+}
+
+// This optional script may finish after DOMContentLoaded when loaded async.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeFooterAndColorMode, { once: true });
+} else {
+  initializeFooterAndColorMode();
+}
 
 function setCurrentYear() {
   const currentYear = String(new Date().getFullYear());

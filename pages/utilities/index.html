@@ -6,7 +6,7 @@
   <meta name="description" content="Interactive utilities and experiments by Oliver Dougherty.">
   <link rel="icon" type="image/svg+xml" href="/assets/tab-icons/favicon-happy.svg?v=face-6" id="favicon">
   <link rel="alternate icon" href="/assets/tab-icons/favicon-happy.ico?v=face-6" id="favicon-fallback">
-  <script src="../../js/favicon-swap.js" defer=""></script>
+  <script src="../../js/favicon-swap.js" async></script>
   <script src="../../js/mobile-gate.js" async></script>
   <script>
     (() => {
@@ -236,13 +236,29 @@
     <noscript><p class="workbench-status">The utilities need JavaScript enabled.</p></noscript>
   </main>
   <footer class="utilities-footer"><span>© <span data-current-year="">2026</span> Oliver Dougherty</span></footer>
-  <script src="../../js/year.js" defer=""></script>
-  <script src="../../js/utilities-shell.js?v=workbench-3" defer=""></script>
+  <script src="../../js/year.js" async></script>
+  <script src="../../js/utilities-shell.js?v=workbench-3" defer onerror="window.__utilitiesShellLoadFailed__ = true; document.getElementById('utilityEntryError')?.removeAttribute('hidden')"></script>
   <div id="utilityEntryError" class="utility-load-recovery" role="alert" hidden>
     <p>The tools could not load. Check your connection or reload for the latest version.</p>
     <button type="button" onclick="window.location.reload()">Reload tools</button>
   </div>
   <script type="module" src="./assets/utilities-app.js?v=workbench-1" onerror="document.getElementById('utilityEntryError').hidden = false; window.dispatchEvent(new Event('utility-load-error'))"></script>
+  <script>
+    // This parser-run guard survives a deferred shell that never finishes loading.
+    // The shell owns per-tool readiness only after it has installed its listeners.
+    (() => {
+      if (window.__utilitiesShellLoadFailed__) {
+        document.getElementById('utilityEntryError').hidden = false;
+      }
+      const override = window.__OD_UTILITIES_INIT_TIMEOUT_MS;
+      const deadline = typeof override === 'number' && Number.isFinite(override) && override > 0 ? override : 20000;
+      setTimeout(() => {
+        if (!window.__utilitiesShellController__) {
+          document.getElementById('utilityEntryError').hidden = false;
+        }
+      }, deadline);
+    })();
+  </script>
 
 
 </body></html>
