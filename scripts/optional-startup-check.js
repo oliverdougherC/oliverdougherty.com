@@ -147,14 +147,16 @@ async function checkPage(browser, upstreamUrl, pageName, script, phase) {
 
 async function checkMobileYear(browser, upstreamUrl, pageName, phase) {
   const proxy = await stalledScriptProxy(upstreamUrl, 'year.js', phase);
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
-  const page = await context.newPage();
   const label = `${pageName}: year.js ${phase} stalled`;
-  await context.addInitScript(() => {
-    window.__startupDOMContentLoaded = false;
-    document.addEventListener('DOMContentLoaded', () => { window.__startupDOMContentLoaded = true; }, { once: true });
-  });
+  let context;
+  let page;
   try {
+    context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await context.addInitScript(() => {
+      window.__startupDOMContentLoaded = false;
+      document.addEventListener('DOMContentLoaded', () => { window.__startupDOMContentLoaded = true; }, { once: true });
+    });
+    page = await context.newPage();
     await page.goto(`${proxy.url}${MOBILE_PAGES[pageName]}`, { waitUntil: 'commit', timeout: 10000 });
     await page.waitForFunction(() => document.querySelector('.mobile-nav-link')?.getBoundingClientRect().width > 0,
       null, { timeout: 5000 });
@@ -194,17 +196,17 @@ async function checkMobileYear(browser, upstreamUrl, pageName, phase) {
     }
     console.log(`PASS ${label}`);
   } catch (error) {
-    const state = await page.evaluate(() => ({
+    const state = page ? await page.evaluate(() => ({
       url: location.href,
       readyState: document.readyState,
       domContentLoaded: window.__startupDOMContentLoaded,
       grid: document.querySelectorAll('#mobileGalleryGrid button.mobile-photo-button').length,
       copyStatus: document.querySelector('[data-copy-status]')?.textContent
-    })).catch(() => ({}));
+    })).catch(() => ({})) : {};
     throw new Error(`${label}: ${error.message}; state=${JSON.stringify(state)}`, { cause: error });
   } finally {
     try {
-      await context.close();
+      if (context) await context.close();
     } finally {
       await proxy.close();
     }

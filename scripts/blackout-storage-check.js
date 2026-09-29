@@ -221,6 +221,11 @@ async function checkBlockedStorage(browser) {
 
 async function checkNavigation(browser) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await context.addInitScript(() => {
+    const originalMatchMedia = window.matchMedia.bind(window);
+    window.matchMedia = (query) => query === '(hover: hover) and (pointer: fine)'
+      ? { matches: true } : originalMatchMedia(query);
+  });
   const page = await context.newPage();
   try {
     await page.goto(`${baseUrl}/index.html?full=1`, { waitUntil: 'domcontentloaded' });
@@ -243,8 +248,26 @@ async function checkNavigation(browser) {
     assert.equal(continuation.pointer, pointerBeforeNavigation, 'Cross-page navigation lost pointer position');
     await page.goBack({ waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => document.querySelector('[data-flashlight-toggle]')?.getAttribute('aria-pressed') === 'true');
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await page.waitForFunction(() => document.querySelector('[data-flashlight-toggle]')?.getAttribute('aria-pressed') === 'false');
+    // Start the reload check from a fresh navigation. Playwright can lose
+    // navigation tracking after a Firefox back/forward cache restoration.
+    await page.goto(`${baseUrl}/pages/resume/index.html?full=1`, { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => document.querySelector('[data-flashlight-toggle]')?.getAttribute('aria-pressed') === 'true');
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+      page.evaluate(() => location.reload())
+    ]);
+    try {
+      await page.waitForFunction(() => document.querySelector('[data-flashlight-toggle]')?.getAttribute('aria-pressed') === 'false',
+        null, { timeout: 5000 });
+    } catch (error) {
+      const state = await page.evaluate(() => ({
+        url: location.href,
+        navigationType: performance.getEntriesByType('navigation')[0]?.type,
+        toggle: document.querySelector('[data-flashlight-toggle]')?.getAttribute('aria-pressed'),
+        mode: localStorage.getItem('od-flashlight-mode')
+      }));
+      throw new Error(`Reload did not reset blackout mode: ${JSON.stringify(state)}`, { cause: error });
+    }
     assert.equal(await page.evaluate(() => localStorage.getItem('od-flashlight-mode')), 'off',
       'Reload should reset blackout mode');
     assert.equal(await page.evaluate(() => sessionStorage.getItem('od-flashlight-battery')), null,
