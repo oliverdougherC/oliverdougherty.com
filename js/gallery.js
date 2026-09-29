@@ -1352,17 +1352,31 @@ function buildLightboxThumbStrip() {
     button.setAttribute('aria-label', `Open ${entry.displayTitle}`);
     button.setAttribute('data-cursor', 'hover');
 
+    const picture = document.createElement('picture');
+    if (entry.assets.thumbAvif) {
+      const source = document.createElement('source');
+      source.type = 'image/avif';
+      source.srcset = entry.assets.thumbAvif;
+      picture.appendChild(source);
+    }
+    if (entry.assets.thumbWebp) {
+      const source = document.createElement('source');
+      source.type = 'image/webp';
+      source.srcset = entry.assets.thumbWebp;
+      picture.appendChild(source);
+    }
     const image = document.createElement('img');
-    image.src = entry.assets.thumbJpg || entry.assets.mediumJpg || entry.assets.original;
     image.alt = entry.displayTitle;
     image.loading = 'lazy';
     image.decoding = 'async';
+    picture.appendChild(image);
+    image.src = entry.assets.thumbJpg || entry.assets.mediumJpg || entry.assets.original;
 
     const label = document.createElement('span');
     label.className = 'lightbox-thumb-label';
     label.textContent = entry.displayTitle;
 
-    button.append(image, label);
+    button.append(picture, label);
     button.addEventListener('click', () => {
       gallery.triggerElement = button;
       openLightboxById(entry.id, button);
