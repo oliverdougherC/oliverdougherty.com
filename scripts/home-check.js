@@ -517,6 +517,12 @@ async function checkFirstVisitStage(browser, name) {
     await page.screenshot({ path: path.join(OUTPUT_DIR, `${label}-stage.png`) });
 
     await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() => document.querySelector('#nighthawksArtwork')?.dataset.renderMode === 'text');
+    // Safari hands the reload its scroll offset back after the bootstrap has read it,
+    // so return to the top and let the canvas follow before reading the revisit state.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForFunction(() => getComputedStyle(document.body).backgroundColor === 'rgb(255, 255, 255)',
+      null, { timeout: 5000 });
     const revisit = await page.evaluate(() => {
       const header = document.querySelector('.home-header');
       const headerStyle = getComputedStyle(header);
@@ -709,6 +715,36 @@ async function checkStageCollapse(browser, name, options = {}) {
   }
 }
 
+/**
+ * With JavaScript disabled the bootstrap never runs, so the overscroll canvas must come
+ * from CSS alone: the page closes on the contact section's black, and the body's black
+ * baseline holds the canvas black on both edges in every engine. A viewport taller than
+ * the whole document exposes that canvas below the contact section without any scrolling,
+ * and the white navigation bar proves the page degraded to the settled layout — the
+ * enhancement it loses is the scripted white top edge, not the page itself.
+ */
+async function checkNoScriptCanvas(browser, name) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 7000 }, javaScriptEnabled: false });
+  const page = await context.newPage();
+  try {
+    await page.goto(`${baseUrl}/index.html?full=1`, { waitUntil: 'load' });
+    const shot = path.join(OUTPUT_DIR, `${name}-no-javascript-canvas.png`);
+    await page.screenshot({ path: shot });
+    const { data, info } = await sharp(shot).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const pixel = (x, y) => {
+      const offset = (y * info.width + x) * info.channels;
+      return [data[offset], data[offset + 1], data[offset + 2]].join(', ');
+    };
+    // The viewport is taller than the entire document, so the bottom rows are the
+    // canvas below the contact section: the bottom edge is black on every engine.
+    assert(pixel(20, info.height - 40) === '0, 0, 0', `${name}: the no-script bottom canvas is not black`);
+    assert(pixel(800, 34) === '255, 255, 255', `${name}: the no-script navigation is not the settled white bar`);
+    assert(pixel(20, 300) === '0, 0, 0', `${name}: the no-script hero does not open on black`);
+  } finally {
+    await context.close();
+  }
+}
+
 async function run() {
   validateBinaryText(SOURCE_TEXT);
   const { data: colors, info } = await sharp(path.join(ROOT, 'assets/art/nighthawks-colors.png'))
@@ -769,6 +805,7 @@ async function run() {
         await checkFirstVisitStage(browser, name);
         await checkStageCollapse(browser, name);
         await checkStageCollapse(browser, name, { suffix: '-reduced-motion', settings: { reducedMotion: 'reduce' } });
+        await checkNoScriptCanvas(browser, name);
         if (!stageOnly) {
           const conditions = [
             { label: 'no-javascript', settings: { javaScriptEnabled: false }, mode: 'fallback', noJavaScript: true },
@@ -790,27 +827,6 @@ async function run() {
             for (const route of ['/index.html?full=1', '/mobile/']) {
               console.log(`Checking ${name}-${condition.label}-${route}`);
               await checkHome(page, route, `${name}-${condition.label}-${route}`, condition);
-            }
-            if (condition.noJavaScript) {
-              // With no script the bootstrap never runs, so the scroll-state query alone
-              // must hand the canvas the navigation's white at the top edge; engines
-              // without the query keep the closing black. A viewport taller than the
-              // document exposes the canvas below the contact section without scrolling.
-              const canvasContext = await browser.newContext({ viewport: { width: 1440, height: 7000 }, javaScriptEnabled: false });
-              const canvasPage = await canvasContext.newPage();
-              await canvasPage.goto(`${baseUrl}/index.html?full=1`, { waitUntil: 'load' });
-              const canvasShot = path.join(OUTPUT_DIR, `${name}-no-javascript-canvas.png`);
-              await canvasPage.screenshot({ path: canvasShot });
-              const { data, info } = await sharp(canvasShot).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-              const offset = ((info.height - 40) * info.width + 20) * info.channels;
-              const rgb = [data[offset], data[offset + 1], data[offset + 2]].join(', ');
-              if (name === 'chromium') {
-                assert(rgb === '255, 255, 255', `${name}: the no-script top canvas is not the navigation's white`);
-              } else {
-                assert(rgb === '0, 0, 0' || rgb === '255, 255, 255',
-                  `${name}: the no-script canvas is neither the settled white nor the fallback black`);
-              }
-              await canvasContext.close();
             }
             assert(paintingRequests.length > 0 && paintingRequests.length <= 2,
               `${name}: baseline fallback should fetch one responsive painting per page`);

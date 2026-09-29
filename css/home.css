@@ -110,21 +110,15 @@
    ============================================================ */
 
 /* Canvas past the page edges. The page closes on the contact section's black, so the
-   body is black and the bottom overscroll reads as continuous. Once the navigation
-   exists, the top overscroll reads as continuous white below the bar, and stays black
-   while the first-visit stage holds the painting alone. Two engines drive it: the
-   bootstrap in index.html toggles html.home-canvas-white at scrollY 0, and a
-   scroll-state container query does the same from CSS alone, so a no-JavaScript visit
-   gets the settled colours wherever the query is supported (the query and the
-   containment are each dropped wholesale where it is not). Sections paint their own
-   backgrounds, so this only shows outside the page flow. */
-html:has(body.page-home) { container-type: scroll-state; }
+   body is black and overscroll reads as continuous black on both edges. That baseline
+   is pure CSS, so a no-JavaScript visit gets the same colours on every engine: a white
+   top edge cannot be expressed without scroll-state queries only Chromium resolves,
+   and a per-engine fallback would diverge exactly where the page cannot run the
+   bootstrap. The white top edge is therefore a scripted enhancement: the bootstrap in
+   index.html toggles html.home-canvas-white at scrollY 0 once the navigation exists.
+   html.home-stage pins the first-visit stage to black regardless. Sections paint their
+   own backgrounds, so this only shows outside the page flow. */
 body.page-home { background-color: #000; }
-@supports (container-type: scroll-state) {
-  @container not scroll-state(scrollable: top) {
-    body.page-home { background-color: #fff; }
-  }
-}
 html.home-stage body.page-home { background-color: #000; }
 html.home-canvas-white body.page-home { background-color: #fff; }
 
