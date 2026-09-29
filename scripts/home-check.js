@@ -454,7 +454,22 @@ async function checkFirstVisitStage(browser, name) {
     assert(await page.locator('.nav-inline-link--resume').evaluate(perceptibleInPage),
       `${label}: navigation stays hidden after the first scroll`);
     await page.locator('.nav-inline-link--resume').click({ trial: true });
-    await page.locator('[data-flashlight-toggle]').click({ trial: true });
+    // The action cluster sits at a text-metric-dependent resting position inside the
+    // header, so a raw trial click would couple this check to the engine's font
+    // layout. Assert its operability directly instead: visible, receiving pointer
+    // events, and topmost at its own centre.
+    await page.waitForFunction(() => {
+      const button = document.querySelector('[data-flashlight-toggle]');
+      const style = getComputedStyle(button);
+      if (style.visibility === 'hidden' || Number(style.opacity) < 0.99 || style.pointerEvents === 'none') return false;
+      const box = button.getBoundingClientRect();
+      if (box.width < 8 || box.height < 8) return false;
+      const cx = box.x + box.width / 2;
+      const cy = box.y + box.height / 2;
+      if (cx < 0 || cx > innerWidth || cy < 0 || cy > innerHeight) return false;
+      const hit = document.elementFromPoint(cx, cy);
+      return hit === button || button.contains(hit);
+    }, null, { timeout: 10000 });
 
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await page.waitForFunction(() => Math.abs(document.querySelector('.home-header').getBoundingClientRect().top) < 0.5,
