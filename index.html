@@ -52,9 +52,21 @@
         }
       } catch (_) { /* Storage may be unavailable; the visible page still works. */ }
       window.pageAnimations = { pageId: id, shouldSkip: () => skip, markSeen() {} };
+      // Canvas past the page edges: the settled page opens on the white navigation and
+      // closes on the contact section's black, so the overscroll canvas follows whichever
+      // edge the reader pulled past. Until the navigation exists — the stage's painting
+      // alone — the top edge stays black to match the stage.
+      const settledTop = () => root.classList.contains('skip-page-animation')
+        || root.classList.contains('home-stage-collapsed')
+        || root.classList.contains('home-nav-revealed');
+      const syncCanvas = () => {
+        root.classList.toggle('home-canvas-white', window.scrollY <= 0 && settledTop());
+      };
       if (skip) {
         root.classList.add('skip-page-animation');
         root.dataset.pageId = id;
+        syncCanvas();
+        window.addEventListener('scroll', syncCanvas, { passive: true });
         return;
       }
       root.dataset.pageId = id;
@@ -87,11 +99,16 @@
       const collapse = () => {
         const before = hero.getBoundingClientRect().bottom;
         root.classList.add('home-stage-swap', 'home-stage-collapsed');
+        // The stage is over: drop it so the navigation returns to its settled sticky
+        // flow. Left armed, its fixed positioning would keep the bar floating over the
+        // top of the painting even at the top of the page.
+        root.classList.remove('home-stage');
         const shift = hero.getBoundingClientRect().bottom - before;
         if (shift) window.scrollTo({ left: 0, top: window.scrollY + shift, behavior: 'instant' });
         requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('home-stage-swap')));
       };
       const sync = () => {
+        syncCanvas();
         const limit = revealLimit();
         // One-way latch: add the class on the first deliberate scroll, never remove it.
         if (!root.classList.contains('home-nav-revealed') && window.scrollY > limit) {

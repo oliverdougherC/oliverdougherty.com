@@ -104,12 +104,19 @@
    the first deliberate scroll hands the page back to it. The root class is named
    apart from the .home-intro section below: a class shared with an element rule
    would style the document element as well. html.home-stage-collapsed is added by
-   the same bootstrap the moment the black stage is fully out of sight, and it takes
-   the stage sizing away so the page continues at its settled, refresh size.
+   the same bootstrap the moment the black stage is fully out of sight; it takes the
+   stage sizing away, and the stage class itself is dropped so the navigation returns
+   to its settled sticky flow instead of floating over the top of the painting.
    ============================================================ */
 
-/* Black canvas: the stage edge and top overscroll never reveal a white seam. */
-html.home-stage body { background-color: #000; }
+/* Canvas past the page edges. The page closes on the contact section's black, so the
+   body is black and the bottom overscroll reads as continuous. html.home-canvas-white
+   is toggled by the bootstrap in index.html only at scrollY 0 once the navigation
+   exists, so the top overscroll reads as continuous white below the bar — and stays
+   black while the first-visit stage holds the painting alone. Sections paint their
+   own backgrounds, so this only shows outside the page flow. */
+body.page-home { background-color: #000; }
+html.home-canvas-white body.page-home { background-color: #fff; }
 
 html.home-stage .home-header {
   position: fixed;
@@ -155,8 +162,10 @@ html.home-stage .nighthawks-figure {
    viewport, the bootstrap drops the stage sizing and the settled layout above returns
    at exactly its refresh size. Nothing here may animate: the swap happens out of sight.
    Scroll anchoring is inherited off for the staged page view so that the bootstrap's own
-   scroll correction is the only one applied. */
-html.home-stage { overflow-anchor: none; }
+   scroll correction is the only one applied. The swap itself measures the shift with the
+   stage class already gone, so the freeze covers it too. */
+html.home-stage,
+html.home-stage-swap { overflow-anchor: none; }
 
 /* The reduced-motion reset hands every element a 0.01ms transition, which would leave
    the handover laid out at its old painting size for a frame and misread as a smaller
