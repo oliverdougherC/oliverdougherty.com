@@ -70,6 +70,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
     }
     if (request === 'playwright') return { chromium: browserType, firefox: browserType, webkit: browserType };
     if (request === './lib/playwright-static') return {
+      markAnimationsSeen: async () => {},
       startLocalStaticServer: async () => ({ url: 'http://127.0.0.1:4173', kill: () => fs.writeFileSync(marker, 'cleaned') }),
       waitForServer: async () => {}
     };
