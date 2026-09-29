@@ -3,7 +3,7 @@
 const { chromium, firefox, webkit } = require('playwright');
 const path = require('node:path');
 const http = require('node:http');
-const { startLocalStaticServer, waitForServer } = require('./lib/playwright-static');
+const { markAnimationsSeen, startLocalStaticServer, waitForServer } = require('./lib/playwright-static');
 
 const ROOT = path.resolve(__dirname, '..');
 let baseUrl = process.env.NAV_CHECK_URL || 'http://127.0.0.1:4173';
@@ -58,8 +58,12 @@ async function checkStalledOptionalScripts(browser) {
   ];
   for (const script of ['mobile-gate.js', 'page-animations.js']) {
     for (const entry of pages) {
-      if (script === 'page-animations.js' && !['resume', 'gallery'].includes(entry.name)) continue;
+      if (script === 'page-animations.js' && !['home', 'resume', 'gallery'].includes(entry.name)) continue;
       const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+      // A cold Home visit keeps its navigation parked until the first scroll, so
+      // this navigation-availability check arrives as a returning visitor;
+      // home-check.js covers the first-visit stage and its scroll reveal.
+      if (entry.name === 'home') await markAnimationsSeen(context);
       let release;
       let held = false;
       const wait = new Promise(resolve => { release = resolve; });
@@ -101,7 +105,7 @@ async function checkStalledOptionalScripts(browser) {
 }
 
 async function checkAnimationBootstrap(browser) {
-  for (const route of ['/pages/resume/index.html', '/pages/gallery/index.html']) {
+  for (const route of ['/index.html', '/pages/resume/index.html', '/pages/gallery/index.html']) {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
     try {
@@ -159,6 +163,8 @@ async function checkStalledScriptBodies(browser) {
     });
     await new Promise(resolve => proxy.listen(0, '127.0.0.1', resolve));
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    // See checkStalledOptionalScripts: a cold Home visit defers its navigation by design.
+    if (route === '/index.html') await markAnimationsSeen(context);
     const page = await context.newPage();
     try {
       const address = proxy.address();
@@ -187,6 +193,9 @@ async function run() {
     await waitForServer(baseUrl);
     browser = await ({ chromium, firefox, webkit }[process.env.BROWSER || 'chromium']).launch({ headless: true });
     const desktop = await browser.newContext({ viewport: { width: 1440, height: 1080 } });
+    // A cold Home visit keeps its navigation parked until the first scroll, so this
+    // navigation check arrives as a returning visitor; home-check.js covers the stage.
+    await markAnimationsSeen(desktop);
     const page = await desktop.newPage();
     page.setDefaultTimeout(15000);
     await checkNavigation(page, DESKTOP_PAGES, '.nav-inline-link', ['HOME', 'RÉSUMÉ', 'GALLERY', 'UTILITIES']);

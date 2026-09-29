@@ -6,7 +6,20 @@ there is no pending site-wide redesign mandate.
 ## Current direction
 
 The homepage opens with a binary rendition of Edward Hopper’s Nighthawks on black,
-followed by a casual “hi.” introduction. The art is a complete composition: keep its
+followed by a casual “hi.” introduction. On the first visit of a browser session the
+desktop homepage opens on that painting alone: a viewport of black with the composition
+vertically centred and no navigation. The first deliberate scroll slides the header back
+in and the rest of the page behaves normally. That reveal is a one-way latch: the
+navigation arrives once and stays for the remainder of the visit, so returning to the very
+top does not park it again. Once the last of that black is behind the navigation bar or
+above the top of the viewport — out of sight entirely — the stage sizing is dropped and
+the painting continues at exactly the size a refresh renders; the swap is measured and
+the scroll position corrected by the same distance, so nothing on screen moves, and it
+happens once and does not grow back. A returning visit renders the settled page — header
+first, no entrance — and reduced motion keeps the stage without the fade. This uses the same once-per-session gate as Résumé and Gallery, keyed to
+`html.home-stage` by the inline bootstrap in `index.html` so the parked navigation can
+never outlive the script that reveals it; the mobile homepage
+keeps its own always-visible header. The art is a complete composition: keep its
 aspect ratio, preserve the black backdrop, and cap its size so it remains deliberate
 on wide screens. The painting is actual text, colored through its glyphs; its title
 and artist are white characters within the same grid. Keep that quiet integration

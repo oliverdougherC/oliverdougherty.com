@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { chromium, firefox, webkit } = require('playwright');
-const { startLocalStaticServer, waitForServer } = require('./lib/playwright-static');
+const { markAnimationsSeen, startLocalStaticServer, waitForServer } = require('./lib/playwright-static');
 
 const ROOT = path.resolve(__dirname, '..');
 const BROWSERS = { chromium, firefox, webkit };
@@ -221,6 +221,10 @@ async function checkBlockedStorage(browser) {
 
 async function checkNavigation(browser) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  // The toggle lives in the Home header, which the first-visit stage parks until
+  // a deliberate scroll. This check exercises the settled page, so arrive as a
+  // returning visitor; the stage is then skipped before first paint.
+  await markAnimationsSeen(context);
   await context.addInitScript(() => {
     const originalMatchMedia = window.matchMedia.bind(window);
     window.matchMedia = (query) => query === '(hover: hover) and (pointer: fine)'

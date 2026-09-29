@@ -40,7 +40,7 @@ Project order follows the current selection: Encoding_Database, BetterVMAF, Keir
 - `js/gallery.js`: metadata-driven gallery rendering and lightbox behavior.
 - `js/mobile-gallery.js`: dedicated mobile gallery and touch lightbox.
 - `js/utilities-shell.js`: index/workspace hash routing, workspace headings and switcher, keyboard focus, and utility activation/deactivation events.
-- `js/page-animations.js`: Shared page transition and entrance animations.
+- `js/page-animations.js`: once-per-session intro gate (`od-page-animations-seen`); each page decides in its inline head bootstrap so the first paint is already correct, and this script maintains the shared session state.
 - `js/favicon-swap.js`: Dynamic favicon state switching.
 - `js/resume-typing.js`: Resume page typing animation effects.
 - `utilities-src/src/main.ts`: editable utilities page controller and DOM orchestration.

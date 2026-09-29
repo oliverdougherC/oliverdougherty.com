@@ -93,6 +93,10 @@ async function main() {
         }
         results.push(result);
       }
+      // The full home suite is Chromium-only in the release gate, but the first-visit
+      // stage is browser-sensitive (fixed positioning, scroll rounding, transition
+      // timing), so every engine runs the focused stage checks against the artifact.
+      results.push(await run(`${browser}-home-stage`, 'home-check.js', { ...browserEnv, HOME_CHECK_STAGE_ONLY: '1' }));
       if (browser === 'chromium') {
         for (const [name, script] of [['home', 'home-check.js'], ['mobile', 'mobile-site-check.js'], ['resume-lifecycle', 'resume-lifecycle-check.js'], ['gallery', 'gallery-dropdown-check.js'], ['gallery-data', 'gallery-data-loading-check.js'], ['utilities', 'utilities-check.js'], ['transform-preparation', 'transform-preparation-check.js'], ['stress', 'stress-test-check.js']]) {
           const result = await run(`${browser}-${name}`, script, browserEnv);

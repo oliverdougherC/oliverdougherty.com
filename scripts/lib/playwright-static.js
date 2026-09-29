@@ -155,9 +155,27 @@ async function clearStoredTheme(context, storageKey = 'od-color-mode') {
   }, storageKey);
 }
 
+/**
+ * First-visit introductions — Home's black painting stage, Résumé's redaction
+ * reveal, Gallery's calibration — play once per browser session and Home keeps
+ * its navigation parked until the first scroll. Checks that describe the settled
+ * page arrive as a returning visitor; `home-check.js` covers the cold stage.
+ */
+async function markAnimationsSeen(context) {
+  await context.addInitScript(() => {
+    try {
+      window.sessionStorage.setItem('od-page-animations-seen',
+        JSON.stringify({ home: true, resume: true, gallery: true, utilities: true }));
+    } catch (_error) {
+      // Ignore storage access issues in automation contexts.
+    }
+  });
+}
+
 module.exports = {
   clearStoredTheme,
   isLocalBaseUrl,
+  markAnimationsSeen,
   parsePortFromBaseUrl,
   startLocalStaticServer,
   waitForServer
