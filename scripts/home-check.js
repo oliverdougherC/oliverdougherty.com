@@ -457,14 +457,17 @@ async function checkFirstVisitStage(browser, name) {
       null, { timeout: 5000 });
 
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.waitForFunction(() => !document.documentElement.classList.contains('home-nav-revealed'), null, { timeout: 5000 });
-    // The header slides up first and only leaves the tab order once it is off screen.
-    await page.waitForFunction(() => getComputedStyle(document.querySelector('.home-header')).visibility === 'hidden',
-      null, { timeout: 5000 });
-    assert(await page.locator('.home-header').evaluate((header) => {
-      const box = header.getBoundingClientRect();
-      return Number(getComputedStyle(header).opacity) < 0.01 && box.top <= -box.height + 1;
-    }), `${label}: navigation should park above the stage`);
+    // The reveal is a one-way latch: returning to the top must leave the bar in place,
+    // opaque and flush with the top edge, riding the settled layout.
+    await page.waitForFunction(() => {
+      const header = document.querySelector('.home-header');
+      const style = getComputedStyle(header);
+      return document.documentElement.classList.contains('home-nav-revealed')
+        && style.visibility === 'visible' && Number(style.opacity) > 0.999
+        && Math.abs(header.getBoundingClientRect().top) < 0.5;
+    }, null, { timeout: 5000 });
+    assert(await page.locator('.nav-inline-link--resume').evaluate(perceptibleInPage),
+      `${label}: navigation did not persist after scrolling back to the top`);
     await page.screenshot({ path: path.join(OUTPUT_DIR, `${label}-stage.png`) });
 
     await page.reload({ waitUntil: 'load' });
@@ -608,9 +611,17 @@ async function checkStageCollapse(browser, name, options = {}) {
     await page.screenshot({ path: path.join(OUTPUT_DIR, `${label}-handover.png`) });
 
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.waitForFunction(() => getComputedStyle(document.querySelector('.home-header')).visibility === 'hidden',
-      null, { timeout: 5000 });
+    // The latched navigation rides the settled layout back to the top: still opaque and
+    // flush, while the stage keeps its returned size instead of growing back.
+    await page.waitForFunction(() => {
+      const header = document.querySelector('.home-header');
+      const style = getComputedStyle(header);
+      return document.documentElement.classList.contains('home-nav-revealed')
+        && style.visibility === 'visible' && Number(style.opacity) > 0.999
+        && Math.abs(header.getBoundingClientRect().top) < 0.5;
+    }, null, { timeout: 5000 });
     const returned = await page.evaluate(stageReading);
+    assert(returned.revealed, `${label}: the navigation did not persist at the top`);
     assert(returned.collapsed && Math.abs(returned.heroHeight - trigger.heroHeight) <= 0.5
       && Math.abs(returned.figureWidth - trigger.figureWidth) <= 0.5,
       `${label}: the stage grew back once the black was in view again`);
@@ -714,7 +725,7 @@ async function run() {
         }
         await checkCohesionInteractions(browser, name, false);
         await checkCohesionInteractions(browser, name, true);
-        console.log(`Verified ${name}: exact text grid, font/color map, single responsive painting per page, first-visit black stage that hands back its settled size once its black is out of sight, scroll-gated navigation, desktop/mobile sizing and resize, 200% viewport-equivalent and CSS zoom, credits, immediate introduction, no-JS and failure fallbacks, reduced motion, four readable project stories, responsive text columns, sticky navigation, keyboard/touch contact interactions, and clipboard outcomes.`);
+        console.log(`Verified ${name}: exact text grid, font/color map, single responsive painting per page, first-visit black stage that hands back its settled size once its black is out of sight, scroll-gated latched navigation, desktop/mobile sizing and resize, 200% viewport-equivalent and CSS zoom, credits, immediate introduction, no-JS and failure fallbacks, reduced motion, four readable project stories, responsive text columns, sticky navigation, keyboard/touch contact interactions, and clipboard outcomes.`);
       } finally {
         await browser.close();
       }

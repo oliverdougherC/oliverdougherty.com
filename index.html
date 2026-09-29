@@ -32,7 +32,8 @@
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400&family=JetBrains+Mono:wght@200;400;800&display=swap" rel="stylesheet"></noscript>
 
   <!-- First-visit stage: the painting holds a viewport of black on its own and the
-       navigation arrives with the first scroll. Session state is shared with
+       navigation arrives with the first scroll, then stays for the rest of the visit.
+       Session state is shared with
        js/page-animations.js (see Gallery/Resume), so a returning visit renders the
        settled page immediately. The reveal watch lives here rather than in a
        deferred file: the stylesheet only hides the navigation once this script has
@@ -72,9 +73,10 @@
         }
         return Boolean(hero && header);
       };
-      // A deliberate scroll, not a twitch, hands the page back to the navigation.
-      // The cap keeps that distance similar on very tall displays, and the narrower
-      // return threshold keeps a wheel resting on the boundary from stuttering.
+      // A deliberate scroll, not a twitch, hands the page to the navigation — and once
+      // the bar has arrived it stays for the rest of the visit, so a scroll back to the
+      // top can never park it again. The cap keeps the trigger distance similar on very
+      // tall displays.
       const revealLimit = () => Math.min(200, Math.max(24, Math.round(window.innerHeight * 0.18)));
       // The stage keeps its size only while any of its black is in sight. The moment the
       // last of it is behind the navigation bar or above the top of the viewport, the
@@ -91,8 +93,10 @@
       };
       const sync = () => {
         const limit = revealLimit();
-        const shown = root.classList.contains('home-nav-revealed');
-        root.classList.toggle('home-nav-revealed', window.scrollY > (shown ? limit * 0.4 : limit));
+        // One-way latch: add the class on the first deliberate scroll, never remove it.
+        if (!root.classList.contains('home-nav-revealed') && window.scrollY > limit) {
+          root.classList.add('home-nav-revealed');
+        }
         if (root.classList.contains('home-stage-collapsed') || !staged()) return;
         // Only an opaque bar counts as covering: a sliding, half-faded one still shows black.
         const bar = getComputedStyle(header);
