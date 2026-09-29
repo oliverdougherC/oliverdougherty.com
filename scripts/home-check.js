@@ -474,8 +474,19 @@ async function checkFirstVisitStage(browser, name) {
     });
     assert(toggleOperable !== false, `${label}: the revealed action cluster is not operable`);
 
+    // Let the jump land on a rendered frame before handing the page back: two
+    // same-frame teleports coalesce into one scroll event, and the bootstrap would never
+    // see the stage leave sight. A real device renders the jumped-to position first.
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await page.evaluate(() => new Promise((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }));
+    await page.waitForFunction(() => document.documentElement.classList.contains('home-stage-collapsed'),
+      null, { timeout: 5000 });
     await page.waitForFunction(() => Math.abs(document.querySelector('.home-header').getBoundingClientRect().top) < 0.5,
+      null, { timeout: 5000 });
+    // The bottom overscroll is the contact section's black in every session state.
+    await page.waitForFunction(() => getComputedStyle(document.body).backgroundColor === 'rgb(0, 0, 0)',
       null, { timeout: 5000 });
 
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -490,9 +501,28 @@ async function checkFirstVisitStage(browser, name) {
     }, null, { timeout: 5000 });
     assert(await page.locator('.nav-inline-link--resume').evaluate(perceptibleInPage),
       `${label}: navigation did not persist after scrolling back to the top`);
+    // The collapsed stage must hand the bar back to the settled sticky flow: a bar left
+    // fixed would float over the top of the painting for the rest of the session. The
+    // canvas colour rides the bootstrap's rAF sync, so wait on both together.
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('.home-header')).position === 'sticky'
+      && getComputedStyle(document.body).backgroundColor === 'rgb(255, 255, 255)', null, { timeout: 5000 });
+    const persisted = await page.evaluate(() => ({
+      headerPosition: getComputedStyle(document.querySelector('.home-header')).position,
+      canvas: getComputedStyle(document.body).backgroundColor
+    }));
+    assert(persisted.headerPosition === 'sticky',
+      `${label}: the collapsed stage left the navigation fixed over the painting`);
+    assert(persisted.canvas === 'rgb(255, 255, 255)',
+      `${label}: the top canvas is not white once the navigation has arrived`);
     await page.screenshot({ path: path.join(OUTPUT_DIR, `${label}-stage.png`) });
 
     await page.reload({ waitUntil: 'load' });
+    await page.waitForFunction(() => document.querySelector('#nighthawksArtwork')?.dataset.renderMode === 'text');
+    // Safari hands the reload its scroll offset back after the bootstrap has read it,
+    // so return to the top and let the canvas follow before reading the revisit state.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForFunction(() => getComputedStyle(document.body).backgroundColor === 'rgb(255, 255, 255)',
+      null, { timeout: 5000 });
     const revisit = await page.evaluate(() => {
       const header = document.querySelector('.home-header');
       const headerStyle = getComputedStyle(header);
@@ -503,7 +533,8 @@ async function checkFirstVisitStage(browser, name) {
         headerTop: header.getBoundingClientRect().top,
         headerShown: headerStyle.visibility !== 'hidden' && Number(headerStyle.opacity) > 0.99,
         heroHeight: document.querySelector('.nighthawks-hero').getBoundingClientRect().height,
-        entrance: getComputedStyle(document.querySelector('.nighthawks-figure')).animationName
+        entrance: getComputedStyle(document.querySelector('.nighthawks-figure')).animationName,
+        canvas: getComputedStyle(document.body).backgroundColor
       };
     });
     assert(!revisit.intro && revisit.skip, `${label}: the returning visit replayed the stage`);
@@ -511,6 +542,7 @@ async function checkFirstVisitStage(browser, name) {
       `${label}: the returning visit lost its navigation`);
     assert(revisit.entrance === 'none', `${label}: the returning visit replayed the entrance`);
     assert(revisit.heroHeight < 900, `${label}: the returning visit kept the full-viewport stage`);
+    assert(revisit.canvas === 'rgb(255, 255, 255)', `${label}: the returning visit does not open on the white canvas`);
     assert.deepEqual(errors, [], `${label}: uncaught errors on the stage`);
     console.log(`${name}: first-visit stage holds the painting alone and hands the page to the navigation on scroll.`);
   } finally {
@@ -548,6 +580,8 @@ async function checkStageCollapse(browser, name, options = {}) {
       headerBottom: header.getBoundingClientRect().bottom,
       opacity: Number(bar.opacity),
       visibility: bar.visibility,
+      headerPosition: bar.position,
+      canvas: getComputedStyle(document.body).backgroundColor,
       overflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) > innerWidth + 1
     };
   };
@@ -579,7 +613,9 @@ async function checkStageCollapse(browser, name, options = {}) {
           scrollY: window.scrollY,
           headerBottom: header.getBoundingClientRect().bottom,
           opacity: Number(bar.opacity),
-          visibility: bar.visibility
+          visibility: bar.visibility,
+          headerPosition: bar.position,
+          canvas: getComputedStyle(document.body).backgroundColor
         };
       };
       // Where the last row of black meets whatever is hiding it, at this instant, with
@@ -625,6 +661,8 @@ async function checkStageCollapse(browser, name, options = {}) {
     const behindTheBar = trigger.visibility === 'visible' && trigger.opacity > 0.999
       && trigger.heroBottom <= trigger.headerBottom + 0.01;
     assert(behindTheBar || trigger.heroBottom <= 0.01, `${label}: the stage resized with black still in view`);
+    assert(trigger.headerPosition === 'sticky', `${label}: the handover left the navigation fixed over the painting`);
+    assert(trigger.canvas === 'rgb(0, 0, 0)', `${label}: the canvas is not black past the stage`);
     const blackTop = before.introTop + before.scrollY;
     // Two pixels of slack: a corrected scroll offset is rounded to a whole pixel, and
     // Safari rounds down, which alone can leave a line of the page unaccounted for.
@@ -642,21 +680,66 @@ async function checkStageCollapse(browser, name, options = {}) {
         && style.visibility === 'visible' && Number(style.opacity) > 0.999
         && Math.abs(header.getBoundingClientRect().top) < 0.5;
     }, null, { timeout: 5000 });
+    // The canvas colour rides the bootstrap's rAF sync; let it land before reading.
+    await page.waitForFunction(() => getComputedStyle(document.body).backgroundColor === 'rgb(255, 255, 255)',
+      null, { timeout: 5000 });
     const returned = await page.evaluate(stageReading);
     assert(returned.revealed, `${label}: the navigation did not persist at the top`);
     assert(returned.collapsed && Math.abs(returned.heroHeight - trigger.heroHeight) <= 0.5
       && Math.abs(returned.figureWidth - trigger.figureWidth) <= 0.5,
       `${label}: the stage grew back once the black was in view again`);
+    assert(returned.headerPosition === 'sticky' && returned.canvas === 'rgb(255, 255, 255)',
+      `${label}: the collapsed stage kept the fixed bar or lost the white top canvas`);
     assert(!returned.overflow, `${label}: the resized stage overflows horizontally`);
 
     await page.reload({ waitUntil: 'load' });
     await page.waitForFunction(() => document.querySelector('#nighthawksArtwork')?.dataset.renderMode === 'text');
+    // Safari hands the reload its scroll offset back after the bootstrap has read it,
+    // so return to the top and let the canvas follow before comparing the settled page.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForFunction(() => getComputedStyle(document.body).backgroundColor === 'rgb(255, 255, 255)',
+      null, { timeout: 5000 });
     const settled = await page.evaluate(stageReading);
     assert(!settled.collapsed && !settled.revealed, `${label}: the returning visit kept the stage armed`);
     assert(Math.abs(settled.heroHeight - trigger.heroHeight) <= 1 && Math.abs(settled.figureWidth - trigger.figureWidth) <= 1,
       `${label}: the resized stage is not the size a refresh renders`);
+    assert(settled.headerPosition === 'sticky' && settled.canvas === 'rgb(255, 255, 255)',
+      `${label}: the returning visit lost the sticky navigation or the white top canvas`);
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForFunction(() => getComputedStyle(document.body).backgroundColor === 'rgb(0, 0, 0)',
+      null, { timeout: 5000 });
     assert.deepEqual(errors, [], `${label}: uncaught errors during the handover`);
     console.log(`${label}: the stage hands back its size the moment its black is out of sight.`);
+  } finally {
+    await context.close();
+  }
+}
+
+/**
+ * With JavaScript disabled the bootstrap never runs, so the overscroll canvas must come
+ * from CSS alone: the page closes on the contact section's black, and the body's black
+ * baseline holds the canvas black on both edges in every engine. A viewport taller than
+ * the whole document exposes that canvas below the contact section without any scrolling,
+ * and the white navigation bar proves the page degraded to the settled layout — the
+ * enhancement it loses is the scripted white top edge, not the page itself.
+ */
+async function checkNoScriptCanvas(browser, name) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 7000 }, javaScriptEnabled: false });
+  const page = await context.newPage();
+  try {
+    await page.goto(`${baseUrl}/index.html?full=1`, { waitUntil: 'load' });
+    const shot = path.join(OUTPUT_DIR, `${name}-no-javascript-canvas.png`);
+    await page.screenshot({ path: shot });
+    const { data, info } = await sharp(shot).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const pixel = (x, y) => {
+      const offset = (y * info.width + x) * info.channels;
+      return [data[offset], data[offset + 1], data[offset + 2]].join(', ');
+    };
+    // The viewport is taller than the entire document, so the bottom rows are the
+    // canvas below the contact section: the bottom edge is black on every engine.
+    assert(pixel(20, info.height - 40) === '0, 0, 0', `${name}: the no-script bottom canvas is not black`);
+    assert(pixel(800, 34) === '255, 255, 255', `${name}: the no-script navigation is not the settled white bar`);
+    assert(pixel(20, 300) === '0, 0, 0', `${name}: the no-script hero does not open on black`);
   } finally {
     await context.close();
   }
@@ -722,6 +805,7 @@ async function run() {
         await checkFirstVisitStage(browser, name);
         await checkStageCollapse(browser, name);
         await checkStageCollapse(browser, name, { suffix: '-reduced-motion', settings: { reducedMotion: 'reduce' } });
+        await checkNoScriptCanvas(browser, name);
         if (!stageOnly) {
           const conditions = [
             { label: 'no-javascript', settings: { javaScriptEnabled: false }, mode: 'fallback', noJavaScript: true },
