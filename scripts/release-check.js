@@ -85,7 +85,7 @@ async function main() {
     results.push(await run('cache-releases', 'cache-release-check.js', env));
     for (const browser of browsers) {
       const browserEnv = { ...env, BROWSER: browser, HOME_CHECK_BROWSERS: browser, UTILITIES_BROWSER: browser };
-      for (const [name, script] of [['nav', 'nav-overlay-check.js'], ['nav-stability', 'navigation-stability-check.js'], ['gallery-release', 'gallery-release-check.js'], ['gallery-heading', 'gallery-heading-check.js'], ['gallery-prefetch', 'gallery-prefetch-check.js'], ['gallery-status', 'gallery-status-check.js'], ['artifact', 'artifact-browser-check.js']]) {
+      for (const [name, script] of [['nav', 'nav-overlay-check.js'], ['nav-stability', 'navigation-stability-check.js'], ['optional-startup', 'optional-startup-check.js'], ['gallery-release', 'gallery-release-check.js'], ['gallery-heading', 'gallery-heading-check.js'], ['gallery-prefetch', 'gallery-prefetch-check.js'], ['gallery-status', 'gallery-status-check.js'], ['artifact', 'artifact-browser-check.js']]) {
         const result = await run(`${browser}-${name}`, script, browserEnv);
         if (name === 'gallery-release') {
           const summary = path.join(OUTPUT, `gallery-release-check-${browser}.json`);
