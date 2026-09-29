@@ -99,6 +99,7 @@
     const FLASHLIGHT_FLICKER_BURST_RANGE_MS = 480;
     const FLASHLIGHT_MIN_FLICKER_PULSE_MS = 24;
     const FLASHLIGHT_FLICKER_PULSE_RANGE_MS = 68;
+    const FLASHLIGHT_PERSIST_INTERVAL_MS = 500;
     const root = document.documentElement;
 
     let modeEnabled = false;
@@ -120,6 +121,9 @@
     let hudElement = null;
     let hudPercentage = null;
     let hudSegments = [];
+    let persistenceTimerId = 0;
+    let lastPersistedBattery = null;
+    let lastPersistedPointer = null;
 
     const setCoverOpacity = (value) => {
       const nextValue = Math.max(0, Math.min(1, value)).toFixed(3);
@@ -183,24 +187,40 @@
     };
 
     const persistBatteryRemaining = () => {
+      const value = String(Math.round(clampBatteryRemaining(batteryRemainingMs)));
+      if (value === lastPersistedBattery) return;
       try {
-        window.sessionStorage.setItem(
-          FLASHLIGHT_BATTERY_SESSION_KEY,
-          String(Math.round(clampBatteryRemaining(batteryRemainingMs)))
-        );
+        window.sessionStorage.setItem(FLASHLIGHT_BATTERY_SESSION_KEY, value);
+        lastPersistedBattery = value;
       } catch {
         // Intentionally ignored: sessionStorage may be unavailable in some contexts.
       }
     };
-    const persistPointerPosition = (pointerPosition) => {
+    const persistPointerPosition = () => {
+      if (!lastPointerPosition) return;
+      const value = `${Math.round(lastPointerPosition.x)},${Math.round(lastPointerPosition.y)}`;
+      if (value === lastPersistedPointer) return;
       try {
-        window.sessionStorage.setItem(
-          FLASHLIGHT_POINTER_SESSION_KEY,
-          `${Math.round(pointerPosition.x)},${Math.round(pointerPosition.y)}`
-        );
+        window.sessionStorage.setItem(FLASHLIGHT_POINTER_SESSION_KEY, value);
+        lastPersistedPointer = value;
       } catch {
         // Intentionally ignored: sessionStorage may be unavailable in some contexts.
       }
+    };
+    const flushPersistence = (includeBattery = true) => {
+      if (persistenceTimerId) {
+        window.clearTimeout(persistenceTimerId);
+        persistenceTimerId = 0;
+      }
+      if (includeBattery) persistBatteryRemaining();
+      persistPointerPosition();
+    };
+    const schedulePersistence = () => {
+      if (persistenceTimerId) return;
+      persistenceTimerId = window.setTimeout(() => {
+        persistenceTimerId = 0;
+        flushPersistence();
+      }, FLASHLIGHT_PERSIST_INTERVAL_MS);
     };
 
     const readStoredPointerPosition = () => {
@@ -271,7 +291,9 @@
       const pointerPosition = readPointerPosition(event);
       if (!pointerPosition) return null;
       lastPointerPosition = pointerPosition;
-      persistPointerPosition(pointerPosition);
+      if (`${Math.round(pointerPosition.x)},${Math.round(pointerPosition.y)}` !== lastPersistedPointer) {
+        schedulePersistence();
+      }
       return pointerPosition;
     };
 
@@ -442,7 +464,9 @@
         lastBatteryFrameTime = timestamp;
       }
 
-      persistBatteryRemaining();
+      if (String(Math.round(batteryRemainingMs)) !== lastPersistedBattery) {
+        schedulePersistence();
+      }
 
       if (batteryRemainingMs <= 0) {
         if (updateDepletedState(timestamp)) {
@@ -495,9 +519,7 @@
       if (!modeActive) return;
       modeActive = false;
       stopBatteryLoop();
-      if (shouldPersistBattery) {
-        persistBatteryRemaining();
-      }
+      flushPersistence(shouldPersistBattery);
       root.setAttribute('data-flashlight-mode', FLASHLIGHT_MODE_ON);
       document.body.classList.add('flashlight-mode-active');
       setCoverOpacity(1);
@@ -549,6 +571,9 @@
     function handleWindowBlur() {
       suspendActiveMode();
     }
+    function handleVisibilityChange() {
+      if (document.hidden) flushPersistence(modeEnabled);
+    }
 
 
     const startModeTracking = () => {
@@ -558,6 +583,7 @@
       window.addEventListener('mouseout', handleViewportExit, { passive: true });
       window.addEventListener('mouseover', handleViewportReentry, { passive: true });
       window.addEventListener('blur', handleWindowBlur);
+      document.addEventListener('visibilitychange', handleVisibilityChange);
     };
 
     const stopModeTracking = () => {
@@ -567,15 +593,14 @@
       window.removeEventListener('mouseout', handleViewportExit);
       window.removeEventListener('mouseover', handleViewportReentry);
       window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
 
     const clearMode = (shouldPersistBattery = true) => {
       stopModeTracking();
       stopBatteryLoop();
       modeActive = false;
-      if (shouldPersistBattery) {
-        persistBatteryRemaining();
-      }
+      flushPersistence(shouldPersistBattery);
       root.removeAttribute('data-flashlight-mode');
       document.body.classList.remove('flashlight-mode-active');
       root.style.setProperty('--flashlight-x', '50vw');
@@ -609,6 +634,7 @@
 
     modeToggleButton.addEventListener('pointermove', rememberPointerPosition, { passive: true });
     modeToggleButton.addEventListener('pointerdown', rememberPointerPosition, { passive: true });
+    window.addEventListener('pagehide', () => flushPersistence(modeEnabled));
 
     batteryRemainingMs = readStoredBatteryRemaining();
     const storedMode = resolveInitialStoredMode();
@@ -617,6 +643,7 @@
     modeToggleButton.addEventListener('click', (event) => {
       applyMode(!modeEnabled, event);
       persistFlashlightMode(modeEnabled);
+      flushPersistence();
     });
 
     window.addEventListener('pageshow', () => {
