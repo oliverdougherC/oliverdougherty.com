@@ -11,6 +11,10 @@ const ROOT = path.resolve(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT, 'output', 'playwright', 'home-check');
 const BROWSERS = { chromium, firefox, webkit };
 const requestedBrowsers = (process.env.HOME_CHECK_BROWSERS || 'chromium').split(',').map((name) => name.trim());
+// The release gate runs the first-visit stage checks on every engine; the settled-page
+// sweep stays Chromium-only there, so a stage-only pass skips the sweep, the fallback
+// matrix and the interaction checks around the three stage checks.
+const stageOnly = process.env.HOME_CHECK_STAGE_ONLY === '1';
 const VIEWPORTS = [
   { width: 320, height: 568 },
   { width: 390, height: 844 },
@@ -663,69 +667,75 @@ async function run() {
       assert(BROWSERS[name], `Unknown HOME_CHECK_BROWSERS entry: ${name}`);
       const browser = await BROWSERS[name].launch({ headless: true });
       try {
-        for (const viewport of VIEWPORTS) {
-          const context = await browser.newContext({ viewport });
-          await markAnimationsSeen(context);
-          const page = await context.newPage();
-          const errors = [];
-          const paintingRequests = [];
-          page.on('pageerror', (error) => errors.push(error.message));
-          page.on('request', (request) => { if (isPaintingRequest(request.url())) paintingRequests.push(request.url()); });
-          for (const [surface, route] of [['desktop', '/index.html?full=1'], ['mobile', '/mobile/']]) {
-            const label = `${name}-${surface}-${viewport.width}x${viewport.height}`;
-            await checkHome(page, route, label);
-            await page.screenshot({ path: path.join(OUTPUT_DIR, `${label}.png`), fullPage: true });
-            if (viewport.width === 1440) {
-              // Halving CSS viewport dimensions represents the layout space at 200% browser zoom.
-              await page.setViewportSize({ width: 720, height: 450 });
-              await checkHome(page, route, `${label}-200percent-zoom-equivalent`, { navigate: false });
-              await page.setViewportSize(viewport);
-              await checkHome(page, route, `${label}-resized-back`, { navigate: false });
-              await page.evaluate(() => { document.body.style.zoom = '2'; });
-              await checkHome(page, route, `${label}-css-zoom-200percent`, { navigate: false });
-              await page.screenshot({ path: path.join(OUTPUT_DIR, `${label}-css-zoom-200percent.png`), fullPage: true });
-              await page.evaluate(() => { document.body.style.zoom = ''; });
-              await checkHome(page, route, `${label}-zoom-restored`, { navigate: false });
-              if (surface === 'desktop') await checkRetainedInteractions(page);
+        if (!stageOnly) {
+          for (const viewport of VIEWPORTS) {
+            const context = await browser.newContext({ viewport });
+            await markAnimationsSeen(context);
+            const page = await context.newPage();
+            const errors = [];
+            const paintingRequests = [];
+            page.on('pageerror', (error) => errors.push(error.message));
+            page.on('request', (request) => { if (isPaintingRequest(request.url())) paintingRequests.push(request.url()); });
+            for (const [surface, route] of [['desktop', '/index.html?full=1'], ['mobile', '/mobile/']]) {
+              const label = `${name}-${surface}-${viewport.width}x${viewport.height}`;
+              await checkHome(page, route, label);
+              await page.screenshot({ path: path.join(OUTPUT_DIR, `${label}.png`), fullPage: true });
+              if (viewport.width === 1440) {
+                // Halving CSS viewport dimensions represents the layout space at 200% browser zoom.
+                await page.setViewportSize({ width: 720, height: 450 });
+                await checkHome(page, route, `${label}-200percent-zoom-equivalent`, { navigate: false });
+                await page.setViewportSize(viewport);
+                await checkHome(page, route, `${label}-resized-back`, { navigate: false });
+                await page.evaluate(() => { document.body.style.zoom = '2'; });
+                await checkHome(page, route, `${label}-css-zoom-200percent`, { navigate: false });
+                await page.screenshot({ path: path.join(OUTPUT_DIR, `${label}-css-zoom-200percent.png`), fullPage: true });
+                await page.evaluate(() => { document.body.style.zoom = ''; });
+                await checkHome(page, route, `${label}-zoom-restored`, { navigate: false });
+                if (surface === 'desktop') await checkRetainedInteractions(page);
+              }
             }
+            assert.deepEqual(errors, [], `${name}: uncaught homepage errors`);
+            assert(paintingRequests.length <= 2, `${name}: successful text rendering fetched multiple fallback resolutions per page`);
+            await context.close();
           }
-          assert.deepEqual(errors, [], `${name}: uncaught homepage errors`);
-          assert(paintingRequests.length <= 2, `${name}: successful text rendering fetched multiple fallback resolutions per page`);
-          await context.close();
+          await checkArtworkBeforeWindowLoad(browser, name);
+          await checkVisibleBaselineWhileFontWaits(browser, name);
         }
-        await checkArtworkBeforeWindowLoad(browser, name);
-        await checkVisibleBaselineWhileFontWaits(browser, name);
         await checkFirstVisitStage(browser, name);
         await checkStageCollapse(browser, name);
         await checkStageCollapse(browser, name, { suffix: '-reduced-motion', settings: { reducedMotion: 'reduce' } });
-        const conditions = [
-          { label: 'no-javascript', settings: { javaScriptEnabled: false }, mode: 'fallback', noJavaScript: true },
-          { label: 'reduced-motion', settings: { reducedMotion: 'reduce' }, mode: 'text' },
-          { label: 'no-fontface', initScript: () => { Object.defineProperty(window, 'FontFace', { value: undefined }); }, mode: 'fallback' },
-          { label: 'font-failure', block: (request) => request.url().includes('/assets/fonts/nighthawks-mono-bold.ttf'), mode: 'fallback' },
-          { label: 'colormap-failure', block: (request) => request.url().includes('/nighthawks-colors.png'), mode: 'fallback' }
-        ];
-        for (const condition of conditions) {
-          const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ...condition.settings });
-          await markAnimationsSeen(context);
-          if (condition.initScript) await context.addInitScript(condition.initScript);
-          if (condition.block) {
-            await context.route('**/*', (route) => condition.block(route.request()) ? route.abort() : route.continue());
+        if (!stageOnly) {
+          const conditions = [
+            { label: 'no-javascript', settings: { javaScriptEnabled: false }, mode: 'fallback', noJavaScript: true },
+            { label: 'reduced-motion', settings: { reducedMotion: 'reduce' }, mode: 'text' },
+            { label: 'no-fontface', initScript: () => { Object.defineProperty(window, 'FontFace', { value: undefined }); }, mode: 'fallback' },
+            { label: 'font-failure', block: (request) => request.url().includes('/assets/fonts/nighthawks-mono-bold.ttf'), mode: 'fallback' },
+            { label: 'colormap-failure', block: (request) => request.url().includes('/nighthawks-colors.png'), mode: 'fallback' }
+          ];
+          for (const condition of conditions) {
+            const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ...condition.settings });
+            await markAnimationsSeen(context);
+            if (condition.initScript) await context.addInitScript(condition.initScript);
+            if (condition.block) {
+              await context.route('**/*', (route) => condition.block(route.request()) ? route.abort() : route.continue());
+            }
+            const page = await context.newPage();
+            const paintingRequests = [];
+            page.on('request', (request) => { if (isPaintingRequest(request.url())) paintingRequests.push(request.url()); });
+            for (const route of ['/index.html?full=1', '/mobile/']) {
+              console.log(`Checking ${name}-${condition.label}-${route}`);
+              await checkHome(page, route, `${name}-${condition.label}-${route}`, condition);
+            }
+            assert(paintingRequests.length > 0 && paintingRequests.length <= 2,
+              `${name}: baseline fallback should fetch one responsive painting per page`);
+            await context.close();
           }
-          const page = await context.newPage();
-          const paintingRequests = [];
-          page.on('request', (request) => { if (isPaintingRequest(request.url())) paintingRequests.push(request.url()); });
-          for (const route of ['/index.html?full=1', '/mobile/']) {
-            console.log(`Checking ${name}-${condition.label}-${route}`);
-            await checkHome(page, route, `${name}-${condition.label}-${route}`, condition);
-          }
-          assert(paintingRequests.length > 0 && paintingRequests.length <= 2,
-            `${name}: baseline fallback should fetch one responsive painting per page`);
-          await context.close();
+          await checkCohesionInteractions(browser, name, false);
+          await checkCohesionInteractions(browser, name, true);
         }
-        await checkCohesionInteractions(browser, name, false);
-        await checkCohesionInteractions(browser, name, true);
-        console.log(`Verified ${name}: exact text grid, font/color map, single responsive painting per page, first-visit black stage that hands back its settled size once its black is out of sight, scroll-gated latched navigation, desktop/mobile sizing and resize, 200% viewport-equivalent and CSS zoom, credits, immediate introduction, no-JS and failure fallbacks, reduced motion, four readable project stories, responsive text columns, sticky navigation, keyboard/touch contact interactions, and clipboard outcomes.`);
+        console.log(stageOnly
+          ? `Verified ${name}: first-visit stage, one-way navigation reveal, and the settled-size handover, in normal and reduced motion.`
+          : `Verified ${name}: exact text grid, font/color map, single responsive painting per page, first-visit black stage that hands back its settled size once its black is out of sight, scroll-gated latched navigation, desktop/mobile sizing and resize, 200% viewport-equivalent and CSS zoom, credits, immediate introduction, no-JS and failure fallbacks, reduced motion, four readable project stories, responsive text columns, sticky navigation, keyboard/touch contact interactions, and clipboard outcomes.`);
       } finally {
         await browser.close();
       }
