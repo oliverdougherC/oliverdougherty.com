@@ -33,7 +33,7 @@ JetBrains Mono supplies the main voice, with Inter for supporting interface text
 The blackout flashlight, the OSU surprise on the résumé education card, and gallery photo
 presentation remain intentional interactions. A sticky black header anchors both homepage
 routes, with a text-based dark-mode action in the desktop navigation. The introduction is
-two prose paragraphs about following ideas and self-trust. The projects section has been
+three prose paragraphs about following ideas and self-trust. The projects section has been
 removed; the introduction flows directly into the closing.
 The closing returns to black with
 “say hi back.”, a prominent email address, and copy feedback.

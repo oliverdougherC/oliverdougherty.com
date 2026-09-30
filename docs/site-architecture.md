@@ -24,7 +24,7 @@ Both routes share `css/home.css`, retain the 6000 × 3274 composition on black, 
 
 ## Homepage content and interactions
 
-Desktop and mobile Home share a sticky `.home-header`, the Nighthawks artwork, the two-paragraph prose introduction, and a dark “say hi back.” closing. Desktop places the text-based dark-mode action in the navigation row; mobile retains its three route links and a full-site escape in the closing. The former three profile-stat boxes are gone; the facts live in prose. The projects section has been removed from both homepages.
+Desktop and mobile Home share a sticky `.home-header`, the Nighthawks artwork, the three-paragraph prose introduction, and a dark “say hi back.” closing. Desktop places the text-based dark-mode action in the navigation row; mobile retains its three route links and a full-site escape in the closing. The former three profile-stat boxes are gone; the facts live in prose. The projects section has been removed from both homepages.
 
 The OSU cheer easter egg lives on the Résumé education card: the school name is a native button (`.osu-trigger`) that exposes its cheer state with `aria-pressed`, reveals the beaver logo (`assets/OSU/Oregon_State_Beavers_logo.svg`), and fires pointer confetti via `js/main.js` once per page load on both `pages/resume/index.html` and `mobile/resume/index.html`. On the desktop résumé the school-name span doubles as a `redact-target`, so the logo stays hidden until the intro reveal.
 
