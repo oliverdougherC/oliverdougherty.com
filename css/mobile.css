@@ -518,6 +518,7 @@
 .mobile-resume .osu-trigger {
   position: relative;
   display: inline-block;
+  min-height: 44px;
   padding: 0;
   margin: 0;
   border: 0;
@@ -527,6 +528,10 @@
   text-align: left;
   cursor: pointer;
 }
+
+/* The heading text keeps its top-anchored position; min-height only extends
+   the box below the baseline, meeting the site's 44px mobile tap minimum
+   without changing the heading's alignment or appearance. */
 
 .mobile-resume .osu-text {
   position: relative;

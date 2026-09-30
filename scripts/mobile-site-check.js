@@ -28,7 +28,7 @@ function assert(condition, message) {
 async function collectMobilePageState(page) {
   return page.evaluate(() => {
     const navLinks = Array.from(document.querySelectorAll('.mobile-nav-link')).map((link) => link.textContent.trim());
-    const buttons = Array.from(document.querySelectorAll('.mobile-button, .mobile-nav-link, .mobile-contact-links a')).map((el) => {
+    const buttons = Array.from(document.querySelectorAll('.mobile-button, .mobile-nav-link, .mobile-contact-links a, .osu-trigger')).map((el) => {
       const styles = getComputedStyle(el);
       const rect = el.getBoundingClientRect();
       return {
