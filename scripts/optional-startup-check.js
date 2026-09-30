@@ -97,7 +97,12 @@ async function checkPage(browser, upstreamUrl, pageName, script, phase) {
     await page.waitForFunction(() => document.querySelector('.nav-inline-link--utilities')?.getBoundingClientRect().width > 0,
       null, { timeout: 5000 });
     if (pageName === 'utilities') {
-      await page.locator('[data-utility="image-transform"]').click({ timeout: 5000 });
+      // A stalled parser-blocking script can hold the first paint, and webkit
+      // then never runs the frames Playwright's click-stability check needs.
+      // Activate through the DOM instead; the stage-ready wait below is the
+      // assertion that matters.
+      await page.waitForSelector('[data-utility="image-transform"]', { state: 'attached' });
+      await page.evaluate(() => document.querySelector('[data-utility="image-transform"]').click());
       await page.waitForFunction(() => {
         const stage = document.querySelector('[data-utility-id="image-transform"]');
         return stage && !stage.hidden && stage.dataset.utilityReady === 'ready'
@@ -170,9 +175,6 @@ async function checkMobileYear(browser, upstreamUrl, pageName, phase) {
       await page.locator('button[data-copy-email]').click({ timeout: 5000 });
       await page.waitForFunction(() => Boolean(document.querySelector('[data-copy-status]')?.textContent),
         null, { timeout: 5000 });
-      await page.locator('.osu-trigger').click({ timeout: 5000 });
-      assert.equal(await page.locator('.osu-trigger').getAttribute('aria-pressed'), 'true',
-        `${label}: main.js interaction did not initialize`);
       assert.equal(await page.locator('#home-intro-title').isVisible(), true, label);
     } else {
       assert.match(await page.locator('main h1').textContent(), /Oliver Dougherty/, label);
@@ -180,6 +182,9 @@ async function checkMobileYear(browser, upstreamUrl, pageName, phase) {
       assert.equal(await page.locator('html').getAttribute('data-disable-color-mode'), '', `${label}: theme opt-out lost`);
       assert.equal(await page.locator('body').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(255, 255, 255)',
         `${label}: résumé theme changed while year.js was stalled`);
+      await page.locator('.osu-trigger').click({ timeout: 5000 });
+      assert.equal(await page.locator('.osu-trigger').getAttribute('aria-pressed'), 'true',
+        `${label}: main.js interaction did not initialize`);
     }
     assert(proxy.intercepted > 0, `${label}: script was not intercepted`);
     assert.equal(await page.evaluate(() => window.__startupDOMContentLoaded), true,

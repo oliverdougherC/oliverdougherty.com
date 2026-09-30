@@ -208,32 +208,6 @@ body.schematic-mode .container {
   align-self: flex-start;
 }
 
-.osu-text {
-  position: relative;
-  z-index: 2;
-}
-
-.osu-beaver {
-  position: absolute;
-  left: 100%;
-  top: 50%;
-  transform: translate(0, -50%) scale(0.6);
-  opacity: 0;
-  height: 1em;
-  width: auto;
-  z-index: 1;
-  pointer-events: none;
-  transition: transform 300ms var(--ease-bounce),
-              opacity 200ms ease;
-}
-
-.stat-value:hover .osu-beaver,
-.stat-value:focus-visible .osu-beaver {
-  transform: translate(0.25em, -50%) scale(1);
-  opacity: 1;
-}
-
-
 .visual-card {
   width: 100%;
   aspect-ratio: 4/5;
@@ -364,12 +338,6 @@ body.schematic-mode .tag:hover {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .osu-beaver {
-    transition: none;
-    transform: translate(0.25em, -50%) scale(1);
-    opacity: 1;
-  }
-
   .hero-deferred {
     opacity: 1 !important;
     transform: none !important;

@@ -41,13 +41,6 @@ function validateBinaryText(text) {
   });
 }
 
-const PINNED_PROJECTS = [
-  ['Encoding_Database', 'https://encodingdb.platinumlabs.dev/'],
-  ['BetterVMAF', 'https://github.com/oliverdougherC/BetterVMAF'],
-  ['Keiri', 'https://keiri.platinumlabs.dev/'],
-  ['Lyra', 'https://github.com/oliverdougherC/Lyra']
-];
-
 const SOURCE_TEXT = fs.readFileSync(path.join(ROOT, 'assets/art/nighthawks-binary.txt'), 'utf8');
 const normaliseGrid = (text) => text.replace(/\r\n/g, '\n').replace(/\n$/, '');
 const isPaintingRequest = (url) => /\/nighthawks-(?:credited|binary)(?:-\d+)?\.(?:png|webp)(?:[?#]|$)/.test(url);
@@ -153,18 +146,7 @@ async function checkHome(page, route, label, { mode = 'text', noJavaScript = fal
       artBottomPadding: hero.getBoundingClientRect().bottom - figure.getBoundingClientRect().bottom,
       headerPosition: getComputedStyle(document.querySelector('.home-header')).position,
       profileFacts: document.querySelectorAll('.about-stats, .mobile-stat-grid').length,
-      projects: Array.from(document.querySelectorAll('article[data-project]')).map((project) => ({
-        name: project.dataset.project,
-        headingCount: project.querySelectorAll('h3').length,
-        blurbCount: project.querySelectorAll('.project-copy > p.project-blurb').length,
-        hookCount: project.querySelectorAll('.project-copy > p.project-hook').length,
-        copyVisible: visible(project.querySelector('.project-copy')),
-        heading: (() => { const element = project.querySelector('h3'); const r = element.getBoundingClientRect(); return { left: r.left, right: r.right, bottom: r.bottom, fontSize: parseFloat(getComputedStyle(element).fontSize) }; })(),
-        copy: (() => { const r = project.querySelector('.project-copy').getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top }; })(),
-        stacked: getComputedStyle(project).gridTemplateColumns.split(' ').length === 1,
-        links: Array.from(project.querySelectorAll('a')).map((link) => ({ href: link.href, isProjectLink: link.classList.contains('project-link') })),
-        retiredCount: project.querySelectorAll('details,img,svg,canvas,button,input,label,.project-art,.motion-stage').length
-      })),
+      projects: document.querySelectorAll('article[data-project], .home-work').length,
       contactHeading: document.querySelector('.home-contact h2')?.textContent.trim(),
       contactAddress: document.querySelector('.home-contact a[href^="mailto:"]')?.getAttribute('href'),
       copyButton: copyButtonRect && { left: copyButtonRect.left, bottom: copyButtonRect.bottom },
@@ -202,23 +184,7 @@ async function checkHome(page, route, label, { mode = 'text', noJavaScript = fal
     assert(Math.abs(state.artTopPadding - state.artBottomPadding) < 1, `${label}: artwork needs balanced vertical padding`);
   }
   assert.equal(state.profileFacts, 0, `${label}: removed profile-stat boxes remain`);
-  assert.deepEqual(state.projects.map((project) => project.name), PINNED_PROJECTS.map(([name]) => name), `${label}: project order differs from pinned repositories`);
-  state.projects.forEach((project, index) => {
-    assert.equal(project.headingCount, 1, `${label}: ${project.name} should have one title`);
-    if (state.width > 700) assert.equal(project.heading.fontSize, 50, `${label}: ${project.name} title should be 50px`);
-    else assert(project.heading.fontSize <= 40, `${label}: ${project.name} mobile title should remain compact`);
-    assert(project.blurbCount >= 1, `${label}: ${project.name} should have project prose`);
-    assert.deepEqual(project.links, [{ href: PINNED_PROJECTS[index][1], isProjectLink: true }], `${label}: ${project.name} should have one project link to its destination`);
-    assert.equal(project.hookCount, 1, `${label}: ${project.name} should have one hook`);
-    assert(project.copyVisible, `${label}: ${project.name} prose is hidden`);
-    assert.equal(project.retiredCount, 0, `${label}: ${project.name} retains project artwork or controls`);
-    if (project.stacked) {
-      assert(project.copy.top >= project.heading.bottom, `${label}: ${project.name} text overlaps its title`);
-    } else {
-      assert(project.copy.left > project.heading.right, `${label}: ${project.name} columns overlap`);
-    }
-    assert(project.heading.left >= 0 && project.copy.right <= state.width + 1, `${label}: ${project.name} text is clipped`);
-  });
+  assert.equal(state.projects, 0, `${label}: removed projects section remains`);
   assert.equal(state.contactHeading, 'say hi back.', `${label}: contact heading missing`);
   assert.equal(state.contactAddress, 'mailto:hi@oliverdougherty.com', `${label}: contact email link missing`);
   assert(state.copyButton && state.copyStatus, `${label}: copy feedback geometry missing`);
@@ -276,10 +242,6 @@ async function checkRetainedInteractions(page) {
   await toggle.click();
   await page.waitForFunction(() => !document.body.classList.contains('flashlight-mode-active'));
   assert.equal(await toggle.getAttribute('aria-label'), initialLabel, 'Dark-mode accessible action did not reset');
-  const osu = page.locator('.stat-value').filter({ has: page.locator('.osu-text') });
-  const canvasesBefore = await page.locator('canvas').count();
-  await osu.hover();
-  assert(await page.locator('canvas').count() > canvasesBefore, 'OSU hover did not produce its confetti');
 }
 
 async function checkCohesionInteractions(browser, name, touch) {
@@ -309,12 +271,6 @@ async function checkCohesionInteractions(browser, name, touch) {
     assert(await page.locator('.contact-address').isVisible(), `${label}: manual-copy address unavailable after clipboard failure`);
     const sticky = await page.locator('.home-header').boundingBox();
     assert(sticky && Math.abs(sticky.y) < 1, `${label}: header did not stay at top while contact is in view`);
-    const osu = page.locator('button.osu-trigger');
-    await activate(osu);
-    assert.equal(await osu.getAttribute('aria-pressed'), 'true', `${label}: OSU cheer state is not announced`);
-    assert(await osu.evaluate((button) => button.classList.contains('is-cheered')), `${label}: OSU button does not reveal its cheer`);
-    await activate(osu);
-    assert.equal(await osu.getAttribute('aria-pressed'), 'false', `${label}: OSU cheer did not reset`);
     assert(await page.evaluate(() => Math.max(document.body.scrollWidth, document.documentElement.scrollWidth) <= innerWidth + 1),
       `${label}: expanded/interacted homepage overflows horizontally`);
     await context.close();
@@ -837,7 +793,7 @@ async function run() {
         }
         console.log(stageOnly
           ? `Verified ${name}: first-visit stage, one-way navigation reveal, and the settled-size handover, in normal and reduced motion.`
-          : `Verified ${name}: exact text grid, font/color map, single responsive painting per page, first-visit black stage that hands back its settled size once its black is out of sight, scroll-gated latched navigation, desktop/mobile sizing and resize, 200% viewport-equivalent and CSS zoom, credits, immediate introduction, no-JS and failure fallbacks, reduced motion, four readable project stories, responsive text columns, sticky navigation, keyboard/touch contact interactions, and clipboard outcomes.`);
+          : `Verified ${name}: exact text grid, font/color map, single responsive painting per page, first-visit black stage that hands back its settled size once its black is out of sight, scroll-gated latched navigation, desktop/mobile sizing and resize, 200% viewport-equivalent and CSS zoom, credits, immediate introduction, no-JS and failure fallbacks, reduced motion, removed projects section, sticky navigation, keyboard/touch contact interactions, and clipboard outcomes.`);
       } finally {
         await browser.close();
       }

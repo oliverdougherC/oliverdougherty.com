@@ -373,6 +373,48 @@ async function runReducedMotion(browser) {
   }
 }
 
+async function runOsuEgg(browser) {
+  const { context, page } = await newInstrumentedPage(browser);
+  try {
+    await page.goto(`${baseUrl}${RESUME_ROUTE}`, { waitUntil: 'load' });
+    await page.waitForFunction(settledCondition, null, { timeout: SETTLE_BUDGET_MS });
+    const osu = page.locator('.edu-school .osu-trigger');
+    await osu.scrollIntoViewIfNeeded();
+    const canvasesBefore = await page.locator('canvas').count();
+    await osu.hover();
+    assert(await page.locator('canvas').count() > canvasesBefore,
+      'OSU hover did not produce its confetti');
+    await osu.click();
+    assert(await osu.evaluate((button) => button.getAttribute('aria-pressed') === 'true'), 'OSU cheer state is not announced');
+    assert(await osu.evaluate((button) => button.classList.contains('is-cheered')), 'OSU button does not reveal its cheer');
+    // Move away so only the cheer state (not :hover) can keep the logo visible.
+    await page.mouse.move(5, 5);
+    await page.waitForFunction(
+      () => Number(getComputedStyle(document.querySelector('.edu-school .osu-beaver')).opacity) > 0.99,
+      null, { timeout: 2000 }
+    );
+    await osu.click();
+    assert(await osu.evaluate((button) => button.getAttribute('aria-pressed') === 'false'), 'OSU cheer did not reset');
+  } finally {
+    await context.close();
+  }
+}
+
+async function runOsuEggReducedMotion(browser) {
+  const { context, page } = await newInstrumentedPage(browser, { reducedMotion: 'reduce' });
+  try {
+    await page.goto(`${baseUrl}${RESUME_ROUTE}`, { waitUntil: 'load' });
+    await page.waitForFunction(settledCondition, null, { timeout: SETTLE_BUDGET_MS });
+    // Reduced motion replaces the hover animation with a permanently visible logo.
+    assert(await page.locator('.edu-school .osu-beaver').evaluate(
+      (beaver) => Number(getComputedStyle(beaver).opacity) > 0.99),
+      'Reduced motion leaves the beaver logo hidden');
+    log('Verified the beaver logo stays visible under reduced motion.');
+  } finally {
+    await context.close();
+  }
+}
+
 async function runScriptBlocked(browser) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
@@ -534,6 +576,8 @@ async function run() {
     }
 
     await runReducedMotion(browser);
+    await runOsuEgg(browser);
+    await runOsuEggReducedMotion(browser);
     await runSyntheticPair(browser);
     await runLateStaggerSynthetic(browser);
     await runSuspendWithoutResume(browser);

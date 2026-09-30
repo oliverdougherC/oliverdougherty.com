@@ -196,39 +196,11 @@ html.home-stage-swap *::after {
 .home-intro { padding: clamp(56px, 7vw, 100px) 0; background: #fff; color: #000; }
 .home-intro-grid { display: grid; grid-template-columns: .75fr 1.25fr; gap: clamp(32px, 6vw, 100px); align-items: start; }
 .home-hi, .schematic-mobile .home-hi { margin: -.08em 0 0; font: 800 clamp(96px, 12vw, 176px)/1 'JetBrains Mono', monospace; letter-spacing: -.085em; }
-.home-hi span, .home-work h2>span, .home-contact h2>span { color: var(--home-orange); }
+.home-hi span, .home-contact h2>span { color: var(--home-orange); }
 .home-intro-copy>p, .schematic-mobile .home-intro-copy>p { max-width: 46ch; margin: 0 0 1.1em; font: 400 clamp(17px, 1.4vw, 21px)/1.7 'JetBrains Mono', monospace; letter-spacing: -.025em; }
-.home-intro-copy .osu-trigger { position: relative; display: inline; padding: 0; margin: 0; border: 0; border-bottom: 1px solid var(--home-orange); background: none; color: inherit; font: inherit; letter-spacing: inherit; cursor: pointer; white-space: nowrap; }
-.home-intro-copy .osu-trigger:focus-visible { outline: 2px solid var(--home-orange); outline-offset: 4px; }
-.home-intro-copy .osu-trigger .osu-beaver { opacity: 0; }
-.home-intro-copy .osu-trigger.is-cheered .osu-beaver { opacity: 1; transform: translate(.25em,-50%) scale(1); }
-.osu-trigger.keyboard-cheer .osu-beaver { transition: none; }
-.mobile-home .osu-beaver { position: absolute; left: 100%; top: 50%; width: auto; height: 1em; opacity: 0; pointer-events: none; transform: translate(0,-50%); }
-@media (hover: hover) and (pointer: fine) {
-  .home-intro-copy .osu-trigger:hover .osu-beaver { opacity: 1; }
-}
 
-.home-work { scroll-margin-top: 80px; background: #fff; color: #000; padding: clamp(40px,5vw,72px) 0 clamp(32px,5vw,64px); border-top: 1px solid #000; }
-.section-masthead { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; font: 400 12px/1.6 'JetBrains Mono',monospace; letter-spacing: .04em; }
-.section-masthead a { color: #555; text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; }
-.section-masthead a:hover { color: var(--home-orange); }
-.work-heading { padding: 26px 0 clamp(48px,7vw,90px); }
-.home-work h2, .home-contact h2 { font: 800 clamp(44px,6.5vw,84px)/1.05 'JetBrains Mono',monospace; letter-spacing: -.07em; margin: 0; }
-.work-heading>p { font: 400 16px/1.65 'JetBrains Mono',monospace; margin: 22px 0 0; color: #666; }
-/* Each entry grows with its prose; no fixed heights or visual slots. */
-.home-work h2 { max-width: 18ch; font-size: clamp(44px,12.1vw,96px); text-wrap: balance; }
-.project-list { display: block; }
-.project-entry { min-width: 0; display: grid; grid-template-columns: .75fr 1.25fr; gap: clamp(32px,6vw,100px); align-items: baseline; padding: clamp(36px,5vw,64px) 0; border-top: 1px solid #000; }
-.home-work h3 { margin: 0; font: 800 50px/1.15 'JetBrains Mono',monospace; letter-spacing: -.045em; overflow-wrap: anywhere; }
-.project-copy { min-width: 0; max-width: 58ch; }
-.project-entry .project-hook { margin: 0 0 22px; color: #000; font: 400 clamp(21px,2.1vw,28px)/1.4 'JetBrains Mono',monospace; letter-spacing: -.045em; text-wrap: pretty; }
-.project-entry .project-blurb { margin: 0 0 1em; font: 400 16px/1.85 'JetBrains Mono',monospace; color: #444; overflow-wrap: anywhere; }
-.project-link { min-height: 44px; display: inline-flex; align-items: center; gap: 8px; color: #000; font: 400 13px/1.6 'JetBrains Mono',monospace; text-decoration: none; }
-.project-link span { color: var(--home-orange); }
-.project-link:hover { color: var(--home-orange); }
-.home-work :is(a,button,input):focus-visible { outline: 2px solid var(--home-orange); outline-offset: 5px; }
+.home-contact h2 { font: 800 clamp(44px,6.5vw,84px)/1.05 'JetBrains Mono',monospace; letter-spacing: -.07em; margin: 0; }
 .home-contact { padding: clamp(48px,7vw,96px) 0 24px; background: #000; color: #eee; }
-.home-contact .section-masthead { color: #888; }
 .home-contact button, .home-contact a { font: 400 13px/1.6 'JetBrains Mono',monospace; color: #aaa; background: none; border: 0; padding: 0; min-height: 44px; cursor: pointer; }
 .home-contact a { display: inline-flex; align-items: center; gap: 8px; text-underline-offset: 5px; }
 .home-contact button:hover, .home-contact a:hover { color: var(--home-orange); }
@@ -258,10 +230,6 @@ html.home-stage-swap *::after {
   .home-header .home-brand { font-size: 13px; }
   .page-home .home-header { padding: 16px 52px 16px 16px; }
   .home-intro-grid { grid-template-columns: 1fr; gap: 24px; }
-  .project-entry { grid-template-columns: 1fr; gap: 20px; padding: 32px 0 40px; }
-  .project-entry .project-hook { margin-bottom: 18px; }
-  .home-work h3 { font-size: clamp(28px,10vw,40px); }
-  .home-work h2 { font-size: clamp(40px,8vw,56px); }
   .home-contact h2 { font-size: clamp(40px,10vw,84px); }
   .contact-heading { padding: 32px 0; }
   .contact-actions { grid-template-columns: max-content max-content; gap: 8px 24px; }

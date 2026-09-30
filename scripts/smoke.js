@@ -114,17 +114,7 @@ function validatePages() {
     assert(html.includes('id="home-intro-title"'), `${page}: introduction missing`);
     assert(html.includes('home-header'), `${page}: shared homepage header missing`);
     assert(!/class="[^"]*(?:about-stats|mobile-stat-grid)/.test(html), `${page}: retired profile facts remain`);
-    const projects = [...html.matchAll(/data-project="([^"]+)"/g)].map((match) => match[1]);
-    assert(projects.join('|') === 'Encoding_Database|BetterVMAF|Keiri|Lyra', `${page}: pinned project order incomplete`);
-    for (const project of html.matchAll(/<article\b[^>]*data-project="([^"]+)"[^>]*>([\s\S]*?)<\/article>/g)) {
-      const [, name, content] = project;
-      assert((content.match(/<h3\b/g) || []).length === 1, `${page}: ${name} title missing`);
-      for (const marker of ['project-copy', 'project-hook', 'project-link']) {
-        assert((content.match(new RegExp(`class="[^"]*\\b${marker}\\b`, 'g')) || []).length === 1, `${page}: ${name} should contain one ${marker}`);
-      }
-      assert(/class="project-blurb"/.test(content), `${page}: ${name} prose missing`);
-      assert(!/<details\b|<img\b|<button\b|<input\b|<label\b|tabindex=|project-art|motion-stage|<svg\b|<canvas\b/.test(content), `${page}: ${name} retains project controls or screenshots`);
-    }
+    assert(!/data-project=|class="home-work"|project-list|project-entry/.test(html), `${page}: removed projects section remains`);
     assert(!/project-motion|keiri-motion|data-motion=/.test(html), `${page}: retired animation runtime remains`);
     for (const marker of ['data-copy-email', 'data-copy-status', 'js/home-interactions.js']) {
       assert(html.includes(marker), `${page}: homepage interaction missing: ${marker}`);

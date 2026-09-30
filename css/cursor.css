@@ -94,34 +94,6 @@ textarea,
   cursor: var(--cursor-busy), wait !important;
 }
 
-/* The excursions easter egg: while the excerpt is playing the system cursor
-   hides and home-interactions.js paints the eleven baked-in .ani frames on a
-   small overlay that follows the pointer. (Browsers can't animate a cursor
-   image, and swapping the cursor URL per frame is unreliable — the OS cursor
-   only refreshes lazily and re-decodes the frames through a cache, so repeat
-   plays land frames late or out of order and the spin visibly jumps.) */
-html.is-musical,
-html.is-musical * {
-  cursor: none !important;
-}
-
-.musical-cursor {
-  position: fixed;
-  top: 0;
-  left: 0;
-  z-index: 2147483647;
-  width: 32px;
-  height: 32px;
-  display: none;
-  pointer-events: none;
-  image-rendering: pixelated;
-  will-change: transform;
-}
-
-html.is-musical .musical-cursor {
-  display: block;
-}
-
 [draggable='true'] {
   cursor: var(--cursor-move), move !important;
 }
@@ -176,7 +148,3 @@ html.is-musical .musical-cursor {
   box-shadow: var(--utilities-focus-shadow);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  html.is-musical, html.is-musical * { cursor: auto !important; }
-  html.is-musical .musical-cursor { display: none; }
-}

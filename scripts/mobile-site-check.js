@@ -28,7 +28,7 @@ function assert(condition, message) {
 async function collectMobilePageState(page) {
   return page.evaluate(() => {
     const navLinks = Array.from(document.querySelectorAll('.mobile-nav-link')).map((link) => link.textContent.trim());
-    const buttons = Array.from(document.querySelectorAll('.mobile-button, .mobile-nav-link, .mobile-contact-links a')).map((el) => {
+    const buttons = Array.from(document.querySelectorAll('.mobile-button, .mobile-nav-link, .mobile-contact-links a, .osu-trigger')).map((el) => {
       const styles = getComputedStyle(el);
       const rect = el.getBoundingClientRect();
       return {
@@ -108,6 +108,18 @@ async function assertMobilePages(browser) {
     assert(/Oregon State University/.test(state.text), `[${viewport.label}:resume] education content missing`);
     assert(/Encoding DB/.test(state.text), `[${viewport.label}:resume] project content missing`);
     assert(/Deloitte Technology/.test(state.text), `[${viewport.label}:resume] experience content missing`);
+    // OSU cheer: a real tap (touch context, so :hover cannot be behind the
+    // reveal) must show the beaver logo without overflowing the viewport.
+    const osuTrigger = page.locator('.osu-trigger');
+    await osuTrigger.scrollIntoViewIfNeeded();
+    await osuTrigger.tap();
+    await page.waitForFunction(
+      () => Number(getComputedStyle(document.querySelector('.osu-beaver')).opacity) > 0.99,
+      null, { timeout: 4000 }
+    );
+    const cheered = await collectMobilePageState(page);
+    assert(cheered.scrollWidth <= cheered.width + 1, `[${viewport.label}:resume] cheered OSU heading overflows the document horizontally`);
+    assert(cheered.bodyScrollWidth <= cheered.width + 1, `[${viewport.label}:resume] cheered OSU heading overflows the body horizontally`);
     await page.screenshot({
       path: path.join(OUTPUT_DIR, `${viewport.label}-resume.png`),
       fullPage: true
