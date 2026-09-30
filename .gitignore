@@ -77,3 +77,4 @@ coverage/
 
 # Local Cloudflare Worker dev cache
 utilities-src/vm-src/proxy-worker/.wrangler/
+vm-src/

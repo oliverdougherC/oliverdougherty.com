@@ -511,3 +511,56 @@
     font-size: 1.8rem;
   }
 }
+
+/* OSU cheer easter egg on the mobile résumé education heading: activating the
+   school name reveals the beaver logo; js/main.js fires the orange confetti
+   once per page load. */
+.mobile-resume .osu-trigger {
+  position: relative;
+  display: inline-block;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mobile-resume .osu-text {
+  position: relative;
+  z-index: 2;
+}
+
+.mobile-resume .osu-beaver {
+  display: inline-block;
+  width: 0;
+  height: 1em;
+  margin-left: 0;
+  opacity: 0;
+  vertical-align: -0.1em;
+  pointer-events: none;
+}
+
+.mobile-resume .osu-trigger.is-cheered .osu-beaver {
+  width: auto;
+  margin-left: 0.25em;
+  opacity: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .mobile-resume .osu-trigger:hover .osu-beaver {
+    width: auto;
+    margin-left: 0.25em;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-resume .osu-beaver {
+    width: auto;
+    margin-left: 0.25em;
+    opacity: 1;
+  }
+}

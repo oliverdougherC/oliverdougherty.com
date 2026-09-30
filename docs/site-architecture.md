@@ -24,17 +24,17 @@ Both routes share `css/home.css`, retain the 6000 × 3274 composition on black, 
 
 ## Homepage content and interactions
 
-Desktop and mobile Home share a sticky `.home-header`, the Nighthawks artwork, prose introduction, four selected-project features, and a dark “say hi back.” closing. Desktop places the text-based dark-mode action in the navigation row; mobile retains its three route links and a full-site escape in the closing. The former three profile-stat boxes are gone; the facts live in prose. The native OSU button exposes its cheer state with `aria-pressed` and retains the pointer confetti interaction.
+Desktop and mobile Home share a sticky `.home-header`, the Nighthawks artwork, the two-paragraph prose introduction, and a dark “say hi back.” closing. Desktop places the text-based dark-mode action in the navigation row; mobile retains its three route links and a full-site escape in the closing. The former three profile-stat boxes are gone; the facts live in prose. The projects section has been removed from both homepages.
 
-Project order follows the current selection: Encoding_Database, BetterVMAF, Keiri, and Lyra. Each `.project-entry` has one title, one `.project-blurb`, and one `.project-link` to its repository. Copy combines documented project behavior with personal stories supplied by Oliver; do not infer anecdotes. Project art and animation are retired; their reference sources remain in the repository but are excluded from deployment.
+The OSU cheer easter egg lives on the Résumé education card: the school name is a native button (`.osu-trigger`) that exposes its cheer state with `aria-pressed`, reveals the beaver logo (`assets/OSU/Oregon_State_Beavers_logo.svg`), and fires pointer confetti via `js/main.js` once per page load on both `pages/resume/index.html` and `mobile/resume/index.html`. On the desktop résumé the school-name span doubles as a `redact-target`, so the logo stays hidden until the intro reveal.
 
-`js/home-interactions.js` handles the copy-email action on both homepages and, on the desktop home, the “excursions” hover easter egg: hovering the word plays `assets/audio/2000-excursion-excerpt.mp3` once, fading in on mouseenter, fading out on mouseleave, and dissolving into silence at the file’s end. Both homepages also load `js/main.js` for the shared OSU interaction. The four project entries are static prose in both homepages: name, hook, paragraph, and repository link. Shared `css/home.css` provides the responsive two-column reading layout. No project animation runtime or artwork build is required. The email remains a usable `mailto:` link if scripting or clipboard access is unavailable.
+`js/home-interactions.js` handles only the copy-email action on both homepages. Shared `css/home.css` provides the responsive layout. The email remains a usable `mailto:` link if scripting or clipboard access is unavailable.
 
 ## Shared browser layer
 
-- `js/home-interactions.js`: shared homepage clipboard feedback; on the desktop home, the “excursions” hover audio easter egg.
+- `js/home-interactions.js`: shared homepage clipboard feedback.
 - `js/nighthawks.js`: homepage text artwork initialization, font/color-map readiness, responsive grid fitting, and image fallback.
-- `js/main.js`: shared navigation helpers, reduced-motion handling, scroll animations, and smooth scrolling.
+- `js/main.js`: shared navigation helpers, reduced-motion handling, scroll animations, smooth scrolling, and the résumé OSU cheer/confetti interaction.
 - `js/mobile-gate.js`: redirects phone-sized visitors away from desktop-only pages into `/mobile/`, unless `?full=1` is present.
 - `js/year.js`: footer year updates and color-mode toggle handling.
 - `js/gallery.js`: metadata-driven gallery rendering and lightbox behavior.
@@ -68,7 +68,7 @@ Desktop pages use inline site navigation; Utilities also has an index return act
 - `scripts/lint.js`: syntax, JSON, and external-link policy checks.
 - `scripts/format.js`: normalization check/write pass for repo text files.
 - `scripts/check-links.js`: local asset/page link validation across HTML.
-- `scripts/home-check.js`: exact character-grid content, font/color-map readiness, one responsive baseline painting request per page while text rendering initializes, responsive sizing, 200% CSS zoom, and zoom-equivalent resize, accessible introduction/navigation, no-JavaScript and resource-failure fallbacks, reduced motion, four selected-project links, sticky header layout, and animation playback/stills and keyboard/touch contact interactions on both routes.
+- `scripts/home-check.js`: exact character-grid content, font/color-map readiness, one responsive baseline painting request per page while text rendering initializes, responsive sizing, 200% CSS zoom, and zoom-equivalent resize, accessible introduction/navigation, no-JavaScript and resource-failure fallbacks, reduced motion, absence of the removed projects section, sticky header layout, and keyboard/touch contact interactions on both routes.
 - `scripts/mobile-site-check.js`: Playwright regression check for the dedicated mobile routes and mobile redirect gate.
 - `scripts/smoke.js`: structural smoke checks for critical routes, gallery data, and utilities bundle.
 - `scripts/nav-overlay-check.js`: Playwright regression check for shared navigation behavior.

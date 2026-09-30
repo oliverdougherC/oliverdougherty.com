@@ -734,13 +734,14 @@
   }
 
   /**
-   * OSU stat hover: orange confetti emanates from the OSU text once per page load.
+   * OSU education-card hover: orange confetti emanates from the OSU text once
+   * per page load; the button click (keyboard path) toggles the cheer state.
    */
   function initOsuConfetti() {
     const osuText = document.querySelector('.osu-text');
     if (!osuText) return;
 
-    const trigger = osuText.closest('.stat-value');
+    const trigger = osuText.closest('.osu-trigger');
     if (!trigger) return;
 
     window.addEventListener('pageshow', (event) => {

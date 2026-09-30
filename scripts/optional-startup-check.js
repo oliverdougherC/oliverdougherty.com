@@ -170,9 +170,6 @@ async function checkMobileYear(browser, upstreamUrl, pageName, phase) {
       await page.locator('button[data-copy-email]').click({ timeout: 5000 });
       await page.waitForFunction(() => Boolean(document.querySelector('[data-copy-status]')?.textContent),
         null, { timeout: 5000 });
-      await page.locator('.osu-trigger').click({ timeout: 5000 });
-      assert.equal(await page.locator('.osu-trigger').getAttribute('aria-pressed'), 'true',
-        `${label}: main.js interaction did not initialize`);
       assert.equal(await page.locator('#home-intro-title').isVisible(), true, label);
     } else {
       assert.match(await page.locator('main h1').textContent(), /Oliver Dougherty/, label);
@@ -180,6 +177,9 @@ async function checkMobileYear(browser, upstreamUrl, pageName, phase) {
       assert.equal(await page.locator('html').getAttribute('data-disable-color-mode'), '', `${label}: theme opt-out lost`);
       assert.equal(await page.locator('body').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(255, 255, 255)',
         `${label}: résumé theme changed while year.js was stalled`);
+      await page.locator('.osu-trigger').click({ timeout: 5000 });
+      assert.equal(await page.locator('.osu-trigger').getAttribute('aria-pressed'), 'true',
+        `${label}: main.js interaction did not initialize`);
     }
     assert(proxy.intercepted > 0, `${label}: script was not intercepted`);
     assert.equal(await page.evaluate(() => window.__startupDOMContentLoaded), true,

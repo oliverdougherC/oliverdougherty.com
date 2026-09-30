@@ -30,10 +30,11 @@ are present on the dedicated mobile homepage.
 Below the art, Home retains the white schematic vocabulary shared with Gallery and
 Resume: black type, thin rules, generous spacing, and small per-page accents.
 JetBrains Mono supplies the main voice, with Inter for supporting interface text.
-The blackout flashlight, OSU surprise, and gallery photo presentation remain intentional
-interactions. A sticky black header anchors both homepage routes, with a text-based
-dark-mode action in the desktop navigation. The introduction puts personal facts in
-prose, including an accessible OSU cheer button and a hidden easter egg on the desktop home: hovering the word “excursions” plays a short, non-looping audio excerpt with a smooth fade in and out. Four selected projects introduce Oliver’s interests through a name, hook, personal prose, and descriptive repository link. Each entry spans a full row, with a narrower title column and a wider reading column; on phones the title sits above the writing. Thin rules and generous spacing provide rhythm. Project artwork and animations are retired.
+The blackout flashlight, the OSU surprise on the résumé education card, and gallery photo
+presentation remain intentional interactions. A sticky black header anchors both homepage
+routes, with a text-based dark-mode action in the desktop navigation. The introduction is
+two prose paragraphs about following ideas and self-trust. The projects section has been
+removed; the introduction flows directly into the closing.
 The closing returns to black with
 “say hi back.”, a prominent email address, and copy feedback.
 The former oversized name, particle wordmark, diamond divider, and profile-stat boxes
