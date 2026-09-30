@@ -97,7 +97,12 @@ async function checkPage(browser, upstreamUrl, pageName, script, phase) {
     await page.waitForFunction(() => document.querySelector('.nav-inline-link--utilities')?.getBoundingClientRect().width > 0,
       null, { timeout: 5000 });
     if (pageName === 'utilities') {
-      await page.locator('[data-utility="image-transform"]').click({ timeout: 5000 });
+      // A stalled parser-blocking script can hold the first paint, and webkit
+      // then never runs the frames Playwright's click-stability check needs.
+      // Activate through the DOM instead; the stage-ready wait below is the
+      // assertion that matters.
+      await page.waitForSelector('[data-utility="image-transform"]', { state: 'attached' });
+      await page.evaluate(() => document.querySelector('[data-utility="image-transform"]').click());
       await page.waitForFunction(() => {
         const stage = document.querySelector('[data-utility-id="image-transform"]');
         return stage && !stage.hidden && stage.dataset.utilityReady === 'ready'
