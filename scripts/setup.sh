@@ -19,7 +19,7 @@ echo ""
 # Check Node.js
 if ! command -v node &>/dev/null; then
   echo -e "${RED}ERROR: Node.js is not installed.${NC}"
-  echo "Install Node 22+ from https://nodejs.org/"
+  echo "Install Node 22.13+ from https://nodejs.org/"
   exit 1
 fi
 
@@ -27,8 +27,9 @@ NODE_VERSION=$(node -v 2>/dev/null || echo "unknown")
 echo "Node.js: $NODE_VERSION"
 
 MAJOR=$(echo "$NODE_VERSION" | sed 's/v//' | cut -d. -f1)
-if [ "$MAJOR" -lt 22 ] 2>/dev/null; then
-  echo -e "${YELLOW}WARNING: Node v$MAJOR detected. CI requires Node 22+.${NC}"
+MINOR=$(echo "$NODE_VERSION" | sed 's/v//' | cut -d. -f2)
+if [ "$MAJOR" -lt 22 ] 2>/dev/null || { [ "$MAJOR" -eq 22 ] 2>/dev/null && [ "$MINOR" -lt 13 ] 2>/dev/null; }; then
+  echo -e "${YELLOW}WARNING: Node v$NODE_VERSION detected. CI requires Node 22.13+ (jsdom dependency floor).${NC}"
 fi
 
 # Check npm
