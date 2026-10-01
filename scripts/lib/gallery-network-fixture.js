@@ -4,12 +4,19 @@ const http = require('node:http');
 const https = require('node:https');
 
 async function startGalleryNetworkFixture(baseUrl, intercept = () => false) {
+  const origin = new URL(baseUrl);
+  const transport = origin.protocol === 'https:' ? https : http;
   const sockets = new Set();
   const requests = new Set();
   const server = http.createServer((request, response) => {
-    const url = new URL(request.url, baseUrl);
-    const transport = url.protocol === 'https:' ? https : http;
-    const forwarded = transport.get(url, { headers: { ...request.headers, host: url.host } }, upstream => {
+    // Forward only the path/query. Absolute-form URLs from a client must
+    // never change the configured upstream origin of this local test fixture.
+    const resource = new URL(request.url, 'http://fixture.invalid');
+    const forwarded = transport.get({
+      protocol: origin.protocol, hostname: origin.hostname, port: origin.port,
+      path: resource.pathname + resource.search,
+      headers: { ...request.headers, host: origin.host }
+    }, upstream => {
       upstream.on('error', error => response.destroy(error));
       if (!intercept({ request, response, upstream })) {
         response.writeHead(upstream.statusCode, upstream.headers);
@@ -77,13 +84,14 @@ function holdResponseBody({ response, upstream }) {
     awaitingChunk = false;
     cleanupStart();
     upstream.pause();
-    // Sixteen bytes cannot contain a complete shipped gallery image. Keeping
-    // the remaining bytes makes a real partial response, not a delayed header.
-    response.write(chunk.subarray(0, 16));
+    // Give WebKit's Linux backend enough bytes to announce the response,
+    // while retaining part of this chunk and the rest of the image body.
+    const prefix = Math.min(4096, Math.floor(chunk.length / 2));
+    response.write(chunk.subarray(0, prefix));
     resolveStarted();
     released.then(() => {
       if (response.destroyed) return;
-      response.write(chunk.subarray(16));
+      response.write(chunk.subarray(prefix));
       upstream.pipe(response);
     });
   });
