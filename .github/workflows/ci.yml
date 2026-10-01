@@ -34,6 +34,15 @@ jobs:
         run: |
           npm ci
           npm audit --include=dev --include=optional --audit-level=low
+      - name: Run worker tests (includes toolchain verification regression tests)
+        working-directory: utilities-src/vm-src/proxy-worker
+        run: npm test
+      - name: Verify local Wrangler matches the lockfile
+        working-directory: utilities-src/vm-src/proxy-worker
+        run: npm run verify:toolchain --silent
+      - name: Validate worker deployment (credential-free dry run)
+        working-directory: utilities-src/vm-src/proxy-worker
+        run: npm run deploy:dry-run
 
   lint:
     name: Lint & Format

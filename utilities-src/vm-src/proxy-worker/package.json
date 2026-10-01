@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
+    "verify:toolchain": "node scripts/verify-toolchain.mjs",
     "deploy:dry-run": "wrangler deploy --dry-run"
   },
   "devDependencies": {
