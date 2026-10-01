@@ -17,7 +17,7 @@ Static portfolio site for me (Oliver Dougherty, duh).
 
 ## Quick start
 
-**Prerequisites:** Node.js 22+, npm, git
+**Prerequisites:** Node.js 22.13+ (jsdom requires >=22.13 within 22.x), npm, git
 
 ```bash
 # Clone
