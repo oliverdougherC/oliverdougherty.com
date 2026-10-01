@@ -38,7 +38,7 @@ function pressKey(h: DesktopHarness, key: string) {
 async function openFirstCard(h: DesktopHarness) {
   const button = cardButtons(h)[0];
   button.click();
-  await waitUntil(() => !lightbox(h).hasAttribute('hidden'), 'lightbox to open');
+  await waitUntil(() => !lightbox(h).hasAttribute('hidden') && Boolean(h.window.document.getElementById('lightboxImage')), 'lightbox image to decode');
   return button;
 }
 
@@ -135,7 +135,7 @@ describe('gallery BFCache lifecycle (F04)', () => {
     const image = h.window.document.getElementById('lightboxImage') as HTMLImageElement;
     const hash = h.window.location.hash;
     pressKey(h, 'ArrowRight');
-    expect(image.style.opacity).toBe('0');
+    expect(image.style.opacity).not.toBe('0');
     h.firePageHide();
     h.firePageShow(true);
     await sleep(240);
@@ -217,6 +217,7 @@ describe('gallery relayout focus (F05)', () => {
     const close = h.window.document.getElementById('lightboxClose') as HTMLElement;
     expect(h.window.document.activeElement).toBe(close);
 
+    const heightBefore = h.grid.style.height;
     // A card image finishing load forces an aspect-reconciled relayout.
     const cardImage = cards(h)[3].querySelector('img') as HTMLImageElement;
     Object.defineProperty(cardImage, 'naturalWidth', { value: 800, configurable: true });
@@ -225,6 +226,10 @@ describe('gallery relayout focus (F05)', () => {
     await flushFrames(h.window);
 
     expect(h.window.document.activeElement).toBe(close);
+    expect(h.grid.style.height).toBe(heightBefore);
+    pressKey(h, 'Escape');
+    await flushFrames(h.window);
+    expect(h.grid.style.height).not.toBe(heightBefore);
   });
 
   it('keeps focus on the returned trigger through the deferred post-close relayout', async () => {

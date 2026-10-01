@@ -479,6 +479,23 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
   transform: scale(1.025);
 }
 
+.photo-error-copy {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  padding: var(--space-4);
+  color: var(--gallery-line);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  text-align: center;
+}
+
+.photo-error-copy[hidden],
+.hero-feature-image[hidden] {
+  display: none;
+}
+
 .photo-card--broken .photo-media {
   background: #F5F5F5;
 }
@@ -492,26 +509,26 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
   align-items: baseline;
   gap: var(--space-3);
   padding-top: var(--space-3);
-  opacity: 0.4;
-  transition: opacity var(--duration-base) var(--ease-smooth);
+  color: #666666;
+  transition: color var(--duration-base) var(--ease-smooth);
 }
 
 .photo-card:hover .photo-placard,
 .photo-card:focus-within .photo-placard {
-  opacity: 0.7;
+  color: #000000;
 }
 
 .photo-placard-number {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--color-text-muted);
+  color: inherit;
   letter-spacing: 0.08em;
 }
 
 .photo-placard-title {
   font-family: var(--font-display);
   font-size: var(--text-sm);
-  color: var(--color-text-tertiary);
+  color: inherit;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -555,10 +572,6 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
 .lightbox.is-active {
   opacity: 1;
   pointer-events: auto;
-}
-
-.lightbox-image {
-  transition: opacity 150ms ease;
 }
 
 .lightbox-backdrop {
@@ -675,6 +688,7 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
 }
 
 .lightbox-media {
+  position: relative;
   display: flex;
   flex: 1;
   align-items: center;
@@ -684,11 +698,56 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
 }
 
 .lightbox-picture {
+  /* Readiness and the owned fade control visibility, including global reduced-motion overrides. */
+  transition: none !important;
+  position: absolute;
+  inset: var(--space-4);
+  background: var(--lb-surface);
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 100%;
+  width: auto;
+  height: auto;
+}
+
+.lightbox-picture.is-preparing {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.lightbox-feedback {
+  position: absolute;
+  z-index: 1;
+  left: 50%;
+  bottom: var(--space-6);
+  transform: translateX(-50%);
+  max-width: calc(100% - var(--space-8));
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--lb-text);
+}
+
+.lightbox-feedback p:not(:empty),
+.lightbox-feedback button {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--lb-overlay-bg);
+  border: 1px solid var(--lb-overlay-border);
+}
+
+.lightbox-feedback p {
+  margin: 0 0 var(--space-2);
+}
+
+.lightbox-feedback button {
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.lightbox-feedback button:focus-visible {
+  outline: 2px solid var(--lb-accent);
+  outline-offset: 3px;
 }
 
 .lightbox-image {
