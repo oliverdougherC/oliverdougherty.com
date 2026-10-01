@@ -21,18 +21,15 @@ jobs:
       - name: Audit worker dependencies (dev + optional, fail on low)
         working-directory: utilities-src/vm-src/proxy-worker
         run: npm audit --include=dev --include=optional --audit-level=low
-      - name: Run worker tests
+      - name: Run worker tests (includes toolchain verification regression tests)
         working-directory: utilities-src/vm-src/proxy-worker
         run: npm test
+      - name: Verify local Wrangler matches the lockfile
+        working-directory: utilities-src/vm-src/proxy-worker
+        run: npm run verify:toolchain --silent
       - name: Validate deployment with lockfile Wrangler (dry run)
         working-directory: utilities-src/vm-src/proxy-worker
         run: npm run deploy:dry-run
-      - name: Verify lockfile Wrangler is the installed tool
-        working-directory: utilities-src/vm-src/proxy-worker
-        run: |
-          INSTALLED=$(npx --no-install wrangler --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-          echo "lockfile wrangler: $LOCKED, installed: $INSTALLED"
-          [ "$LOCKED" = "$INSTALLED" ] || { echo "installed wrangler does not match lockfile"; exit 1; }
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
