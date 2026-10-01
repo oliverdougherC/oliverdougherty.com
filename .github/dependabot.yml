@@ -1,0 +1,26 @@
+# Dependabot security posture for oliverdougherty.com.
+#
+# - Vulnerability alerts and security-update PRs remain enabled for both
+#   npm projects (root and the Cloudflare Worker) and for GitHub Actions.
+# - `open-pull-requests-limit: 0` suppresses routine *version-update* PRs
+#   only; it does not disable security updates or alert generation. This
+#   repo pins exact direct versions and upgrades deliberately via PRs, so
+#   a flood of unprompted bump PRs is unwanted (see closed PRs #12/#13).
+# - No `ignore` entries and no auto-merge are configured.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+  - package-ecosystem: npm
+    directory: "/utilities-src/vm-src/proxy-worker"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0

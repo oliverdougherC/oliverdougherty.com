@@ -16,6 +16,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Audit root project (dev + optional dependencies)
+        run: |
+          npm ci
+          npm audit --include=dev --include=optional --audit-level=low
+      - name: Audit proxy-worker project (dev + optional dependencies)
+        working-directory: utilities-src/vm-src/proxy-worker
+        run: |
+          npm ci
+          npm audit --include=dev --include=optional --audit-level=low
+      - name: Run worker tests (includes toolchain verification regression tests)
+        working-directory: utilities-src/vm-src/proxy-worker
+        run: npm test
+      - name: Verify local Wrangler matches the lockfile
+        working-directory: utilities-src/vm-src/proxy-worker
+        run: npm run verify:toolchain --silent
+      - name: Validate worker deployment (credential-free dry run)
+        working-directory: utilities-src/vm-src/proxy-worker
+        run: npm run deploy:dry-run
+
   lint:
     name: Lint & Format
     runs-on: ubuntu-latest
@@ -58,7 +86,7 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    needs: [lint, typecheck, test]
+    needs: [security-audit, lint, typecheck, test]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -92,7 +120,7 @@ jobs:
   deploy-pages:
     name: Deploy GitHub Pages
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test, build]
+    needs: [security-audit, lint, typecheck, test, build]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment:
       name: github-pages

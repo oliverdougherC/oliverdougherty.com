@@ -1,0 +1,1112 @@
+[
+  {
+    "number": 74,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-w293-vg96-wgc3",
+      "cve_id": "CVE-2026-84961",
+      "severity": "high",
+      "summary": "undici vulnerable to TLS certificate validation bypass via dropped connect options in BalancedPool"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "high",
+      "vulnerable_version_range": ">= 7.24.1, < 7.29.1",
+      "first_patched_version": {
+        "identifier": "7.29.1"
+      }
+    }
+  },
+  {
+    "number": 73,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "utilities-src/vm-src/proxy-worker/package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-w293-vg96-wgc3",
+      "cve_id": "CVE-2026-84961",
+      "severity": "high",
+      "summary": "undici vulnerable to TLS certificate validation bypass via dropped connect options in BalancedPool"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "high",
+      "vulnerable_version_range": ">= 7.24.1, < 7.29.1",
+      "first_patched_version": {
+        "identifier": "7.29.1"
+      }
+    }
+  },
+  {
+    "number": 72,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "sharp"
+      },
+      "manifest_path": "utilities-src/vm-src/proxy-worker/package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-rgj7-g3m4-5g8c",
+      "cve_id": null,
+      "severity": "high",
+      "summary": "sharp: Vulnerabilities in libheif: GHSA-g89c-p67h-r497 and GHSA-2jg2-4ch7-h545"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "sharp"
+      },
+      "severity": "high",
+      "vulnerable_version_range": "< 0.35.4",
+      "first_patched_version": {
+        "identifier": "0.35.4"
+      }
+    }
+  },
+  {
+    "number": 71,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "utilities-src/vm-src/proxy-worker/package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-m8rv-5g2x-5cg5",
+      "cve_id": "CVE-2026-15157",
+      "severity": "medium",
+      "summary": "undici vulnerable to CRLF Injection via blob-like body 'type' property"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "medium",
+      "vulnerable_version_range": ">= 7.0.0, < 7.29.0",
+      "first_patched_version": {
+        "identifier": "7.29.0"
+      }
+    }
+  },
+  {
+    "number": 70,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "utilities-src/vm-src/proxy-worker/package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-jr45-8vmc-qm54",
+      "cve_id": "CVE-2026-14643",
+      "severity": "medium",
+      "summary": "undici vulnerable to cross-user information disclosure via whitespace around equals in Cache-Control directives"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "medium",
+      "vulnerable_version_range": ">= 7.0.0, < 7.29.0",
+      "first_patched_version": {
+        "identifier": "7.29.0"
+      }
+    }
+  },
+  {
+    "number": 69,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "utilities-src/vm-src/proxy-worker/package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-v3r7-h72x-cjcm",
+      "cve_id": "CVE-2026-16729",
+      "severity": "medium",
+      "summary": "undici vulnerable to cookie attribute injection via unsanitized domain and unparsed setCookie fields"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "medium",
+      "vulnerable_version_range": ">= 7.0.0, < 7.29.0",
+      "first_patched_version": {
+        "identifier": "7.29.0"
+      }
+    }
+  },
+  {
+    "number": 68,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "utilities-src/vm-src/proxy-worker/package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-8xcm-r25x-g524",
+      "cve_id": "CVE-2026-16728",
+      "severity": "medium",
+      "summary": "undici vulnerable to downstream response desynchronization via retry interceptor"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "medium",
+      "vulnerable_version_range": ">= 7.0.0, < 7.29.0",
+      "first_patched_version": {
+        "identifier": "7.29.0"
+      }
+    }
+  },
+  {
+    "number": 67,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "utilities-src/vm-src/proxy-worker/package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-4cwx-7wf7-3272",
+      "cve_id": "CVE-2026-13697",
+      "severity": "high",
+      "summary": "undici vulnerable to cross-user information disclosure and parse-time crash via degenerate private cache directives"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "high",
+      "vulnerable_version_range": ">= 7.0.0, < 7.29.0",
+      "first_patched_version": {
+        "identifier": "7.29.0"
+      }
+    }
+  },
+  {
+    "number": 66,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "sharp"
+      },
+      "manifest_path": "utilities-src/vm-src/proxy-worker/package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-f88m-g3jw-g9cj",
+      "cve_id": null,
+      "severity": "high",
+      "summary": "sharp inherited vulnerabilities in libvips: CVE-2026-33327, CVE-2026-33328, CVE-2026-35590, CVE-2026-35591"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "sharp"
+      },
+      "severity": "high",
+      "vulnerable_version_range": "< 0.35.0",
+      "first_patched_version": {
+        "identifier": "0.35.0"
+      }
+    }
+  },
+  {
+    "number": 65,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "utilities-src/vm-src/proxy-worker/package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-g8m3-5g58-fq7m",
+      "cve_id": "CVE-2026-11525",
+      "severity": "low",
+      "summary": "undici vulnerable to Set-Cookie SameSite attribute downgrade via permissive substring matching"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "low",
+      "vulnerable_version_range": ">= 7.0.0, < 7.28.0",
+      "first_patched_version": {
+        "identifier": "7.28.0"
+      }
+    }
+  },
+  {
+    "number": 64,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "utilities-src/vm-src/proxy-worker/package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-p88m-4jfj-68fv",
+      "cve_id": "CVE-2026-9679",
+      "severity": "medium",
+      "summary": "undici vulnerable to HTTP header injection via Set-Cookie percent-decoding"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "medium",
+      "vulnerable_version_range": ">= 7.0.0, < 7.28.0",
+      "first_patched_version": {
+        "identifier": "7.28.0"
+      }
+    }
+  },
+  {
+    "number": 62,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "utilities-src/vm-src/proxy-worker/package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-hm92-r4w5-c3mj",
+      "cve_id": "CVE-2026-6734",
+      "severity": "high",
+      "summary": "undici vulnerable to cross-origin request routing via SOCKS5 proxy pool reuse"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "high",
+      "vulnerable_version_range": ">= 7.23.0, < 7.28.0",
+      "first_patched_version": {
+        "identifier": "7.28.0"
+      }
+    }
+  },
+  {
+    "number": 61,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "utilities-src/vm-src/proxy-worker/package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-35p6-xmwp-9g52",
+      "cve_id": "CVE-2026-6733",
+      "severity": "low",
+      "summary": "undici vulnerable to HTTP response queue poisoning via keep-alive socket reuse"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "low",
+      "vulnerable_version_range": ">= 7.0.0, < 7.28.0",
+      "first_patched_version": {
+        "identifier": "7.28.0"
+      }
+    }
+  },
+  {
+    "number": 60,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "utilities-src/vm-src/proxy-worker/package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-vmh5-mc38-953g",
+      "cve_id": "CVE-2026-9697",
+      "severity": "high",
+      "summary": "undici vulnerable to TLS certificate validation bypass via dropped requestTls in SOCKS5 ProxyAgent"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "high",
+      "vulnerable_version_range": ">= 7.23.0, < 7.28.0",
+      "first_patched_version": {
+        "identifier": "7.28.0"
+      }
+    }
+  },
+  {
+    "number": 59,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "utilities-src/vm-src/proxy-worker/package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-pr7r-676h-xcf6",
+      "cve_id": "CVE-2026-9678",
+      "severity": "medium",
+      "summary": "undici vulnerable to cross-user information disclosure via shared cache whitespace bypass"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "medium",
+      "vulnerable_version_range": ">= 7.0.0, < 7.28.0",
+      "first_patched_version": {
+        "identifier": "7.28.0"
+      }
+    }
+  },
+  {
+    "number": 58,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "ws"
+      },
+      "manifest_path": "utilities-src/vm-src/proxy-worker/package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-96hv-2xvq-fx4p",
+      "cve_id": "CVE-2026-48779",
+      "severity": "high",
+      "summary": "ws: Memory exhaustion DoS from tiny fragments and data chunks"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "ws"
+      },
+      "severity": "high",
+      "vulnerable_version_range": ">= 8.0.0, < 8.21.0",
+      "first_patched_version": {
+        "identifier": "8.21.0"
+      }
+    }
+  },
+  {
+    "number": 57,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "esbuild"
+      },
+      "manifest_path": "utilities-src/vm-src/proxy-worker/package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-g7r4-m6w7-qqqr",
+      "cve_id": null,
+      "severity": "low",
+      "summary": "esbuild allows arbitrary file read when running the development server on Windows"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "esbuild"
+      },
+      "severity": "low",
+      "vulnerable_version_range": ">= 0.27.3, < 0.28.1",
+      "first_patched_version": {
+        "identifier": "0.28.1"
+      }
+    }
+  },
+  {
+    "number": 55,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "vitest"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "direct"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-82fw-gwwq-j7x9",
+      "cve_id": "CVE-2026-84373",
+      "severity": "medium",
+      "summary": "Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "vitest"
+      },
+      "severity": "medium",
+      "vulnerable_version_range": ">= 2.1.0, < 4.1.11",
+      "first_patched_version": {
+        "identifier": "4.1.11"
+      }
+    }
+  },
+  {
+    "number": 52,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "sharp"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "direct"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-rgj7-g3m4-5g8c",
+      "cve_id": null,
+      "severity": "high",
+      "summary": "sharp: Vulnerabilities in libheif: GHSA-g89c-p67h-r497 and GHSA-2jg2-4ch7-h545"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "sharp"
+      },
+      "severity": "high",
+      "vulnerable_version_range": "< 0.35.4",
+      "first_patched_version": {
+        "identifier": "0.35.4"
+      }
+    }
+  },
+  {
+    "number": 51,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "@vitest/mocker"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-82fw-gwwq-j7x9",
+      "cve_id": "CVE-2026-84373",
+      "severity": "medium",
+      "summary": "Vitest: Path Traversal / Arbitrary File Read via @vitest/mocker Redirect Mock"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "@vitest/mocker"
+      },
+      "severity": "medium",
+      "vulnerable_version_range": ">= 2.1.0, < 4.1.11",
+      "first_patched_version": {
+        "identifier": "4.1.11"
+      }
+    }
+  },
+  {
+    "number": 49,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "postcss"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-fxqj-rqcc-2cmp",
+      "cve_id": "CVE-2026-69153",
+      "severity": "medium",
+      "summary": "PostCSS: incomplete fix of GHSA-6g55-p6wh-862q — attacker-controlled sourceMappingURL reads arbitrary .map files when `from` is unset"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "postcss"
+      },
+      "severity": "medium",
+      "vulnerable_version_range": "<= 8.5.22",
+      "first_patched_version": {
+        "identifier": "8.5.23"
+      }
+    }
+  },
+  {
+    "number": 46,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-m8rv-5g2x-5cg5",
+      "cve_id": "CVE-2026-15157",
+      "severity": "medium",
+      "summary": "undici vulnerable to CRLF Injection via blob-like body 'type' property"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "medium",
+      "vulnerable_version_range": ">= 7.0.0, < 7.29.0",
+      "first_patched_version": {
+        "identifier": "7.29.0"
+      }
+    }
+  },
+  {
+    "number": 45,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-jr45-8vmc-qm54",
+      "cve_id": "CVE-2026-14643",
+      "severity": "medium",
+      "summary": "undici vulnerable to cross-user information disclosure via whitespace around equals in Cache-Control directives"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "medium",
+      "vulnerable_version_range": ">= 7.0.0, < 7.29.0",
+      "first_patched_version": {
+        "identifier": "7.29.0"
+      }
+    }
+  },
+  {
+    "number": 44,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-v3r7-h72x-cjcm",
+      "cve_id": "CVE-2026-16729",
+      "severity": "medium",
+      "summary": "undici vulnerable to cookie attribute injection via unsanitized domain and unparsed setCookie fields"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "medium",
+      "vulnerable_version_range": ">= 7.0.0, < 7.29.0",
+      "first_patched_version": {
+        "identifier": "7.29.0"
+      }
+    }
+  },
+  {
+    "number": 43,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-8xcm-r25x-g524",
+      "cve_id": "CVE-2026-16728",
+      "severity": "medium",
+      "summary": "undici vulnerable to downstream response desynchronization via retry interceptor"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "medium",
+      "vulnerable_version_range": ">= 7.0.0, < 7.29.0",
+      "first_patched_version": {
+        "identifier": "7.29.0"
+      }
+    }
+  },
+  {
+    "number": 42,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-4cwx-7wf7-3272",
+      "cve_id": "CVE-2026-13697",
+      "severity": "high",
+      "summary": "undici vulnerable to cross-user information disclosure and parse-time crash via degenerate private cache directives"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "high",
+      "vulnerable_version_range": ">= 7.0.0, < 7.29.0",
+      "first_patched_version": {
+        "identifier": "7.29.0"
+      }
+    }
+  },
+  {
+    "number": 36,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "postcss"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-r28c-9q8g-f849",
+      "cve_id": "CVE-2026-73646",
+      "severity": "high",
+      "summary": "PostCSS: Path Traversal in Previous Source Map Auto-Loading (sourceMappingURL) leads to Arbitrary .map File Disclosure"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "postcss"
+      },
+      "severity": "high",
+      "vulnerable_version_range": "<= 8.5.17",
+      "first_patched_version": {
+        "identifier": "8.5.18"
+      }
+    }
+  },
+  {
+    "number": 33,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "sharp"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "direct"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-f88m-g3jw-g9cj",
+      "cve_id": null,
+      "severity": "high",
+      "summary": "sharp inherited vulnerabilities in libvips: CVE-2026-33327, CVE-2026-33328, CVE-2026-35590, CVE-2026-35591"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "sharp"
+      },
+      "severity": "high",
+      "vulnerable_version_range": "< 0.35.0",
+      "first_patched_version": {
+        "identifier": "0.35.0"
+      }
+    }
+  },
+  {
+    "number": 31,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-g8m3-5g58-fq7m",
+      "cve_id": "CVE-2026-11525",
+      "severity": "low",
+      "summary": "undici vulnerable to Set-Cookie SameSite attribute downgrade via permissive substring matching"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "low",
+      "vulnerable_version_range": ">= 7.0.0, < 7.28.0",
+      "first_patched_version": {
+        "identifier": "7.28.0"
+      }
+    }
+  },
+  {
+    "number": 29,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-p88m-4jfj-68fv",
+      "cve_id": "CVE-2026-9679",
+      "severity": "medium",
+      "summary": "undici vulnerable to HTTP header injection via Set-Cookie percent-decoding"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "medium",
+      "vulnerable_version_range": ">= 7.0.0, < 7.28.0",
+      "first_patched_version": {
+        "identifier": "7.28.0"
+      }
+    }
+  },
+  {
+    "number": 28,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-35p6-xmwp-9g52",
+      "cve_id": "CVE-2026-6733",
+      "severity": "low",
+      "summary": "undici vulnerable to HTTP response queue poisoning via keep-alive socket reuse"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "low",
+      "vulnerable_version_range": ">= 7.0.0, < 7.28.0",
+      "first_patched_version": {
+        "identifier": "7.28.0"
+      }
+    }
+  },
+  {
+    "number": 23,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-hm92-r4w5-c3mj",
+      "cve_id": "CVE-2026-6734",
+      "severity": "high",
+      "summary": "undici vulnerable to cross-origin request routing via SOCKS5 proxy pool reuse"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "high",
+      "vulnerable_version_range": ">= 7.23.0, < 7.28.0",
+      "first_patched_version": {
+        "identifier": "7.28.0"
+      }
+    }
+  },
+  {
+    "number": 20,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "vite"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "direct"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-v6wh-96g9-6wx3",
+      "cve_id": "CVE-2026-53632",
+      "severity": "medium",
+      "summary": "launch-editor: NTLMv2 hash disclosure via UNC path handling on Windows"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "vite"
+      },
+      "severity": "medium",
+      "vulnerable_version_range": ">= 7.0.0, <= 7.3.4",
+      "first_patched_version": {
+        "identifier": "7.3.5"
+      }
+    }
+  },
+  {
+    "number": 19,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-pr7r-676h-xcf6",
+      "cve_id": "CVE-2026-9678",
+      "severity": "medium",
+      "summary": "undici vulnerable to cross-user information disclosure via shared cache whitespace bypass"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "medium",
+      "vulnerable_version_range": ">= 7.0.0, < 7.28.0",
+      "first_patched_version": {
+        "identifier": "7.28.0"
+      }
+    }
+  },
+  {
+    "number": 17,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-vmh5-mc38-953g",
+      "cve_id": "CVE-2026-9697",
+      "severity": "high",
+      "summary": "undici vulnerable to TLS certificate validation bypass via dropped requestTls in SOCKS5 ProxyAgent"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "undici"
+      },
+      "severity": "high",
+      "vulnerable_version_range": ">= 7.23.0, < 7.28.0",
+      "first_patched_version": {
+        "identifier": "7.28.0"
+      }
+    }
+  },
+  {
+    "number": 14,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "vite"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "direct"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-fx2h-pf6j-xcff",
+      "cve_id": "CVE-2026-53571",
+      "severity": "high",
+      "summary": "vite: `server.fs.deny` bypass on Windows alternate paths"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "vite"
+      },
+      "severity": "high",
+      "vulnerable_version_range": ">= 7.0.0, <= 7.3.4",
+      "first_patched_version": {
+        "identifier": "7.3.5"
+      }
+    }
+  },
+  {
+    "number": 11,
+    "state": "open",
+    "dependency": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "esbuild"
+      },
+      "manifest_path": "package-lock.json",
+      "scope": "development",
+      "relationship": "transitive"
+    },
+    "security_advisory": {
+      "ghsa_id": "GHSA-g7r4-m6w7-qqqr",
+      "cve_id": null,
+      "severity": "low",
+      "summary": "esbuild allows arbitrary file read when running the development server on Windows"
+    },
+    "security_vulnerability": {
+      "package": {
+        "ecosystem": "npm",
+        "name": "esbuild"
+      },
+      "severity": "low",
+      "vulnerable_version_range": ">= 0.27.3, < 0.28.1",
+      "first_patched_version": {
+        "identifier": "0.28.1"
+      }
+    }
+  }
+]
