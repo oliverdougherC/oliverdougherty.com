@@ -32,20 +32,23 @@
   var GALLERY_RETRY_COPY = 'Gallery data could not be loaded. Check your connection and try again.';
 
   let entries = [];
-  let currentIndex = -1;
+  let requestedIndex = -1;
   let touchStartX = 0;
   let touchStartY = 0;
-  // Delayed-navigation state: an explicit token + pending target lets close,
-  // replacement navigation, and lifecycle events invalidate queued work.
-  let navigationTimer = 0;
+  let touchIdentifier = null;
+  // One displayed frame and one requested frame; only decoded requests commit.
+  let displayedIndex = -1;
   let navigationToken = 0;
-  let pendingTargetIndex = -1;
+  let pendingImage = null;
+  let retiredPicture = null;
+  let retirementTimer = 0;
   let lastTriggerElement = null;
   let inertElements = [];
   // Issue #40 fresh-attempt bookkeeping: bumping `loadAttempt` invalidates
   // prior in-flight work; `loadController` cancels it. See runLoad().
   let loadAttempt = 0;
   let loadController = null;
+  let thumbnailLoading = null;
 
   function prefersReducedMotion() {
     return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -243,37 +246,83 @@
   /* ---- Grid rendering ---- */
 
   function renderGrid(container, photoEntries) {
+    if (thumbnailLoading) thumbnailLoading.dispose();
     var fragment = document.createDocumentFragment();
+    var thumbnails = [];
+    var active = 0;
+    var paused = false;
+    var disposed = false;
+    var observer = typeof IntersectionObserver === 'function'
+      ? new IntersectionObserver(function (changes) {
+        if (disposed || paused) return;
+        changes.forEach(function (change) {
+          var thumbnail = thumbnails.find(function (item) { return item.image === change.target; });
+          if (thumbnail) thumbnail.near = change.isIntersecting;
+        });
+        pump();
+      }, { rootMargin: '80px 0px' })
+      : null;
+
+    function pump() {
+      if (disposed || paused || requestedIndex >= 0) return;
+      var visible = thumbnails.filter(function (item) { return item.near && !item.started; });
+      // CSS columns flow down before across; sort by visual position so the
+      // top row of both columns wins over pictures farther down the first.
+      visible.sort(function (a, b) {
+        return a.image.getBoundingClientRect().top - b.image.getBoundingClientRect().top;
+      });
+      while (active < 2 && visible.length) visible.shift().start();
+    }
+
+    thumbnailLoading = {
+      pause: function () {
+        paused = true;
+        if (observer) observer.disconnect();
+        thumbnails.forEach(function (item) { item.near = false; });
+      },
+      resume: function () {
+        if (disposed) return;
+        paused = false;
+        if (observer) {
+          thumbnails.forEach(function (item) { if (!item.started) observer.observe(item.image); });
+        }
+      },
+      dispose: function () {
+        disposed = true;
+        if (observer) observer.disconnect();
+        thumbnails.forEach(function (item) { if (item.cancel) item.cancel(); });
+      }
+    };
 
     photoEntries.forEach(function (entry, index) {
       var picture = document.createElement('picture');
+      picture.style.background = '#f0f0f0';
       var assets = entry.assets;
 
       if (assets.thumbAvif) {
         var avifSource = document.createElement('source');
-        avifSource.srcset = assets.thumbAvif;
+        avifSource.dataset.srcset = assets.thumbAvif;
         avifSource.type = 'image/avif';
         picture.appendChild(avifSource);
       }
 
       if (assets.thumbWebp) {
         var webpSource = document.createElement('source');
-        webpSource.srcset = assets.thumbWebp;
+        webpSource.dataset.srcset = assets.thumbWebp;
         webpSource.type = 'image/webp';
         picture.appendChild(webpSource);
       }
 
       var img = document.createElement('img');
-      img.src = assets.thumbJpg || '';
       img.alt = entry.displayTitle || 'Photograph';
+      img.style.opacity = '0';
       img.setAttribute('data-entry-index', index);
       img.width = assets.thumbWidth;
       img.height = assets.thumbHeight;
 
-      if (index >= 4) {
-        img.loading = 'lazy';
-        img.decoding = 'async';
-      }
+      img.decoding = 'async';
+      img.setAttribute('fetchpriority', 'low');
+      if (index >= 4) img.loading = 'lazy';
 
       // F08: semantic, keyboard-operable button per photo; the img keeps its
       // data-entry-index attribute for existing selectors. Appearance matches
@@ -286,10 +335,62 @@
       button.setAttribute('data-entry-index', index);
       button.setAttribute('aria-label', 'Open ' + (entry.displayTitle || 'Photograph') + ' in photo viewer');
       button.appendChild(picture);
+      var thumbnail = { image: img, near: false, started: false, cancel: null, start: startThumbnail };
+      thumbnails.push(thumbnail);
+
+      function startThumbnail() {
+        if (thumbnail.started || disposed) return;
+        thumbnail.started = true;
+        active += 1;
+        if (observer) observer.unobserve(img);
+        var settled = false;
+        var triedJpeg = false;
+        var deadline;
+        function finish(failed) {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(deadline);
+          img.removeEventListener('load', loaded);
+          img.removeEventListener('error', failedImage);
+          button.classList.toggle('mobile-photo-unavailable', failed);
+          img.style.opacity = failed ? '0' : '1';
+          active -= 1;
+          pump();
+        }
+        function loaded() { finish(false); }
+        // Keep the same queue slot while trying the JPEG fallback.
+        function failedImage() {
+          if (!triedJpeg && picture.querySelector('source') && assets.thumbJpg) {
+            triedJpeg = true;
+            picture.querySelectorAll('source').forEach(function (source) { source.remove(); });
+            img.src = assets.thumbJpg;
+          } else {
+            finish(true);
+          }
+        }
+        thumbnail.cancel = function () {
+          finish(true);
+          img.removeAttribute('src');
+          picture.querySelectorAll('source').forEach(function (source) { source.removeAttribute('srcset'); });
+        };
+        img.addEventListener('load', loaded);
+        img.addEventListener('error', failedImage);
+        if (observer) deadline = window.setTimeout(thumbnail.cancel, 15000);
+        picture.querySelectorAll('source').forEach(function (source) {
+          source.srcset = source.dataset.srcset;
+          delete source.dataset.srcset;
+        });
+        // IO controls proximity; native lazy loading remains the fallback when
+        // IO is unavailable. Request sources together to avoid an unused JPEG.
+        if (observer) img.loading = 'eager';
+        img.src = assets.thumbJpg || '';
+      }
       fragment.appendChild(button);
     });
 
     container.appendChild(fragment);
+    if (observer) thumbnailLoading.resume();
+    else thumbnails.forEach(function (item) { item.start(); });
   }
 
   /* ---- Lightbox ---- */
@@ -299,65 +400,165 @@
       overlay: document.getElementById('mobileLightbox'),
       close: document.getElementById('mobileLightboxClose'),
       media: document.getElementById('mobileLightboxMedia'),
-      sourceAvif: document.getElementById('mobileLightboxSourceAvif'),
-      sourceWebp: document.getElementById('mobileLightboxSourceWebp'),
       image: document.getElementById('mobileLightboxImage')
     };
   }
 
-  // trigger: the originating grid button on initial open (drives focus entry
-  // and later focus return). Navigation passes no trigger so focus stays put.
-  function openLightbox(index, trigger) {
-    if (index < 0 || index >= entries.length) return;
-    var wasOpen = currentIndex >= 0;
-    currentIndex = index;
+  function setViewerStatus(message, failed) {
+    var el = getLightboxElements();
+    var status = document.getElementById('mobileLightboxStatus');
+    var retry = document.getElementById('mobileLightboxRetry');
+    status.textContent = message;
+    status.hidden = !message;
+    if (!failed && document.activeElement === retry) el.close.focus();
+    retry.hidden = !failed;
+    el.media.setAttribute('aria-busy', message && !failed ? 'true' : 'false');
+  }
 
+  function removeRetiredPicture() {
+    window.clearTimeout(retirementTimer);
+    retirementTimer = 0;
+    // A rapid request can interrupt a reveal. Make its committed frame fully
+    // opaque before releasing the backing frame beneath it.
+    var current = document.getElementById('mobileLightboxImage');
+    if (current) current.closest('picture').classList.remove('mobile-lightbox-reveal');
+    if (retiredPicture) retiredPicture.remove();
+    retiredPicture = null;
+  }
+
+  function cancelPendingNavigation() {
+    navigationToken += 1;
+    if (pendingImage) pendingImage.cancel();
+    pendingImage = null;
+    removeRetiredPicture();
+  }
+
+  function prepareLightboxImage(index) {
+    cancelPendingNavigation();
+    requestedIndex = index;
+    var token = navigationToken;
     var el = getLightboxElements();
     var entry = entries[index];
     var assets = entry.assets;
-
-    // Build srcset with medium + large variants
-    var srcsetCandidates = [];
-    if (assets.mediumJpg) srcsetCandidates.push(assets.mediumJpg + ' ' + assets.mediumWidth + 'w');
-    if (assets.largeJpg) srcsetCandidates.push(assets.largeJpg + ' ' + assets.largeWidth + 'w');
-    var jpgSrcset = srcsetCandidates.join(', ');
-
-    var avifSrcsetCandidates = [];
-    if (assets.mediumAvif) avifSrcsetCandidates.push(assets.mediumAvif + ' ' + assets.mediumWidth + 'w');
-    if (assets.largeAvif) avifSrcsetCandidates.push(assets.largeAvif + ' ' + assets.largeWidth + 'w');
-
-    var webpSrcsetCandidates = [];
-    if (assets.mediumWebp) webpSrcsetCandidates.push(assets.mediumWebp + ' ' + assets.mediumWidth + 'w');
-    if (assets.largeWebp) webpSrcsetCandidates.push(assets.largeWebp + ' ' + assets.largeWidth + 'w');
-
-    if (el.sourceAvif) {
-      el.sourceAvif.srcset = avifSrcsetCandidates.join(', ');
-      el.sourceAvif.sizes = '100vw';
+    var picture = document.createElement('picture');
+    picture.className = 'mobile-lightbox-incoming';
+    picture.setAttribute('aria-hidden', 'true');
+    var image = document.createElement('img');
+    image.alt = entry.displayTitle || 'Photograph';
+    image.width = entry.width;
+    image.height = entry.height;
+    image.decoding = 'async';
+    image.setAttribute('fetchpriority', 'high');
+    // Portrait photos occupy less than the viewport width. Tell the browser
+    // their contain-sized width so high-DPR phones need not fetch oversized files.
+    var sizes = '(max-aspect-ratio: ' + entry.width + '/' + entry.height + ') 100vw, '
+      + Math.round(100 * entry.width / entry.height) + 'vh';
+    function candidates(format) {
+      return ['medium', 'large'].map(function (size) {
+        return assets[size + format] ? assets[size + format] + ' ' + assets[size + 'Width'] + 'w' : '';
+      }).filter(Boolean).join(', ');
     }
-    if (el.sourceWebp) {
-      el.sourceWebp.srcset = webpSrcsetCandidates.join(', ');
-      el.sourceWebp.sizes = '100vw';
+    ['Avif', 'Webp'].forEach(function (format) {
+      var srcset = candidates(format);
+      if (!srcset) return;
+      var source = document.createElement('source');
+      source.type = 'image/' + format.toLowerCase();
+      source.sizes = sizes;
+      source.srcset = srcset;
+      picture.appendChild(source);
+    });
+    image.sizes = sizes;
+    picture.appendChild(image);
+    image.srcset = candidates('Jpg');
+    var settled = false;
+    var decoding = false;
+    var deadline;
+    function detachHandlers() {
+      window.clearTimeout(deadline);
+      image.removeEventListener('load', loaded);
+      image.removeEventListener('error', failed);
     }
-
-    el.image.srcset = jpgSrcset;
-    el.image.sizes = '100vw';
-    el.image.src = assets.largeJpg || assets.mediumJpg || '';
-    el.image.alt = entry.displayTitle || 'Photograph';
-    el.image.style.opacity = '1';
-
-    el.overlay.removeAttribute('hidden');
-    document.body.classList.add('mobile-lightbox-open');
-
-    if (!wasOpen) {
-      setBackgroundInert(true);
-      if (trigger) {
-        lastTriggerElement = trigger;
+    function cancel() {
+      settled = true;
+      detachHandlers();
+      picture.remove();
+      // Keep modern sources until fallback URLs are gone; removing them first
+      // can start an unused JPEG request in WebKit even after detaching.
+      image.removeAttribute('src');
+      image.removeAttribute('srcset');
+      picture.querySelectorAll('source').forEach(function (source) { source.removeAttribute('srcset'); });
+    }
+    function failed() {
+      if (settled || token !== navigationToken) return;
+      cancel();
+      pendingImage = null;
+      setViewerStatus('Photo could not be loaded. Try again or choose another photo.', true);
+    }
+    function commit() {
+      if (settled || token !== navigationToken || requestedIndex < 0) return;
+      if (!image.naturalWidth) { failed(); return; }
+      settled = true;
+      detachHandlers();
+      pendingImage = null;
+      var previous = el.image.closest('picture');
+      previous.querySelectorAll('[id]').forEach(function (node) { node.removeAttribute('id'); });
+      previous.setAttribute('aria-hidden', 'true');
+      image.id = 'mobileLightboxImage';
+      picture.querySelectorAll('source').forEach(function (source) {
+        source.id = source.type === 'image/avif' ? 'mobileLightboxSourceAvif' : 'mobileLightboxSourceWebp';
+      });
+      picture.className = 'mobile-lightbox-current';
+      picture.removeAttribute('aria-hidden');
+      image.style.opacity = '1';
+      if (displayedIndex >= 0 && !prefersReducedMotion()) {
+        picture.classList.add('mobile-lightbox-reveal');
+        retiredPicture = previous;
+        retirementTimer = window.setTimeout(removeRetiredPicture, 180);
+      } else {
+        previous.remove();
       }
-      // F08: move focus into the modal dialog so keyboard and switch-control
-      // users are inside it while the photo viewer is up.
+      displayedIndex = index;
+      setViewerStatus('', false);
+    }
+    function loaded() {
+      if (settled || decoding || token !== navigationToken) return;
+      if (!image.naturalWidth) { failed(); return; }
+      decoding = true;
+      if (typeof image.decode === 'function') {
+        image.decode().then(commit, failed);
+      } else {
+        commit();
+      }
+    }
+    pendingImage = { cancel: cancel };
+    image.addEventListener('load', loaded);
+    image.addEventListener('error', failed);
+    deadline = window.setTimeout(failed, 15000);
+    setViewerStatus('Loading photo…', false);
+    // Set the fallback only after the responsive sources exist; this avoids
+    // starting a large JPEG transfer before picture selection can run.
+    image.src = assets.mediumJpg || assets.largeJpg || '';
+    el.media.appendChild(picture);
+    if (image.complete && image.naturalWidth > 0) loaded();
+  }
+
+  // Navigation keeps the current pixels/alt text until the requested photo is
+  // ready. Opening from the grid resets any frame from a previous dialog session.
+  function openLightbox(index, trigger) {
+    if (index < 0 || index >= entries.length) return;
+    var el = getLightboxElements();
+    var wasOpen = !el.overlay.hasAttribute('hidden');
+    if (!wasOpen) {
+      displayedIndex = -1;
+      el.image.closest('picture').hidden = true;
+      lastTriggerElement = trigger || null;
+      if (thumbnailLoading) thumbnailLoading.pause();
+      el.overlay.removeAttribute('hidden');
+      document.body.classList.add('mobile-lightbox-open');
+      setBackgroundInert(true);
       if (el.close) el.close.focus();
     }
-
+    prepareLightboxImage(index);
   }
 
   // F08: with the dialog modal, background content must not be interactive.
@@ -385,8 +586,12 @@
     var el = getLightboxElements();
     el.overlay.setAttribute('hidden', '');
     document.body.classList.remove('mobile-lightbox-open');
-    currentIndex = -1;
+    requestedIndex = -1;
+    displayedIndex = -1;
+    touchIdentifier = null;
+    setViewerStatus('', false);
     setBackgroundInert(false);
+    if (thumbnailLoading) thumbnailLoading.resume();
 
     // F08: return focus to the control that opened the dialog.
     if (lastTriggerElement && typeof lastTriggerElement.focus === 'function' && lastTriggerElement.isConnected) {
@@ -395,68 +600,11 @@
     lastTriggerElement = null;
   }
 
-  function cancelPendingNavigation() {
-    getLightboxElements().image.style.opacity = '1';
-    if (navigationTimer) {
-      window.clearTimeout(navigationTimer);
-      navigationTimer = 0;
-    }
-    // Invalidates scheduled fades and pending image-load callbacks too.
-    navigationToken += 1;
-    pendingTargetIndex = -1;
-  }
-
-  // Deterministic rapid-navigation policy: every gesture advances the pending
-  // target by one (wraparound), so three fast swipes move three photos even
-  // before any commit runs; rendering coalesces onto the newest target and the
-  // older timers are cancelled. Close/lifecycle events invalidate the token.
+  // Every gesture advances the requested target, including while it loads.
+  // Replacing a request cancels its listeners/deadline and releases its layer.
   function navigateLightbox(direction) {
-    if (currentIndex < 0 || !entries.length) return;
-
-    var base = pendingTargetIndex >= 0 ? pendingTargetIndex : currentIndex;
-    var target = base + direction;
-    if (target < 0) target = entries.length - 1;
-    if (target >= entries.length) target = 0;
-
-    cancelPendingNavigation();
-    var token = navigationToken;
-    pendingTargetIndex = target;
-
-    var el = getLightboxElements();
-    el.image.style.opacity = '0';
-
-    if (prefersReducedMotion()) {
-      commitNavigation(target, token);
-      return;
-    }
-
-    navigationTimer = window.setTimeout(function () {
-      navigationTimer = 0;
-      commitNavigation(target, token);
-    }, 150);
-  }
-
-  function commitNavigation(target, token) {
-    if (token !== navigationToken || currentIndex < 0) return;
-    pendingTargetIndex = -1;
-    openLightbox(target);
-
-    var el = getLightboxElements();
-    var img = el.image;
-    var reveal = function () {
-      if (token !== navigationToken || currentIndex < 0) return;
-      img.style.opacity = '1';
-    };
-    window.requestAnimationFrame(function () {
-      window.requestAnimationFrame(function () {
-        if (token !== navigationToken || currentIndex < 0) return;
-        if (img.complete || img.naturalWidth > 0) {
-          reveal();
-        } else {
-          img.addEventListener('load', reveal, { once: true });
-        }
-      });
-    });
+    if (requestedIndex < 0 || !entries.length) return;
+    openLightbox((requestedIndex + direction + entries.length) % entries.length);
   }
 
   /* ---- Event binding ---- */
@@ -479,6 +627,10 @@
   function bindLightboxEvents() {
     var el = getLightboxElements();
 
+    document.getElementById('mobileLightboxRetry').addEventListener('click', function () {
+      if (requestedIndex >= 0) prepareLightboxImage(requestedIndex);
+    });
+
     // Close button
     el.close.addEventListener('click', function (e) {
       e.stopPropagation();
@@ -494,13 +646,22 @@
 
     // Touch swipe handling
     el.overlay.addEventListener('touchstart', function (e) {
+      if (e.touches.length !== 1) { touchIdentifier = null; return; }
+      touchIdentifier = e.touches[0].identifier === undefined ? 0 : e.touches[0].identifier;
       touchStartX = e.touches[0].clientX;
       touchStartY = e.touches[0].clientY;
     }, { passive: true });
 
+    el.overlay.addEventListener('touchcancel', function () { touchIdentifier = null; }, { passive: true });
     el.overlay.addEventListener('touchend', function (e) {
-      var endX = e.changedTouches[0].clientX;
-      var endY = e.changedTouches[0].clientY;
+      if (touchIdentifier === null || !e.changedTouches.length) return;
+      var touch = Array.prototype.find.call(e.changedTouches, function (point) {
+        return (point.identifier === undefined ? 0 : point.identifier) === touchIdentifier;
+      });
+      touchIdentifier = null;
+      if (!touch) return;
+      var endX = touch.clientX;
+      var endY = touch.clientY;
 
       var diffX = touchStartX - endX;
       var diffY = touchStartY - endY;
@@ -523,7 +684,7 @@
     // navigate, Tab stays inside the dialog. Covers keyboard/switch-control
     // users on mobile and anyone opening the mobile URL on a desktop.
     document.addEventListener('keydown', function (e) {
-      if (currentIndex < 0) return;
+      if (requestedIndex < 0) return;
 
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -545,9 +706,23 @@
       }
     });
 
-    // Delayed navigation must not survive page suspension.
-    window.addEventListener('pagehide', cancelPendingNavigation);
+    // Pending decoding must not survive page suspension.
+    window.addEventListener('pagehide', function () {
+      if (thumbnailLoading) thumbnailLoading.pause();
+      touchIdentifier = null;
+      cancelPendingNavigation();
+      if (displayedIndex >= 0) {
+        requestedIndex = displayedIndex;
+        setViewerStatus('', false);
+      } else if (requestedIndex >= 0) {
+        setViewerStatus('Photo loading was interrupted. Try again.', true);
+      }
+    });
   }
+
+  window.addEventListener('pageshow', function () {
+    if (thumbnailLoading && requestedIndex < 0) thumbnailLoading.resume();
+  });
 
   function trapDialogFocus(event) {
     var overlay = document.getElementById('mobileLightbox');
@@ -559,23 +734,12 @@
     );
     if (!focusables.length) return;
 
-    var first = focusables[0];
-    var last = focusables[focusables.length - 1];
-    var active = document.activeElement;
-
-    if (!overlay.contains(active)) {
-      // Focus escaped into (inert-unsupported) background content: pull it back.
-      event.preventDefault();
-      first.focus();
-      return;
-    }
-    if (event.shiftKey && active === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && active === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    // Browser keyboard preferences can skip buttons during native Tab walks.
+    // Step every Tab explicitly so Close and a visible Retry remain reachable.
+    event.preventDefault();
+    var index = focusables.indexOf(document.activeElement);
+    var next = index < 0 ? 0 : (index + (event.shiftKey ? -1 : 1) + focusables.length) % focusables.length;
+    focusables[next].focus();
   }
 
   /* ---- Init ---- */
@@ -634,6 +798,7 @@
     if (loadController) loadController.abort();
     var controller = new AbortController();
     loadController = controller;
+    hideError();
     showLoading(true);
 
     var nextEntries;

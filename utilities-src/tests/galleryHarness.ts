@@ -338,6 +338,8 @@ export async function loadDesktopGallery(options: {
   sequence?: unknown;
   width: number;
   reducedMotion?: boolean;
+  /** Disable synthetic image readiness for explicit load/decode tests. */
+  manualImages?: boolean;
   /** Issue #40: override the shipped fetch deadlines. */
   timeouts?: TimeoutOverrides;
   /** Issue #40: replace the default json/404 routes. */
@@ -377,6 +379,23 @@ export async function loadDesktopGallery(options: {
     configurable: true,
     get: () => currentWidth
   });
+
+  // JSDOM does not load image pixels. Ordinary lifecycle suites model cached
+  // viewer images; readiness suites opt out and drive load/decode explicitly.
+  if (!options.manualImages) {
+    const prototype = win.HTMLImageElement.prototype;
+    const complete = Object.getOwnPropertyDescriptor(prototype, 'complete')!;
+    const naturalWidth = Object.getOwnPropertyDescriptor(prototype, 'naturalWidth')!;
+    Object.defineProperty(prototype, 'complete', {
+      configurable: true,
+      get() { return this.classList.contains('lightbox-image') ? true : complete.get!.call(this); }
+    });
+    Object.defineProperty(prototype, 'naturalWidth', {
+      configurable: true,
+      get() { return this.classList.contains('lightbox-image') ? 1600 : naturalWidth.get!.call(this); }
+    });
+    prototype.decode = () => Promise.resolve();
+  }
 
   win.eval(GALLERY_SOURCE);
   win.document.dispatchEvent(new win.Event('DOMContentLoaded'));

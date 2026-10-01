@@ -92,6 +92,8 @@ Utilities is a desktop-only, curiosity-driven workbench with Image Transform, Fo
 - `npm run optimize-images` — Regenerate gallery variants (3 sizes × 3 formats) + `photos.json`
 - `npm run gallery:shots` — Desktop + mobile screenshot capture
 - `npm run gallery:check` — Editorial regression (inline navigation and lightbox, including the narrow full-site layout)
+- `node scripts/gallery-transition-check.js` — Decode readiness, intermediate frames, rapid navigation, errors/retry, portrait geometry, and keyboard focus. Set `BROWSER=chromium|firefox|webkit`; set `STATIC_ROOT="$PWD/dist" REQUIRE_DEPLOY_ARTIFACT=1` to test the built release. Frame samples/screenshots are saved under `output/playwright/transitions/`. Included in `release:check`.
+- `node scripts/gallery-prefetch-check.js` — Responsive formats, bounded mobile thumbnail work, and cold/warm transfers under a throttled Chromium network profile.
 
 ### Playwright regression
 
