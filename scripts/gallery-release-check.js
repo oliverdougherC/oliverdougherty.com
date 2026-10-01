@@ -370,7 +370,12 @@ async function runDesktopBfcacheScenario(browser, baseUrl) {
     await page.evaluate(() => history.back());
     await page.waitForFunction(() => location.pathname.endsWith('/pages/gallery/index.html') && document.readyState === 'complete' && window.__pageshowLog?.length > 0);
     await waitForGalleryReady(page);
-    await page.waitForFunction(() => !document.getElementById('lightbox').hidden && getComputedStyle(document.getElementById('lightboxImage')).opacity === '1');
+    await page.waitForFunction(() => {
+      const image = document.getElementById('lightboxImage');
+      return !document.getElementById('lightbox').hidden && image?.complete && image.naturalWidth > 0
+        && getComputedStyle(image).opacity === '1'
+        && document.getElementById('lightboxMedia').getAttribute('aria-busy') === 'false';
+    });
     assert(await page.evaluate(() => location.hash) === suspendedHash, 'pending navigation changed the selected photo during suspension');
     results.bfcache.pendingNavigationLog = await page.evaluate(() => window.__pageshowLog);
     if (BROWSER === 'chromium') assert(results.bfcache.pendingNavigationLog.filter(event => event.persisted).length >= 2, 'second trip must actually use BFCache');

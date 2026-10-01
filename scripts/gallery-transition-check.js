@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 // Readiness and intermediate-frame regressions for issue #76. Routed fault
-// fixtures deliberately disable HTTP cache; cache measurements live separately
-// in gallery-prefetch-check.js. STATIC_ROOT supports the packaged release gate.
+// fixtures deliberately disable HTTP cache; the warm-transition context below
+// uses real cacheable HTTP without routing. Transfer probes live separately in
+// gallery-prefetch-check.js. STATIC_ROOT supports the packaged release gate.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const playwright = require('playwright');
 const { startLocalStaticServer, markAnimationsSeen } = require('./lib/playwright-static');
+const { startGalleryNetworkFixture, holdResponseBody } = require('./lib/gallery-network-fixture');
 
 const ROOT = path.resolve(__dirname, '..');
 const ENGINE = process.env.BROWSER || 'chromium';
@@ -39,7 +41,10 @@ async function sampleFrames(page, mobile = false) {
       window.__transitionFrames.push({ time: performance.now(), layers,
         title: document.getElementById('lightboxTitle')?.textContent,
         alt: document.getElementById(mobile ? 'mobileLightboxImage' : 'lightboxImage')?.alt,
-        hash: location.hash });
+        hash: location.hash,
+        committedSrc: document.getElementById(mobile ? 'mobileLightboxImage' : 'lightboxImage')?.currentSrc,
+        metadata: document.getElementById('lightboxMeta')?.textContent,
+        selected: document.querySelector('#lightboxThumbStrip [aria-current="true"]')?.dataset.entryId });
       if (window.__sampleTransition) requestAnimationFrame(sample);
     };
     requestAnimationFrame(sample);
@@ -54,6 +59,7 @@ async function finishFrames(page, name) {
   const blank = frames.filter(frame => !frame.layers.some(layer => layer.visible && layer.ready && layer.opacity >= 0.99));
   assert.equal(blank.length, 0, `${name}: ${blank.length}/${frames.length} frames lack an opaque decoded photo`);
   results.push({ name, frames: frames.length, blankFrames: blank.length });
+  return frames;
 }
 
 async function fixture(context, { jpegOnly = false } = {}) {
@@ -64,6 +70,144 @@ async function fixture(context, { jpegOnly = false } = {}) {
     return { ...photo, thumbs: jpeg(photo.thumbs), medium: jpeg(photo.medium), large: jpeg(photo.large) };
   }) } }));
   await context.route('**/assets/photos/gallery-sequence.json', route => route.fulfill({ json: { items: [] } }));
+}
+
+async function committedState(page) {
+  return page.evaluate(() => ({
+    committedSrc: document.getElementById('lightboxImage')?.currentSrc,
+    title: document.getElementById('lightboxTitle').textContent,
+    alt: document.getElementById('lightboxImage')?.alt,
+    hash: location.hash,
+    metadata: document.getElementById('lightboxMeta').textContent,
+    selected: document.querySelector('#lightboxThumbStrip [aria-current="true"]')?.dataset.entryId
+  }));
+}
+
+async function settledPicture(page) {
+  await page.waitForFunction(() => {
+    const pictures = document.querySelectorAll('#lightboxMedia picture');
+    return pictures.length === 1 && !pictures[0].classList.contains('is-preparing')
+      && getComputedStyle(pictures[0]).opacity === '1';
+  });
+}
+
+function assertFrameCommit(frames, before, after) {
+  let committed = false;
+  let retired = false;
+  for (const frame of frames) {
+    const target = frame.committedSrc === after.committedSrc;
+    assert(target || (!committed && frame.committedSrc === before.committedSrc), 'stale image reappeared after target commit');
+    committed ||= target;
+    const expected = target ? after : before;
+    for (const field of ['title', 'alt', 'hash', 'metadata', 'selected']) {
+      assert.equal(frame[field], expected[field], `${field} does not describe committed pixels`);
+    }
+    const oldPresent = frame.layers.some(layer => layer.src === before.committedSrc);
+    assert(!retired || !oldPresent, 'retired outgoing image reappeared');
+    if (!oldPresent) retired = true;
+  }
+  assert(committed && retired, 'replacement must commit and release its outgoing layer');
+  assert.equal(frames.at(-1).layers.length, 1, 'final frame retains only the target');
+}
+
+async function streamedBody(browser, base) {
+  let held;
+  let armed = false;
+  const matches = url => /\/assets\/photos\/(medium|large)\/attitude\./i.test(url);
+  const server = await startGalleryNetworkFixture(base, exchange => {
+    if (!armed || !matches(exchange.request.url)) return false;
+    held = holdResponseBody(exchange);
+    return true;
+  });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  // Only metadata is routed for this fault fixture; the image response is real
+  // HTTP with its headers and a partial body delivered before release.
+  await fixture(context);
+  const page = await context.newPage();
+  page.setDefaultTimeout(12000);
+  try {
+    await page.goto(`${server.url}/pages/gallery/?full=1#photo=lighthouse`, { waitUntil: 'domcontentloaded' });
+    await displayed(page, 'lighthouse');
+    await settledPicture(page);
+    const before = await committedState(page);
+    await sampleFrames(page);
+    await page.waitForFunction(() => window.__transitionFrames.length >= 3);
+    armed = true;
+    const receivedHeaders = page.waitForResponse(response => matches(response.url()));
+    await page.locator('#lightboxNext').click();
+    const response = await receivedHeaders;
+    assert.equal(response.status(), 200);
+    await held.started;
+    let bodyFinished = false;
+    const finished = response.finished().then(() => { bodyFinished = true; });
+    const heldFrameCount = await page.evaluate(() => window.__transitionFrames.length);
+    await page.waitForFunction(start => window.__transitionFrames.length >= start + 12, heldFrameCount);
+    assert.equal(bodyFinished, false, 'response body must still be incomplete after received headers');
+    assert.deepEqual(await committedState(page), before, 'partial response must preserve displayed pixels and metadata');
+    assert.equal(await page.locator('#lightboxMedia').getAttribute('aria-busy'), 'true');
+    await page.locator('#lightboxClose').focus();
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'lightboxClose', 'controls remain focusable while body is held');
+    await page.screenshot({ path: path.join(OUTPUT, 'desktop-partial-body.png') });
+    held.release();
+    await finished;
+    await displayed(page, 'attitude');
+    await settledPicture(page);
+    const after = await committedState(page);
+    // Include a settled frame after retirement, not just the commit callback.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assertFrameCommit(await finishFrames(page, 'desktop-streamed-body'), before, after);
+    results.push({ name: 'headers-received-body-held', status: 'pass', heldFrames: 12 });
+  } finally {
+    held?.release();
+    await context.close();
+    await server.close();
+  }
+}
+
+async function warmCacheTransition(browser, base) {
+  const imageRequests = [];
+  const server = await startGalleryNetworkFixture(base, ({ request, response, upstream }) => {
+    if (!/\/assets\/photos\/(medium|large)\//.test(request.url)) return false;
+    imageRequests.push(request.url);
+    // Real cacheable HTTP responses: no Playwright route, cache disabling,
+    // synthetic pixels, or network faults in this context.
+    response.writeHead(upstream.statusCode, { ...upstream.headers, 'cache-control': 'public, max-age=3600' });
+    upstream.pipe(response);
+    return true;
+  });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await markAnimationsSeen(context);
+  const page = await context.newPage();
+  page.setDefaultTimeout(12000);
+  try {
+    await page.goto(`${server.url}/pages/gallery/?full=1#photo=lighthouse`, { waitUntil: 'domcontentloaded' });
+    await displayed(page, 'lighthouse');
+    const target = await page.locator('.lightbox-thumb').evaluateAll(buttons => buttons.find(button => button.dataset.entryId !== 'lighthouse').dataset.entryId);
+    await page.locator(`.lightbox-thumb[data-entry-id="${target}"]`).click();
+    await displayed(page, target);
+    await settledPicture(page);
+    const after = await committedState(page);
+    const targetPath = new URL(after.committedSrc).pathname;
+    assert(imageRequests.includes(targetPath), 'replacement must first be downloaded into this fresh cache');
+    await page.locator('.lightbox-thumb[data-entry-id="lighthouse"]').click();
+    await displayed(page, 'lighthouse');
+    await settledPicture(page);
+    const before = await committedState(page);
+    const requestsBefore = imageRequests.filter(url => url === targetPath).length;
+    await sampleFrames(page);
+    await page.waitForFunction(() => window.__transitionFrames.length >= 3);
+    await page.locator(`.lightbox-thumb[data-entry-id="${target}"]`).click();
+    await displayed(page, target);
+    await settledPicture(page);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const frames = await finishFrames(page, 'desktop-warm-cache');
+    assertFrameCommit(frames, before, after);
+    assert.equal(imageRequests.filter(url => url === targetPath).length, requestsBefore, 'warm transition must reuse the cached response without a server request');
+    results.push({ name: 'warm-cache-without-routing', status: 'pass', additionalTargetRequests: 0 });
+  } finally {
+    await context.close();
+    await server.close();
+  }
 }
 
 async function desktop(browser, base, { reduced = false, jpegOnly = false } = {}) {
@@ -321,6 +465,8 @@ async function main() {
   const browser = await playwright[ENGINE].launch();
   try {
     const base = server?.url || url;
+    await streamedBody(browser, base);
+    await warmCacheTransition(browser, base);
     await desktop(browser, base);
     await desktop(browser, base, { reduced: true, jpegOnly: true });
     await navigationFailure(browser, base, '404');

@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { chromium, firefox, webkit } = require('playwright');
 const { startLocalStaticServer, waitForServer } = require('./lib/playwright-static');
+const { startGalleryNetworkFixture, holdResponseBody } = require('./lib/gallery-network-fixture');
 
 const ROOT = path.resolve(__dirname, '..');
 const requestedUrl = process.env.GALLERY_PREFETCH_URL || 'http://127.0.0.1:4173';
@@ -111,7 +112,9 @@ async function checkDedicatedMobile(browser, baseUrl, jpegOnly) {
     const reopened = await selectedMobileImage(page, fixturePhotos[4], !jpegOnly);
     assert.equal(reopened.focused, 'mobileLightboxClose');
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-    await page.waitForLoadState('networkidle');
+    // The selected image is ready and request starts have crossed two frames.
+    // Rapid navigation intentionally cancels superseded loads; waiting for all
+    // unrelated page channels to become idle is not this request-format check.
     const jpegs = requests.filter(url => /\.jpe?g$/.test(url));
     if (!jpegOnly) assert.deepEqual(jpegs, [], `Unused mobile JPEG requests: ${jpegs.join(', ')}`);
     else assert(jpegs.every(url => [2, 3, 4, 5, 0].some(index => url.endsWith('/' + fixturePhotos[index].medium.jpg) || url.endsWith('/' + fixturePhotos[index].large.jpg))),
@@ -199,6 +202,105 @@ async function checkDesktopFilmstrip(browser, baseUrl, jpegOnly) {
   }
 }
 
+// Observe the browser's actual request lifetime, including failed requests. A
+// cumulative URL count cannot detect a scheduler that starts too much at once.
+function trackThumbnailRequests(page) {
+  const active = new Set();
+  const requests = [];
+  let maximum = 0;
+  page.on('request', request => {
+    if (!/\/assets\/photos\/thumbs\//.test(request.url())) return;
+    active.add(request);
+    requests.push(request);
+    maximum = Math.max(maximum, active.size);
+  });
+  const finish = request => active.delete(request);
+  page.on('requestfinished', finish);
+  page.on('requestfailed', finish);
+  return {
+    active, requests,
+    assertBound() {
+      assert(maximum <= 2, `Background thumbnails reached ${maximum} concurrent requests (limit 2)`);
+    },
+    get maximum() { return maximum; }
+  };
+}
+
+async function checkMobileThumbnailScheduling(browser, baseUrl) {
+  const heldThumbnails = [];
+  const heldViewer = [];
+  let holdThumbnails = true;
+  const fixture = await startGalleryNetworkFixture(baseUrl, ({ request, response, upstream }) => {
+    const pathname = new URL(request.url, baseUrl).pathname;
+    if (/\/assets\/photos\/thumbs\//.test(pathname) && holdThumbnails) {
+      heldThumbnails.push(holdResponseBody({ response, upstream }));
+      return true;
+    }
+    if (/\/assets\/photos\/(medium|large)\//.test(pathname)) {
+      heldViewer.push(holdResponseBody({ response, upstream }));
+      return true;
+    }
+    return false;
+  });
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+  const page = await context.newPage();
+  const thumbnails = trackThumbnailRequests(page);
+  const settleFrames = () => page.evaluate(() => new Promise(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  }));
+  const waitFor = async (predicate, message) => {
+    const deadline = Date.now() + 10000;
+    while (!predicate() && Date.now() < deadline) await page.waitForTimeout(20);
+    assert(predicate(), message);
+  };
+  try {
+    // Server-side body holds preserve native browser requests, priorities and
+    // cancellation. This fault-injection context never measures warm cache.
+    await page.goto(`${fixture.url}/mobile/gallery/`, { waitUntil: 'domcontentloaded' });
+    await page.locator('#mobileGalleryGrid button').first().waitFor();
+    await waitFor(() => heldThumbnails.length >= 2, 'two background thumbnails must begin');
+    await Promise.all(heldThumbnails.map(held => held.started));
+    await settleFrames();
+    thumbnails.assertBound();
+    const startedBeforeOpen = thumbnails.requests.length;
+    assert.equal(thumbnails.active.size, 2, 'the probe must open during two in-flight thumbnails');
+
+    await page.locator('#mobileGalleryGrid button').first().evaluate(button => button.click());
+    await waitFor(() => heldViewer.length > 0, 'opening must start a high-priority viewer request');
+    await Promise.all(heldViewer.map(held => held.started));
+    assert.equal(await page.locator('#mobileLightboxMedia').getAttribute('aria-busy'), 'true');
+
+    // Let the old requests complete in either order while the viewer body is
+    // still held. Every completed slot must stay idle until the viewer closes.
+    holdThumbnails = false;
+    heldThumbnails.forEach(held => held.release());
+    await waitFor(() => thumbnails.active.size === 0, 'already-started thumbnails may finish while the viewer loads');
+    await settleFrames();
+    assert.equal(thumbnails.requests.length, startedBeforeOpen,
+      'opening the viewer must immediately stop new thumbnails before viewer readiness');
+    heldViewer.forEach(held => held.release());
+    await page.waitForFunction(() => document.getElementById('mobileLightboxImage').naturalWidth > 0
+      && document.getElementById('mobileLightboxMedia').getAttribute('aria-busy') === 'false');
+    await settleFrames();
+    assert.equal(thumbnails.requests.length, startedBeforeOpen,
+      'thumbnail scheduling must stay paused after the viewer becomes ready');
+
+    // Hold the resumed requests too, making concurrent starts observable even
+    // on a fast loopback server. Existing unstarted visible cells remain queued.
+    holdThumbnails = true;
+    await page.locator('#mobileLightboxClose').click();
+    await waitFor(() => thumbnails.requests.length > startedBeforeOpen,
+      'closing the viewer must resume pending thumbnail requests');
+    await settleFrames();
+    thumbnails.assertBound();
+    heldThumbnails.forEach(held => held.release());
+    console.log(`Mobile thumbnail scheduler (${browser.browserType().name()}, server-held bodies, no browser routing): maximum ${thumbnails.maximum} concurrent; zero new starts while viewer pending/open; resumed after close.`);
+  } finally {
+    await context.close();
+    await fixture.close();
+  }
+}
+
 async function traceUnroutedMobileCache(browser, baseUrl) {
   if (browser.browserType().name() !== 'chromium') return;
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
@@ -206,10 +308,7 @@ async function traceUnroutedMobileCache(browser, baseUrl) {
   const cdp = await context.newCDPSession(page);
   const pending = new Map();
   const transfers = [];
-  const thumbnails = new Set();
-  page.on('request', request => {
-    if (/\/assets\/photos\/thumbs\//.test(request.url())) thumbnails.add(imagePath(request.url()));
-  });
+  const thumbnails = trackThumbnailRequests(page);
   await cdp.send('Network.enable');
   await cdp.send('Network.emulateNetworkConditions', MOBILE_NETWORK);
   cdp.on('Network.requestWillBeSent', event => {
@@ -231,15 +330,21 @@ async function traceUnroutedMobileCache(browser, baseUrl) {
     await page.goto(`${baseUrl}/mobile/gallery/`, { waitUntil: 'domcontentloaded' });
     await page.locator('#mobileGalleryGrid button').first().waitFor();
     const openStarted = Date.now();
-    await page.locator('#mobileGalleryGrid button').first().click();
+    const openedAt = await page.locator('#mobileGalleryGrid button').first().evaluate(button => {
+      button.click();
+      return performance.timeOrigin + performance.now();
+    });
     await page.waitForFunction(() => document.getElementById('mobileLightboxImage').naturalWidth > 0
       && document.getElementById('mobileLightboxMedia').getAttribute('aria-busy') === 'false');
     const coldReadyMs = Date.now() - openStarted;
-    assert(thumbnails.size <= 8, `Background grid started ${thumbnails.size} thumbnails before the requested photo was ready`);
-    const coldThumbnailCount = thumbnails.size;
+    thumbnails.assertBound();
+    const coldThumbnailCount = thumbnails.requests.length;
     const firstSrc = await page.locator('#mobileLightboxImage').evaluate(image => image.currentSrc);
     await page.waitForLoadState('networkidle');
     const cold = transfers.slice();
+    const whileOpen = thumbnails.requests.filter(request => request.timing().startTime >= openedAt);
+    assert.deepEqual(whileOpen.map(request => imagePath(request.url())), [],
+      'No background thumbnail may start while the cold viewer is open, including before image readiness');
     await page.locator('#mobileLightboxClose').click();
     await page.locator('#mobileGalleryGrid button').first().click();
     await page.waitForFunction(() => document.getElementById('mobileLightboxImage').naturalWidth > 0
@@ -248,7 +353,8 @@ async function traceUnroutedMobileCache(browser, baseUrl) {
     assert.equal(secondSrc, firstSrc, 'Warm reopen selected another image');
     await page.waitForLoadState('networkidle');
     const warm = transfers.slice(cold.length);
-    console.log(`Unrouted mobile cache probe (100ms RTT, 1.5Mbit/s): ${imagePath(firstSrc)}; ready ${coldReadyMs}ms, ${coldThumbnailCount} thumbnail requests; cold ${cold.length} requests/${cold.reduce((sum, item) => sum + item.encodedBytes, 0)} encoded bytes; warm ${warm.length} requests/${warm.reduce((sum, item) => sum + item.encodedBytes, 0)} encoded bytes.`);
+    thumbnails.assertBound();
+    console.log(`Unrouted mobile cache probe (100ms RTT, 1.5Mbit/s): ${imagePath(firstSrc)}; ready ${coldReadyMs}ms, ${coldThumbnailCount} thumbnail requests, maximum ${thumbnails.maximum} concurrent; cold ${cold.length} requests/${cold.reduce((sum, item) => sum + item.encodedBytes, 0)} encoded bytes; warm ${warm.length} requests/${warm.reduce((sum, item) => sum + item.encodedBytes, 0)} encoded bytes.`);
     for (const transfer of [...cold, ...warm]) console.log(`  ${transfer.path}: ${transfer.encodedBytes} encoded bytes${transfer.cached ? ' (cache)' : ''}`);
   } finally {
     await context.close();
@@ -317,6 +423,7 @@ async function run() {
       () => checkDedicatedMobile(browser, baseUrl, true),
       () => checkDesktopFilmstrip(browser, baseUrl, false),
       () => checkDesktopFilmstrip(browser, baseUrl, true),
+      () => checkMobileThumbnailScheduling(browser, baseUrl),
       () => traceUnroutedMobileCache(browser, baseUrl)
     ]) {
       try { await check(); } catch (error) { failures.push(error); console.error(error); }
