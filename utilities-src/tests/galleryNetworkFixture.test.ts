@@ -22,7 +22,10 @@ async function withOrigin(handler: (request: IncomingMessage, response: ServerRe
 
 describe('gallery HTTP response fixture', () => {
   it('pins absolute-form client requests to the configured upstream origin', async () => {
-    await withOrigin((request, response) => response.end(request.url), async base => {
+    await withOrigin((request, response) => {
+      response.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end(request.url);
+    }, async base => {
       const fixture = await startGalleryNetworkFixture(base);
       try {
         const url = new URL(fixture.url);
