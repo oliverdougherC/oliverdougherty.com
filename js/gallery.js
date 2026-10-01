@@ -38,13 +38,14 @@ const gallery = {
   lightboxOpen: false,
   infoPanelOpen: false,
   triggerElement: null,
-  lightboxNavigationTimer: 0,
-  hashChangeTimer: 0,
+  requestedIndex: -1,
+  lightboxRequest: null,
+  lightboxTransition: null,
+  lightboxTouch: null,
   scrollRevealObserver: null,
   inertElements: [],
   inertFallbackState: new Map(),
   lightboxFocusables: [],
-  supportsScrollIntoViewInline: null,
   heroRevealTimers: [],
   heroRevealComplete: false,
   heroRevealScrollHandler: null,
@@ -53,6 +54,7 @@ const gallery = {
     frame: 0,
     signature: '',
     pending: false,
+    pendingForce: false,
     observer: null,
     resizeHandler: null,
     placardHeight: 34,
@@ -85,6 +87,7 @@ function cacheElements() {
     heroSourceAvif: document.getElementById('galleryHeroSourceAvif'),
     heroSourceWebp: document.getElementById('galleryHeroSourceWebp'),
     heroImage: document.getElementById('galleryHeroImage'),
+    heroError: document.getElementById('galleryHeroError'),
     heroOpen: document.getElementById('galleryHeroOpen'),
     loading: document.getElementById('galleryLoading'),
     empty: document.getElementById('galleryEmpty'),
@@ -104,6 +107,8 @@ function cacheElements() {
     lightboxSourceAvif: document.getElementById('lightboxSourceAvif'),
     lightboxSourceWebp: document.getElementById('lightboxSourceWebp'),
     lightboxImage: document.getElementById('lightboxImage'),
+    lightboxStatus: document.getElementById('lightboxStatus'),
+    lightboxRetry: document.getElementById('lightboxRetry'),
     lightboxEyebrow: document.getElementById('lightboxEyebrow'),
     lightboxTitle: document.getElementById('lightboxTitle'),
     lightboxSubline: document.getElementById('lightboxSubline'),
@@ -244,6 +249,7 @@ function bindStaticEvents() {
   gallery.elements.lightboxClose?.addEventListener('click', () => closeLightbox());
   gallery.elements.lightboxPrev?.addEventListener('click', () => navigateLightbox(-1));
   gallery.elements.lightboxNext?.addEventListener('click', () => navigateLightbox(1));
+  gallery.elements.lightboxRetry?.addEventListener('click', () => requestLightboxEntry(gallery.requestedIndex));
   gallery.elements.lightboxInfoToggle?.addEventListener('click', () => {
     setInfoPanelOpen(!gallery.infoPanelOpen);
   });
@@ -259,18 +265,31 @@ function bindStaticEvents() {
   window.addEventListener('pageshow', resumeGalleryRuntime);
 
   if (gallery.elements.lightboxMedia) {
-    let touchStartX = 0;
-    let touchEndX = 0;
-
     gallery.elements.lightboxMedia.addEventListener('touchstart', (event) => {
-      touchStartX = event.changedTouches[0].screenX;
+      gallery.lightboxTouch = null;
+      if (!gallery.lightboxOpen || event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      gallery.lightboxTouch = {
+        identifier: touch.identifier ?? 0,
+        x: touch.clientX,
+        y: touch.clientY
+      };
+    }, { passive: true });
+
+    gallery.elements.lightboxMedia.addEventListener('touchcancel', () => {
+      gallery.lightboxTouch = null;
     }, { passive: true });
 
     gallery.elements.lightboxMedia.addEventListener('touchend', (event) => {
-      touchEndX = event.changedTouches[0].screenX;
-      const diff = touchStartX - touchEndX;
-      if (Math.abs(diff) < 50 || !gallery.lightboxOpen) return;
-      navigateLightbox(diff > 0 ? 1 : -1);
+      const start = gallery.lightboxTouch;
+      gallery.lightboxTouch = null;
+      if (!start || !gallery.lightboxOpen || event.touches.length) return;
+      const touch = Array.from(event.changedTouches).find(point => (point.identifier ?? 0) === start.identifier);
+      if (!touch) return;
+      const diffX = start.x - touch.clientX;
+      const diffY = start.y - touch.clientY;
+      if (Math.abs(diffX) < 50 || Math.abs(diffX) <= Math.abs(diffY)) return;
+      navigateLightbox(diffX > 0 ? 1 : -1);
     }, { passive: true });
   }
 }
@@ -283,6 +302,8 @@ function bindRuntimeListeners() {
   document.addEventListener('keydown', handleGlobalKeydown);
   window.removeEventListener('hashchange', handleHashChange);
   window.addEventListener('hashchange', handleHashChange);
+  window.removeEventListener('resize', syncInfoPanelVisibility);
+  window.addEventListener('resize', syncInfoPanelVisibility, { passive: true });
 }
 
 // Issue #40: the fetch layer bounds BOTH the request and its body read with
@@ -560,18 +581,32 @@ function syncHeroFeature() {
 
     heroImage.classList.remove('is-loaded');
     heroOpen?.classList.remove('is-loaded');
+    heroImage.hidden = false;
+    if (gallery.elements.heroError) gallery.elements.heroError.hidden = true;
+    heroOpen?.setAttribute('aria-label', `Open ${entry.displayTitle}`);
     heroImage.alt = '';
+    heroImage.decoding = 'async';
+    heroImage.fetchPriority = 'high';
     heroImage.dataset.entryId = entry.id;
 
     const markHeroLoaded = () => {
       if (heroImage.dataset.entryId !== entry.id) return;
+      heroImage.hidden = false;
+      if (gallery.elements.heroError) gallery.elements.heroError.hidden = true;
+      heroOpen?.setAttribute('aria-label', `Open ${entry.displayTitle}`);
       heroImage.alt = entry.displayTitle;
       heroImage.classList.add('is-loaded');
       heroOpen?.classList.add('is-loaded');
     };
 
-    heroImage.addEventListener('load', markHeroLoaded, { once: true });
-    heroImage.addEventListener('error', markHeroLoaded, { once: true });
+    heroImage.onload = markHeroLoaded;
+    heroImage.onerror = () => {
+      if (heroImage.dataset.entryId !== entry.id) return;
+      heroImage.classList.remove('is-loaded');
+      heroImage.hidden = true;
+      if (gallery.elements.heroError) gallery.elements.heroError.hidden = false;
+      heroOpen?.setAttribute('aria-label', `${entry.displayTitle}: preview unavailable. Open photo to retry.`);
+    };
     heroImage.srcset = buildSrcset([
       makeResponsiveCandidate(entry.assets.mediumJpg, entry.assets.mediumWidth),
       makeResponsiveCandidate(entry.assets.largeJpg, entry.assets.largeWidth)
@@ -742,31 +777,43 @@ function createPhotoCard(item) {
 
   const image = document.createElement('img');
   image.className = 'photo-image';
-  image.src = entry.assets[`${largeSrc}Jpg`] || entry.assets.mediumJpg || entry.assets.original;
   image.alt = entry.displayTitle;
   image.loading = index < 4 ? 'eager' : 'lazy';
-  image.decoding = index < 4 ? 'sync' : 'async';
+  image.decoding = 'async';
   image.fetchPriority = index < 4 ? 'high' : 'auto';
   image.width = entry.assets[`${largeSrc}Width`] || entry.width;
   image.height = entry.assets[`${largeSrc}Height`] || entry.height;
+  image.sizes = imageSizes;
+  const previewError = document.createElement('span');
+  previewError.className = 'photo-error-copy';
+  previewError.textContent = 'Preview unavailable. Open photo to retry.';
+  previewError.hidden = true;
+  image.addEventListener('load', () => {
+    article.classList.remove('is-loading');
+    article.classList.add('is-loaded');
+    article.classList.remove('photo-card--broken');
+    previewError.hidden = true;
+    button.setAttribute('aria-label', `Inspect ${entry.displayTitle}`);
+    reconcileCardAspect(item, image);
+  });
+  image.addEventListener('error', () => {
+    console.warn('Gallery image failed to load:', image.currentSrc || image.src);
+    article.classList.remove('is-loading');
+    article.classList.remove('is-loaded');
+    article.classList.add('photo-card--broken');
+    previewError.hidden = false;
+    button.setAttribute('aria-label', `${entry.displayTitle}: preview unavailable. Open photo to retry.`);
+  });
+
+  picture.append(sourceAvif, sourceWebp, image);
+  // Attach responsive ancestors before assigning fallback URLs; eager detached
+  // images otherwise start unused JPEG transfers in WebKit.
   image.srcset = buildSrcset([
     makeResponsiveCandidate(entry.assets[`${smallSrc}Jpg`], entry.assets[`${smallSrc}Width`]),
     makeResponsiveCandidate(entry.assets[`${largeSrc}Jpg`], entry.assets[`${largeSrc}Width`])
   ]);
-  image.sizes = imageSizes;
-  image.addEventListener('load', () => {
-    article.classList.remove('is-loading');
-    article.classList.add('is-loaded');
-    reconcileCardAspect(item, image);
-  }, { once: true });
-  image.addEventListener('error', () => {
-    console.warn('Gallery image failed to load:', image.currentSrc || image.src);
-    article.classList.remove('is-loading');
-    article.classList.add('photo-card--broken');
-  }, { once: true });
-
-  picture.append(sourceAvif, sourceWebp, image);
-  media.appendChild(picture);
+  image.src = entry.assets[`${largeSrc}Jpg`] || entry.assets.mediumJpg || entry.assets.original;
+  media.append(picture, previewError);
 
   const caption = document.createElement('div');
   caption.className = 'photo-placard';
@@ -1235,8 +1282,9 @@ function computeArchiveLayoutSignature(grid) {
 }
 
 function scheduleArchiveLayout({ force = false } = {}) {
-  if (gallery.lightboxOpen && !force) {
+  if (gallery.lightboxOpen) {
     gallery.archiveLayout.pending = true;
+    gallery.archiveLayout.pendingForce ||= force;
     return;
   }
 
@@ -1248,6 +1296,11 @@ function scheduleArchiveLayout({ force = false } = {}) {
 
   gallery.archiveLayout.frame = window.requestAnimationFrame(() => {
     gallery.archiveLayout.frame = 0;
+    if (gallery.lightboxOpen) {
+      gallery.archiveLayout.pending = true;
+      gallery.archiveLayout.pendingForce ||= force;
+      return;
+    }
 
     const grid = gallery.elements.archiveGrid;
     if (!grid) return;
@@ -1378,7 +1431,9 @@ function buildLightboxThumbStrip() {
 
     button.append(picture, label);
     button.addEventListener('click', () => {
-      gallery.triggerElement = button;
+      // Safari does not focus clicked buttons by default. Keep selection
+      // inside the modal instead of leaving focus on its inert background.
+      button.focus({ preventScroll: true });
       openLightboxById(entry.id, button);
     });
 
@@ -1389,82 +1444,208 @@ function buildLightboxThumbStrip() {
 }
 
 function openLightboxById(entryId, triggerElement) {
-  if (triggerElement) {
-    gallery.triggerElement = triggerElement;
-  }
-  writePhotoHash(entryId);
-  syncGalleryFromUrl();
+  openLightboxUi(entryId, triggerElement);
 }
 
 function openLightboxUi(entryId, triggerElement) {
   const index = gallery.entries.findIndex((entry) => entry.id === entryId);
   if (index === -1 || !gallery.elements.lightbox) return;
 
-  gallery.currentIndex = index;
-  gallery.lightboxOpen = true;
-  if (triggerElement) {
-    gallery.triggerElement = triggerElement;
+  if (!gallery.lightboxOpen) {
+    gallery.lightboxOpen = true;
+    // Keep the outside opener: choosing a thumbnail must not restore focus
+    // into the now-hidden dialog on close.
+    gallery.triggerElement = triggerElement && !gallery.elements.lightbox.contains(triggerElement)
+      ? triggerElement : document.activeElement;
+    gallery.elements.lightbox.hidden = false;
+    gallery.elements.lightbox.classList.add('is-active');
+    document.body.classList.add('gallery-lightbox-open');
+    setPageInert(true);
+    setInfoPanelOpen(!window.matchMedia('(max-width: 900px)').matches);
+    gallery.elements.lightboxClose?.focus();
   }
-  gallery.elements.lightbox.hidden = false;
-  gallery.elements.lightbox.classList.add('is-active');
-  document.body.classList.add('gallery-lightbox-open');
-  setPageInert(true);
-  setInfoPanelOpen(!window.matchMedia('(max-width: 900px)').matches);
-  renderLightboxEntry(gallery.entries[index]);
+  requestLightboxEntry(index);
+}
+
+function setLightboxStatus(message = '', retry = false) {
+  const { lightboxMedia, lightboxStatus, lightboxRetry } = gallery.elements;
+  lightboxMedia?.setAttribute('aria-busy', String(Boolean(message) && !retry));
+  if (lightboxStatus) lightboxStatus.textContent = message;
+  if (lightboxRetry) {
+    // Do not strand keyboard focus on a hidden retry button after recovery.
+    if (!retry && document.activeElement === lightboxRetry) gallery.elements.lightboxClose?.focus();
+    lightboxRetry.hidden = !retry;
+  }
   refreshLightboxFocusables();
-  gallery.elements.lightboxClose?.focus();
+}
+
+function cancelLightboxPreparation() {
+  gallery.lightboxRequest?.cancel();
+  gallery.lightboxRequest = null;
+  // A new request first settles any already decoded fade. This keeps at most
+  // two picture layers alive: displayed + preparing (or displayed + outgoing).
+  gallery.lightboxTransition?.();
+  gallery.lightboxTransition = null;
+}
+
+function requestLightboxEntry(index) {
+  if (!gallery.lightboxOpen || !gallery.entries[index]) return;
+  cancelLightboxPreparation();
+  gallery.requestedIndex = index;
+  const entry = gallery.entries[index];
+  if (index === gallery.currentIndex) {
+    setLightboxStatus();
+    writePhotoHash(entry.id);
+    return;
+  }
+
+  if (gallery.currentIndex < 0) {
+    gallery.elements.lightboxImage?.closest('picture')?.remove();
+    gallery.elements.lightboxImage = null;
+  }
+  setLightboxStatus(`Loading ${entry.displayTitle}…`);
+  const picture = document.createElement('picture');
+  picture.className = 'lightbox-picture is-preparing';
+  picture.setAttribute('aria-hidden', 'true');
+  const avif = document.createElement('source');
+  avif.type = 'image/avif';
+  const webp = document.createElement('source');
+  webp.type = 'image/webp';
+  const image = document.createElement('img');
+  image.className = 'lightbox-image';
+  image.alt = entry.displayTitle;
+  image.decoding = 'async';
+  image.fetchPriority = 'high';
+  image.width = entry.width;
+  image.height = entry.height;
+  picture.append(avif, webp, image);
+
+  // Set responsive sources while the fallback image has no URL; do not start
+  // an unused full-size JPEG before the browser can choose AVIF/WebP.
+  const sizes = '(max-width: 900px) calc(100vw - 56px), (max-width: 1024px) calc(100vw - 96px), calc(100vw - 432px)';
+  setPictureSource(avif, buildSrcset([
+    makeResponsiveCandidate(entry.assets.mediumAvif, entry.assets.mediumWidth),
+    makeResponsiveCandidate(entry.assets.largeAvif, entry.assets.largeWidth)
+  ]), sizes);
+  setPictureSource(webp, buildSrcset([
+    makeResponsiveCandidate(entry.assets.mediumWebp, entry.assets.mediumWidth),
+    makeResponsiveCandidate(entry.assets.largeWebp, entry.assets.largeWidth)
+  ]), sizes);
+  image.sizes = sizes;
+
+  let timer = 0;
+  let decoding = false;
+  const cleanup = () => {
+    window.clearTimeout(timer);
+    image.removeEventListener('load', ready);
+    image.removeEventListener('error', failed);
+  };
+  const request = {
+    cancel() {
+      cleanup();
+      picture.remove();
+      // Release pending network/decoder work when the browser permits it.
+      // Clear fallback URLs before removing sources: WebKit can otherwise
+      // start the JPEG while the detached picture loses its modern candidates.
+      image.removeAttribute('src');
+      image.removeAttribute('srcset');
+      avif.removeAttribute('srcset');
+      webp.removeAttribute('srcset');
+    }
+  };
+  const current = () => gallery.lightboxOpen && gallery.lightboxRequest === request;
+  const failed = () => {
+    if (!current()) return;
+    request.cancel();
+    gallery.lightboxRequest = null;
+    setLightboxStatus(`${entry.displayTitle} could not be loaded. Try again or choose another photo.`, true);
+  };
+  const ready = async () => {
+    if (!current() || decoding || !image.naturalWidth) return;
+    decoding = true;
+    try {
+      if (typeof image.decode === 'function') await image.decode();
+      if (!current()) return;
+      cleanup();
+      gallery.lightboxRequest = null;
+      commitLightboxEntry(index, picture, image, avif, webp);
+    } catch {
+      failed();
+    }
+  };
+  gallery.lightboxRequest = request;
+  image.addEventListener('load', ready);
+  image.addEventListener('error', failed);
+  const configuredTimeout = Number(window.__GALLERY_IMAGE_TIMEOUT_MS__);
+  timer = window.setTimeout(failed, configuredTimeout > 0 ? configuredTimeout : 15000);
+  gallery.elements.lightboxMedia.appendChild(picture);
+  image.srcset = buildSrcset([
+    makeResponsiveCandidate(entry.assets.mediumJpg, entry.assets.mediumWidth),
+    makeResponsiveCandidate(entry.assets.largeJpg, entry.assets.largeWidth)
+  ]);
+  image.src = entry.assets.largeJpg || entry.assets.mediumJpg || entry.assets.original;
+  if (image.complete && image.naturalWidth) ready();
+}
+
+function commitLightboxEntry(index, picture, image, avif, webp) {
+  const elements = gallery.elements;
+  const previous = elements.lightboxImage?.closest('picture');
+  const hadImage = gallery.currentIndex >= 0;
+  previous?.removeAttribute('id');
+  previous?.setAttribute('aria-hidden', 'true');
+  previous?.querySelectorAll('[id]').forEach(element => element.removeAttribute('id'));
+  picture.id = 'lightboxPicture';
+  image.id = 'lightboxImage';
+  avif.id = 'lightboxSourceAvif';
+  webp.id = 'lightboxSourceWebp';
+  picture.classList.remove('is-preparing');
+  picture.removeAttribute('aria-hidden');
+  elements.lightboxImage = image;
+  elements.lightboxSourceAvif = avif;
+  elements.lightboxSourceWebp = webp;
+  gallery.currentIndex = index;
+  renderLightboxEntry(gallery.entries[index]);
+  writePhotoHash(gallery.entries[index].id);
+  setLightboxStatus();
+
+  if (!hadImage || window.matchMedia('(prefers-reduced-motion: reduce)').matches || typeof picture.animate !== 'function') {
+    previous?.remove();
+    return;
+  }
+  // The outgoing decoded layer remains fully visible beneath the incoming
+  // fade. No frame depends on timers or transitionend to make pixels visible.
+  // An opaque picture surface also masks portrait/landscape overhangs.
+  const animation = picture.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: 'ease-out' });
+  let timer = 0;
+  const finish = () => {
+    window.clearTimeout(timer);
+    animation.cancel();
+    previous?.remove();
+    if (gallery.lightboxTransition === finish) gallery.lightboxTransition = null;
+  };
+  gallery.lightboxTransition = finish;
+  animation.finished.then(finish, () => {});
+  timer = window.setTimeout(finish, 220);
 }
 
 function renderLightboxEntry(entry) {
   const elements = gallery.elements;
-  if (
-    !elements.lightboxImage ||
-    !elements.lightboxEyebrow ||
-    !elements.lightboxTitle ||
-    !elements.lightboxSubline ||
-    !elements.lightboxNotes ||
-    !elements.lightboxMeta ||
-    !elements.lightboxThumbStrip
-  ) {
-    return;
-  }
-
-  setPictureSource(
-    elements.lightboxSourceAvif,
-    buildSrcset([
-      makeResponsiveCandidate(entry.assets.mediumAvif, entry.assets.mediumWidth),
-      makeResponsiveCandidate(entry.assets.largeAvif, entry.assets.largeWidth)
-    ]),
-    '(max-width: 900px) 100vw, calc(100vw - 400px)'
-  );
-  setPictureSource(
-    elements.lightboxSourceWebp,
-    buildSrcset([
-      makeResponsiveCandidate(entry.assets.mediumWebp, entry.assets.mediumWidth),
-      makeResponsiveCandidate(entry.assets.largeWebp, entry.assets.largeWidth)
-    ]),
-    '(max-width: 900px) 100vw, calc(100vw - 400px)'
-  );
-
-  elements.lightboxImage.src = entry.assets.largeJpg || entry.assets.mediumJpg || entry.assets.original;
-  elements.lightboxImage.alt = entry.displayTitle;
-  elements.lightboxImage.srcset = buildSrcset([
-    makeResponsiveCandidate(entry.assets.mediumJpg, entry.assets.mediumWidth),
-    makeResponsiveCandidate(entry.assets.largeJpg, entry.assets.largeWidth)
-  ]);
-  elements.lightboxImage.sizes = '(max-width: 900px) 100vw, calc(100vw - 400px)';
-
   elements.lightboxEyebrow.textContent = entry.featured ? String(gallery.currentIndex + 1).padStart(2, '0') : 'Archive frame';
   elements.lightboxTitle.textContent = entry.displayTitle;
   elements.lightboxSubline.textContent = '';
   elements.lightboxNotes.textContent = '';
+  const metadataHadFocus = elements.lightboxMeta.contains(document.activeElement);
   replaceChildrenCompat(elements.lightboxMeta, buildLightboxMeta(entry));
-
+  if (metadataHadFocus) elements.lightboxClose?.focus();
+  syncInfoPanelVisibility();
   elements.lightboxThumbStrip.querySelectorAll('.lightbox-thumb').forEach((button) => {
     const active = button.dataset.entryId === entry.id;
     button.classList.toggle('is-active', active);
     if (active) {
+      button.setAttribute('aria-current', 'true');
       scrollThumbIntoView(button);
+    } else {
+      button.removeAttribute('aria-current');
     }
   });
   refreshLightboxFocusables();
@@ -1533,34 +1714,11 @@ function buildLightboxMeta(entry) {
 }
 
 function navigateLightbox(direction) {
-  if (!gallery.entries.length || gallery.currentIndex < 0 || !gallery.elements.lightboxImage) return;
-
-  if (gallery.lightboxNavigationTimer) {
-    window.clearTimeout(gallery.lightboxNavigationTimer);
-  }
-
-  gallery.elements.lightboxImage.style.opacity = '0';
-
-  gallery.lightboxNavigationTimer = window.setTimeout(() => {
-    gallery.lightboxNavigationTimer = 0;
-    if (!gallery.lightboxOpen) return;
-
-    const length = gallery.entries.length;
-    gallery.currentIndex = (gallery.currentIndex + direction + length) % length;
-    const nextEntry = gallery.entries[gallery.currentIndex];
-    writePhotoHash(nextEntry.id);
-    renderLightboxEntry(nextEntry);
-
-    requestAnimationFrame(() => {
-      gallery.elements.lightboxImage.style.opacity = '1';
-      gallery.elements.lightboxImage.addEventListener('transitionend', cleanupLightboxImageOpacity, { once: true });
-    });
-  }, 150);
-}
-
-function cleanupLightboxImageOpacity(event) {
-  if (event && event.propertyName !== 'opacity') return;
-  gallery.elements.lightboxImage?.style.removeProperty('opacity');
+  if (!gallery.lightboxOpen || !gallery.entries.length || gallery.requestedIndex < 0) return;
+  // Every input advances the requested target, including while decoding.
+  // Superseded work is abandoned, so rapid input never queues the archive.
+  const length = gallery.entries.length;
+  requestLightboxEntry((gallery.requestedIndex + direction + length) % length);
 }
 
 function closeLightbox() {
@@ -1569,28 +1727,35 @@ function closeLightbox() {
 }
 
 function closeLightboxUi() {
+  gallery.lightboxTouch = null;
   if (!gallery.lightboxOpen) return;
 
-  if (gallery.lightboxNavigationTimer) {
-    window.clearTimeout(gallery.lightboxNavigationTimer);
-    gallery.lightboxNavigationTimer = 0;
-  }
-  if (gallery.hashChangeTimer) {
-    window.clearTimeout(gallery.hashChangeTimer);
-    gallery.hashChangeTimer = 0;
-  }
+  cancelLightboxPreparation();
 
   gallery.lightboxOpen = false;
   gallery.elements.lightbox?.classList.remove('is-active');
   document.body.classList.remove('gallery-lightbox-open');
   setPageInert(false);
-  cleanupLightboxImageOpacity();
+  gallery.currentIndex = -1;
+  gallery.requestedIndex = -1;
+  gallery.elements.lightboxImage?.closest('picture')?.remove();
+  gallery.elements.lightboxImage = null;
+  gallery.elements.lightboxTitle.textContent = '';
+  gallery.elements.lightboxEyebrow.textContent = 'Gallery';
+  replaceChildrenCompat(gallery.elements.lightboxMeta);
+  gallery.elements.lightboxThumbStrip.querySelectorAll('.is-active').forEach(button => {
+    button.classList.remove('is-active');
+    button.removeAttribute('aria-current');
+  });
+  setLightboxStatus();
   if (gallery.elements.lightbox) {
     gallery.elements.lightbox.hidden = true;
   }
   if (gallery.archiveLayout.pending) {
     gallery.archiveLayout.pending = false;
-    scheduleArchiveLayout();
+    const force = gallery.archiveLayout.pendingForce;
+    gallery.archiveLayout.pendingForce = false;
+    scheduleArchiveLayout({ force });
   }
   gallery.triggerElement?.focus?.();
   gallery.triggerElement = null;
@@ -1665,19 +1830,17 @@ function handleGlobalKeydown(event) {
 
 function trapFocus(event) {
   if (!gallery.elements.lightbox) return;
-  const focusables = gallery.lightboxFocusables.length ? gallery.lightboxFocusables : refreshLightboxFocusables();
+  const focusables = refreshLightboxFocusables();
   if (!focusables.length) return;
 
-  const first = focusables[0];
-  const last = focusables[focusables.length - 1];
-
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
+  // Own every step: browser/OS tab preferences can skip buttons entirely,
+  // even between our endpoints. Also recover if a removed node lost focus.
+  event.preventDefault();
+  const current = focusables.indexOf(document.activeElement);
+  const next = current === -1
+    ? (event.shiftKey ? focusables.length - 1 : 0)
+    : (current + (event.shiftKey ? -1 : 1) + focusables.length) % focusables.length;
+  focusables[next].focus();
 }
 
 function refreshLightboxFocusables() {
@@ -1687,45 +1850,42 @@ function refreshLightboxFocusables() {
   }
 
   gallery.lightboxFocusables = Array.from(gallery.elements.lightbox.querySelectorAll(
-    'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+    'button:not([disabled]), summary, [href], [tabindex]:not([tabindex="-1"])'
   )).filter((element) => {
-    return !element.hasAttribute('hidden') && element.offsetParent !== null;
+    return !element.closest('[hidden], [inert]') && element.offsetParent !== null;
   });
   return gallery.lightboxFocusables;
 }
 
-function supportsScrollIntoViewInline() {
-  if (gallery.supportsScrollIntoViewInline !== null) {
-    return gallery.supportsScrollIntoViewInline;
-  }
-
-  gallery.supportsScrollIntoViewInline = false;
-  try {
-    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
-    // Feature-detect via string inspection of the native method's source,
-    // avoiding the need to create detached DOM nodes.
-    if (typeof descriptor?.value === 'function') {
-      const source = descriptor.value.toString();
-      gallery.supportsScrollIntoViewInline = source.includes('inline');
-    }
-  } catch (_error) {
-    gallery.supportsScrollIntoViewInline = false;
-  }
-  return gallery.supportsScrollIntoViewInline;
-}
-
 function scrollThumbIntoView(button) {
-  if (supportsScrollIntoViewInline()) {
-    button.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
-    return;
+  // Scroll only the strip, not the page/metadata panel underneath the dialog.
+  const strip = gallery.elements.lightboxThumbStrip;
+  const left = button.offsetLeft - strip.offsetLeft - (strip.clientWidth - button.clientWidth) / 2;
+  if (typeof strip.scrollTo === 'function') {
+    strip.scrollTo({ left: Math.max(0, left), behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  } else {
+    strip.scrollLeft = Math.max(0, left);
   }
-  button.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 function setInfoPanelOpen(active) {
   gallery.infoPanelOpen = Boolean(active);
   gallery.elements.lightboxPanel?.classList.toggle('is-open', gallery.infoPanelOpen);
-  gallery.elements.lightboxInfoToggle?.setAttribute('aria-expanded', String(gallery.infoPanelOpen));
+  syncInfoPanelVisibility();
+}
+
+function syncInfoPanelVisibility() {
+  const { lightboxPanel, lightboxInfoToggle } = gallery.elements;
+  if (!lightboxPanel) return;
+  const collapsed = window.matchMedia('(max-width: 900px)').matches && !gallery.infoPanelOpen;
+  // The compact panel is translated offscreen, so offsetParent alone cannot
+  // exclude its still-laid-out controls from keyboard focus or accessibility.
+  if (collapsed && lightboxPanel.contains(document.activeElement)) lightboxInfoToggle?.focus();
+  lightboxPanel.toggleAttribute('inert', collapsed);
+  if (collapsed) lightboxPanel.setAttribute('aria-hidden', 'true');
+  else lightboxPanel.removeAttribute('aria-hidden');
+  lightboxInfoToggle?.setAttribute('aria-expanded', String(!collapsed));
+  refreshLightboxFocusables();
 }
 
 function readPhotoHash() {
@@ -1759,14 +1919,9 @@ function writePhotoHash(entryId) {
 }
 
 function handleHashChange() {
-  if (gallery.hashChangeTimer) {
-    window.clearTimeout(gallery.hashChangeTimer);
-  }
-
-  gallery.hashChangeTimer = window.setTimeout(() => {
-    gallery.hashChangeTimer = 0;
-    syncGalleryFromUrl();
-  }, 80);
+  // Invalidate a pending image immediately; a debounce allowed its stale
+  // completion to overwrite a just-selected browser-history target.
+  syncGalleryFromUrl();
 }
 
 function syncGalleryFromUrl() {
@@ -1785,7 +1940,7 @@ function syncGalleryFromUrl() {
     return;
   }
 
-  if (!gallery.lightboxOpen || gallery.currentIndex !== index) {
+  if (!gallery.lightboxOpen || gallery.requestedIndex !== index) {
     openLightboxUi(hashId, null);
   }
 }
@@ -1794,9 +1949,13 @@ function syncGalleryFromUrl() {
 // resumeGalleryRuntime re-arms. It is idempotent and safe both for real unload
 // (document is discarded) and for BFCache suspension (document may return).
 function suspendGalleryRuntime() {
-  cleanupLightboxImageOpacity();
+  gallery.lightboxTouch = null;
+  cancelLightboxPreparation();
+  gallery.requestedIndex = gallery.currentIndex;
+  setLightboxStatus();
   document.removeEventListener('keydown', handleGlobalKeydown);
   window.removeEventListener('hashchange', handleHashChange);
+  window.removeEventListener('resize', syncInfoPanelVisibility);
   gallery.scrollRevealObserver?.disconnect();
   gallery.scrollRevealObserver = null;
   if (gallery.archiveLayout.frame) {
@@ -1808,14 +1967,6 @@ function suspendGalleryRuntime() {
   if (gallery.archiveLayout.resizeHandler) {
     window.removeEventListener('resize', gallery.archiveLayout.resizeHandler);
     gallery.archiveLayout.resizeHandler = null;
-  }
-  if (gallery.lightboxNavigationTimer) {
-    window.clearTimeout(gallery.lightboxNavigationTimer);
-    gallery.lightboxNavigationTimer = 0;
-  }
-  if (gallery.hashChangeTimer) {
-    window.clearTimeout(gallery.hashChangeTimer);
-    gallery.hashChangeTimer = 0;
   }
   gallery.heroRevealTimers.forEach((t) => window.clearTimeout(t));
   gallery.heroRevealTimers = [];

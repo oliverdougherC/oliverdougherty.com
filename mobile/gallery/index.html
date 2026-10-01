@@ -30,8 +30,8 @@
   </header>
 
   <main>
-    <div class="mobile-gallery-loading" id="mobileGalleryLoading">
-      <div class="mobile-gallery-spinner"></div>
+    <div class="mobile-gallery-loading" id="mobileGalleryLoading" role="status">
+      <div class="mobile-gallery-spinner" aria-hidden="true"></div>
       <p>Loading…</p>
     </div>
     <div class="mobile-gallery-error" id="mobileGalleryError" hidden>
@@ -41,14 +41,18 @@
   </main>
 
   <div id="mobileLightbox" class="mobile-lightbox" hidden role="dialog" aria-modal="true" aria-label="Photo viewer">
-    <button class="mobile-lightbox-close" id="mobileLightboxClose" aria-label="Close">
+    <button type="button" class="mobile-lightbox-close" id="mobileLightboxClose" aria-label="Close">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
     </button>
+    <div class="mobile-lightbox-feedback">
+      <p id="mobileLightboxStatus" role="status" aria-live="polite" hidden></p>
+      <button type="button" id="mobileLightboxRetry" hidden>Try again</button>
+    </div>
     <div class="mobile-lightbox-media" id="mobileLightboxMedia">
       <picture>
         <source id="mobileLightboxSourceAvif" type="image/avif">
         <source id="mobileLightboxSourceWebp" type="image/webp">
-        <img id="mobileLightboxImage" src="" alt="">
+        <img id="mobileLightboxImage" alt="">
       </picture>
     </div>
   </div>

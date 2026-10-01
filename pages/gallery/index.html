@@ -59,7 +59,7 @@
 
   <link rel="stylesheet" href="../../css/design-system.css?v=20260315">
   <link rel="stylesheet" href="../../css/schematic.css">
-  <link rel="stylesheet" href="../../css/gallery.css?v=20260916-mosaic6">
+  <link rel="stylesheet" href="../../css/gallery.css?v=20261001-readiness">
   <link rel="stylesheet" href="../../css/cursor.css?v=20260315">
 </head>
 
@@ -98,6 +98,7 @@
                 <source id="galleryHeroSourceWebp" type="image/webp">
                 <img id="galleryHeroImage" src="" alt="" class="hero-feature-image scanned-image">
               </picture>
+              <span class="photo-error-copy" id="galleryHeroError" hidden>Preview unavailable. Open photo to retry.</span>
             </button>
           </aside>
         </div>
@@ -164,7 +165,7 @@
       <section class="lightbox-stage" aria-label="Selected photograph">
         <div class="lightbox-topbar">
           <div class="lightbox-topbar-actions">
-            <button class="lightbox-info-toggle" id="lightboxInfoToggle" type="button" aria-expanded="false"
+            <button class="lightbox-info-toggle" id="lightboxInfoToggle" type="button" aria-expanded="false" aria-controls="lightboxPanel"
               data-cursor="hover">
               Details
             </button>
@@ -185,12 +186,16 @@
           </svg>
         </button>
 
-        <div class="lightbox-media" id="lightboxMedia">
-          <picture id="lightboxPicture" class="lightbox-picture">
+        <div class="lightbox-media" id="lightboxMedia" aria-busy="false">
+          <picture id="lightboxPicture" class="lightbox-picture is-preparing" aria-hidden="true">
             <source id="lightboxSourceAvif" type="image/avif">
             <source id="lightboxSourceWebp" type="image/webp">
             <img src="" alt="" id="lightboxImage" class="lightbox-image">
           </picture>
+          <div class="lightbox-feedback">
+            <p id="lightboxStatus" role="status" aria-live="polite" aria-atomic="true"></p>
+            <button id="lightboxRetry" type="button" hidden>Try again</button>
+          </div>
         </div>
 
         <button class="lightbox-nav lightbox-next" id="lightboxNext" aria-label="Next photo" data-cursor="hover">
@@ -224,7 +229,7 @@
 
   <script src="../../js/year.js?v=20260315" async></script>
   <script src="../../js/main.js?v=20260315" defer></script>
-  <script src="../../js/gallery.js?v=20260916-mosaic6" defer onerror="document.getElementById('galleryLoading').hidden = true; document.getElementById('galleryError').hidden = false"></script>
+  <script src="../../js/gallery.js?v=20261001-readiness" defer onerror="document.getElementById('galleryLoading').hidden = true; document.getElementById('galleryError').hidden = false"></script>
 
 </body>
 

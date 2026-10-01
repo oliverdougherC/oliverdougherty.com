@@ -94,7 +94,7 @@ async function checkDedicatedMobile(browser, baseUrl, jpegOnly) {
     assert.equal(opened.focused, 'mobileLightboxClose');
     if (jpegOnly) {
       assert.match(opened.srcset || '', /medium\/bridge\.jpg 1600w, .*large\/bridge\.jpg 2400w/);
-      assert.equal(opened.sizes, '100vw');
+      assert.match(opened.sizes, /100vw/, 'portrait-aware sizes must retain viewport selection for landscape images');
       assert.match(opened.currentSrc, /\/medium\/bridge\.jpg$/);
     }
     await swipeMobile(page);
@@ -114,8 +114,8 @@ async function checkDedicatedMobile(browser, baseUrl, jpegOnly) {
     await page.waitForLoadState('networkidle');
     const jpegs = requests.filter(url => /\.jpe?g$/.test(url));
     if (!jpegOnly) assert.deepEqual(jpegs, [], `Unused mobile JPEG requests: ${jpegs.join(', ')}`);
-    else assert(jpegs.every(url => [2, 3, 0, 4].some(index => url.endsWith('/' + fixturePhotos[index].medium.jpg) || url.endsWith('/' + fixturePhotos[index].large.jpg))),
-      `JPEG-only navigation fetched an unselected photo: ${jpegs.join(', ')}`);
+    else assert(jpegs.every(url => [2, 3, 4, 5, 0].some(index => url.endsWith('/' + fixturePhotos[index].medium.jpg) || url.endsWith('/' + fixturePhotos[index].large.jpg))),
+      `JPEG-only navigation fetched a photo never requested by any gesture: ${jpegs.join(', ')}`);
     const byteCount = transfers.reduce((sum, transfer) => sum + transfer.encodedBytes, 0);
     const profile = browser.browserType().name() === 'chromium'
       ? `100ms RTT, 1.5Mbit/s; ${byteCount} completed encoded bytes`
@@ -171,6 +171,7 @@ async function checkDesktopFilmstrip(browser, baseUrl, jpegOnly) {
       avif: button.querySelector('source[type="image/avif"]')?.srcset,
       webp: button.querySelector('source[type="image/webp"]')?.srcset,
       focused: document.activeElement?.id,
+      focusedInDialog: document.getElementById('lightbox').contains(document.activeElement),
       lightboxSrc: document.getElementById('lightboxImage').currentSrc
     }));
     assert(state.selected);
@@ -182,14 +183,12 @@ async function checkDesktopFilmstrip(browser, baseUrl, jpegOnly) {
       assert.match(state.avif || '', /\/thumbs\/bridge\.avif$/);
       assert.match(state.webp || '', /\/thumbs\/bridge\.webp$/);
     }
-    assert.equal(state.focused, 'lightboxClose');
+    assert(state.focusedInDialog, 'thumbnail selection must retain focus inside the dialog');
     assert.match(state.lightboxSrc, jpegOnly ? /\/bridge\.jpg$/ : /\/bridge\.(avif|webp)$/);
     await page.locator('#lightboxThumbStrip img').evaluateAll(images => Promise.all(images.map(image => image.decode().catch(() => {}))));
     await page.waitForLoadState('networkidle');
     const wrongFormat = thumbRequests.filter(url => jpegOnly ? !/\.jpe?g$/.test(url) : /\.jpe?g$/.test(url));
-    if (jpegOnly || browser.browserType().name() === 'chromium') {
-      assert.deepEqual(wrongFormat, [], `Desktop filmstrip fetched unused thumbnail formats: ${wrongFormat.join(', ')}`);
-    }
+    assert.deepEqual(wrongFormat, [], `Desktop filmstrip fetched unused thumbnail formats: ${wrongFormat.join(', ')}`);
     const profile = browser.browserType().name() === 'chromium'
       ? `100ms RTT, 1.5Mbit/s; ${transfers.reduce((sum, transfer) => sum + transfer.encodedBytes, 0)} completed encoded bytes`
       : 'transfer bytes unavailable outside Chromium';
@@ -207,6 +206,10 @@ async function traceUnroutedMobileCache(browser, baseUrl) {
   const cdp = await context.newCDPSession(page);
   const pending = new Map();
   const transfers = [];
+  const thumbnails = new Set();
+  page.on('request', request => {
+    if (/\/assets\/photos\/thumbs\//.test(request.url())) thumbnails.add(imagePath(request.url()));
+  });
   await cdp.send('Network.enable');
   await cdp.send('Network.emulateNetworkConditions', MOBILE_NETWORK);
   cdp.on('Network.requestWillBeSent', event => {
@@ -227,19 +230,25 @@ async function traceUnroutedMobileCache(browser, baseUrl) {
   try {
     await page.goto(`${baseUrl}/mobile/gallery/`, { waitUntil: 'domcontentloaded' });
     await page.locator('#mobileGalleryGrid button').first().waitFor();
+    const openStarted = Date.now();
     await page.locator('#mobileGalleryGrid button').first().click();
-    await page.waitForFunction(() => document.getElementById('mobileLightboxImage').naturalWidth > 0);
+    await page.waitForFunction(() => document.getElementById('mobileLightboxImage').naturalWidth > 0
+      && document.getElementById('mobileLightboxMedia').getAttribute('aria-busy') === 'false');
+    const coldReadyMs = Date.now() - openStarted;
+    assert(thumbnails.size <= 8, `Background grid started ${thumbnails.size} thumbnails before the requested photo was ready`);
+    const coldThumbnailCount = thumbnails.size;
     const firstSrc = await page.locator('#mobileLightboxImage').evaluate(image => image.currentSrc);
     await page.waitForLoadState('networkidle');
     const cold = transfers.slice();
     await page.locator('#mobileLightboxClose').click();
     await page.locator('#mobileGalleryGrid button').first().click();
-    await page.waitForFunction(() => document.getElementById('mobileLightboxImage').naturalWidth > 0);
+    await page.waitForFunction(() => document.getElementById('mobileLightboxImage').naturalWidth > 0
+      && document.getElementById('mobileLightboxMedia').getAttribute('aria-busy') === 'false');
     const secondSrc = await page.locator('#mobileLightboxImage').evaluate(image => image.currentSrc);
     assert.equal(secondSrc, firstSrc, 'Warm reopen selected another image');
     await page.waitForLoadState('networkidle');
     const warm = transfers.slice(cold.length);
-    console.log(`Unrouted mobile cache probe (100ms RTT, 1.5Mbit/s): ${imagePath(firstSrc)}; cold ${cold.length} requests/${cold.reduce((sum, item) => sum + item.encodedBytes, 0)} encoded bytes; warm ${warm.length} requests/${warm.reduce((sum, item) => sum + item.encodedBytes, 0)} encoded bytes.`);
+    console.log(`Unrouted mobile cache probe (100ms RTT, 1.5Mbit/s): ${imagePath(firstSrc)}; ready ${coldReadyMs}ms, ${coldThumbnailCount} thumbnail requests; cold ${cold.length} requests/${cold.reduce((sum, item) => sum + item.encodedBytes, 0)} encoded bytes; warm ${warm.length} requests/${warm.reduce((sum, item) => sum + item.encodedBytes, 0)} encoded bytes.`);
     for (const transfer of [...cold, ...warm]) console.log(`  ${transfer.path}: ${transfer.encodedBytes} encoded bytes${transfer.cached ? ' (cache)' : ''}`);
   } finally {
     await context.close();
@@ -259,7 +268,7 @@ async function checkViewport(browser, baseUrl, viewport, deviceScaleFactor) {
     imageRequests.length = 0;
     await page.locator('#galleryHeroOpen').click();
     await page.waitForFunction(() => !document.getElementById('lightbox').hidden
-      && document.getElementById('lightboxImage').naturalWidth > 0);
+      && document.getElementById('lightboxImage')?.naturalWidth > 0);
     const displayed = [];
     for (let index = 0; index < 4; index++) {
       const currentSrc = await page.locator('#lightboxImage').evaluate(image => image.currentSrc);
@@ -271,13 +280,13 @@ async function checkViewport(browser, baseUrl, viewport, deviceScaleFactor) {
       else await page.locator('#lightboxNext').click();
       await page.waitForFunction(previous => {
         const image = document.getElementById('lightboxImage');
-        return image.currentSrc !== previous && image.complete && image.naturalWidth > 0;
+        return image && image.currentSrc !== previous && image.complete && image.naturalWidth > 0;
       }, currentSrc);
     }
     for (let index = 0; index < 5; index++) await page.keyboard.press('ArrowRight');
     await page.waitForFunction(() => {
       const image = document.getElementById('lightboxImage');
-      return image.complete && image.naturalWidth > 0;
+      return image?.complete && image.naturalWidth > 0;
     });
     // Allow any speculative requests queued by the last navigation to start.
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));

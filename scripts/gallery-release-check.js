@@ -291,7 +291,9 @@ async function runDesktopBfcacheScenario(browser, baseUrl) {
 
     // Restored document: keyboard opens/closes/navigates the lightbox again.
     await page.locator('#galleryArchiveGrid .photo-card-button').first().click();
-    await page.waitForFunction(() => !document.getElementById('lightbox').hidden);
+    await page.waitForFunction(() => !document.getElementById('lightbox').hidden
+      && document.getElementById('lightboxImage')?.naturalWidth > 0
+      && document.getElementById('lightboxMedia').getAttribute('aria-busy') === 'false');
     const hashOpen = await page.evaluate(() => window.location.hash);
     assert(hashOpen.startsWith('#photo='), 'hash deep link missing after BFCache restore');
     await page.keyboard.press('Escape');
@@ -302,7 +304,9 @@ async function runDesktopBfcacheScenario(browser, baseUrl) {
     );
 
     await page.locator('#galleryArchiveGrid .photo-card-button').first().click();
-    await page.waitForFunction(() => !document.getElementById('lightbox').hidden);
+    await page.waitForFunction(() => !document.getElementById('lightbox').hidden
+      && document.getElementById('lightboxImage')?.naturalWidth > 0
+      && document.getElementById('lightboxMedia').getAttribute('aria-busy') === 'false');
     const hashBeforeArrow = await page.evaluate(() => window.location.hash);
     await page.keyboard.press('ArrowRight');
     await page.waitForFunction(
@@ -350,12 +354,15 @@ async function runDesktopBfcacheScenario(browser, baseUrl) {
     }).every(card => card.classList.contains('is-loaded') && Number(getComputedStyle(card).opacity) >= 0.99));
     await screenshot(page, `${BROWSER}-desktop-gallery-restored.png`);
 
-    // A second actual trip suspends a lightbox while its navigation fade is
-    // pending. Cancellation must retain the selected photo and restore opacity.
+    // Hold decode (without request routing, which changes BFCache eligibility)
+    // so even a cached image is definitely pending when the document suspends.
     await page.locator('#galleryArchiveGrid .photo-card-button').first().click();
     await page.waitForFunction(() => document.getElementById('lightboxImage').naturalWidth > 0);
     const suspendedHash = await page.evaluate(() => location.hash);
     await page.evaluate(url => {
+      const decode = HTMLImageElement.prototype.decode;
+      HTMLImageElement.prototype.decode = () => new Promise(() => {});
+      window.addEventListener('pageshow', () => { HTMLImageElement.prototype.decode = decode; }, { once: true });
       document.getElementById('lightboxNext').click();
       location.href = url;
     }, `${baseUrl}/pages/resume/index.html`);
@@ -420,7 +427,9 @@ async function runAspectFocusScenario(browser, baseUrl) {
     assert(JSON.stringify(before) !== JSON.stringify(after), 'image aspect reconciliation did not change the fixture geometry');
 
     await button.click();
-    await page.waitForFunction(() => !document.getElementById('lightbox').hidden);
+    await page.waitForFunction(() => !document.getElementById('lightbox').hidden
+      && document.getElementById('lightboxImage')?.naturalWidth > 0
+      && document.getElementById('lightboxMedia').getAttribute('aria-busy') === 'false');
     await page.setViewportSize({ width: 1200, height: 800 });
     assert(await page.evaluate(() => document.activeElement.id === 'lightboxClose'), 'relayout stole modal focus');
     await page.locator('#lightboxClose').click();
@@ -485,6 +494,14 @@ async function mobileState(page) {
   });
 }
 
+async function waitForMobileImage(page) {
+  await page.waitForFunction(() => {
+    const image = document.getElementById('mobileLightboxImage');
+    return image?.complete && image.naturalWidth > 0
+      && document.getElementById('mobileLightboxMedia').getAttribute('aria-busy') !== 'true';
+  });
+}
+
 async function runMobileScenario(browser, baseUrl) {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
@@ -521,6 +538,7 @@ async function runMobileScenario(browser, baseUrl) {
     await page.locator('#mobileGalleryGrid button.mobile-photo-button').first().focus();
     await page.keyboard.press('Enter');
     await page.waitForFunction(() => !document.getElementById('mobileLightbox').hidden);
+    await waitForMobileImage(page);
     let state = await mobileState(page);
     assert(state.activeId === 'mobileLightboxClose', `focus did not enter dialog (${state.activeId})`);
     assert(state.inertBackground, 'background is interactive while the dialog is open');
@@ -547,36 +565,39 @@ async function runMobileScenario(browser, baseUrl) {
     assert(await page.evaluate(() => document.activeElement.dataset.entryIndex === '0'), 'focus not returned to the initiating photo');
     await page.keyboard.press('Space');
     await page.waitForFunction(() => !document.getElementById('mobileLightbox').hidden);
+    await waitForMobileImage(page);
     await page.keyboard.press('Shift+Tab');
     assert((await mobileState(page)).activeId === 'mobileLightboxClose', 'Shift+Tab escaped the modal');
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => document.getElementById('mobileLightbox').hidden);
 
-    // Touch swipe opens → navigates; close mid-delay must stick (F07).
+    // Touch swipe opens → navigates; the displayed frame stays visible until ready.
     await page.locator('#mobileGalleryGrid button.mobile-photo-button').first().click();
     await page.waitForFunction(() => !document.getElementById('mobileLightbox').hidden);
-    const srcBeforeSwipe = await page.evaluate(() => document.getElementById('mobileLightboxImage').src);
+    await waitForMobileImage(page);
     await swipe(page, 90);
     assert(
-      (await page.evaluate(() => document.getElementById('mobileLightboxImage').style.opacity)) === '0',
-      'swipe did not start a transition'
+      (await page.evaluate(() => getComputedStyle(document.getElementById('mobileLightboxImage')).opacity)) === '1',
+      'swipe hid the displayed photo before its replacement was ready'
     );
     await page.keyboard.press('Escape');
+    const srcAtClose = (await mobileState(page)).src;
     await page.waitForTimeout(450);
     state = await mobileState(page);
     assert(!state.open, 'pending navigation reopened the dialog after close (F07 regression)');
-    assert(state.src === srcBeforeSwipe, 'stale navigation mutated the image after close');
+    assert(state.src === srcAtClose, 'stale navigation mutated the image after close');
 
     // Rapid swipes: one destination per gesture, coalesced render.
     await page.locator('#mobileGalleryGrid button.mobile-photo-button').nth(1).click();
     await page.waitForFunction(() => !document.getElementById('mobileLightbox').hidden);
-    const srcStart = await page.evaluate(() => document.getElementById('mobileLightboxImage').src);
+    await waitForMobileImage(page);
+    const expectedRapid = await page.locator('#mobileGalleryGrid button img').nth(4).getAttribute('alt');
     await swipe(page, 90);
     await swipe(page, 90);
     await swipe(page, 90);
-    await page.waitForTimeout(450);
-    const srcAfterRapid = await page.evaluate(() => document.getElementById('mobileLightboxImage').src);
-    assert(srcAfterRapid !== srcStart, 'rapid swipes never committed');
+    await waitForMobileImage(page);
+    const rapidAlt = await page.locator('#mobileLightboxImage').getAttribute('alt');
+    assert(expectedRapid === rapidAlt, `rapid swipes landed on ${rapidAlt}, expected ${expectedRapid}`);
     state = await mobileState(page);
     assert(state.open, 'rapid swipes must keep the dialog open');
     await page.keyboard.press('Escape');
@@ -585,23 +606,27 @@ async function runMobileScenario(browser, baseUrl) {
     // Reopen a different photo after a cancelled pending navigation.
     await page.locator('#mobileGalleryGrid button.mobile-photo-button').first().click();
     await page.waitForFunction(() => !document.getElementById('mobileLightbox').hidden);
+    await waitForMobileImage(page);
     await swipe(page, 90);
     await page.keyboard.press('Escape');
     await page.locator('#mobileGalleryGrid button.mobile-photo-button').nth(2).click();
     await page.waitForFunction(() => !document.getElementById('mobileLightbox').hidden);
+    await waitForMobileImage(page);
     await page.waitForTimeout(400);
     const reopenState = await mobileState(page);
     assert(reopenState.open, 'reopen after cancelled navigation failed');
     await page.keyboard.press('Escape');
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.locator('#mobileGalleryGrid button.mobile-photo-button').first().click();
+    await waitForMobileImage(page);
     const reducedSrc = await page.evaluate(() => document.getElementById('mobileLightboxImage').src);
     await page.keyboard.press('ArrowRight');
+    await waitForMobileImage(page);
     const reduced = await page.evaluate(() => {
       const img = document.getElementById('mobileLightboxImage');
-      return { src: img.src, opacity: img.style.opacity, duration: getComputedStyle(img).transitionDuration };
+      return { src: img.src, opacity: getComputedStyle(img).opacity, duration: getComputedStyle(img).transitionDuration };
     });
-    assert(reduced.src !== reducedSrc && reduced.opacity === '1' && reduced.duration.split(',').every(value => parseFloat(value) <= 0.001), `reduced-motion navigation must commit without an opacity delay: ${JSON.stringify({ before: reducedSrc, after: reduced })}`);
+    assert(reduced.src !== reducedSrc && reduced.opacity === '1' && reduced.duration.split(',').every(value => parseFloat(value) <= 0.001), `reduced-motion navigation must settle decoded and opaque without a decorative delay: ${JSON.stringify({ before: reducedSrc, after: reduced })}`);
     await page.keyboard.press('Escape');
   } finally {
     await context.close();
