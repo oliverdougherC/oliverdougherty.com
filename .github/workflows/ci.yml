@@ -103,6 +103,13 @@ jobs:
       - run: npm run check-links
         env:
           CHECK_LINKS_ROOT: dist
+      - name: Validate homepage reveal on the packaged site
+        run: npm run home:reveal-check
+        timeout-minutes: 5
+        env:
+          STATIC_ROOT: dist
+          REQUIRE_DEPLOY_ARTIFACT: '1'
+          NIGHTHAWKS_CHECK_BROWSERS: chromium,firefox,webkit
       - run: npm run release:check
         timeout-minutes: 35
         env:

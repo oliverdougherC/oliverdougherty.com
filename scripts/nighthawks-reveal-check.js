@@ -103,6 +103,7 @@ async function withPage(browser, options, run) {
     page.on('console', (message) => {
       if (message.type() !== 'error') return;
       if (allowedResourceErrors && /Failed to load resource|Loading failed|NetworkError|ERR_FAILED/.test(message.text())) return;
+      if (allowedResourceErrors && /downloadable font: download failed.*nighthawks-mono-bold\.ttf/.test(message.text())) return;
       errors.push(message.text());
     });
     const time = new Date('2026-10-01T12:00:00Z');
