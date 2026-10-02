@@ -37,6 +37,7 @@ async function snapshot(page) {
       elements: pre.childElementCount,
       nodes: pre.childNodes.length,
       filter: getComputedStyle(pre).filter,
+      transition: getComputedStyle(pre).transitionProperty,
       mask: getComputedStyle(pre).maskImage || getComputedStyle(pre).webkitMaskImage,
       fill: getComputedStyle(pre).webkitTextFillColor,
       background: getComputedStyle(pre).backgroundImage,
@@ -78,10 +79,11 @@ async function compositorUntil(page, predicate, label, maxMs = 2500) {
   throw new Error(`${label}: compositor did not settle`);
 }
 
-async function settled(page) {
+async function settled(page, label = 'completed reveal') {
   const state = await advanceUntil(page, (state) => state.phase === 'complete' && state.mode === 'text', 'settled text');
   assertGrid(state, true);
-  assert.equal(state.filter, 'none', 'Completed reveal must release its filter');
+  assert.equal(state.filter, 'none', `${label}: completed reveal must release its filter`);
+  assert.equal(state.transition, 'none', `${label}: global motion resets must not create a renderer transition`);
   assert.equal(state.fill, 'rgba(0, 0, 0, 0)', 'Completed reveal must release its uniform fill');
   assert.equal(state.animations.length, 0, 'Completed reveal must release its animation');
   assert.equal(state.signal, false, 'No duplicate character layer should remain');
@@ -105,7 +107,9 @@ async function withPage(browser, options, run) {
     });
     const time = new Date('2026-10-01T12:00:00Z');
     await page.clock.install({ time });
-    await page.clock.pauseAt(time);
+    // Clock installation advances real time on some engines; pausing at the
+    // install instant can already be in the past. Advance the blank page first.
+    await page.clock.pauseAt(new Date(time.getTime() + 10000));
     await page.goto(`${baseUrl}${options.route || '/index.html?full=1'}`, { waitUntil: options.stalled ? 'domcontentloaded' : 'load' });
     await run(page);
     assert.deepEqual(errors, [], 'Unexpected browser errors');
@@ -223,7 +227,7 @@ async function checkInterruptions(browser) {
       await new Promise((resolve) => setTimeout(resolve, 80));
       await page.clock.runFor(48);
       assert.equal((await snapshot(page)).phase, 'complete', `${label} must complete immediately`);
-      await settled(page);
+      await settled(page, label);
       await page.clock.runFor(7000);
       await settled(page);
     });

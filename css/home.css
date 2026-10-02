@@ -53,6 +53,9 @@
   width: 3000px;
   height: 1638px;
   transform-origin: 0 0;
+  /* The renderer owns color/filter changes. The global reduced-motion reset
+     must not create a transition when it restores the finished artwork. */
+  transition: none !important;
   display: block;
   padding: 0;
   margin: 0;
