@@ -102,13 +102,13 @@
       characters.style.filter = `grayscale(${1 - saturation})`;
       if (elapsed >= switching) {
         if (artwork.dataset.reveal !== 'color') {
-          text.data = source;
+          text.textContent = source;
           artwork.dataset.reveal = 'color';
         }
       } else if (Math.floor(elapsed / 40) !== lastStep) {
         // Batch all cell changes; settled cells stay locked while neighbors continue.
         lastStep = Math.floor(elapsed / 40);
-        text.data = cells.map((glyph, index) => {
+        text.textContent = cells.map((glyph, index) => {
           const schedule = schedules[index];
           if (!schedule) return glyph;
           while (schedule.flipped < schedule.times.length
