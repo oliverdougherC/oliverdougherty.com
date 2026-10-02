@@ -379,7 +379,7 @@ async function checkFirstVisitStage(browser, name) {
         headerPosition: getComputedStyle(header).position,
         headerShown: perceptible(header),
         navShown: Array.from(document.querySelectorAll('.nav-inline-link')).some(perceptible),
-        entrance: getComputedStyle(document.querySelector('.nighthawks-figure')).animationName,
+        entrance: document.querySelector('#nighthawksArtwork').dataset.reveal,
         overflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) > innerWidth + 1
       };
     });
@@ -389,11 +389,11 @@ async function checkFirstVisitStage(browser, name) {
     assert(stage.artworkHeight <= stage.viewportHeight * 0.85, `${label}: the painting crowds the surrounding black`);
     assert(stage.headerPosition === 'fixed', `${label}: the parked navigation should leave the flow`);
     assert(!stage.headerShown && !stage.navShown, `${label}: navigation is visible on the stage`);
-    assert(stage.entrance === 'paintingEmerge', `${label}: the painting has no first-visit entrance`);
+    assert(['switching', 'color', 'complete'].includes(stage.entrance), `${label}: the painting has no first-visit entrance`);
     assert(!stage.overflow, `${label}: the stage overflows horizontally`);
 
-    await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState === 'finished'),
-      null, { timeout: 8000 });
+    await page.waitForFunction(() => document.querySelector('#nighthawksArtwork').dataset.reveal === 'complete',
+      null, { timeout: 10000 });
     assert(await page.locator('#nighthawksCharacters').evaluate(perceptibleInPage),
       `${label}: the entrance leaves the painting faded`);
 

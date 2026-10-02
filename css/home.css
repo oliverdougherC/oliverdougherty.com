@@ -158,8 +158,22 @@ html.home-stage:not(.home-stage-collapsed) .nighthawks-figure {
   width: min(100%, 1880px, calc(clamp(320px, 80svh, 1026px) * 1.83262));
 }
 
-html.home-stage .nighthawks-figure {
+/* The bitmap remains a gentle fallback when live text cannot be rendered. */
+html.home-stage .nighthawks-fallback {
   animation: paintingEmerge 1500ms var(--ease-smooth) 120ms both;
+}
+
+html[data-home-art-deadline] .nighthawks-fallback,
+#nighthawksArtwork[data-reveal="waiting"] .nighthawks-fallback {
+  animation: none;
+  opacity: 0;
+}
+
+/* One live grid gradually gains shading and color while its digits settle. */
+#nighthawksArtwork:is([data-reveal="switching"], [data-reveal="color"]) .nighthawks-characters {
+  color: #fff;
+  -webkit-text-fill-color: currentColor;
+  filter: grayscale(1);
 }
 
 /* Once the black stage is entirely behind the navigation bar or above the top of the
@@ -187,7 +201,7 @@ html.home-stage-swap *::after {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html.home-stage .nighthawks-figure { animation: none; }
+  html.home-stage .nighthawks-fallback { animation: none; }
   html.home-stage .home-header,
   html.home-stage.home-nav-revealed .home-header { transition: none; }
 }

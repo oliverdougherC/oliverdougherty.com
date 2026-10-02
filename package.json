@@ -27,6 +27,7 @@
     "gallery:check": "node scripts/gallery-dropdown-check.js",
     "nav:check": "node scripts/nav-overlay-check.js",
     "home:check": "node scripts/home-check.js",
+    "home:reveal-check": "node scripts/nighthawks-reveal-check.js",
     "smoke": "node scripts/smoke.js",
     "quality": "npm run lint && npm run format:check && npm run check-links && npm run smoke:source",
     "quality:full": "npm run quality && npm run utilities:check",
