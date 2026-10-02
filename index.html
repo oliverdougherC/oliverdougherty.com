@@ -51,6 +51,9 @@
           sessionStorage.setItem('od-page-animations-seen', JSON.stringify(seen));
         }
       } catch (_) { /* Storage may be unavailable; the visible page still works. */ }
+      // Local workshop link replays the stage on refresh without changing visit policy.
+      if (['localhost', '127.0.0.1'].includes(location.hostname)
+        && new URLSearchParams(location.search).get('art-preview') === '1') skip = false;
       window.pageAnimations = { pageId: id, shouldSkip: () => skip, markSeen() {} };
       // Canvas past the page edges: the settled page opens on the white navigation and
       // closes on the contact section's black, so the overscroll canvas follows whichever
@@ -71,6 +74,12 @@
       }
       root.dataset.pageId = id;
       root.classList.add('home-stage');
+      // Keep the first paint black even if the deferred renderer downloads slowly.
+      // A missing renderer releases the fallback without depending on that script.
+      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        root.dataset.homeArtDeadline = String(performance.now() + 1800);
+        window.setTimeout(() => { delete root.dataset.homeArtDeadline; }, 1800);
+      }
       // The stage markup is parsed after this script, so the elements are taken on demand.
       let hero = null;
       let header = null;
@@ -141,7 +150,7 @@
   <!-- Schematic overrides -->
   <link rel="stylesheet" href="css/schematic.css?v=nighthawks-2">
   <link rel="stylesheet" href="css/cursor.css?v=quiet-1">
-  <link rel="stylesheet" href="css/home.css?v=home-intro-4">
+  <link rel="stylesheet" href="css/home.css?v=home-intro-5">
   <link rel="preload" href="assets/fonts/nighthawks-mono-bold.ttf" as="font" type="font/ttf" crossorigin>
   <link rel="preload" href="assets/art/nighthawks-colors.png" as="image">
   <script src="js/nighthawks.js" defer></script>
