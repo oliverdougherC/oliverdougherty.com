@@ -7,7 +7,123 @@
   const fallback = artwork?.querySelector('.nighthawks-fallback');
   if (!artwork || !characters || !fallback) return;
 
+  const source = characters.textContent;
+  const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const staged = document.documentElement.classList.contains('home-stage');
+  const readyDeadline = Number(document.documentElement.dataset.homeArtDeadline || 0);
+  let frame = 0;
+  let deadline = 0;
+  // The inline bootstrap owns the black-start window, before this file downloads.
+  artwork.dataset.reveal = staged && !motion.matches && !document.hidden && window.scrollY <= 24
+    && performance.now() < readyDeadline
+    ? 'waiting' : 'complete';
+
+  function finishReveal() {
+    cancelAnimationFrame(frame);
+    clearTimeout(deadline);
+    delete document.documentElement.dataset.homeArtDeadline;
+    characters.style.removeProperty('color');
+    characters.style.removeProperty('filter');
+    characters.textContent = source;
+    artwork.dataset.reveal = 'complete';
+    window.removeEventListener('scroll', interruptOnScroll);
+    window.removeEventListener('pagehide', finishReveal);
+    document.removeEventListener('visibilitychange', interruptWhenHidden);
+    motion.removeEventListener('change', interruptForMotion);
+  }
+
+  function interruptOnScroll() {
+    if (window.scrollY > 24) finishReveal();
+  }
+
+  function interruptWhenHidden() {
+    if (document.hidden) finishReveal();
+  }
+
+  function interruptForMotion() {
+    if (motion.matches) finishReveal();
+  }
+
+  if (artwork.dataset.reveal === 'waiting') {
+    // Never hold the black stage indefinitely for a font or image request.
+    deadline = setTimeout(finishReveal, Math.max(0, readyDeadline - performance.now()));
+    window.addEventListener('scroll', interruptOnScroll, { passive: true });
+    window.addEventListener('pagehide', finishReveal);
+    document.addEventListener('visibilitychange', interruptWhenHidden);
+    motion.addEventListener('change', interruptForMotion);
+  } else {
+    delete document.documentElement.dataset.homeArtDeadline;
+  }
+
+  function revealCharacters() {
+    if (artwork.dataset.reveal !== 'waiting') return;
+    // Independent switches and tonal development overlap in the same text grid.
+    const switching = 6400;
+    const shadingStart = 700;
+    const shadingEnd = 6500;
+    const colorStart = 2400;
+    const complete = 7500;
+    const cells = Array.from(source);
+    let lastFlip = 0;
+    const schedules = cells.map((glyph) => {
+      if (glyph === '\n') return null;
+      const count = 2 + Math.floor(Math.random() * 9);
+      const cadence = 190 + Math.random() * 80;
+      let time = Math.random() * 120;
+      const times = Array.from({ length: count }, () => {
+        time += cadence * (0.8 + Math.random() * 0.4);
+        return time;
+      });
+      lastFlip = Math.max(lastFlip, time);
+      // Binary cells arrive at their true value on the last flip, without correction.
+      const finalBit = glyph === '0' || glyph === '1' ? Number(glyph) : Math.round(Math.random());
+      return { times, initial: finalBit ^ (count % 2), flipped: 0 };
+    });
+    for (const schedule of schedules) {
+      if (schedule) schedule.times = schedule.times.map((time) => time / lastFlip * switching);
+    }
+    characters.textContent = cells.map((glyph, index) => schedules[index]
+      ? String(schedules[index].initial) : glyph).join('');
+    artwork.dataset.reveal = 'switching';
+    const text = characters.firstChild;
+    const began = performance.now();
+    let lastStep = -1;
+    clearTimeout(deadline);
+    deadline = setTimeout(finishReveal, complete + 1000);
+
+    function tick(now) {
+      const elapsed = now - began;
+      if (elapsed >= complete) { finishReveal(); return; }
+      // The white fill slowly releases the painting's shading while digits still
+      // change. Saturation follows later; there is no spatial wipe or phase pause.
+      const shade = Math.max(0, Math.min(1, (elapsed - shadingStart) / (shadingEnd - shadingStart)));
+      const saturation = Math.max(0, Math.min(1, (elapsed - colorStart) / (complete - colorStart)));
+      characters.style.color = `rgba(255, 255, 255, ${1 - shade})`;
+      characters.style.filter = `grayscale(${1 - saturation})`;
+      if (elapsed >= switching) {
+        if (artwork.dataset.reveal !== 'color') {
+          text.textContent = source;
+          artwork.dataset.reveal = 'color';
+        }
+      } else if (Math.floor(elapsed / 40) !== lastStep) {
+        // Batch all cell changes; settled cells stay locked while neighbors continue.
+        lastStep = Math.floor(elapsed / 40);
+        text.textContent = cells.map((glyph, index) => {
+          const schedule = schedules[index];
+          if (!schedule) return glyph;
+          while (schedule.flipped < schedule.times.length
+            && elapsed >= schedule.times[schedule.flipped]) schedule.flipped++;
+          return schedule.flipped === schedule.times.length
+            ? glyph : String(schedule.initial ^ (schedule.flipped % 2));
+        }).join('');
+      }
+      frame = requestAnimationFrame(tick);
+    }
+    frame = requestAnimationFrame(tick);
+  }
+
   function showFallback() {
+    finishReveal();
     if (artwork.dataset.renderMode === 'text') return;
     characters.hidden = true;
     fallback.hidden = false;
@@ -75,6 +191,7 @@
       }
       characters.hidden = false;
       fallback.hidden = true;
+      revealCharacters();
       artwork.dataset.renderMode = 'text';
     })
     .catch(showFallback);
