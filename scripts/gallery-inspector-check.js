@@ -48,7 +48,17 @@ async function main() {
       loaded: button.classList.contains('is-loaded')
     }));
     assert.deepEqual(pending, { border: '0px', shadow: 'none', pictureOpacity: '0', loaded: false }, 'No photo frame may appear while its image is pending');
-    await page.screenshot({ path: path.join(output, 'hero-pending.png') });
+    // WebKit can leave document.fonts.ready pending while this deliberate
+    // image stall keeps the document loading. Fonts are already stubbed above;
+    // capture this fault frame without Playwright's font-readiness wait.
+    const fontWait = process.env.PW_TEST_SCREENSHOT_NO_FONTS_READY;
+    process.env.PW_TEST_SCREENSHOT_NO_FONTS_READY = '1';
+    try {
+      await page.screenshot({ path: path.join(output, 'hero-pending.png') });
+    } finally {
+      if (fontWait === undefined) delete process.env.PW_TEST_SCREENSHOT_NO_FONTS_READY;
+      else process.env.PW_TEST_SCREENSHOT_NO_FONTS_READY = fontWait;
+    }
     release();
     await page.waitForFunction(() => document.getElementById('galleryHeroOpen').classList.contains('is-loaded')
       && getComputedStyle(document.getElementById('galleryHeroPicture')).opacity === '1');
