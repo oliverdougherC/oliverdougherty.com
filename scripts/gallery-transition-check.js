@@ -309,7 +309,35 @@ async function rapidNavigation(browser, base, mobile = false) {
 async function navigationFailure(browser, base, failure) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await fixture(context);
+  await context.addInitScript(() => {
+    window.__galleryRetryEvents = [];
+    const record = (type, image, detail = '') => {
+      if (!image?.matches?.('.lightbox-image')) return;
+      window.__galleryRetryEvents.push({ type, time: performance.now(), detail,
+        src: image.src, currentSrc: image.currentSrc, complete: image.complete,
+        naturalWidth: image.naturalWidth, connected: image.isConnected });
+    };
+    for (const type of ['load', 'error']) {
+      document.addEventListener(type, event => record(type, event.target), true);
+    }
+    const decode = HTMLImageElement.prototype.decode;
+    HTMLImageElement.prototype.decode = function () {
+      record('decode-start', this);
+      return decode.call(this).then(value => {
+        record('decode-ready', this);
+        return value;
+      }, error => {
+        record('decode-error', this, `${error.name}: ${error.message}`);
+        throw error;
+      });
+    };
+  });
   const page = await context.newPage();
+  const network = [];
+  const relevant = url => /\/assets\/photos\/(medium|large)\/attitude\./i.test(url);
+  page.on('request', request => { if (relevant(request.url())) network.push({ type: 'request', url: request.url() }); });
+  page.on('response', response => { if (relevant(response.url())) network.push({ type: 'response', url: response.url(), status: response.status() }); });
+  page.on('requestfailed', request => { if (relevant(request.url())) network.push({ type: 'failure', url: request.url(), error: request.failure() }); });
   page.setDefaultTimeout(12000);
   let failing = true;
   await page.route(/\/assets\/photos\/(medium|large)\/attitude\./i, route => {
@@ -325,9 +353,28 @@ async function navigationFailure(browser, base, failure) {
     await displayed(page, 'lighthouse');
     assert.equal(await page.evaluate(() => location.hash), '#photo=lighthouse');
     failing = false;
+    network.push({ type: 'retry-click' });
     await page.locator('#lightboxRetry').click();
     await displayed(page, 'attitude');
     results.push({ name: `navigation-${failure}-retry`, status: 'pass' });
+  } catch (error) {
+    const state = await page.evaluate(() => ({
+      hash: location.hash,
+      title: document.getElementById('lightboxTitle')?.textContent,
+      status: document.getElementById('lightboxStatus')?.textContent,
+      retryHidden: document.getElementById('lightboxRetry')?.hidden,
+      busy: document.getElementById('lightboxMedia')?.getAttribute('aria-busy'),
+      images: [...document.querySelectorAll('#lightboxMedia img')].map(image => ({
+        id: image.id, src: image.src, currentSrc: image.currentSrc, complete: image.complete,
+        naturalWidth: image.naturalWidth, pictureClass: image.closest('picture')?.className
+      })),
+      events: window.__galleryRetryEvents
+    }));
+    const diagnostic = { browser: ENGINE, scenario: `navigation-${failure}-retry`, state, network };
+    fs.writeFileSync(path.join(OUTPUT, `navigation-${failure}-failure.json`), JSON.stringify(diagnostic, null, 2) + '\n');
+    console.error('Gallery retry failure diagnostics:', JSON.stringify(diagnostic));
+    await page.screenshot({ path: path.join(OUTPUT, `navigation-${failure}-failure.png`) }).catch(() => {});
+    throw error;
   } finally { await context.close(); }
 }
 
