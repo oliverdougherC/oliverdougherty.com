@@ -42,6 +42,8 @@
   let pendingImage = null;
   let retiredPicture = null;
   let retirementTimer = 0;
+  const imageRetrySession = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  let imageRetryAttempt = 0;
   let lastTriggerElement = null;
   let inertElements = [];
   // Issue #40 fresh-attempt bookkeeping: bumping `loadAttempt` invalidates
@@ -433,13 +435,24 @@
     removeRetiredPicture();
   }
 
-  function prepareLightboxImage(index) {
+  function withImageRetry(src, version) {
+    if (!src || !version) return src;
+    var url = new URL(src, document.baseURI);
+    url.searchParams.set('_gallery_retry', version);
+    return url.href;
+  }
+
+  function prepareLightboxImage(index, retry) {
     cancelPendingNavigation();
     requestedIndex = index;
     var token = navigationToken;
     var el = getLightboxElements();
     var entry = entries[index];
     var assets = entry.assets;
+    // Keep successful retry URLs on this entry so revisiting cannot resurrect
+    // a corrupt resource retained by the browser's decoded-image cache.
+    if (retry) entry.imageRetryVersion = `${imageRetrySession}-${++imageRetryAttempt}`;
+    function imageUrl(src) { return withImageRetry(src, entry.imageRetryVersion); }
     var picture = document.createElement('picture');
     picture.className = 'mobile-lightbox-incoming';
     picture.setAttribute('aria-hidden', 'true');
@@ -455,7 +468,7 @@
       + Math.round(100 * entry.width / entry.height) + 'vh';
     function candidates(format) {
       return ['medium', 'large'].map(function (size) {
-        return assets[size + format] ? assets[size + format] + ' ' + assets[size + 'Width'] + 'w' : '';
+        return assets[size + format] ? imageUrl(assets[size + format]) + ' ' + assets[size + 'Width'] + 'w' : '';
       }).filter(Boolean).join(', ');
     }
     ['Avif', 'Webp'].forEach(function (format) {
@@ -537,7 +550,7 @@
     setViewerStatus('Loading photo…', false);
     // Set the fallback only after the responsive sources exist; this avoids
     // starting a large JPEG transfer before picture selection can run.
-    image.src = assets.mediumJpg || assets.largeJpg || '';
+    image.src = imageUrl(assets.mediumJpg || assets.largeJpg || '');
     el.media.appendChild(picture);
     if (image.complete && image.naturalWidth > 0) loaded();
   }
@@ -628,7 +641,7 @@
     var el = getLightboxElements();
 
     document.getElementById('mobileLightboxRetry').addEventListener('click', function () {
-      if (requestedIndex >= 0) prepareLightboxImage(requestedIndex);
+      if (requestedIndex >= 0) prepareLightboxImage(requestedIndex, true);
     });
 
     // Close button
