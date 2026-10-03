@@ -666,6 +666,7 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
   border: 0;
   border-radius: 4px;
   color: var(--lb-text-secondary);
+  font-family: var(--font-interface);
   background: transparent;
   cursor: pointer;
   transition: background 120ms ease-out, color 120ms ease-out;
@@ -768,10 +769,10 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
 
 .lightbox-title {
   margin: 0;
-  font-family: var(--font-interface);
+  font-family: var(--font-display);
   font-size: 26px;
-  font-weight: 400;
-  letter-spacing: -0.035em;
+  font-weight: 800;
+  letter-spacing: var(--tracking-tight);
   line-height: 1.2;
   overflow-wrap: anywhere;
   color: var(--lb-text);
