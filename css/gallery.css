@@ -456,6 +456,8 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
 
 .photo-media {
   position: relative;
+  /* The mosaic supplies both dimensions; intrinsic aspect must not shrink a tile. */
+  width: 100%;
   aspect-ratio: 4 / 3;
   overflow: hidden;
   border-radius: var(--radius-lg);

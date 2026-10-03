@@ -54,6 +54,14 @@ async function main() {
       && getComputedStyle(document.getElementById('galleryHeroPicture')).opacity === '1');
     await page.screenshot({ path: path.join(output, 'hero-ready.png') });
     results.push('Hero image and border share one decoded visibility layer');
+    const tileWidths = await page.locator('.photo-card').evaluateAll(cards => cards.map(card => ({
+      title: card.querySelector('img').alt,
+      assigned: card.getBoundingClientRect().width,
+      rendered: card.querySelector('.photo-media').getBoundingClientRect().width
+    })));
+    assert(tileWidths.length > 0, 'Mosaic must be rendered');
+    assert.deepEqual(tileWidths.filter(tile => Math.abs(tile.assigned - tile.rendered) > 0.1), [], 'Every photo frame must fill its assigned mosaic tile');
+    results.push('Rendered mosaic frames exactly fill their assigned tile widths');
     await page.locator('#galleryHeroOpen').click();
     await ready(page);
     for (const [width, height] of [[1440, 900], [1024, 768], [900, 700], [768, 900], [390, 844], [844, 390]]) {
