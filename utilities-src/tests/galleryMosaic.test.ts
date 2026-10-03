@@ -21,6 +21,7 @@ interface Box {
   width: number;
   mediaHeight: number;
   domIndex: number;
+  spanner: boolean;
 }
 
 // Matches the gallery's pre-retune placard allowance in box arithmetic.
@@ -35,7 +36,8 @@ function readBoxes(h: DesktopHarness): Box[] {
       y: parseFloat(card.style.top),
       width: parseFloat(card.style.width),
       mediaHeight: parseFloat(media?.style.height as string),
-      domIndex
+      domIndex,
+      spanner: card.classList.contains('photo-card--spanner')
     };
   });
 }
@@ -50,9 +52,17 @@ function assertPlacement(boxes: Box[], containerWidth: number, expectedIds: stri
   for (const box of boxes) {
     expect([box.x, box.y, box.width, box.mediaHeight].every(Number.isFinite)).toBe(true);
     expect(box.x).toBeGreaterThanOrEqual(0);
-    expect(box.x + box.width).toBeLessThanOrEqual(containerWidth + 3);
+    expect(box.x + box.width).toBeLessThanOrEqual(containerWidth);
     expect(box.width).toBeGreaterThan(0);
     expect(box.mediaHeight).toBeGreaterThan(0);
+  }
+
+  for (const span of boxes.filter(box => box.spanner)) {
+    const bottom = span.y + span.mediaHeight + PLACARD;
+    const companions = boxes.filter(box => box !== span && box.y >= span.y && box.y < bottom
+      && (box.x + box.width <= span.x || box.x >= span.x + span.width));
+    expect(companions).toHaveLength(2);
+    expect(Math.max(...companions.map(box => box.y + box.mediaHeight + PLACARD))).toBe(bottom);
   }
 
   // DOM order is the reading order the layout appends in.
@@ -99,7 +109,7 @@ function assertGutters(boxes: Box[], containerWidth: number) {
       expect(gap).toBeLessThanOrEqual(expected + 2.5);
     }
     const rightEdge = Math.max(...sorted.map((box) => box.x + box.width));
-    expect(rightEdge).toBeGreaterThanOrEqual(containerWidth - 3);
+    expect(rightEdge).toBe(containerWidth);
   }
 }
 

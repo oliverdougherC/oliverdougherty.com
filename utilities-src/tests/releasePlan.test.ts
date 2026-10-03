@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 const { createCheckPlan, executeChecks, GROUPS } = createRequire(import.meta.url)('../../scripts/release-check.js');
 
-it('preserves every existing release check exactly once and adds the separate reveal checks', () => {
+it('preserves every existing release check exactly once and adds the separate reveal and inspector checks', () => {
   const plan = createCheckPlan();
   const legacy = ['cache-releases'];
   for (const browser of ['chromium', 'firefox', 'webkit']) {
@@ -14,9 +14,10 @@ it('preserves every existing release check exactly once and adds the separate re
   }
   expect(legacy).toHaveLength(44);
   expect(plan.map((check: { name: string }) => check.name).sort()).toEqual([
-    ...legacy, 'chromium-home-reveal', 'firefox-home-reveal', 'webkit-home-reveal'
+    ...legacy, 'chromium-home-reveal', 'firefox-home-reveal', 'webkit-home-reveal',
+    'chromium-gallery-inspector', 'firefox-gallery-inspector', 'webkit-gallery-inspector'
   ].sort());
-  expect(new Set(plan.map((check: { name: string }) => check.name)).size).toBe(47);
+  expect(new Set(plan.map((check: { name: string }) => check.name)).size).toBe(50);
 });
 
 it('partitions exhaustive coverage into disjoint, nonempty groups', () => {

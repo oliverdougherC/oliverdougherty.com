@@ -48,6 +48,51 @@ describe('desktop gallery image readiness (#76)', () => {
     expect(card.classList.contains('is-loaded')).toBe(true);
   });
 
+  it('reveals the hero frame only after decode and clears readiness on failure', async () => {
+    const hero = node<HTMLImageElement>('galleryHeroImage');
+    let finish!: () => void;
+    loaded(hero, new Promise<void>(resolve => { finish = resolve; }));
+    expect(node('galleryHeroOpen').classList.contains('is-loaded')).toBe(false);
+    finish();
+    await flush();
+    expect(node('galleryHeroOpen').classList.contains('is-loaded')).toBe(true);
+    hero.dispatchEvent(new h.window.Event('error'));
+    expect(node('galleryHeroOpen').classList.contains('is-loaded')).toBe(false);
+  });
+
+  it('keeps archive frame hidden through decode and ignores late readiness after an error', async () => {
+    const card = h.grid.querySelector<HTMLElement>('.photo-card')!;
+    const image = card.querySelector('img')!;
+    let finish!: () => void;
+    loaded(image, new Promise<void>(resolve => { finish = resolve; }));
+    expect(card.classList.contains('is-loaded')).toBe(false);
+    image.dispatchEvent(new h.window.Event('error'));
+    finish();
+    await flush();
+    expect(card.classList.contains('is-loaded')).toBe(false);
+    expect(card.querySelector<HTMLElement>('.photo-error-copy')!.hidden).toBe(false);
+    loaded(image);
+    await flush();
+    expect(card.classList.contains('is-loaded')).toBe(true);
+  });
+
+  it('replaces decoded frames immediately even when motion is enabled', async () => {
+    h.window.matchMedia = (query: string) => ({ matches: false, media: query, onchange: null,
+      addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false });
+    const animate = vi.fn(() => ({ cancel() {}, finished: new Promise(() => {}) }));
+    Object.defineProperty(h.window.Element.prototype, 'animate', { configurable: true, value: animate });
+    await open();
+    for (const direction of ['ArrowRight', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'ArrowLeft']) {
+      const previous = displayed();
+      key(direction);
+      loaded(pending());
+      await flush();
+      expect(previous.isConnected).toBe(false);
+      expect(node('lightboxMedia').querySelectorAll('picture')).toHaveLength(1);
+      expect(animate).not.toHaveBeenCalled();
+    }
+  });
+
   it('keeps translated compact Details controls inert until expanded or the viewport widens', async () => {
     let compact = true;
     h.window.matchMedia = (query: string) => ({
@@ -90,7 +135,12 @@ describe('desktop gallery image readiness (#76)', () => {
     };
     const details = node('lightboxInfoToggle');
     const close = node('lightboxClose');
+    const thumbs = [...h.window.document.querySelectorAll<HTMLElement>('.lightbox-thumb')];
     close.focus();
+    for (const thumb of thumbs) {
+      tab();
+      expect(h.window.document.activeElement).toBe(thumb);
+    }
     tab();
     expect(h.window.document.activeElement).toBe(details);
     tab();
@@ -104,7 +154,7 @@ describe('desktop gallery image readiness (#76)', () => {
     expect(h.window.document.activeElement).toBe(details);
     h.window.document.body.focus();
     tab(true);
-    expect(h.window.document.activeElement).toBe(close);
+    expect(h.window.document.activeElement).toBe(thumbs.at(-1));
 
     const summary = h.window.document.createElement('summary');
     summary.textContent = 'Additional Info';
@@ -115,7 +165,6 @@ describe('desktop gallery image readiness (#76)', () => {
     close.focus();
     tab();
     expect(h.window.document.activeElement).toBe(summary);
-    const thumbs = [...h.window.document.querySelectorAll<HTMLElement>('.lightbox-thumb')];
     for (const thumb of thumbs) {
       tab();
       expect(h.window.document.activeElement).toBe(thumb);
@@ -196,12 +245,14 @@ describe('desktop gallery image readiness (#76)', () => {
     expect(outgoing.isConnected).toBe(true);
     expect(outgoing.style.opacity).not.toBe('0');
     expect(node('lightboxTitle').textContent).toBe('Photo p0');
+    expect(node('lightboxCounter').textContent).toBe('01 / 05');
     expect(h.window.location.hash).toBe('#photo=p0');
     finishDecode();
     await flush();
     expect(displayed()).toBe(incoming);
     expect(displayed().alt).toBe('Photo p1');
     expect(node('lightboxTitle').textContent).toBe('Photo p1');
+    expect(node('lightboxCounter').textContent).toBe('02 / 05');
     expect(h.window.location.hash).toBe('#photo=p1');
     expect(node('lightboxMedia').getAttribute('aria-busy')).toBe('false');
     expect(h.window.document.querySelector('[aria-current="true"]')?.getAttribute('data-entry-id')).toBe('p1');

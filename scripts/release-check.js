@@ -75,7 +75,7 @@ function createCheckPlan({ browsers = BROWSERS, group } = {}) {
     const env = { BROWSER: browser, HOME_CHECK_BROWSERS: browser, UTILITIES_BROWSER: browser };
     const add = (name, file, checkGroup, extra = {}) => checks.push({ name: `${browser}-${name}`, file, group: checkGroup, env: { ...env, ...extra } });
     for (const [name, file] of [['nav', 'nav-overlay-check.js'], ['nav-stability', 'navigation-stability-check.js'], ['optional-startup', 'optional-startup-check.js'], ['blackout-storage', 'blackout-storage-check.js']]) add(name, file, 'navigation');
-    for (const [name, file] of [['gallery-release', 'gallery-release-check.js'], ['gallery-heading', 'gallery-heading-check.js'], ['gallery-prefetch', 'gallery-prefetch-check.js'], ['gallery-transitions', 'gallery-transition-check.js'], ['gallery-status', 'gallery-status-check.js']]) add(name, file, 'gallery');
+    for (const [name, file] of [['gallery-release', 'gallery-release-check.js'], ['gallery-heading', 'gallery-heading-check.js'], ['gallery-inspector', 'gallery-inspector-check.js'], ['gallery-prefetch', 'gallery-prefetch-check.js'], ['gallery-transitions', 'gallery-transition-check.js'], ['gallery-status', 'gallery-status-check.js']]) add(name, file, 'gallery');
     add('artifact', 'artifact-browser-check.js', 'artifact');
     add('home-stage', 'home-check.js', 'home', { HOME_CHECK_STAGE_ONLY: '1' });
     add('home-reveal', 'nighthawks-reveal-check.js', 'home', { NIGHTHAWKS_CHECK_BROWSERS: browser });

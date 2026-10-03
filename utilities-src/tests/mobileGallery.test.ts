@@ -314,6 +314,8 @@ describe('mobile image readiness and recovery', () => {
     await Promise.resolve();
     expect(currentImage(h)).toBe(incoming);
     expect(currentImage(h).alt).toBe('Photo p1');
+    expect(outgoing.isConnected).toBe(false);
+    expect(incoming.closest('picture')!.classList.contains('mobile-lightbox-reveal')).toBe(false);
   });
 
   it('ignores superseded decode completions and bounds retained layers', async () => {
