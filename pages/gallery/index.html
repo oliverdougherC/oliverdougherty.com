@@ -59,7 +59,7 @@
 
   <link rel="stylesheet" href="../../css/design-system.css?v=20260315">
   <link rel="stylesheet" href="../../css/schematic.css">
-  <link rel="stylesheet" href="../../css/gallery.css?v=20261001-readiness">
+  <link rel="stylesheet" href="../../css/gallery.css?v=20261003-inspector">
   <link rel="stylesheet" href="../../css/cursor.css?v=20260315">
 </head>
 
@@ -162,30 +162,25 @@
     <div class="lightbox-backdrop" data-lightbox-dismiss></div>
 
     <div class="lightbox-shell">
-      <section class="lightbox-stage" aria-label="Selected photograph">
-        <div class="lightbox-topbar">
-          <div class="lightbox-topbar-actions">
-            <button class="lightbox-info-toggle" id="lightboxInfoToggle" type="button" aria-expanded="false" aria-controls="lightboxPanel"
-              data-cursor="hover">
-              Details
-            </button>
-            <button class="lightbox-close" id="lightboxClose" aria-label="Close lightbox" data-cursor="hover">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          </div>
+      <div class="lightbox-topbar">
+        <div class="lightbox-identity"><span>Gallery</span><span class="lightbox-counter" id="lightboxCounter"></span></div>
+        <div class="lightbox-navigation" role="group" aria-label="Photo navigation">
+          <button class="lightbox-nav lightbox-prev" id="lightboxPrev" type="button" aria-label="Previous photo" title="Previous photo (Left arrow)" data-cursor="hover">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m14 6-6 6 6 6" /></svg>
+          </button>
+          <span class="lightbox-navigation-hint" aria-hidden="true">Browse</span>
+          <button class="lightbox-nav lightbox-next" id="lightboxNext" type="button" aria-label="Next photo" title="Next photo (Right arrow)" data-cursor="hover">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m10 6 6 6-6 6" /></svg>
+          </button>
         </div>
-
-        <button class="lightbox-nav lightbox-prev" id="lightboxPrev" aria-label="Previous photo" data-cursor="hover">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-        </button>
-
+        <div class="lightbox-topbar-actions">
+          <button class="lightbox-info-toggle" id="lightboxInfoToggle" type="button" aria-expanded="false" aria-controls="lightboxPanel" data-cursor="hover">Details</button>
+          <button class="lightbox-close" id="lightboxClose" type="button" aria-label="Close lightbox" title="Close (Escape)" data-cursor="hover">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+          </button>
+        </div>
+      </div>
+      <section class="lightbox-stage" aria-label="Selected photograph">
         <div class="lightbox-media" id="lightboxMedia" aria-busy="false">
           <picture id="lightboxPicture" class="lightbox-picture is-preparing" aria-hidden="true">
             <source id="lightboxSourceAvif" type="image/avif">
@@ -198,14 +193,7 @@
           </div>
         </div>
 
-        <button class="lightbox-nav lightbox-next" id="lightboxNext" aria-label="Next photo" data-cursor="hover">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2">
-            <polyline points="9 18 15 12 9 6" />
-          </svg>
-        </button>
       </section>
-
       <aside class="lightbox-panel" id="lightboxPanel">
         <div class="lightbox-panel-header">
           <p class="lightbox-eyebrow" id="lightboxEyebrow">Gallery</p>
@@ -217,19 +205,19 @@
 
         <div class="lightbox-meta" id="lightboxMeta"></div>
 
-        <div class="lightbox-strip">
-          <div class="lightbox-strip-header">
-            <h3 class="lightbox-strip-title">All Photos</h3>
-          </div>
-          <div class="lightbox-thumbs" id="lightboxThumbStrip"></div>
-        </div>
       </aside>
+      <div class="lightbox-strip">
+        <div class="lightbox-strip-header">
+          <h3 class="lightbox-strip-title">All Photos</h3>
+        </div>
+        <div class="lightbox-thumbs" id="lightboxThumbStrip"></div>
+      </div>
     </div>
   </div>
 
   <script src="../../js/year.js?v=20260315" async></script>
   <script src="../../js/main.js?v=20260315" defer></script>
-  <script src="../../js/gallery.js?v=20261001-readiness" defer onerror="document.getElementById('galleryLoading').hidden = true; document.getElementById('galleryError').hidden = false"></script>
+  <script src="../../js/gallery.js?v=20261003-inspector" defer onerror="document.getElementById('galleryLoading').hidden = true; document.getElementById('galleryError').hidden = false"></script>
 
 </body>
 

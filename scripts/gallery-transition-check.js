@@ -58,6 +58,12 @@ async function finishFrames(page, name) {
   assert(frames.every(frame => frame.layers.length <= 2), `${name}: unbounded image layers`);
   const blank = frames.filter(frame => !frame.layers.some(layer => layer.visible && layer.ready && layer.opacity >= 0.99));
   assert.equal(blank.length, 0, `${name}: ${blank.length}/${frames.length} frames lack an opaque decoded photo`);
+  for (const frame of frames) {
+    const visible = frame.layers.filter(layer => layer.visible && layer.opacity > 0);
+    assert.equal(visible.length, 1, `${name}: a previous photo remains visible beneath the committed photo`);
+    assert.equal(visible[0].src, frame.committedSrc, `${name}: displayed pixels do not match the committed photo`);
+    assert.equal(visible[0].opacity, 1, `${name}: committed photo must be fully opaque on its first frame`);
+  }
   results.push({ name, frames: frames.length, blankFrames: blank.length });
   return frames;
 }
@@ -275,6 +281,31 @@ async function desktop(browser, base, { reduced = false, jpegOnly = false } = {}
   } finally { await context.close(); }
 }
 
+async function rapidNavigation(browser, base, mobile = false) {
+  const context = await browser.newContext({ viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 } });
+  await fixture(context);
+  const page = await context.newPage();
+  try {
+    await page.goto(`${base}/${mobile ? 'mobile/gallery/' : 'pages/gallery/?full=1#photo=lighthouse'}`, { waitUntil: 'domcontentloaded' });
+    if (mobile) await page.locator('#mobileGalleryGrid button').first().click();
+    await displayed(page, 'lighthouse', mobile);
+    await sampleFrames(page, mobile);
+    // Navigation faster than a fade can finish, including direction changes
+    // and a full wrap. Sample every rendered frame, not only settled states.
+    const directions = [1, 1, -1, 1, 1, -1, -1, 1, 1, 1, 1, 1, -1, -1, 1];
+    await page.evaluate(async directions => {
+      for (const direction of directions) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: direction > 0 ? 'ArrowRight' : 'ArrowLeft', bubbles: true }));
+        await new Promise(resolve => requestAnimationFrame(resolve));
+      }
+    }, directions);
+    const target = ((directions.reduce((sum, step) => sum + step, 0) % photos.length) + photos.length) % photos.length;
+    await displayed(page, photos[target].id, mobile);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await finishFrames(page, `${mobile ? 'mobile' : 'desktop'}-rapid-bidirectional`);
+  } finally { await context.close(); }
+}
+
 async function navigationFailure(browser, base, failure) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await fixture(context);
@@ -307,7 +338,7 @@ async function decodeAndInitialFailure(browser, base) {
     const decode = HTMLImageElement.prototype.decode;
     HTMLImageElement.prototype.decode = async function () {
       await decode.call(this);
-      if (this.currentSrc.includes('/attitude.')) {
+      if (this.closest('.lightbox-picture') && this.currentSrc.includes('/attitude.')) {
         window.__decodeReached = true;
         await new Promise(resolve => { window.__releaseDecode = resolve; });
       }
@@ -462,13 +493,16 @@ async function main() {
   fs.mkdirSync(OUTPUT, { recursive: true });
   const url = process.env.GALLERY_TRANSITION_URL || 'http://127.0.0.1:0';
   const server = await startLocalStaticServer({ url, cwd: ROOT, skip: Boolean(process.env.GALLERY_TRANSITION_URL) });
-  const browser = await playwright[ENGINE].launch();
+  let browser;
   try {
+    browser = await playwright[ENGINE].launch();
     const base = server?.url || url;
     await streamedBody(browser, base);
     await warmCacheTransition(browser, base);
     await desktop(browser, base);
     await desktop(browser, base, { reduced: true, jpegOnly: true });
+    await rapidNavigation(browser, base);
+    await rapidNavigation(browser, base, true);
     await navigationFailure(browser, base, '404');
     await navigationFailure(browser, base, 'corrupt');
     await decodeAndInitialFailure(browser, base);
@@ -479,7 +513,7 @@ async function main() {
     console.log(JSON.stringify({ browser: ENGINE, results }, null, 2));
   } finally {
     fs.writeFileSync(path.join(OUTPUT, 'results.json'), JSON.stringify({ browser: ENGINE, results }, null, 2) + '\n');
-    await browser.close();
+    await browser?.close();
     server?.kill();
   }
 }
