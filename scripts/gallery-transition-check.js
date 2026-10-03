@@ -20,7 +20,7 @@ async function displayed(page, id, mobile = false) {
   await page.waitForFunction(({ id, mobile }) => {
     const image = document.getElementById(mobile ? 'mobileLightboxImage' : 'lightboxImage');
     return image?.complete && image.naturalWidth > 0
-      && new RegExp('/' + id + '\\.(avif|webp|jpg)$', 'i').test(image.currentSrc)
+      && new RegExp('/' + id + '\\.(avif|webp|jpg)$', 'i').test(new URL(image.currentSrc).pathname)
       && getComputedStyle(image).visibility !== 'hidden';
   }, { id, mobile });
 }
@@ -281,8 +281,12 @@ async function navigationFailure(browser, base, failure) {
   const page = await context.newPage();
   page.setDefaultTimeout(12000);
   let failing = true;
+  const recoveredRequests = [];
   await page.route(/\/assets\/photos\/(medium|large)\/attitude\./i, route => {
-    if (!failing) return route.continue();
+    if (!failing) {
+      recoveredRequests.push(route.request().url());
+      return route.continue();
+    }
     return failure === '404' ? route.fulfill({ status: 404, body: '' })
       : route.fulfill({ contentType: 'image/jpeg', body: 'not an image' });
   });
@@ -296,6 +300,18 @@ async function navigationFailure(browser, base, failure) {
     failing = false;
     await page.locator('#lightboxRetry').click();
     await displayed(page, 'attitude');
+    const recoveredUrl = await page.locator('#lightboxImage').evaluate(image => image.currentSrc);
+    assert(new URL(recoveredUrl).searchParams.get('_gallery_retry'), 'Retry must use a fresh resource identity');
+    assert(recoveredRequests.includes(recoveredUrl), 'Retry must make a fresh image request');
+    await page.locator('#lightboxPrev').click();
+    await displayed(page, 'lighthouse');
+    await page.locator('#lightboxNext').click();
+    await displayed(page, 'attitude');
+    assert.equal(await page.locator('#lightboxImage').evaluate(image => image.currentSrc), recoveredUrl);
+    await page.locator('#lightboxClose').click();
+    await page.evaluate(() => { location.hash = '#photo=attitude'; });
+    await displayed(page, 'attitude');
+    assert.equal(await page.locator('#lightboxImage').evaluate(image => image.currentSrc), recoveredUrl);
     results.push({ name: `navigation-${failure}-retry`, status: 'pass' });
   } finally { await context.close(); }
 }
