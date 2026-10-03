@@ -12,6 +12,8 @@
   const MANIFEST_PATH = '../../assets/photos/photos.json';
   const SEQUENCE_PATH = '../../assets/photos/gallery-sequence.json';
   const HERO_QUEUE_LIMIT = 4;
+  const IMAGE_RETRY_SESSION = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  let imageRetryAttempt = 0;
   // Issue #40: every gallery fetch is bounded so a stalled optional file can
   // never gate rendering and a stalled required file lands in a recoverable
   // error state. The required manifest gets a hard deadline; the optional
@@ -249,7 +251,7 @@ function bindStaticEvents() {
   gallery.elements.lightboxClose?.addEventListener('click', () => closeLightbox());
   gallery.elements.lightboxPrev?.addEventListener('click', () => navigateLightbox(-1));
   gallery.elements.lightboxNext?.addEventListener('click', () => navigateLightbox(1));
-  gallery.elements.lightboxRetry?.addEventListener('click', () => requestLightboxEntry(gallery.requestedIndex));
+  gallery.elements.lightboxRetry?.addEventListener('click', () => requestLightboxEntry(gallery.requestedIndex, true));
   gallery.elements.lightboxInfoToggle?.addEventListener('click', () => {
     setInfoPanelOpen(!gallery.infoPanelOpen);
   });
@@ -1511,11 +1513,16 @@ function cancelLightboxPreparation() {
   gallery.lightboxRequest = null;
 }
 
-function requestLightboxEntry(index) {
+function requestLightboxEntry(index, retry = false) {
   if (!gallery.lightboxOpen || !gallery.entries[index]) return;
   cancelLightboxPreparation();
   gallery.requestedIndex = index;
   const entry = gallery.entries[index];
+  // A failed decoded resource can remain in the browser's image cache even
+  // after its element is removed. Retry every responsive candidate under one
+  // fresh identity, and retain it for subsequent visits to this photograph.
+  if (retry) entry.imageRetryVersion = `${IMAGE_RETRY_SESSION}-${++imageRetryAttempt}`;
+  const imageUrl = (src) => withImageRetry(src, entry.imageRetryVersion);
   if (index === gallery.currentIndex) {
     setLightboxStatus();
     writePhotoHash(entry.id);
@@ -1547,12 +1554,12 @@ function requestLightboxEntry(index) {
   // an unused full-size JPEG before the browser can choose AVIF/WebP.
   const sizes = '(max-width: 900px) calc(100vw - 32px), calc(100vw - 348px)';
   setPictureSource(avif, buildSrcset([
-    makeResponsiveCandidate(entry.assets.mediumAvif, entry.assets.mediumWidth),
-    makeResponsiveCandidate(entry.assets.largeAvif, entry.assets.largeWidth)
+    makeResponsiveCandidate(imageUrl(entry.assets.mediumAvif), entry.assets.mediumWidth),
+    makeResponsiveCandidate(imageUrl(entry.assets.largeAvif), entry.assets.largeWidth)
   ]), sizes);
   setPictureSource(webp, buildSrcset([
-    makeResponsiveCandidate(entry.assets.mediumWebp, entry.assets.mediumWidth),
-    makeResponsiveCandidate(entry.assets.largeWebp, entry.assets.largeWidth)
+    makeResponsiveCandidate(imageUrl(entry.assets.mediumWebp), entry.assets.mediumWidth),
+    makeResponsiveCandidate(imageUrl(entry.assets.largeWebp), entry.assets.largeWidth)
   ]), sizes);
   image.sizes = sizes;
 
@@ -1603,10 +1610,10 @@ function requestLightboxEntry(index) {
   timer = window.setTimeout(failed, configuredTimeout > 0 ? configuredTimeout : 15000);
   gallery.elements.lightboxMedia.appendChild(picture);
   image.srcset = buildSrcset([
-    makeResponsiveCandidate(entry.assets.mediumJpg, entry.assets.mediumWidth),
-    makeResponsiveCandidate(entry.assets.largeJpg, entry.assets.largeWidth)
+    makeResponsiveCandidate(imageUrl(entry.assets.mediumJpg), entry.assets.mediumWidth),
+    makeResponsiveCandidate(imageUrl(entry.assets.largeJpg), entry.assets.largeWidth)
   ]);
-  image.src = entry.assets.largeJpg || entry.assets.mediumJpg || entry.assets.original;
+  image.src = imageUrl(entry.assets.largeJpg || entry.assets.mediumJpg || entry.assets.original);
   if (image.complete && image.naturalWidth) ready();
 }
 
@@ -2033,6 +2040,13 @@ function resolveVariantPath(variant, format, basePath, fallbackFilename = '') {
 
 function buildSrcset(candidates) {
   return candidates.filter(Boolean).join(', ');
+}
+
+function withImageRetry(src, version) {
+  if (!src || !version) return src;
+  const url = new URL(src, document.baseURI);
+  url.searchParams.set('_gallery_retry', version);
+  return url.href;
 }
 
 function makeResponsiveCandidate(src, width) {
