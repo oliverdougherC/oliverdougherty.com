@@ -52,10 +52,18 @@ async function instrumentPage(page) {
     window.__resumeCheck = {
       docId: `${Date.now()}-${Math.random()}`,
       t0: performance.now(),
+      introStartedAt: null,
       pageshow: [],
       pagehide: [],
       errors: []
     };
+    // The production intro starts at DOMContentLoaded. Document creation can
+    // precede it by hundreds of milliseconds while scripts/styles load, so
+    // lifecycle exit offsets must exclude that loading time. Keep t0 only
+    // for the document-relative pageshow/pagehide diagnostic log.
+    document.addEventListener('DOMContentLoaded', () => {
+      window.__resumeCheck.introStartedAt = performance.now();
+    }, { once: true });
     const record = (list) => (event) => {
       window.__resumeCheck[list].push({
         persisted: Boolean(event.persisted),
@@ -68,6 +76,15 @@ async function instrumentPage(page) {
       if (event.message) window.__resumeCheck.errors.push(String(event.message));
     }, true);
   });
+}
+
+async function waitUntilIntroOffset(page, offsetMs) {
+  const elapsed = await page.evaluate(() => {
+    const startedAt = window.__resumeCheck?.introStartedAt;
+    if (!Number.isFinite(startedAt)) throw new Error('Resume intro timing requires DOMContentLoaded.');
+    return performance.now() - startedAt;
+  });
+  if (elapsed < offsetMs) await page.waitForTimeout(offsetMs - elapsed);
 }
 
 async function newInstrumentedPage(browser, options) {
@@ -297,8 +314,7 @@ async function tripAndVerify(browser, exitMs) {
   const { context, page } = await newInstrumentedPage(browser, { reducedMotion: 'no-preference' });
   try {
     await page.goto(`${baseUrl}${RESUME_ROUTE}`, { waitUntil: 'load' });
-    const elapsed = await page.evaluate(() => performance.now() - window.__resumeCheck.t0);
-    if (elapsed < exitMs) await page.waitForTimeout(exitMs - elapsed);
+    await waitUntilIntroOffset(page, exitMs);
     const leaving = await readState(page);
     assert(leaving.pageshow.length === 1 && leaving.pageshow[0].persisted === false,
       `[${label}] first load must log one non-persisted pageshow: ${JSON.stringify(leaving.pageshow)}`);
@@ -470,8 +486,7 @@ async function runSyntheticPair(browser) {
   const { context, page } = await newInstrumentedPage(browser, { reducedMotion: 'no-preference' });
   try {
     await page.goto(`${baseUrl}${RESUME_ROUTE}`, { waitUntil: 'load' });
-    const elapsed = await page.evaluate(() => performance.now() - window.__resumeCheck.t0);
-    if (elapsed < 100) await page.waitForTimeout(100 - elapsed);
+    await waitUntilIntroOffset(page, 100);
     await page.evaluate(() => {
       window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
     });
@@ -530,8 +545,7 @@ async function runSuspendWithoutResume(browser) {
   const { context, page } = await newInstrumentedPage(browser, { reducedMotion: 'no-preference' });
   try {
     await page.goto(`${baseUrl}${RESUME_ROUTE}`, { waitUntil: 'load' });
-    const elapsed = await page.evaluate(() => performance.now() - window.__resumeCheck.t0);
-    if (elapsed < 100) await page.waitForTimeout(100 - elapsed);
+    await waitUntilIntroOffset(page, 100);
     await page.evaluate(() => {
       window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
     });
@@ -600,7 +614,11 @@ async function run() {
   }
 }
 
-run().catch((error) => {
-  console.error(`Resume lifecycle check failed: ${error.message}`);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  run().catch((error) => {
+    console.error(`Resume lifecycle check failed: ${error.message}`);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = { instrumentPage, waitUntilIntroOffset };
