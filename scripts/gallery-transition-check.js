@@ -20,7 +20,7 @@ async function displayed(page, id, mobile = false) {
   await page.waitForFunction(({ id, mobile }) => {
     const image = document.getElementById(mobile ? 'mobileLightboxImage' : 'lightboxImage');
     return image?.complete && image.naturalWidth > 0
-      && new RegExp('/' + id + '\\.(avif|webp|jpg)$', 'i').test(image.currentSrc)
+      && new RegExp('/' + id + '\\.(avif|webp|jpg)$', 'i').test(new URL(image.currentSrc).pathname)
       && getComputedStyle(image).visibility !== 'hidden';
   }, { id, mobile });
 }
@@ -356,6 +356,16 @@ async function navigationFailure(browser, base, failure) {
     network.push({ type: 'retry-click' });
     await page.locator('#lightboxRetry').click();
     await displayed(page, 'attitude');
+    const retryEvents = network.slice(network.findIndex(event => event.type === 'retry-click') + 1);
+    assert(retryEvents.some(event => event.type === 'request' && new URL(event.url).searchParams.has('_gallery_retry')),
+      'retry must issue a fresh responsive image request');
+    const recoveredSrc = await page.locator('#lightboxImage').evaluate(image => image.currentSrc);
+    await page.locator('.lightbox-thumb[data-entry-id="lighthouse"]').click();
+    await displayed(page, 'lighthouse');
+    await page.locator('.lightbox-thumb[data-entry-id="attitude"]').click();
+    await displayed(page, 'attitude');
+    assert.equal(await page.locator('#lightboxImage').evaluate(image => image.currentSrc), recoveredSrc,
+      'revisiting must retain the recovered resource identity');
     results.push({ name: `navigation-${failure}-retry`, status: 'pass' });
   } catch (error) {
     const state = await page.evaluate(() => ({
@@ -496,6 +506,10 @@ async function mobile(browser, base) {
   const page = await context.newPage();
   page.setDefaultTimeout(12000);
   let fail = false;
+  const retryRequests = [];
+  page.on('request', request => {
+    if (new URL(request.url()).searchParams.has('_gallery_retry')) retryRequests.push(request.url());
+  });
   await page.route(/\/assets\/photos\/(medium|large)\/attitude\./i, async route => {
     if (fail) return route.fulfill({ status: 404, body: '' });
     await new Promise(resolve => setTimeout(resolve, 800));
@@ -529,6 +543,13 @@ async function mobile(browser, base) {
     fail = false;
     await page.locator('#mobileLightboxRetry').click();
     await displayed(page, 'attitude', true);
+    assert(retryRequests.length > 0, 'mobile retry must issue a fresh responsive image request');
+    const recoveredSrc = await page.locator('#mobileLightboxImage').evaluate(image => image.currentSrc);
+    await page.keyboard.press('ArrowLeft');
+    await displayed(page, 'lighthouse', true);
+    await page.keyboard.press('ArrowRight');
+    await displayed(page, 'attitude', true);
+    assert.equal(await page.locator('#mobileLightboxImage').evaluate(image => image.currentSrc), recoveredSrc);
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('body > [inert]').count(), 0);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
