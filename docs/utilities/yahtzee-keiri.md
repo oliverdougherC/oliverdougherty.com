@@ -130,7 +130,7 @@ The upstream engine is pinned to
 [`12d7d1bfde0938e90c5656e80feb44babb6a9f3c`](https://github.com/oliverdougherC/Keiri/tree/12d7d1bfde0938e90c5656e80feb44babb6a9f3c).
 The shipped `utilities-src/keiri/assets/keiri.wasm` runs upstream rules and
 `ExactTableAgent`; `utilities-src/keiri/assets/bbg-anchor-v2.bin` contains the full
-1,572,864-value table (schema 2, BuddyBoardGames rules ID 2). Vite emits both as
+1,573,864-value table (schema 2, BuddyBoardGames rules ID 2). Vite emits both as
 separate static assets; the table is never embedded in JavaScript or generated in
 the browser. The worker validates the table before reporting readiness and returns
 errors rather than substituting a weaker agent.
@@ -155,8 +155,10 @@ npm run quality
 ```
 
 These browser commands start a local server for the packaged `dist/` site. The
-release plan runs the full Utilities suite on Chromium and the focused Yahtzee
-suite on Firefox and WebKit, so CI validates this game in all three engines.
+release plan runs the focused Yahtzee suite in a separate bounded process for
+each browser. Its Chromium legacy Utilities process sets `UTILITIES_SKIP_YAHTZEE=1`
+to avoid duplicating game coverage inside the existing five-minute guard; direct
+`utilities:browser-check` still includes the game by default.
 The core tests cover deterministic complete
 matches, legal turn limits, hold preservation, terminal record accounting,
 unbiased dice and invalid recovery. Controller/polish tests cover loading and
@@ -183,7 +185,7 @@ native motion tracks, material continuity, and layout at 1440×900, 1280×720,
 
 ### Final-pass evidence — 2026-10-04
 
-Type checking and all 572 unit tests pass for the final motion pass. The pinned
+Type checking and all 573 unit tests pass for the final motion pass. The pinned
 engine rebuild (three native tests and matching binary hashes), production builds,
 quality checks, deploy smoke checks, and packaged WebKit game suite pass. The full
 packaged Chromium Utilities suite also passes. An independent

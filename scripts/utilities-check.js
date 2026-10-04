@@ -2512,9 +2512,13 @@ async function main() {
       }
     });
 
-    await runUtilitySection(utilitySectionFailures, 'Yahtzee vs. Keiri', async () => {
-      await runYahtzeeChecks(browser, baseUrl);
-    });
+    // release-check runs the focused game suite separately in every browser.
+    // Direct utilities:browser-check invocations still include it by default.
+    if (process.env.UTILITIES_SKIP_YAHTZEE !== '1') {
+      await runUtilitySection(utilitySectionFailures, 'Yahtzee vs. Keiri', async () => {
+        await runYahtzeeChecks(browser, baseUrl);
+      });
+    }
 
     await runUtilitySection(utilitySectionFailures, 'Reduced Motion', async () => {
       const reducedMotionPage = await browser.newPage({
