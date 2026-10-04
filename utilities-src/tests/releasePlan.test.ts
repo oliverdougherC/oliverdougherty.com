@@ -16,9 +16,9 @@ it('preserves existing release checks and includes cross-browser game coverage',
   expect(plan.map((check: { name: string }) => check.name).sort()).toEqual([
     ...legacy, 'chromium-home-reveal', 'firefox-home-reveal', 'webkit-home-reveal',
     'chromium-gallery-inspector', 'firefox-gallery-inspector', 'webkit-gallery-inspector',
-    'firefox-yahtzee', 'webkit-yahtzee'
+    'chromium-yahtzee', 'firefox-yahtzee', 'webkit-yahtzee'
   ].sort());
-  expect(new Set(plan.map((check: { name: string }) => check.name)).size).toBe(52);
+  expect(new Set(plan.map((check: { name: string }) => check.name)).size).toBe(53);
 });
 
 it('partitions exhaustive coverage into disjoint, nonempty groups', () => {
@@ -58,10 +58,13 @@ it.each([true, false])('writes each result and honors failFast=%s', async failFa
 });
 
 
-it.each(['firefox', 'webkit'])('runs the real Yahtzee suite in the %s utilities lane', browser => {
+it.each(['chromium', 'firefox', 'webkit'])('runs the real Yahtzee suite in the %s utilities lane', browser => {
   const plan = createCheckPlan({ browsers: [browser], group: 'utilities' });
   const games = plan.filter((check: { file: string }) => check.file === 'yahtzee-check.js');
   expect(games).toHaveLength(1);
   expect(games[0]).toMatchObject({ name: `${browser}-yahtzee`, group: 'utilities', env: { UTILITIES_BROWSER: browser } });
-  expect(plan.some((check: { file: string }) => check.file === 'utilities-check.js')).toBe(false);
+  const legacy = plan.find((check: { file: string }) => check.file === 'utilities-check.js');
+  if (browser === 'chromium') expect(legacy.env.UTILITIES_SKIP_YAHTZEE).toBe('1');
+  else expect(legacy).toBeUndefined();
+  expect(plan[0]).toBe(games[0]);
 });
