@@ -19,13 +19,14 @@ async function activeTool(page, tool) {
   assert.equal(await page.locator('.utilities-footer').isVisible(), false, 'Active tools must hide the footer');
 }
 
-function inkBounds(pixels, info, rect, clip, scale) {
+function inkBounds(pixels, info, rect, clip, scale, expectedColor) {
   const left = Math.max(0, Math.ceil((rect.x - clip.x) * scale));
   const right = Math.min(info.width, Math.floor((rect.x + rect.width - clip.x) * scale));
   const top = Math.max(0, Math.ceil((rect.y - clip.y) * scale));
   const bottom = Math.min(info.height, Math.floor((rect.y + rect.height - clip.y) * scale));
   let first = Infinity;
   let last = -Infinity;
+  let colorDelta = Infinity;
   for (let y = top; y < bottom; y += 1) {
     for (let x = left; x < right; x += 1) {
       const offset = (y * info.width + x) * info.channels;
@@ -33,11 +34,15 @@ function inkBounds(pixels, info, rect, clip, scale) {
       if (Math.min(pixels[offset], pixels[offset + 1], pixels[offset + 2]) < 200) {
         first = Math.min(first, y);
         last = Math.max(last, y);
+        colorDelta = Math.min(colorDelta, Math.max(...expectedColor.map((channel, index) => Math.abs(pixels[offset + index] - channel))));
       }
     }
   }
   assert(Number.isFinite(first) && Number.isFinite(last), 'Icon and label must both have visible ink');
-  return { top: first, bottom: last, center: (first + last) / 2 };
+  // Allow antialiasing at small sizes. Black cannot match hover purple within
+  // this per-channel tolerance (its minimum possible distance is 56).
+  assert(colorDelta <= 32, `Visible icon/text ink must follow the button color: distance ${colorDelta}`);
+  return { top: first, bottom: last, center: (first + last) / 2, colorDelta };
 }
 
 async function measureArrow(page, { output, name, dpr, state = 'normal', capture = true }) {
@@ -58,12 +63,12 @@ async function measureArrow(page, { output, name, dpr, state = 'normal', capture
       cssZoom: getComputedStyle(document.documentElement).zoom,
       decorative: icon.getAttribute('aria-hidden') === 'true' && icon.getAttribute('focusable') === 'false',
       svg: icon instanceof SVGElement,
-      stroke: getComputedStyle(icon).stroke, color: getComputedStyle(element).color,
+      stroke: icon.getAttribute('stroke'), color: getComputedStyle(element).color,
       focus: element.matches(':focus-visible'), outline: getComputedStyle(element).outlineStyle
     };
   });
   assert(geometry.decorative && geometry.svg, 'Use a nonfocusable decorative SVG');
-  assert.equal(geometry.stroke, geometry.color, 'The icon must follow the button color');
+  assert.equal(geometry.stroke, 'currentColor', 'Declare the icon stroke using currentColor');
   if (state === 'hover') assert.equal(geometry.color, 'rgb(112, 80, 192)', 'Hover must retain the accent color');
   if (state === 'focus') assert(geometry.focus && geometry.outline !== 'none', 'Keyboard focus must retain its visible outline');
   const center = rect => rect.y + rect.height / 2;
@@ -94,8 +99,9 @@ async function measureArrow(page, { output, name, dpr, state = 'normal', capture
   const png = await page.screenshot({ clip, animations: 'disabled', timeout: 10000 });
   fs.writeFileSync(path.join(output, `${name}-${state}.png`), png);
   const { data, info } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-  const iconInk = inkBounds(data, info, geometry.icon, clip, dpr);
-  const labelInk = inkBounds(data, info, geometry.label, clip, dpr);
+  const expectedColor = geometry.color.match(/[\d.]+/g).slice(0, 3).map(Number);
+  const iconInk = inkBounds(data, info, geometry.icon, clip, dpr, expectedColor);
+  const labelInk = inkBounds(data, info, geometry.label, clip, dpr, expectedColor);
   // Compare actual ink, allowing one CSS pixel for rasterization rounding.
   const inkDelta = (iconInk.center - labelInk.center) / dpr;
   assert(Math.abs(inkDelta) <= 1, `${name}:${state}: visible arrow/text centers differ by ${inkDelta.toFixed(2)} CSS px`);

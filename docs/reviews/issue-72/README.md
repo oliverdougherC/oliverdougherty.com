@@ -31,7 +31,10 @@ The representative cases cover all four current tools, permanently blocked fonts
 delayed Inter followed by a real swap after first paint, DPR 1/2, normal and
 representative hover/focus. Click, Enter, Space, switcher, history Back/Forward,
 footer restoration, accessible name and decorative SVG semantics are checked.
-Visible-ink centers must differ by at most one CSS pixel; layout checks also
+Visible-ink centers must differ by at most one CSS pixel. Icon and label ink
+must match the button color, including hover purple, allowing antialiasing;
+this checks painted pixels rather than an engine-specific computed SVG paint
+value. Layout checks also
 verify the unchanged font/padding contract, target height relative to the
 engine-rendered line box, and actual toolbar breakpoint behavior. Chromium
 and Firefox render a roughly 30.8px target; the check allows WebKit to quantize
