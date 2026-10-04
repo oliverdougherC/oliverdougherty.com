@@ -79,7 +79,6 @@ function createCheckPlan({ browsers = BROWSERS, group } = {}) {
     add('artifact', 'artifact-browser-check.js', 'artifact');
     add('home-stage', 'home-check.js', 'home', { HOME_CHECK_STAGE_ONLY: '1' });
     add('home-reveal', 'nighthawks-reveal-check.js', 'home', { NIGHTHAWKS_CHECK_BROWSERS: browser });
-    add('index-arrow', 'index-arrow-check.js', 'utilities');
     if (browser === 'chromium') {
       // Mobile routes include gallery and resume, so both feature selections need this check.
       add('mobile', 'mobile-site-check.js', 'navigation');
@@ -87,6 +86,7 @@ function createCheckPlan({ browsers = BROWSERS, group } = {}) {
       for (const [name, file] of [['gallery', 'gallery-dropdown-check.js'], ['gallery-data', 'gallery-data-loading-check.js']]) add(name, file, 'gallery');
       for (const [name, file] of [['utilities', 'utilities-check.js'], ['transform-preparation', 'transform-preparation-check.js'], ['stress', 'stress-test-check.js']]) add(name, file, 'utilities');
     } else {
+      add('index-arrow', 'index-arrow-check.js', 'utilities');
       add('stress-pool', 'stress-test-check.js', 'utilities', { STRESS_BROWSER_TYPE: browser, STRESS_POOL_ONLY: '1' });
     }
   }
