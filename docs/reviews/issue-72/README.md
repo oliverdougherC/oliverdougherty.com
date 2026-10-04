@@ -89,17 +89,15 @@ PR. The focused arrow cases now include the newly exposed fourth tool.
 
 ## Validation
 
-The following local measurements preceded the final main merge. Final-head
-source/build/browser checks and required CI results are recorded in the PR
-description.
+After merging main `6708df0`, source quality, utilities typecheck/tests
+(574 passed, 5 existing skips), utilities build and deployment build pass locally.
+System Chromium 151.0.7922.173 on Linux passes the focused check: 13 rendered
+images in 3.8s, including Yahtzee at the 200% effective viewport.
 
-
-Source quality, utilities typecheck/tests (505 passed, 5 existing skips),
-utilities build and deployment build pass locally. System Chromium
-151.0.7922.173 on Linux passes the focused check: 13 rendered images in 3.5s,
-with ink-center differences at most 0.5 CSS px. The packaged main utility
-check passes in 151.3s, including Fourier, worker recovery and reduced motion;
-its embedded arrow check takes 8.5s in that local run. Local packaged checks use system
-Chromium and local font responses through an untracked preload because pinned
-browser downloads and live Google Fonts are blocked in this environment.
-
+Before that main merge, the packaged main utility check passed in 151.3s,
+including Fourier, worker recovery and reduced motion; its embedded arrow check
+took 8.5s. These measurements apply to the previous branch revision, not the
+merged Fourier checks. Local packaged checks use system Chromium and local font
+responses through an untracked preload because pinned browser downloads and
+live Google Fonts are blocked in this environment. Final-head browser/release
+and required CI results are recorded in the PR description.
