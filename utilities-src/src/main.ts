@@ -1617,7 +1617,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // Each lazy branch: dynamic import failure poisons the module URL, and a
     // half-constructed controller may leave listeners behind. Both need reload.
     const lazy: { label: string; load: () => Promise<(() => void) | null> } | null =
-      utilityId === 'yahtzee-keiri'
+      utilityId === 'local-assistant'
+        ? {
+            label: 'Local Assistant',
+            load: async () => {
+              const root = document.getElementById('localAssistantApp');
+              if (!root) return null;
+              const { LocalAssistantController } = await import('./localAssistantController');
+              return () => { new LocalAssistantController(root).init(); };
+            },
+          }
+        : utilityId === 'yahtzee-keiri'
         ? {
             label: 'Yahtzee vs. Keiri',
             load: async () => {

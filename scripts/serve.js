@@ -29,8 +29,8 @@ const SERVING_REPO = ROOT === REPO_ROOT;
 const PORT = Number(process.env.PORT || process.argv[2] || 4173);
 const URL = `http://127.0.0.1:${PORT}`;
 // Everything whose mtime means "the built bundles may no longer describe the code".
-const BUILD_INPUTS = ['utilities-src', 'css/yahtzee.css', 'config/vite.utilities.mts', 'package.json', 'pages/utilities/index.html'];
-const LAZY_CHUNKS = ['audioFourierController', 'retroVmController', 'stressTestController', 'yahtzeeController'];
+const BUILD_INPUTS = ['utilities-src', 'css/yahtzee.css', 'css/local-assistant.css', 'config/vite.utilities.mts', 'package.json', 'pages/utilities/index.html'];
+const LAZY_CHUNKS = ['audioFourierController', 'retroVmController', 'stressTestController', 'yahtzeeController', 'localAssistantController'];
 
 function newestMtime(target) {
   const stats = fs.statSync(target);

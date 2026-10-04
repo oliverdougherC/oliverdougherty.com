@@ -6,6 +6,7 @@ const os = require('node:os');
 const { chromium, firefox, webkit } = require('playwright');
 const sharp = require('sharp');
 const { runYahtzeeChecks } = require('./yahtzee-check');
+const { runLocalAssistantChecks } = require('./local-assistant-check');
 const {
   startLocalStaticServer,
   waitForServer
@@ -383,15 +384,15 @@ async function assertPublicUtilityRoutes(browser, baseUrl) {
     const visibleRoutes = await page.locator('.utilities-buttons [data-utility]:visible')
       .evaluateAll((entries) => entries.map((entry) => entry.dataset.utility));
     assert(
-      JSON.stringify(visibleRoutes) === JSON.stringify(['image-transform', 'audio-fourier', 'stress-test', 'yahtzee-keiri']),
-      'Utilities should offer exactly the four public routes.'
+      JSON.stringify(visibleRoutes) === JSON.stringify(['image-transform', 'audio-fourier', 'stress-test', 'yahtzee-keiri', 'local-assistant']),
+      'Utilities should offer exactly the five public routes.'
     );
 
-    for (const utilityId of ['local-assistant', 'virtual-machine', 'unknown-tool', '%E0%A4%A']) {
+    for (const utilityId of ['virtual-machine', 'unknown-tool', '%E0%A4%A']) {
       await page.goto(`${baseUrl}/pages/utilities/index.html#${utilityId}`, { waitUntil: 'networkidle' });
       const state = await page.evaluate(() => ({
-        retiredLaunchers: document.querySelectorAll('.utilities-buttons [data-utility="local-assistant"], .utilities-buttons [data-utility="virtual-machine"]').length,
-        assistantPresent: Boolean(document.querySelector('[data-utility-id="local-assistant"], #localLlmUtilityApp')),
+        retiredLaunchers: document.querySelectorAll('.utilities-buttons [data-utility="virtual-machine"]').length,
+        assistantPresent: Boolean(document.querySelector('#localLlmUtilityApp')),
         vmRetained: Boolean(document.querySelector('[data-utility-id="virtual-machine"] #retroVmApp')),
         vmHidden: document.querySelector('[data-utility-id="virtual-machine"]')?.hidden === true,
         activeStageCount: document.querySelectorAll('.utility-stage.is-active').length,
@@ -399,7 +400,7 @@ async function assertPublicUtilityRoutes(browser, baseUrl) {
         workspaceHidden: document.getElementById('utilitiesUtilityView')?.hidden === true
       }));
       assert(state.retiredLaunchers === 0, 'Retired tools should not retain launchers.');
-      assert(!state.assistantPresent, 'Local Assistant markup should be removed.');
+      assert(!state.assistantPresent, 'Retired Local Assistant markup should stay removed.');
       assert(state.vmRetained && state.vmHidden, 'VM implementation should remain hidden for future work.');
       assert(state.titleVisible && state.workspaceHidden && state.activeStageCount === 0, `${utilityId} deep links should stay on the index.`);
     }
@@ -414,10 +415,12 @@ async function assertWorkbenchShell(browser, baseUrl) {
     { id: 'image-transform', name: 'Image Transform', number: '01' },
     { id: 'audio-fourier', name: 'Fourier Reconstruction', number: '02' },
     { id: 'stress-test', name: 'Stress Test', number: '03' },
-    { id: 'yahtzee-keiri', name: 'Yahtzee vs. Keiri', number: '04' }
+    { id: 'yahtzee-keiri', name: 'Yahtzee vs. Keiri', number: '04' },
+    { id: 'local-assistant', name: 'Local Assistant', number: '05' }
   ];
   for (const viewport of [{ width: 1280, height: 800 }, { width: 1440, height: 900 }]) {
     const page = await browser.newPage({ viewport });
+    await page.addInitScript(() => Object.defineProperty(navigator, 'gpu', { value: undefined, configurable: true }));
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     const label = `${viewport.width}x${viewport.height}`;
@@ -442,7 +445,7 @@ async function assertWorkbenchShell(browser, baseUrl) {
       assert(index.background === 'rgb(255, 255, 255)' && index.backgroundImage === 'none', `[${label}] workbench should have a plain white background.`);
       assert(index.decorations === 0, `[${label}] retired decorative markup should be absent.`);
       assert(!index.overflow, `[${label}] index should not overflow horizontally.`);
-      assert(index.entries.length === tools.length, `[${label}] index should contain four entries.`);
+      assert(index.entries.length === tools.length, `[${label}] index should contain five entries.`);
       for (const tool of tools) {
         const entry = index.entries.find(item => item.id === tool.id);
         assert(entry?.tag === 'A' && entry.href === `#${tool.id}`, `[${label}] ${tool.name} should be a native deep link.`);
@@ -493,7 +496,7 @@ async function assertWorkbenchShell(browser, baseUrl) {
       assert(await page.locator('#utilitiesTitleView').isVisible(), `[${label}] collection control should return to the index.`);
       assert(await page.locator('.utilities-buttons [data-utility="audio-fourier"]').evaluate(entry => entry === document.activeElement), `[${label}] returning to the index should restore entry focus.`);
       await page.goBack();
-      await page.waitForFunction(() => document.querySelector('[data-utility-id="yahtzee-keiri"]')?.classList.contains('is-active'));
+      await page.waitForFunction(() => document.querySelector('[data-utility-id="local-assistant"]')?.classList.contains('is-active'));
       await page.goForward();
       await page.waitForFunction(() => document.getElementById('utilitiesTitleView')?.hidden === false);
       assert(errors.length === 0, `[${label}] shell should not produce browser errors: ${errors.join('; ')}`);
@@ -2639,6 +2642,10 @@ async function main() {
         await runYahtzeeChecks(browser, baseUrl);
       });
     }
+
+    await runUtilitySection(utilitySectionFailures, 'Local Assistant', async () => {
+      await runLocalAssistantChecks(browser, baseUrl);
+    });
 
     await runUtilitySection(utilitySectionFailures, 'Reduced Motion', async () => {
       const reducedMotionPage = await browser.newPage({
