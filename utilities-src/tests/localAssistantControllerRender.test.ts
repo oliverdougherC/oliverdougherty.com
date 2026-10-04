@@ -56,7 +56,7 @@ describe('assistant streaming presentation', () => {
   });
   it('replaces prefill placeholder after stop even without a single token', async () => {
     const { el } = await setup();
-    expect(el('.la-message--assistant .la-message-body').textContent).toBe('Thinking…');
+    expect(el('.la-message--assistant .la-message-body').textContent).toBe('Generating…');
     el('[data-stop]').click();
     expect(el('.la-message--assistant .la-message-body').textContent).toBe('No response generated.');
   });
@@ -71,6 +71,31 @@ describe('assistant streaming presentation', () => {
     expect(body.textContent).toBe('Select this answer.');
     document.getSelection()!.removeAllRanges(); document.dispatchEvent(new Event('selectionchange'));
     expect(body.textContent).toContain('More text.');
+  });
+  it('removes redundant chrome and only shows token details after selection', async () => {
+    const { root, el, update } = await setup();
+    expect(root.querySelector('.la-topbar, .la-disclaimer, .la-observe-note')).toBeNull();
+    expect(el('[data-form]').contains(el('[data-new]'))).toBe(true);
+    expect(el('[data-token-inspection]').hidden).toBe(true);
+    await update('', 'Actual reasoning');
+    expect(el('.la-message--assistant .la-message-body').hidden).toBe(true);
+    expect(el('summary').textContent).toBe('Thinking');
+    await update('The final answer.', 'Actual reasoning');
+    expect(el('.la-message--assistant .la-message-body').hidden).toBe(false);
+  });
+  it('acknowledges a copy in the existing button without adding another message', async () => {
+    const { el, update } = await setup();
+    await update('Copy this response.');
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    try {
+      const button = el('[data-copy-message]'); button.click();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(writeText).toHaveBeenCalledWith('Copy this response.');
+      expect(button.textContent).toBe('Copied');
+      await vi.advanceTimersByTimeAsync(1600);
+      expect(button.textContent).toBe('Copy');
+    } finally { vi.unstubAllGlobals(); }
   });
   it('keeps keyboard inspection controls stable and displays observed token/layer values', async () => {
     const { el, update } = await setup();

@@ -104,6 +104,19 @@ transition leaves the game open until the user chooses Enter chat.
 
 ## UI and rendering
 
+The presentation follows the other Utilities: one shared title, white surfaces,
+thin rules and bold JetBrains Mono for the model and user prompts. The duplicate
+in-tool header, disclaimer, slogans, empty-chat suggestions and permanent telemetry
+instructions are removed. New chat sits with Thinking and Send. The closed native
+switcher says “Switch utility” without repeating the current tool name.
+
+The observatory receives more width and uses readable labels and values. Token
+IDs appear on selection; layer inspection omits unavailable measurements. Three
+candidate rows retain a stable height while sampling so the layer controls do not
+move under the pointer. At short heights, the layer grid uses two rows and the
+secondary measurements share one line. Thinking content keeps a restrained rule
+rather than a large tinted card. Copy acknowledges success in its existing label.
+
 The outer workbench stays bounded to the viewport. The transcript is the sole
 intentional scrolling region. Token windows and candidate/layer summaries remain
 bounded. Streamed content renders as DOM text; raw model HTML is never executed.
@@ -149,7 +162,4 @@ and overhead measurements on Apple Silicon and a discrete GPU before making a
 product choice. The present build has no measured discrete-GPU coverage.
 
 The [cold-load trace](./local-assistant-evidence/cold-load.json) records the actual
-upstream transfer and response. Screenshots show [loading/Snake](./screenshots/local-assistant-loading.png),
-[model-ready/Snake](./screenshots/local-assistant-ready.png), and
-[chat/observatory](./screenshots/local-assistant-chat.png). These are real model
-runs; browser fixture screenshots are kept separate under `output/`.
+upstream transfer and response. The performance trace and [initial loading capture](./screenshots/local-assistant-loading.png) belong to the initial prototype. Updated [model-ready/Snake](./screenshots/local-assistant-ready.png), [desktop chat](./screenshots/local-assistant-chat.png) and [800×600 chat](./screenshots/local-assistant-chat-800x600.png) screenshots come from a later real-model in-app browser run. Browser fixture screenshots are kept separate under `output/`.

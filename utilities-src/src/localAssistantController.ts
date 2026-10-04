@@ -5,8 +5,7 @@ import { SnakeGame } from './local-assistant/snake';
 import { renderMarkdown } from './local-assistant/render';
 import type { AssistantState, Runtime, Token } from './local-assistant/types';
 
-const MODEL = 'Qwen3.5 · 2B';
-const number = (value: number | undefined, suffix = '') => value !== undefined && Number.isFinite(value) ? `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })}${suffix}` : '—';
+const number = (value: number | undefined, suffix = '', precision = 1) => value !== undefined && Number.isFinite(value) ? `${value.toLocaleString(undefined, { maximumFractionDigits: precision })}${suffix}` : '—';
 const bytes = (value: number) => `${(value / 1e9).toFixed(2)} GB`;
 export class LocalAssistantController {
   private readonly session: AssistantSession;
@@ -22,6 +21,7 @@ export class LocalAssistantController {
   private layerMetadata = '';
   private selectedLayer: number | null = null;
   private frame = 0;
+  private copyFeedback: { button: HTMLButtonElement; timer: ReturnType<typeof setTimeout> } | null = null;
   private readonly generatedTokens: Token[] = [];
   private lastToken?: Token;
   private lastGenerated?: number;
@@ -32,20 +32,27 @@ export class LocalAssistantController {
     if (this.initialized || this.destroyed) return;
     this.initialized = true;
     this.root.classList.add('local-assistant');
-    this.root.innerHTML = `<header class="la-topbar"><div><span class="la-dot" aria-hidden="true"></span><strong>Local Assistant</strong><span class="la-device">ON YOUR DEVICE</span></div><button type="button" data-new>New chat <span aria-hidden="true">↗</span></button></header>
-      <div class="la-workspace"><section class="la-conversation" aria-label="Conversation">
-        <div class="la-welcome" data-welcome><div class="la-intro"><p class="la-eyebrow">SMALL MODEL. OPEN PROCESS.</p><h2>A small model.<br>A closer look.</h2><p>Prompts are processed in this browser.<br>Model downloads from Hugging Face.</p></div>
-          <div class="la-loader"><div class="la-load-heading"><strong data-load-title>Preparing ${MODEL}</strong><span data-percent></span></div><progress aria-label="Model download" data-progress></progress><p data-load-status>Preparing the local model…</p><div class="la-loader-actions"><span class="la-model-spec">Q4_K_M · 1.28 GB download</span><button type="button" data-cancel>Cancel</button><button type="button" data-retry hidden>Retry</button><button type="button" class="la-primary" data-enter hidden>Enter chat <span aria-hidden="true">→</span></button></div></div>
-          <div class="la-snake" data-snake><div class="la-snake-label"><span>A LITTLE SOMETHING ON THE SIDE</span><button type="button" data-play>Play Snake ↗</button><span data-score hidden>0</span></div><canvas width="420" height="120" tabindex="0" aria-label="Snake game. Focus to play with arrow keys or W A S D. Space restarts." data-canvas></canvas><p>Click the board, then use arrow keys or WASD. Space to restart.</p></div>
+    this.root.innerHTML = `<div class="la-workspace"><section class="la-conversation" aria-label="Conversation">
+      <div class="la-welcome" data-welcome>
+        <h2>Qwen3.5<span>2B</span></h2>
+        <div class="la-loader"><div class="la-load-heading"><strong data-load-title>Loading model</strong><span data-percent></span></div>
+          <progress aria-label="Model download" data-progress></progress><p data-load-status>Preparing local inference…</p>
+          <div class="la-loader-actions"><span class="la-model-spec">Weights from Hugging Face</span><button type="button" data-cancel>Cancel</button><button type="button" data-retry hidden>Retry</button><button type="button" class="la-primary" data-enter hidden>Enter chat ↗</button></div>
         </div>
-        <div class="la-chat" data-chat hidden><div class="la-transcript" data-transcript role="region" aria-label="Chat transcript" tabindex="0"><div class="la-empty"><span class="la-star" aria-hidden="true">✳</span><h2>What’s on your mind?</h2><p>Ask, explore, or make something.</p><div class="la-suggestions"><button type="button" data-prompt="Explain how a language model predicts its next token.">How do you think? ↗</button><button type="button" data-prompt="Write a short poem about a quiet city at dawn.">Make something small ↗</button></div></div></div><button type="button" class="la-latest" data-latest hidden>Jump to latest ↓</button>
-        <div class="la-chat-error" data-chat-error hidden><span data-chat-error-text></span><button type="button" data-chat-retry>Retry model</button></div><form class="la-composer" data-form><label class="la-sr" for="localAssistantPrompt">Message Local Assistant</label><textarea id="localAssistantPrompt" data-input rows="2" maxlength="16000" placeholder="Ask something…" autocomplete="off"></textarea><div class="la-composer-tools"><label class="la-thinking"><input type="checkbox" data-thinking><span>Thinking</span></label><span class="la-keyhint">↵ send · ⇧↵ newline</span><button type="button" data-stop hidden>Stop <span aria-hidden="true">■</span></button><button type="submit" class="la-send" data-send aria-label="Send message">↑</button></div></form><p class="la-disclaimer">Local models can make mistakes. Check important answers.</p></div>
-      </section><aside class="la-observatory" aria-label="Model observatory"><div class="la-observatory-heading"><p class="la-eyebrow">MODEL OBSERVATORY</p><span data-live>WAITING</span></div><h3>${MODEL}</h3><p class="la-backend" data-backend>Hybrid architecture · WebGPU</p>
-      <div class="la-metrics"><div><span>CONTEXT</span><strong data-context>—</strong></div><div><span>TOKENS / SEC</span><strong data-speed>—</strong></div><div><span>GENERATED</span><strong data-generated>—</strong></div><div><span>PREFILL</span><strong data-prefill>—</strong></div></div>
-      <section class="la-observe-section"><h4>Token stream <span>LIVE IDS</span></h4><p class="la-token-label">PROMPT <span data-prompt-count></span></p><div class="la-tokens" data-prompt-tokens><span class="la-muted">Send a message to inspect tokens.</span></div><p class="la-token-label">GENERATED <span>LAST 8</span></p><div class="la-tokens" data-tokens><span class="la-muted">Waiting for inference.</span></div><p class="la-token-inspection" data-token-inspection>Choose a token to inspect its ID.</p></section>
-      <section class="la-observe-section la-candidates"><h4>Next-token candidates <span>POST-SAMPLING</span></h4><div data-candidates><p class="la-muted">Available when the runtime reports probabilities.</p></div></section>
-      <section class="la-observe-section la-layers-section"><h4>Layer map <span data-layer-label>MODEL METADATA</span></h4><div class="la-layers" data-layers></div><p class="la-legend"><span>■ DeltaNet</span><span>□ Attention</span><span data-layer-reading>No live layer readings</span></p></section>
-      <p class="la-observe-note">Sampling: temperature 0.6 · top-k 20 · top-p 0.95.<br>Architecture is static. Activity is measured, never simulated.</p></aside></div><p class="la-sr" role="status" aria-live="polite" aria-atomic="true" data-announcement></p>`;
+        <div class="la-snake" data-snake><div class="la-snake-label"><button type="button" data-play>Play Snake ↗</button><span data-score hidden>0</span></div><canvas width="420" height="120" tabindex="0" aria-label="Snake game. Arrow keys or WASD to move; Space to restart." data-canvas></canvas><p>Arrow keys / WASD · Space to restart</p></div>
+      </div>
+      <div class="la-chat" data-chat hidden>
+        <div class="la-transcript-wrap"><div class="la-transcript" data-transcript role="region" aria-label="Chat transcript" tabindex="0"></div><button type="button" class="la-latest" data-latest hidden>Latest ↓</button></div>
+        <div class="la-chat-error" data-chat-error hidden><span data-chat-error-text></span><button type="button" data-chat-retry>Reload model</button></div>
+        <form class="la-composer" data-form><label class="la-sr" for="localAssistantPrompt">Message Local Assistant</label><textarea id="localAssistantPrompt" data-input rows="1" maxlength="16000" placeholder="Message…" aria-description="Enter to send. Shift+Enter for a new line." autocomplete="off"></textarea><div class="la-composer-tools"><label class="la-thinking"><input type="checkbox" data-thinking><span>Thinking</span></label><button type="button" data-new>New chat</button><button type="button" class="la-primary" data-stop hidden>Stop</button><button type="submit" class="la-primary" data-send>Send ↗</button></div></form>
+      </div>
+      </section><aside class="la-observatory" aria-label="Model observatory" hidden>
+        <h2>Qwen3.5 <span>2B</span></h2>
+        <div class="la-metrics"><div><span>Context</span><strong data-context>—</strong></div><div><span>Tokens / s</span><strong data-speed>—</strong></div><div><span>Generated</span><strong data-generated>—</strong></div><div><span>Prompt time</span><strong data-prefill>—</strong></div></div>
+        <section class="la-observe-section"><h3>Tokens <span class="la-window-label">Latest 8</span></h3><div class="la-token-row"><span class="la-token-label">Prompt</span><div class="la-tokens" data-prompt-tokens aria-label="Prompt tokens"></div></div><div class="la-token-row"><span class="la-token-label">Output</span><div class="la-tokens" data-tokens aria-label="Generated tokens"></div></div><p class="la-token-inspection" data-token-inspection hidden></p></section>
+        <section class="la-observe-section la-candidates"><h3 aria-description="Post-sampling probabilities. Temperature 0.6, top-k 20, top-p 0.95.">Next token</h3><div data-candidates></div></section>
+        <section class="la-observe-section la-layers-section"><h3>Layers</h3><div class="la-layers" data-layers></div><div class="la-layer-footer"><p class="la-legend"><span>■ DeltaNet</span><span>□ Attention</span></p><p data-layer-reading hidden></p></div></section>
+      </aside></div><p class="la-sr" role="status" aria-live="polite" aria-atomic="true" data-announcement></p>`;
     const signal = this.events.signal;
     const listen = (target: EventTarget, type: string, callback: EventListener) => target.addEventListener(type, callback, { signal });
     listen(this.root, 'click', (event) => { void this.click(event); });
@@ -62,6 +69,7 @@ export class LocalAssistantController {
       if (this.session.state.active) this.session.touchActivity();
       const transcript = this.el('[data-transcript]');
       this.stickToBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 48;
+      if (!this.stickToBottom) cancelAnimationFrame(this.frame);
       this.el('[data-latest]').hidden = this.stickToBottom;
     });
     listen(this.root, 'utility-deactivate', () => { this.snake?.stop(); this.session.deactivate(); });
@@ -88,6 +96,7 @@ export class LocalAssistantController {
     if (this.destroyed) return;
     this.destroyed = true;
     if (this.renderTimer) clearTimeout(this.renderTimer);
+    if (this.copyFeedback) clearTimeout(this.copyFeedback.timer);
     this.events.abort(); this.unsubscribe?.(); cancelAnimationFrame(this.frame); this.snake?.destroy();
     await this.session.destroy();
   }
@@ -100,7 +109,7 @@ export class LocalAssistantController {
     const target = (event.target as Element).closest<HTMLButtonElement>('button');
     if (!target) return;
     this.session.touchActivity();
-    if (target.hasAttribute('data-inspect-token')) { const reading = `ID ${target.dataset.tokenId} · ${JSON.stringify(target.dataset.tokenPiece)}`; this.el('[data-token-inspection]').textContent = reading; this.el('[data-token-inspection]').title = reading; }
+    if (target.hasAttribute('data-inspect-token')) { this.el('[data-token-inspection]').hidden = false; const reading = `ID ${target.dataset.tokenId} · ${JSON.stringify(target.dataset.tokenPiece)}`; this.el('[data-token-inspection]').textContent = reading; this.el('[data-token-inspection]').title = reading; }
     if (target.hasAttribute('data-inspect-layer')) { this.selectedLayer = Number(target.dataset.inspectLayer); this.renderLayerReading(this.session.state); }
     if (target.hasAttribute('data-enter')) { this.snake?.stop(); this.session.enterChat(); this.el('[data-input]').focus(); }
     if (target.hasAttribute('data-retry') || target.hasAttribute('data-chat-retry')) { if (!this.session.state.active) void this.session.activate(); else void this.session.retry(); }
@@ -112,11 +121,18 @@ export class LocalAssistantController {
     if (target.hasAttribute('data-play')) {
       this.snake ??= new SnakeGame(this.el<HTMLCanvasElement>('[data-canvas]'), (score) => { this.el('[data-score]').textContent = String(score); });
       this.el('[data-snake]').classList.add('is-playing'); this.el('[data-score]').hidden = false;
-      this.snake.start(); this.el('[data-canvas]').focus(); target.textContent = 'Resume Snake ↗';
+      this.snake.start(); this.el('[data-canvas]').focus(); target.textContent = 'Snake ↗';
     }
     if (target.hasAttribute('data-copy-code') || target.hasAttribute('data-copy-message')) {
       const source = target.hasAttribute('data-copy-code') ? target.closest('.la-code')?.querySelector('code')?.textContent : this.session.state.messages[Number(target.dataset.copyMessage)]?.content;
-      try { await navigator.clipboard.writeText(source ?? ''); this.announce('Copied to clipboard.'); }
+      try {
+        await navigator.clipboard.writeText(source ?? '');
+        if (this.destroyed) return;
+        if (this.copyFeedback) { clearTimeout(this.copyFeedback.timer); this.copyFeedback.button.textContent = 'Copy'; }
+        target.textContent = 'Copied';
+        this.copyFeedback = { button: target, timer: setTimeout(() => { target.textContent = 'Copy'; this.copyFeedback = null; }, 1600) };
+        this.announce('Copied to clipboard.');
+      }
       catch { this.announce('Copy unavailable. Select the text to copy it.'); }
     }
   }
@@ -132,24 +148,27 @@ export class LocalAssistantController {
   }
   private scrollToBottom(): void {
     cancelAnimationFrame(this.frame);
-    this.frame = requestAnimationFrame(() => { const transcript = this.el('[data-transcript]'); transcript.scrollTop = transcript.scrollHeight; this.el('[data-latest]').hidden = true; });
+    this.frame = requestAnimationFrame(() => { if (!this.stickToBottom) return; const transcript = this.el('[data-transcript]'); transcript.scrollTop = transcript.scrollHeight; this.el('[data-latest]').hidden = true; });
   }
   private render(state: AssistantState): void {
     const chat = state.entered && !!state.info;
     this.el('[data-chat-error]').hidden = state.phase !== 'error';
     this.el('[data-chat-error-text]').textContent = state.status;
     this.root.dataset.phase = state.phase;
+    this.root.classList.toggle('is-chat', chat);
     this.el('[data-welcome]').hidden = chat; this.el('[data-chat]').hidden = !chat;
+    this.el('.la-observatory').hidden = !chat;
     this.el<HTMLButtonElement>('[data-new]').disabled = !chat;
     this.el('[data-enter]').hidden = state.phase !== 'ready';
     this.el('[data-retry]').hidden = !['error', 'idle'].includes(state.phase);
     this.el('[data-cancel]').hidden = state.phase !== 'loading';
-    this.el('[data-load-title]').textContent = state.phase === 'ready' ? 'MODEL READY' : state.phase === 'unsupported' ? 'A browser with WebGPU is needed' : state.phase === 'error' ? 'The model couldn’t start' : state.phase === 'idle' ? 'Your model is paused' : `Preparing ${MODEL}`;
-    this.el('[data-load-status]').textContent = state.phase === 'unsupported' ? state.status : state.phase === 'ready' ? 'Your model is ready. Finish your game or enter chat.' : state.status;
+    this.el('[data-load-title]').textContent = state.phase === 'ready' ? 'Ready' : state.phase === 'unsupported' ? 'A browser with WebGPU is needed' : state.phase === 'error' ? 'The model couldn’t start' : state.phase === 'idle' ? 'Paused' : /allocating|initializing/i.test(state.status) ? 'Initializing' : 'Downloading';
+    this.el('[data-load-status]').textContent = state.phase === 'unsupported' ? state.status : state.phase === 'ready' ? '' : state.status;
+    this.el('[data-load-status]').hidden = !['error', 'unsupported'].includes(state.phase);
     const progress = this.el<HTMLProgressElement>('[data-progress]'); progress.hidden = state.phase !== 'loading';
     if (state.total && state.total > 0) { progress.max = state.total; progress.value = Math.min(state.loaded, state.total); }
     else progress.removeAttribute('value');
-    this.el('[data-percent]').textContent = state.phase === 'loading' ? state.total ? `${Math.floor(state.loaded / state.total * 100)}% · ${bytes(state.loaded)} / ${bytes(state.total)}` : state.loaded ? bytes(state.loaded) : '' : '';
+    this.el('[data-percent]').textContent = state.phase === 'loading' ? state.total ? `${bytes(state.loaded)} / ${bytes(state.total)}` : state.loaded ? bytes(state.loaded) : '' : '';
     this.el('[data-stop]').hidden = state.phase !== 'generating'; this.el('[data-send]').hidden = state.phase === 'generating';
     this.el<HTMLInputElement>('[data-thinking]').checked = state.thinking;
     this.el<HTMLInputElement>('[data-thinking]').disabled = state.phase === 'generating';
@@ -165,7 +184,6 @@ export class LocalAssistantController {
     const transcript = this.el('[data-transcript]');
     const previousScroll = transcript.scrollTop;
     let changed = false;
-    if (state.messages.length) transcript.querySelector('.la-empty')?.remove();
     for (const article of transcript.querySelectorAll<HTMLElement>('[data-message-index]')) {
       if (Number(article.dataset.messageIndex) >= state.messages.length) { article.remove(); changed = true; }
     }
@@ -174,7 +192,7 @@ export class LocalAssistantController {
       if (!article) {
         article = document.createElement('article'); article.dataset.messageIndex = String(index); article.className = `la-message la-message--${message.role}`;
         const heading = document.createElement('div'); heading.className = 'la-message-heading';
-        const role = document.createElement('span'); role.textContent = message.role === 'user' ? 'YOU' : 'LOCAL ASSISTANT'; heading.append(role);
+        const role = document.createElement('span'); role.textContent = message.role === 'user' ? 'You' : 'Qwen'; heading.append(role);
         if (message.role === 'assistant') { const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy'; copy.dataset.copyMessage = String(index); copy.setAttribute('aria-label', 'Copy assistant response'); heading.append(copy); }
         article.append(heading);
         const body = document.createElement('div'); body.className = 'la-message-body'; article.append(body);
@@ -188,11 +206,12 @@ export class LocalAssistantController {
       }
       const body = article.querySelector<HTMLElement>('.la-message-body')!;
       const placeholder = !message.content && message.role === 'assistant';
+      body.hidden = placeholder && !!message.reasoning;
       body.classList.toggle('la-muted', placeholder);
-      const content = placeholder ? state.phase === 'generating' ? 'Thinking…' : 'No response generated.' : message.content;
+      const content = placeholder ? state.phase === 'generating' ? 'Generating…' : 'No response generated.' : message.content;
       changed = this.updateBody(body, content, message.role === 'user' || placeholder) || changed;
     });
-    if (!state.messages.length && !transcript.querySelector('.la-empty')) { const empty = document.createElement('div'); empty.className = 'la-empty'; const title = document.createElement('h2'); title.textContent = 'A fresh conversation.'; const text = document.createElement('p'); text.textContent = 'What would you like to explore?'; empty.append(title, text); transcript.replaceChildren(empty); changed = true; }
+    if (!state.messages.length && transcript.childElementCount) { transcript.replaceChildren(); changed = true; }
     if (changed && this.stickToBottom) this.scrollToBottom();
     else if (changed) transcript.scrollTop = previousScroll;
   }
@@ -210,13 +229,17 @@ export class LocalAssistantController {
     const reading = this.selectedLayer === null ? readings?.slice().reverse().find((layer) => layer.rms !== undefined || layer.milliseconds !== undefined) : readings?.find((layer) => layer.layer === this.selectedLayer);
     const index = this.selectedLayer ?? reading?.layer;
     const kind = index === undefined ? '' : state.info?.layers[index] ?? '';
-    this.el('[data-layer-reading]').textContent = reading ? `L${reading.layer + 1} ${kind}: RMS ${number(reading.rms)} · ${number(reading.milliseconds, ' ms')}` : index === undefined ? 'Choose a layer to inspect it.' : `L${index + 1} ${kind}: no live reading`;
-    this.el('[data-layer-label]').textContent = readings?.length ? 'LIVE READINGS' : 'MODEL METADATA';
+    const label = index === undefined ? '' : reading ? `${index + 1}` : `${index + 1} · ${kind === 'attention' ? 'Attention' : 'DeltaNet'}`;
+    const values = reading ? [reading.rms === undefined ? '' : `RMS ${number(reading.rms, '', 3)}`, reading.milliseconds === undefined ? '' : number(reading.milliseconds, ' ms')].filter(Boolean).join(' · ') : '';
+    this.el('[data-layer-reading]').textContent = [label, values].filter(Boolean).join(' · ');
+    this.el('[data-layer-reading]').hidden = !label;
+
   }
   private collectTokens(state: AssistantState): void {
     if (!state.info || !state.messages.length) {
       this.generatedTokens.length = 0; this.lastToken = undefined; this.lastGenerated = undefined;
-      this.el('[data-token-inspection]').textContent = 'Choose a token to inspect its ID.';
+      this.el('[data-token-inspection]').textContent = '';
+      this.el('[data-token-inspection]').hidden = true;
       this.el('[data-token-inspection]').removeAttribute('title');
       return;
     }
@@ -232,8 +255,6 @@ export class LocalAssistantController {
   }
   private renderObservation(state: AssistantState): void {
     const observation = state.observation;
-    this.el('[data-live]').textContent = state.phase === 'generating' ? 'INFERENCE' : state.phase === 'ready' ? 'READY' : state.phase === 'loading' ? 'LOADING' : 'WAITING';
-    this.el('[data-backend]').textContent = state.info?.backend ?? 'Hybrid architecture · WebGPU';
     this.el('[data-context]').textContent = `${number(observation.contextUsed)}${state.info ? ` / ${state.info.context.toLocaleString()}` : ''}`;
     this.el('[data-speed]').textContent = number(observation.tokensPerSecond);
     this.el('[data-generated]').textContent = number(observation.generated);
@@ -246,18 +267,17 @@ export class LocalAssistantController {
       while (container.children.length > tokens.length) container.lastElementChild?.remove();
       tokens.forEach((value, index) => {
         let chip = container.children[index] as HTMLButtonElement | undefined;
-        if (!chip) { chip = document.createElement('button'); chip.type = 'button'; chip.className = 'la-token'; chip.dataset.inspectToken = ''; chip.append(document.createElement('span'), document.createElement('small')); container.append(chip); }
+        if (!chip) { chip = document.createElement('button'); chip.type = 'button'; chip.className = 'la-token'; chip.dataset.inspectToken = ''; chip.append(document.createElement('span')); container.append(chip); }
         chip.dataset.tokenId = String(value.id); chip.dataset.tokenPiece = value.piece;
         chip.setAttribute('aria-label', `Inspect token ${value.id}: ${value.piece}`);
         chip.title = `Token ${value.id}: ${value.piece}`;
-        chip.children[0].textContent = value.piece.replace(/\n/g, '↵') || '∅'; chip.children[1].textContent = String(value.id);
+        chip.children[0].textContent = value.piece.replace(/\n/g, '↵') || '∅';
       });
     };
-    renderTokens('[data-prompt-tokens]', observation.promptTokens?.slice(-8) ?? [], 'Send a message to inspect tokens.');
-    renderTokens('[data-tokens]', this.generatedTokens, 'Waiting for inference.');
-    this.el('[data-prompt-count]').textContent = observation.promptTokens?.length ? `LAST ${Math.min(8, observation.promptTokens.length)} / ${observation.promptTokens.length}` : '';
+    renderTokens('[data-prompt-tokens]', observation.promptTokens?.slice(-8) ?? [], '—');
+    renderTokens('[data-tokens]', this.generatedTokens, '—');
     const candidates = this.el('[data-candidates]'); candidates.replaceChildren();
-    if (!observation.candidates?.length) { const empty = document.createElement('p'); empty.className = 'la-muted'; empty.textContent = 'Probabilities not reported by this runtime.'; candidates.append(empty); }
+    if (!observation.candidates?.length) { const empty = document.createElement('p'); empty.className = 'la-muted'; empty.textContent = '—'; candidates.append(empty); }
     const visibleCandidates = observation.candidates?.slice(0, 3) ?? [];
     const selected = observation.candidates?.find((candidate) => token && (candidate.id !== undefined ? candidate.id === token.id : candidate.piece === token.piece));
     if (selected && !visibleCandidates.includes(selected)) visibleCandidates[2] = selected;
@@ -268,11 +288,11 @@ export class LocalAssistantController {
     if (metadataKey !== this.layerMetadata || !layers.children.length) {
       this.layerMetadata = metadataKey; layers.replaceChildren();
       for (let index = 0; index < metadata.length; index++) { const layer = document.createElement('button'); layer.type = 'button'; layer.className = `la-layer la-layer--${metadata[index]}`; layer.dataset.inspectLayer = String(index); layer.textContent = String(index + 1); layer.setAttribute('aria-label', `Inspect layer ${index + 1}, ${metadata[index]}`); layers.append(layer); }
-      if (!metadata.length) { const empty = document.createElement('span'); empty.className = 'la-muted'; empty.textContent = 'Architecture appears after model load.'; layers.append(empty); }
+      if (!metadata.length) { const empty = document.createElement('span'); empty.className = 'la-muted'; empty.textContent = '—'; layers.append(empty); }
     }
     for (const layer of layers.querySelectorAll<HTMLElement>('[data-inspect-layer]')) {
       const index = Number(layer.dataset.inspectLayer); const measured = observation.layers?.find((value) => value.layer === index);
-      layer.title = `Layer ${index + 1} · ${metadata[index]}${measured ? ` · RMS ${number(measured.rms)} · ${number(measured.milliseconds, ' ms')}` : ' · static architecture metadata'}`;
+      layer.title = `Layer ${index + 1} · ${metadata[index]}${measured?.rms === undefined ? '' : ` · RMS ${number(measured.rms, '', 3)}`}${measured?.milliseconds === undefined ? '' : ` · ${number(measured.milliseconds, ' ms')}`}`;
       layer.classList.toggle('has-reading', !!measured && (measured.rms !== undefined || measured.milliseconds !== undefined));
       layer.setAttribute('aria-pressed', String(this.selectedLayer === index));
     }
