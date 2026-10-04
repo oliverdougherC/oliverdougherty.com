@@ -42,7 +42,6 @@ const gallery = {
   triggerElement: null,
   requestedIndex: -1,
   lightboxRequest: null,
-  lightboxTransition: null,
   lightboxTouch: null,
   scrollRevealObserver: null,
   inertElements: [],
@@ -112,6 +111,7 @@ function cacheElements() {
     lightboxStatus: document.getElementById('lightboxStatus'),
     lightboxRetry: document.getElementById('lightboxRetry'),
     lightboxEyebrow: document.getElementById('lightboxEyebrow'),
+    lightboxCounter: document.getElementById('lightboxCounter'),
     lightboxTitle: document.getElementById('lightboxTitle'),
     lightboxSubline: document.getElementById('lightboxSubline'),
     lightboxNotes: document.getElementById('lightboxNotes'),
@@ -591,8 +591,16 @@ function syncHeroFeature() {
     heroImage.fetchPriority = 'high';
     heroImage.dataset.entryId = entry.id;
 
-    const markHeroLoaded = () => {
-      if (heroImage.dataset.entryId !== entry.id) return;
+    let readiness = 0;
+    const markHeroLoaded = async () => {
+      const attempt = ++readiness;
+      try {
+        if (typeof heroImage.decode === 'function') await heroImage.decode();
+      } catch {
+        if (attempt === readiness && heroImage.onload === markHeroLoaded) heroImage.onerror();
+        return;
+      }
+      if (attempt !== readiness || heroImage.onload !== markHeroLoaded || heroImage.dataset.entryId !== entry.id) return;
       heroImage.hidden = false;
       if (gallery.elements.heroError) gallery.elements.heroError.hidden = true;
       heroOpen?.setAttribute('aria-label', `Open ${entry.displayTitle}`);
@@ -603,7 +611,9 @@ function syncHeroFeature() {
 
     heroImage.onload = markHeroLoaded;
     heroImage.onerror = () => {
+      readiness += 1;
       if (heroImage.dataset.entryId !== entry.id) return;
+      heroOpen?.classList.remove('is-loaded');
       heroImage.classList.remove('is-loaded');
       heroImage.hidden = true;
       if (gallery.elements.heroError) gallery.elements.heroError.hidden = false;
@@ -790,7 +800,16 @@ function createPhotoCard(item) {
   previewError.className = 'photo-error-copy';
   previewError.textContent = 'Preview unavailable. Open photo to retry.';
   previewError.hidden = true;
-  image.addEventListener('load', () => {
+  let readiness = 0;
+  image.addEventListener('load', async () => {
+    const attempt = ++readiness;
+    try {
+      if (typeof image.decode === 'function') await image.decode();
+    } catch {
+      if (attempt === readiness) image.dispatchEvent(new Event('error'));
+      return;
+    }
+    if (attempt !== readiness) return;
     article.classList.remove('is-loading');
     article.classList.add('is-loaded');
     article.classList.remove('photo-card--broken');
@@ -799,6 +818,7 @@ function createPhotoCard(item) {
     reconcileCardAspect(item, image);
   });
   image.addEventListener('error', () => {
+    readiness += 1;
     console.warn('Gallery image failed to load:', image.currentSrc || image.src);
     article.classList.remove('is-loading');
     article.classList.remove('is-loaded');
@@ -1112,6 +1132,8 @@ function buildFallbackCourses(items, metrics) {
 
 // Resolve courses into absolute pixel boxes. The spanner side flips on
 // every other span course so vertical seams wander instead of stacking.
+// Round shared boundaries once, then derive dimensions from those boundaries;
+// independently rounded sizes can drift beyond the right/bottom edges.
 function buildMosaicBoxes(courses, metrics) {
   const boxes = [];
   const g = metrics.gapX;
@@ -1122,15 +1144,16 @@ function buildMosaicBoxes(courses, metrics) {
     if (course.kind === 'justified') {
       let x = course.x0 || 0;
       course.items.forEach((item) => {
-        const width = Math.round(item.aspect * course.mediaHeight);
+        const right = x + item.aspect * course.mediaHeight;
+        const width = Math.round(right) - Math.round(x);
         boxes.push({
           item,
           x: Math.round(x),
           y: Math.round(y),
           width,
-          mediaHeight: Math.round(course.mediaHeight)
+          mediaHeight: Math.round(y + course.mediaHeight) - Math.round(y)
         });
-        x += width + g;
+        x = right + g;
       });
       y += course.boxHeight + metrics.gapY;
       return;
@@ -1138,7 +1161,7 @@ function buildMosaicBoxes(courses, metrics) {
 
     if (course.kind === 'lone') {
       const width = Math.round(course.width);
-      const mediaHeight = Math.round(course.mediaHeight);
+      const mediaHeight = Math.round(y + course.mediaHeight) - Math.round(y);
       boxes.push({
         item: course.item,
         x: course.centered ? Math.round((metrics.width - width) / 2) : 0,
@@ -1146,23 +1169,26 @@ function buildMosaicBoxes(courses, metrics) {
         width,
         mediaHeight
       });
-      y += mediaHeight + metrics.placardHeight + metrics.gapY;
+      y += course.mediaHeight + metrics.placardHeight + metrics.gapY;
       return;
     }
 
     const mirrored = spanMirrored;
     spanMirrored = !spanMirrored;
     const spanWidth = Math.round(course.spannerWidth);
-    const singleWidth = Math.round(course.singleWidth);
-    const spanX = mirrored ? Math.round(metrics.width) - spanWidth : 0;
-    const singleX = mirrored ? 0 : spanWidth + Math.round(g);
+    const singleX = mirrored ? 0 : Math.round(course.spannerWidth + g);
+    const singleWidth = mirrored ? Math.round(course.singleWidth) : Math.round(metrics.width) - singleX;
+    const spanX = mirrored ? Math.round(course.singleWidth + g) : 0;
+    const spanRight = mirrored ? Math.round(metrics.width) : spanWidth;
+    const courseBottom = Math.round(y + course.boxHeight);
+    const bottomY = Math.round(y + course.topMedia + metrics.placardHeight + metrics.gapY);
 
     boxes.push({
       item: course.spanItem,
       x: spanX,
       y: Math.round(y),
-      width: spanWidth,
-      mediaHeight: Math.round(course.spannerMedia),
+      width: spanRight - spanX,
+      mediaHeight: courseBottom - Math.round(y) - metrics.placardHeight,
       spanner: true
     });
     boxes.push({
@@ -1170,14 +1196,14 @@ function buildMosaicBoxes(courses, metrics) {
       x: singleX,
       y: Math.round(y),
       width: singleWidth,
-      mediaHeight: Math.round(course.topMedia)
+      mediaHeight: bottomY - Math.round(y) - metrics.placardHeight - metrics.gapY
     });
     boxes.push({
       item: course.bottomItem,
       x: singleX,
-      y: Math.round(y + course.topMedia + metrics.placardHeight + metrics.gapY),
+      y: bottomY,
       width: singleWidth,
-      mediaHeight: Math.round(course.bottomMedia)
+      mediaHeight: courseBottom - bottomY - metrics.placardHeight
     });
     y += course.boxHeight + metrics.gapY;
   });
@@ -1403,6 +1429,7 @@ function buildLightboxThumbStrip() {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'lightbox-thumb';
+    button.title = entry.displayTitle;
     button.dataset.entryId = entry.id;
     button.setAttribute('aria-label', `Open ${entry.displayTitle}`);
     button.setAttribute('data-cursor', 'hover');
@@ -1484,10 +1511,6 @@ function setLightboxStatus(message = '', retry = false) {
 function cancelLightboxPreparation() {
   gallery.lightboxRequest?.cancel();
   gallery.lightboxRequest = null;
-  // A new request first settles any already decoded fade. This keeps at most
-  // two picture layers alive: displayed + preparing (or displayed + outgoing).
-  gallery.lightboxTransition?.();
-  gallery.lightboxTransition = null;
 }
 
 function requestLightboxEntry(index, retry = false) {
@@ -1529,7 +1552,7 @@ function requestLightboxEntry(index, retry = false) {
 
   // Set responsive sources while the fallback image has no URL; do not start
   // an unused full-size JPEG before the browser can choose AVIF/WebP.
-  const sizes = '(max-width: 900px) calc(100vw - 56px), (max-width: 1024px) calc(100vw - 96px), calc(100vw - 432px)';
+  const sizes = '(max-width: 900px) calc(100vw - 32px), calc(100vw - 348px)';
   setPictureSource(avif, buildSrcset([
     makeResponsiveCandidate(imageUrl(entry.assets.mediumAvif), entry.assets.mediumWidth),
     makeResponsiveCandidate(imageUrl(entry.assets.largeAvif), entry.assets.largeWidth)
@@ -1597,7 +1620,6 @@ function requestLightboxEntry(index, retry = false) {
 function commitLightboxEntry(index, picture, image, avif, webp) {
   const elements = gallery.elements;
   const previous = elements.lightboxImage?.closest('picture');
-  const hadImage = gallery.currentIndex >= 0;
   previous?.removeAttribute('id');
   previous?.setAttribute('aria-hidden', 'true');
   previous?.querySelectorAll('[id]').forEach(element => element.removeAttribute('id'));
@@ -1615,29 +1637,18 @@ function commitLightboxEntry(index, picture, image, avif, webp) {
   writePhotoHash(gallery.entries[index].id);
   setLightboxStatus();
 
-  if (!hadImage || window.matchMedia('(prefers-reduced-motion: reduce)').matches || typeof picture.animate !== 'function') {
-    previous?.remove();
-    return;
-  }
-  // The outgoing decoded layer remains fully visible beneath the incoming
-  // fade. No frame depends on timers or transitionend to make pixels visible.
-  // An opaque picture surface also masks portrait/landscape overhangs.
-  const animation = picture.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 160, easing: 'ease-out' });
-  let timer = 0;
-  const finish = () => {
-    window.clearTimeout(timer);
-    animation.cancel();
-    previous?.remove();
-    if (gallery.lightboxTransition === finish) gallery.lightboxTransition = null;
-  };
-  gallery.lightboxTransition = finish;
-  animation.finished.then(finish, () => {});
-  timer = window.setTimeout(finish, 220);
+  // Decoding is complete: replace both pixels and metadata in this task.
+  // Crossfading here exposes the previous frame under the newly selected one
+  // and makes rapid, alternating navigation look a frame behind the controls.
+  previous?.remove();
 }
 
 function renderLightboxEntry(entry) {
   const elements = gallery.elements;
-  elements.lightboxEyebrow.textContent = entry.featured ? String(gallery.currentIndex + 1).padStart(2, '0') : 'Archive frame';
+  elements.lightboxEyebrow.textContent = 'Selected photograph';
+  if (elements.lightboxCounter) {
+    elements.lightboxCounter.textContent = `${String(gallery.currentIndex + 1).padStart(2, '0')} / ${String(gallery.entries.length).padStart(2, '0')}`;
+  }
   elements.lightboxTitle.textContent = entry.displayTitle;
   elements.lightboxSubline.textContent = '';
   elements.lightboxNotes.textContent = '';
@@ -1749,6 +1760,7 @@ function closeLightboxUi() {
   gallery.elements.lightboxImage = null;
   gallery.elements.lightboxTitle.textContent = '';
   gallery.elements.lightboxEyebrow.textContent = 'Gallery';
+  if (gallery.elements.lightboxCounter) gallery.elements.lightboxCounter.textContent = '';
   replaceChildrenCompat(gallery.elements.lightboxMeta);
   gallery.elements.lightboxThumbStrip.querySelectorAll('.is-active').forEach(button => {
     button.classList.remove('is-active');

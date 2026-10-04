@@ -74,6 +74,18 @@ async function assertLightboxClosedWithEmptyHash(page, label) {
   );
 }
 
+// A visible dialog may still be decoding its first/next photo. Assert the
+// committed image and URL, rather than assuming every cold decode takes <160ms.
+async function waitForLightboxPhoto(page, previousHash = '') {
+  await page.waitForFunction(previousHash => {
+    const image = document.getElementById('lightboxImage');
+    return !document.getElementById('lightbox').hidden
+      && document.getElementById('lightboxMedia').getAttribute('aria-busy') === 'false'
+      && image?.complete && image.naturalWidth > 0
+      && window.location.hash.startsWith('#photo=') && window.location.hash !== previousHash;
+  }, previousHash, { timeout: 12000 });
+}
+
 async function assertDesktopFlow(page) {
   const initial = await page.evaluate(() => ({
     entryCount: document.querySelectorAll('#lightboxThumbStrip .lightbox-thumb').length,
@@ -109,11 +121,7 @@ async function assertDesktopFlow(page) {
   assert(!initial.emptyCopy.toLowerCase().includes('category'), '[desktop] empty-state copy should not refer to category filtering');
 
   await page.locator('#galleryHeroOpen').click({ position: { x: 10, y: 10 } });
-  await page.waitForFunction(
-    () => !document.getElementById('lightbox').hidden,
-    null,
-    { timeout: 3000 }
-  );
+  await waitForLightboxPhoto(page);
   const lightboxState = await page.evaluate(() => ({
     active: !document.getElementById('lightbox').hidden,
     hash: window.location.hash,
@@ -132,7 +140,7 @@ async function assertDesktopFlow(page) {
 
   const hashBeforeNext = lightboxState.hash;
   await page.click('#lightboxNext');
-  await page.waitForTimeout(160);
+  await waitForLightboxPhoto(page, hashBeforeNext);
   const nextHash = await page.evaluate(() => window.location.hash);
   assert(nextHash && nextHash !== hashBeforeNext, '[desktop] next navigation did not advance the lightbox hash');
 
@@ -140,11 +148,7 @@ async function assertDesktopFlow(page) {
   await assertLightboxClosedWithEmptyHash(page, 'desktop hero close');
 
   await page.locator('#galleryArchiveGrid .photo-card .photo-card-button').first().click();
-  await page.waitForFunction(
-    () => !document.getElementById('lightbox').hidden,
-    null,
-    { timeout: 3000 }
-  );
+  await waitForLightboxPhoto(page);
   const archiveOpenHash = await page.evaluate(() => window.location.hash);
   assert(archiveOpenHash.startsWith('#photo='), '[desktop] archive card open missing hash deep link');
 
@@ -152,24 +156,18 @@ async function assertDesktopFlow(page) {
   await assertLightboxClosedWithEmptyHash(page, 'desktop archive close');
 
   await page.locator('#galleryArchiveGrid .photo-card .photo-card-button').first().click();
-  await page.waitForFunction(
-    () => !document.getElementById('lightbox').hidden,
-    null,
-    { timeout: 3000 }
-  );
+  await waitForLightboxPhoto(page);
+  const startingHash = await page.evaluate(() => window.location.hash);
   await page.click('#lightboxNext');
-  await page.waitForTimeout(160);
+  await waitForLightboxPhoto(page, startingHash);
   await page.click('#lightboxPrev');
-  await page.waitForTimeout(160);
+  await waitForLightboxPhoto(page);
+  assert(await page.evaluate(() => window.location.hash) === startingHash, '[desktop] previous navigation must restore the starting photo');
   await page.click('#lightboxClose');
   await assertLightboxClosedWithEmptyHash(page, 'desktop navigate then close');
 
   await page.locator('#galleryArchiveGrid .photo-card .photo-card-button').first().click();
-  await page.waitForFunction(
-    () => !document.getElementById('lightbox').hidden,
-    null,
-    { timeout: 3000 }
-  );
+  await waitForLightboxPhoto(page);
   await page.evaluate(() => {
     document.getElementById('lightboxClose').click();
     document.getElementById('lightboxClose').click();
@@ -201,7 +199,7 @@ async function assertMobileFlow(page) {
   assert(!labelState.hasToolbar, '[mobile] category toolbar should not be present');
 
   await page.locator('#galleryArchiveGrid .photo-card .photo-card-button').first().click();
-  await page.waitForTimeout(200);
+  await waitForLightboxPhoto(page);
   const panelState = await page.evaluate(() => ({
     infoToggleVisible: getComputedStyle(document.getElementById('lightboxInfoToggle')).display !== 'none',
     panelOpen: document.getElementById('lightboxPanel').classList.contains('is-open')
@@ -210,7 +208,6 @@ async function assertMobileFlow(page) {
   assert(!panelState.panelOpen, '[mobile] details panel should start collapsed');
 
   await page.click('#lightboxInfoToggle');
-  await page.waitForTimeout(160);
   const expandedState = await page.evaluate(() => ({
     panelOpen: document.getElementById('lightboxPanel').classList.contains('is-open'),
     expanded: document.getElementById('lightboxInfoToggle').getAttribute('aria-expanded')

@@ -304,11 +304,13 @@ html.skip-page-animation[data-page-id="resume"] .resume-hidden {
   transition: border-color 250ms ease;
 }
 
-.project-card {
+.project-card,
+.experience-card {
   margin-bottom: var(--space-4);
 }
 
-.project-card:last-child {
+.project-card:last-child,
+.experience-card:last-child {
   margin-bottom: 0;
 }
 
