@@ -47,8 +47,11 @@ export class YahtzeeController {
     this.initialized = true;
     try {
       this.storage = this.dependencies.storage ?? window.localStorage;
-      this.rawRestore = this.storage.getItem(STORAGE_KEY);
-      this.state = parseRivalry(this.rawRestore) ?? freshRivalry();
+      const raw = this.storage.getItem(STORAGE_KEY);
+      const restored = parseRivalry(raw);
+      this.state = restored ?? freshRivalry();
+      // Rejected storage must not be reconsidered after fresh-game play starts.
+      this.rawRestore = restored ? raw : null;
     } catch { this.storageUnavailable = true; }
     this.root.innerHTML = `<div class="yahtzee-record-bar"><span data-record></span><div class="yahtzee-reset"><button type="button" data-reset-game>Reset game</button><span data-reset-question hidden>Clear record?</span><button type="button" data-reset>Reset record</button><button type="button" data-reset-cancel hidden>Cancel</button></div></div>
       <div class="yahtzee-board"><section class="yahtzee-scorecard" aria-label="Match scorecard"><div class="yahtzee-score-heading"><span>KEIRI</span><span data-round>ROUND 01 / 13</span><span>YOU</span></div>

@@ -55,7 +55,10 @@ One localStorage value, `od.yahtzee-keiri.v1`, contains:
 integer ranges, die faces, held flags, each Rust score sheet, and the two-player
 turn sequence. Human and Keiri sheets have equal filled-category counts on human
 turns; the human leads by one on Keiri turns. Terminal matches require both full
-sheets. Malformed or incompatible values begin a clean rivalry. Blocked or
+sheets. Structurally malformed or obsolete storage is discarded immediately,
+so rolls and holds in the fresh game survive delayed rules loading. Only a
+structurally valid restore candidate awaits Rust semantic validation. Malformed
+or incompatible values begin a clean rivalry. Blocked or
 quota-limited storage allows play and displays that progress cannot save.
 
 Human rolls, holds and score commitments persist immediately. Bot animation frames
@@ -130,7 +133,7 @@ The upstream engine is pinned to
 [`12d7d1bfde0938e90c5656e80feb44babb6a9f3c`](https://github.com/oliverdougherC/Keiri/tree/12d7d1bfde0938e90c5656e80feb44babb6a9f3c).
 The shipped `utilities-src/keiri/assets/keiri.wasm` runs upstream rules and
 `ExactTableAgent`; `utilities-src/keiri/assets/bbg-anchor-v2.bin` contains the full
-1,573,864-value table (schema 2, BuddyBoardGames rules ID 2). Vite emits both as
+1,572,864-value table (schema 2, BuddyBoardGames rules ID 2). Vite emits both as
 separate static assets; the table is never embedded in JavaScript or generated in
 the browser. The worker validates the table before reporting readiness and returns
 errors rather than substituting a weaker agent.
@@ -185,7 +188,7 @@ native motion tracks, material continuity, and layout at 1440×900, 1280×720,
 
 ### Final-pass evidence — 2026-10-04
 
-Type checking and all 573 unit tests pass for the final motion pass. The pinned
+Type checking and all 576 unit tests pass for the current implementation. The pinned
 engine rebuild (three native tests and matching binary hashes), production builds,
 quality checks, deploy smoke checks, and packaged WebKit game suite pass. The full
 packaged Chromium Utilities suite also passes. An independent
