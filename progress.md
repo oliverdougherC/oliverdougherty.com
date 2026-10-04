@@ -13,7 +13,7 @@ Issue: https://github.com/oliverdougherC/oliverdougherty.com/issues/88
 
 ## Verification and delivery
 
-- Final motion pass: typecheck and 570 unit tests pass, including a human-roll angular-change bound sampled at 120Hz. This is motion-path evidence, not physical display FPS verification.
+- Final motion pass: typecheck and 572 unit tests pass, including a human-roll angular-change bound sampled at 120Hz. This is motion-path evidence, not physical display FPS verification.
 - Final verification passed: pinned native engine rebuild/hash checks (three native tests), full packaged Chromium Utilities suite, packaged WebKit game suite, production build, quality, deploy smoke and root dependency audit. Independent reviews found no blockers.
 - Final compositor trace: callback median 8.3 ms, DrawFrame interval p95 17.2 ms, no steady layout/paint or long tasks. Physical display FPS remains unmeasured; startup maxima can exceed the 8.33 ms budget.
 - Implementation and local verification are complete for the branch PR; no production deployment or merge is part of this delivery.
