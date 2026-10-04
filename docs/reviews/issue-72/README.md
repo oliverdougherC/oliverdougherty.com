@@ -57,8 +57,9 @@ zoom controls and their fractional-scale rasterization remain unautomated.
 DPR 1/2 are independent rendering samples. Windows/macOS system fonts require
 separate platform runs. The Inter fixture is licensed, unmodified, test-only,
 and served through intercepted Google Fonts routes. The test explicitly activates
-the deferred font stylesheet and waits for its held font request before capturing
-fallback, then verifies the loaded Inter face. Live font endpoints are
+the deferred font stylesheet and holds its real font request through a 200ms
+font-display block interval before capturing fallback once, then verifies the
+loaded Inter face. Live font endpoints are
 outside this deterministic check. Results and screenshots go to
 `output/playwright/index-arrow/<browser>/`.
 
