@@ -188,6 +188,9 @@ async function assertIndexArrow(browser, baseUrl, browserName) {
             const timer = setTimeout(() => reject(new Error('Inter fixture was not requested within 5s')), 5000);
             fontRequested.then(() => { clearTimeout(timer); resolve(); });
           });
+          // font-display: swap permits a brief block period (100ms in Firefox).
+          // Keep the font held until fallback can paint; capture once, no retry.
+          await page.waitForTimeout(200);
           assert.equal(await page.evaluate(() => [...document.fonts].some(font => font.family.replace(/["']/g, '') === 'Inter' && font.status === 'loaded')), false);
           report.results.push(await measureArrow(page, { output, name: 'delayed-dpr2-100-image-transform', dpr }));
           releaseFont();
