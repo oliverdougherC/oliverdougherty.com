@@ -94,6 +94,11 @@ function formatFrequency(value: number) {
   return value >= 1000 ? `${(value / 1000).toFixed(2)} kHz` : `${value.toFixed(1)} Hz`;
 }
 
+function formatPlaybackTime(value: number) {
+  const seconds = Math.max(0, Math.floor(value));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
 const INITIAL_SLIDER_VALUE = 50;
 const PLAYBACK_FADE_SECONDS = 0.1;
 const PLAYBACK_START_DELAY_SECONDS = 0.035;
@@ -142,6 +147,8 @@ export class AudioFourierController {
   private readonly progressMeta: HTMLElement;
   private readonly progressBar: HTMLElement;
   private readonly progressFill: HTMLElement;
+  private readonly timeline: HTMLElement;
+  private readonly seekSlider: HTMLInputElement;
   private readonly selectionLabel: HTMLElement;
   private readonly resultMeta: HTMLElement;
   private readonly sampleRateLabel: HTMLElement;
@@ -180,6 +187,8 @@ export class AudioFourierController {
   private mixedEnvelopeCacheKey = '';
   private renderInProgress = false;
   private lastPlaybackProgressAt = 0;
+  private isSeeking = false;
+  private resumeAfterSeek = false;
   private deferredWaveRenderTimeoutId = 0;
   private state: AudioFourierState = 'idle';
   private destroyed = false;
@@ -212,6 +221,8 @@ export class AudioFourierController {
     this.progressMeta = this.requireElement('audioFourierProgressMeta');
     this.progressBar = this.requireElement('audioFourierProgressBar');
     this.progressFill = this.requireElement('audioFourierProgressFill');
+    this.timeline = this.requireElement('audioFourierTimeline');
+    this.seekSlider = this.requireElement('audioFourierSeek', HTMLInputElement);
     this.selectionLabel = this.requireElement('audioFourierSelection');
     this.resultMeta = this.requireElement('audioFourierResultMeta');
     this.sampleRateLabel = this.requireElement('audioFourierSampleRate');
@@ -247,6 +258,22 @@ export class AudioFourierController {
     this.resetButton.addEventListener('click', () => this.resetAll(), { signal });
     this.qualitySelect.addEventListener('change', () => this.invalidateComputedState('Quality changed. Generate again to rebuild the audio transform.'), { signal });
     this.componentSlider.addEventListener('input', () => this.handleSliderInput(), { signal });
+    this.seekSlider.addEventListener('pointerdown', (event) => {
+      if (event.button === 0) this.beginSeeking();
+    }, { signal });
+    this.seekSlider.addEventListener('input', () => {
+      const seconds = Number(this.seekSlider.value);
+      this.beginSeeking();
+      this.seekPlayback(seconds);
+    }, { signal });
+    const finishSeeking = () => {
+      this.finishSeeking().catch((error) => this.handleGenerateFailure(error));
+    };
+    this.seekSlider.addEventListener('change', finishSeeking, { signal });
+    this.seekSlider.addEventListener('blur', finishSeeking, { signal });
+    window.addEventListener('pointerup', finishSeeking, { signal });
+    window.addEventListener('pointercancel', finishSeeking, { signal });
+    this.seekSlider.addEventListener('keydown', (event) => this.handleSeekKeydown(event), { signal });
     this.bindDropzone();
 
     const suspend = () => {
@@ -291,6 +318,7 @@ export class AudioFourierController {
     this.installCanvasResizeObserver();
     this.resizeCanvases();
     this.drawEmptyState();
+    this.setProgress(0, 'Ready for audio.');
   }
 
   private bindDropzone() {
@@ -473,6 +501,7 @@ export class AudioFourierController {
     this.qualitySelect.disabled = isProcessing;
     this.componentSlider.disabled = !hasResult || isProcessing;
     this.playPauseButton.disabled = !hasResult || isProcessing;
+    this.seekSlider.disabled = !hasResult || !['ready', 'animating', 'complete'].includes(this.state);
     const playbackButton = resolveAudioPlaybackButtonState({
       hasResult,
       isProcessing,
@@ -497,9 +526,19 @@ export class AudioFourierController {
     this.statusChip.className = `utility-status-chip utility-status-chip--${state}`;
     this.root.dataset.audioState = state;
     this.syncButtons();
+    if (this.activeResult && ['ready', 'animating', 'complete'].includes(state)) {
+      this.syncPlaybackProgress();
+    }
   }
 
   private setProgress(progress: number, text: string, meta?: string) {
+    this.timeline.dataset.mode = 'analysis';
+    this.seekSlider.disabled = true;
+    this.seekSlider.setAttribute('aria-hidden', 'true');
+    this.progressBar.setAttribute('role', 'progressbar');
+    this.progressBar.setAttribute('aria-label', 'Fourier analysis progress');
+    this.progressBar.setAttribute('aria-valuemin', '0');
+    this.progressBar.setAttribute('aria-valuemax', '100');
     const percent = clamp(Math.round(progress * 100), 0, 100);
     this.progressText.textContent = text;
     if (meta) {
@@ -507,6 +546,76 @@ export class AudioFourierController {
     }
     this.progressFill.style.width = `${percent}%`;
     this.progressBar.setAttribute('aria-valuenow', String(percent));
+  }
+
+  private syncPlaybackProgress() {
+    if (!this.activeResult) return;
+    const duration = this.activeResult.metadata.proxyDurationSeconds;
+    const elapsed = clamp(this.playbackElapsedSeconds, 0, duration);
+    this.timeline.dataset.mode = 'playback';
+    this.seekSlider.removeAttribute('aria-hidden');
+    for (const attribute of ['role', 'aria-label', 'aria-valuemin', 'aria-valuemax', 'aria-valuenow']) {
+      this.progressBar.removeAttribute(attribute);
+    }
+    this.seekSlider.max = String(duration);
+    this.seekSlider.value = String(elapsed);
+    const time = `${formatPlaybackTime(elapsed)} / ${formatPlaybackTime(duration)}`;
+    this.seekSlider.setAttribute('aria-valuetext', time);
+    this.progressFill.style.width = `${duration > 0 ? elapsed / duration * 100 : 0}%`;
+    this.progressText.textContent = this.isSeeking ? 'Seeking…' : this.state === 'animating' ? 'Playing audio.'
+      : this.state === 'complete' ? 'Playback complete.' : elapsed > 0 ? 'Playback paused.' : 'Ready to play.';
+    this.progressMeta.textContent = time;
+  }
+
+  private beginSeeking() {
+    if (this.isSeeking || this.seekSlider.disabled || !this.activeResult) return;
+    const wasPlaying = this.state === 'animating';
+    this.pausePlayback();
+    this.isSeeking = true;
+    this.resumeAfterSeek = wasPlaying;
+    this.timeline.dataset.seeking = 'true';
+  }
+
+  private seekPlayback(seconds: number) {
+    if (!this.isSeeking || !this.activeResult || !Number.isFinite(seconds)) return;
+    const duration = this.activeResult.metadata.proxyDurationSeconds;
+    const elapsed = clamp(seconds, 0, duration);
+    // Native range values can round a fractional max slightly below the audio duration.
+    this.playbackElapsedSeconds = duration - elapsed < 0.000001 ? duration : elapsed;
+    this.visualPlaybackElapsedSeconds = this.playbackElapsedSeconds;
+    this.setState(this.playbackElapsedSeconds >= duration ? 'complete' : 'ready', 'Playback position selected.');
+    this.renderCurrentViewport();
+  }
+
+  private cancelSeeking() {
+    this.isSeeking = false;
+    this.resumeAfterSeek = false;
+    this.timeline.dataset.seeking = 'false';
+  }
+
+  private async finishSeeking() {
+    if (!this.isSeeking) return;
+    const resume = this.resumeAfterSeek;
+    this.cancelSeeking();
+    if (!this.activeResult || this.seekSlider.disabled) return;
+    this.syncPlaybackProgress();
+    if (resume && this.state !== 'complete') await this.playPlayback();
+  }
+
+  private handleSeekKeydown(event: KeyboardEvent) {
+    if (!this.activeResult || this.seekSlider.disabled) return;
+    const duration = this.activeResult.metadata.proxyDurationSeconds;
+    const elapsed = Number(this.seekSlider.value);
+    const seconds = event.key === 'Home' ? 0 : event.key === 'End' ? duration
+      : ['ArrowRight', 'ArrowUp'].includes(event.key) ? elapsed + 5
+      : ['ArrowLeft', 'ArrowDown'].includes(event.key) ? elapsed - 5
+      : event.key === 'PageUp' ? elapsed + duration / 10
+      : event.key === 'PageDown' ? elapsed - duration / 10 : null;
+    if (seconds === null) return;
+    event.preventDefault();
+    this.beginSeeking();
+    this.seekPlayback(seconds);
+    this.finishSeeking().catch((error) => this.handleGenerateFailure(error));
   }
 
   private clearDiagnostics() {
@@ -540,6 +649,7 @@ export class AudioFourierController {
   }
 
   private invalidateComputedState(statusText: string) {
+    this.cancelSeeking();
     this.stopPlayback(false);
     this.abandonActiveComputation();
     this.activeResult = null;
@@ -578,6 +688,7 @@ export class AudioFourierController {
   }
 
   private async generate() {
+    this.cancelSeeking();
     this.stopPlayback(false);
     this.activeResult = null;
     this.bandBuffers = [];
@@ -823,7 +934,6 @@ export class AudioFourierController {
     this.setState('ready', 'Fourier proxy ready. Press Play to start audio.');
     this.syncEnergyReadout();
     this.resultMeta.textContent = '';
-    this.setProgress(1, 'Fourier proxy ready.');
     void this.attemptAutoPlay(message.requestId);
   }
 
@@ -1003,7 +1113,7 @@ export class AudioFourierController {
 
     if (
       this.state === 'complete' ||
-      this.playbackElapsedSeconds >= this.activeResult.metadata.proxyDurationSeconds * FULL_ENERGY_VISUAL_THRESHOLD
+      this.playbackElapsedSeconds >= this.activeResult.metadata.proxyDurationSeconds
     ) {
       this.playbackElapsedSeconds = 0;
     }
@@ -1064,10 +1174,10 @@ export class AudioFourierController {
         }
         this.playbackElapsedSeconds = this.activeResult?.metadata.proxyDurationSeconds ?? 0;
         this.visualPlaybackElapsedSeconds = this.playbackElapsedSeconds;
-        this.activeBandNodes = [];
+        this.stopPlayback(false);
         this.setState('complete', 'Playback complete.');
         this.resultMeta.textContent = '';
-        this.stopAnimationFrame();
+        this.renderCurrentViewport();
         this.syncButtons();
       };
     }
@@ -1082,8 +1192,11 @@ export class AudioFourierController {
   }
 
   private pausePlayback() {
+    const wasSeeking = this.isSeeking;
+    this.cancelSeeking();
     this.playbackAttempt += 1;
     if (!this.activeResult || this.state !== 'animating') {
+      if (wasSeeking && this.activeResult) this.syncPlaybackProgress();
       return;
     }
 
@@ -1109,7 +1222,7 @@ export class AudioFourierController {
   }
 
   private hasPausedPlayhead() {
-    return this.state === 'ready' && this.playbackElapsedSeconds > 0;
+    return (this.state === 'ready' || this.state === 'complete') && this.playbackElapsedSeconds > 0;
   }
 
   private stopPlayback(resetElapsed: boolean) {
@@ -1203,7 +1316,7 @@ export class AudioFourierController {
       }
       if (!this.lastPlaybackProgressAt || timestamp - this.lastPlaybackProgressAt >= PLAYBACK_PROGRESS_UPDATE_MS) {
         this.lastPlaybackProgressAt = timestamp;
-        this.progressMeta.textContent = `${formatSeconds(this.playbackElapsedSeconds)} / ${formatSeconds(this.activeResult.metadata.proxyDurationSeconds)}`;
+        this.syncPlaybackProgress();
       }
       this.animationFrameId = window.requestAnimationFrame(step);
     };
@@ -1436,6 +1549,7 @@ export class AudioFourierController {
 
   public destroy() {
     this.destroyed = true;
+    this.cancelSeeking();
     this.eventController.abort();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;

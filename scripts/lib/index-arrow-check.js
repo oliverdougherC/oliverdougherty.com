@@ -3,10 +3,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const sharp = require('sharp');
 
-const TOOLS = ['image-transform', 'audio-fourier', 'stress-test'];
+const TOOLS = ['image-transform', 'audio-fourier', 'stress-test', 'yahtzee-keiri'];
 const WINDOW = { width: 1440, height: 900 };
 // Pair each layout scale with one tool instead of multiplying all dimensions.
-const CASES = [[1, 'image-transform'], [1.25, 'audio-fourier'], [1.5, 'stress-test'], [2, 'image-transform']];
+const CASES = [[1, 'image-transform'], [1.25, 'audio-fourier'], [1.5, 'stress-test'], [2, 'yahtzee-keiri']];
 const FONT = fs.readFileSync(path.resolve(__dirname, '../test-fixtures/inter/inter-latin-500-normal.woff2'));
 
 async function settle(page) {

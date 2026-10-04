@@ -6,7 +6,8 @@ const shell = readFileSync(new URL('../../js/utilities-shell.js', import.meta.ur
 const tools = [
   ['image-transform', 'Image Transform'],
   ['audio-fourier', 'Fourier Reconstruction'],
-  ['stress-test', 'Stress Test']
+  ['stress-test', 'Stress Test'],
+  ['yahtzee-keiri', 'Yahtzee vs. Keiri']
 ];
 const instances: JSDOM[] = [];
 
@@ -46,18 +47,18 @@ function setup(hash = '', beforeEval?: (window: JSDOM['window']) => void) {
 afterEach(() => instances.splice(0).forEach(dom => dom.window.close()));
 
 describe('utilities shell', () => {
-  it('opens initial deep links and notifies the active controller', () => {
-    const { window, query, events } = setup('#audio-fourier');
-    expect(query('[data-utility-id="audio-fourier"]').classList.contains('is-active')).toBe(true);
-    expect(query('[data-utility-id="audio-fourier"]').hidden).toBe(false);
+  it.each([['audio-fourier', 'Fourier Reconstruction', '02'], ['yahtzee-keiri', 'Yahtzee vs. Keiri', '04']])('opens %s deep links and notifies the active controller', (id, title, number) => {
+    const { window, query, events } = setup(`#${id}`);
+    expect(query(`[data-utility-id="${id}"]`).classList.contains('is-active')).toBe(true);
+    expect(query(`[data-utility-id="${id}"]`).hidden).toBe(false);
     expect(query('#utilitiesTitleView').hidden).toBe(true);
     expect(query('#utilitiesUtilityView').hidden).toBe(false);
-    expect(query('#utilityTitle').textContent).toBe('Fourier Reconstruction');
-    expect(query('#utilityNumber').textContent).toBe('02');
-    expect(query<HTMLSelectElement>('#utilitySwitcher').value).toBe('audio-fourier');
-    expect(window.document.title).toBe('Fourier Reconstruction');
+    expect(query('#utilityTitle').textContent).toBe(title);
+    expect(query('#utilityNumber').textContent).toBe(number);
+    expect(query<HTMLSelectElement>('#utilitySwitcher').value).toBe(id);
+    expect(window.document.title).toBe(title);
     expect(window.document.activeElement).toBe(query('#utilityTitle'));
-    expect(events).toEqual(['utility-activate:audio-fourier']);
+    expect(events).toEqual([`utility-activate:${id}`]);
   });
 
   it.each(['#virtual-machine', '#local-assistant', '#unknown', '#%E0%A4%A'])
