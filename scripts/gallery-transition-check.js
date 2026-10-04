@@ -58,6 +58,12 @@ async function finishFrames(page, name) {
   assert(frames.every(frame => frame.layers.length <= 2), `${name}: unbounded image layers`);
   const blank = frames.filter(frame => !frame.layers.some(layer => layer.visible && layer.ready && layer.opacity >= 0.99));
   assert.equal(blank.length, 0, `${name}: ${blank.length}/${frames.length} frames lack an opaque decoded photo`);
+  for (const frame of frames) {
+    const visible = frame.layers.filter(layer => layer.visible && layer.opacity > 0);
+    assert.equal(visible.length, 1, `${name}: a previous photo remains visible beneath the committed photo`);
+    assert.equal(visible[0].src, frame.committedSrc, `${name}: displayed pixels do not match the committed photo`);
+    assert.equal(visible[0].opacity, 1, `${name}: committed photo must be fully opaque on its first frame`);
+  }
   results.push({ name, frames: frames.length, blankFrames: blank.length });
   return frames;
 }
@@ -275,10 +281,63 @@ async function desktop(browser, base, { reduced = false, jpegOnly = false } = {}
   } finally { await context.close(); }
 }
 
+async function rapidNavigation(browser, base, mobile = false) {
+  const context = await browser.newContext({ viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 } });
+  await fixture(context);
+  const page = await context.newPage();
+  try {
+    await page.goto(`${base}/${mobile ? 'mobile/gallery/' : 'pages/gallery/?full=1#photo=lighthouse'}`, { waitUntil: 'domcontentloaded' });
+    if (mobile) await page.locator('#mobileGalleryGrid button').first().click();
+    await displayed(page, 'lighthouse', mobile);
+    await sampleFrames(page, mobile);
+    // Navigation faster than a fade can finish, including direction changes
+    // and a full wrap. Sample every rendered frame, not only settled states.
+    const directions = [1, 1, -1, 1, 1, -1, -1, 1, 1, 1, 1, 1, -1, -1, 1];
+    await page.evaluate(async directions => {
+      for (const direction of directions) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: direction > 0 ? 'ArrowRight' : 'ArrowLeft', bubbles: true }));
+        await new Promise(resolve => requestAnimationFrame(resolve));
+      }
+    }, directions);
+    const target = ((directions.reduce((sum, step) => sum + step, 0) % photos.length) + photos.length) % photos.length;
+    await displayed(page, photos[target].id, mobile);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await finishFrames(page, `${mobile ? 'mobile' : 'desktop'}-rapid-bidirectional`);
+  } finally { await context.close(); }
+}
+
 async function navigationFailure(browser, base, failure) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await fixture(context);
+  await context.addInitScript(() => {
+    window.__galleryRetryEvents = [];
+    const record = (type, image, detail = '') => {
+      if (!image?.matches?.('.lightbox-image')) return;
+      window.__galleryRetryEvents.push({ type, time: performance.now(), detail,
+        src: image.src, currentSrc: image.currentSrc, complete: image.complete,
+        naturalWidth: image.naturalWidth, connected: image.isConnected });
+    };
+    for (const type of ['load', 'error']) {
+      document.addEventListener(type, event => record(type, event.target), true);
+    }
+    const decode = HTMLImageElement.prototype.decode;
+    HTMLImageElement.prototype.decode = function () {
+      record('decode-start', this);
+      return decode.call(this).then(value => {
+        record('decode-ready', this);
+        return value;
+      }, error => {
+        record('decode-error', this, `${error.name}: ${error.message}`);
+        throw error;
+      });
+    };
+  });
   const page = await context.newPage();
+  const network = [];
+  const relevant = url => /\/assets\/photos\/(medium|large)\/attitude\./i.test(url);
+  page.on('request', request => { if (relevant(request.url())) network.push({ type: 'request', url: request.url() }); });
+  page.on('response', response => { if (relevant(response.url())) network.push({ type: 'response', url: response.url(), status: response.status() }); });
+  page.on('requestfailed', request => { if (relevant(request.url())) network.push({ type: 'failure', url: request.url(), error: request.failure() }); });
   page.setDefaultTimeout(12000);
   let failing = true;
   const recoveredRequests = [];
@@ -298,6 +357,7 @@ async function navigationFailure(browser, base, failure) {
     await displayed(page, 'lighthouse');
     assert.equal(await page.evaluate(() => location.hash), '#photo=lighthouse');
     failing = false;
+    network.push({ type: 'retry-click' });
     await page.locator('#lightboxRetry').click();
     await displayed(page, 'attitude');
     const recoveredUrl = await page.locator('#lightboxImage').evaluate(image => image.currentSrc);
@@ -313,6 +373,24 @@ async function navigationFailure(browser, base, failure) {
     await displayed(page, 'attitude');
     assert.equal(await page.locator('#lightboxImage').evaluate(image => image.currentSrc), recoveredUrl);
     results.push({ name: `navigation-${failure}-retry`, status: 'pass' });
+  } catch (error) {
+    const state = await page.evaluate(() => ({
+      hash: location.hash,
+      title: document.getElementById('lightboxTitle')?.textContent,
+      status: document.getElementById('lightboxStatus')?.textContent,
+      retryHidden: document.getElementById('lightboxRetry')?.hidden,
+      busy: document.getElementById('lightboxMedia')?.getAttribute('aria-busy'),
+      images: [...document.querySelectorAll('#lightboxMedia img')].map(image => ({
+        id: image.id, src: image.src, currentSrc: image.currentSrc, complete: image.complete,
+        naturalWidth: image.naturalWidth, pictureClass: image.closest('picture')?.className
+      })),
+      events: window.__galleryRetryEvents
+    }));
+    const diagnostic = { browser: ENGINE, scenario: `navigation-${failure}-retry`, state, network };
+    fs.writeFileSync(path.join(OUTPUT, `navigation-${failure}-failure.json`), JSON.stringify(diagnostic, null, 2) + '\n');
+    console.error('Gallery retry failure diagnostics:', JSON.stringify(diagnostic));
+    await page.screenshot({ path: path.join(OUTPUT, `navigation-${failure}-failure.png`) }).catch(() => {});
+    throw error;
   } finally { await context.close(); }
 }
 
@@ -323,7 +401,7 @@ async function decodeAndInitialFailure(browser, base) {
     const decode = HTMLImageElement.prototype.decode;
     HTMLImageElement.prototype.decode = async function () {
       await decode.call(this);
-      if (this.currentSrc.includes('/attitude.')) {
+      if (this.closest('.lightbox-picture') && this.currentSrc.includes('/attitude.')) {
         window.__decodeReached = true;
         await new Promise(resolve => { window.__releaseDecode = resolve; });
       }
@@ -434,6 +512,10 @@ async function mobile(browser, base) {
   const page = await context.newPage();
   page.setDefaultTimeout(12000);
   let fail = false;
+  const retryRequests = [];
+  page.on('request', request => {
+    if (new URL(request.url()).searchParams.has('_gallery_retry')) retryRequests.push(request.url());
+  });
   await page.route(/\/assets\/photos\/(medium|large)\/attitude\./i, async route => {
     if (fail) return route.fulfill({ status: 404, body: '' });
     await new Promise(resolve => setTimeout(resolve, 800));
@@ -467,6 +549,13 @@ async function mobile(browser, base) {
     fail = false;
     await page.locator('#mobileLightboxRetry').click();
     await displayed(page, 'attitude', true);
+    assert(retryRequests.length > 0, 'mobile retry must issue a fresh responsive image request');
+    const recoveredSrc = await page.locator('#mobileLightboxImage').evaluate(image => image.currentSrc);
+    await page.keyboard.press('ArrowLeft');
+    await displayed(page, 'lighthouse', true);
+    await page.keyboard.press('ArrowRight');
+    await displayed(page, 'attitude', true);
+    assert.equal(await page.locator('#mobileLightboxImage').evaluate(image => image.currentSrc), recoveredSrc);
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('body > [inert]').count(), 0);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -478,13 +567,16 @@ async function main() {
   fs.mkdirSync(OUTPUT, { recursive: true });
   const url = process.env.GALLERY_TRANSITION_URL || 'http://127.0.0.1:0';
   const server = await startLocalStaticServer({ url, cwd: ROOT, skip: Boolean(process.env.GALLERY_TRANSITION_URL) });
-  const browser = await playwright[ENGINE].launch();
+  let browser;
   try {
+    browser = await playwright[ENGINE].launch();
     const base = server?.url || url;
     await streamedBody(browser, base);
     await warmCacheTransition(browser, base);
     await desktop(browser, base);
     await desktop(browser, base, { reduced: true, jpegOnly: true });
+    await rapidNavigation(browser, base);
+    await rapidNavigation(browser, base, true);
     await navigationFailure(browser, base, '404');
     await navigationFailure(browser, base, 'corrupt');
     await decodeAndInitialFailure(browser, base);
@@ -495,7 +587,7 @@ async function main() {
     console.log(JSON.stringify({ browser: ENGINE, results }, null, 2));
   } finally {
     fs.writeFileSync(path.join(OUTPUT, 'results.json'), JSON.stringify({ browser: ENGINE, results }, null, 2) + '\n');
-    await browser.close();
+    await browser?.close();
     server?.kill();
   }
 }

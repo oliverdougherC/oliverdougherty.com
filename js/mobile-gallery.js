@@ -40,8 +40,6 @@
   let displayedIndex = -1;
   let navigationToken = 0;
   let pendingImage = null;
-  let retiredPicture = null;
-  let retirementTimer = 0;
   const imageRetrySession = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   let imageRetryAttempt = 0;
   let lastTriggerElement = null;
@@ -51,10 +49,6 @@
   let loadAttempt = 0;
   let loadController = null;
   let thumbnailLoading = null;
-
-  function prefersReducedMotion() {
-    return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  }
 
   /* ---- Utility functions ---- */
 
@@ -417,22 +411,10 @@
     el.media.setAttribute('aria-busy', message && !failed ? 'true' : 'false');
   }
 
-  function removeRetiredPicture() {
-    window.clearTimeout(retirementTimer);
-    retirementTimer = 0;
-    // A rapid request can interrupt a reveal. Make its committed frame fully
-    // opaque before releasing the backing frame beneath it.
-    var current = document.getElementById('mobileLightboxImage');
-    if (current) current.closest('picture').classList.remove('mobile-lightbox-reveal');
-    if (retiredPicture) retiredPicture.remove();
-    retiredPicture = null;
-  }
-
   function cancelPendingNavigation() {
     navigationToken += 1;
     if (pendingImage) pendingImage.cancel();
     pendingImage = null;
-    removeRetiredPicture();
   }
 
   function withImageRetry(src, version) {
@@ -523,13 +505,8 @@
       picture.className = 'mobile-lightbox-current';
       picture.removeAttribute('aria-hidden');
       image.style.opacity = '1';
-      if (displayedIndex >= 0 && !prefersReducedMotion()) {
-        picture.classList.add('mobile-lightbox-reveal');
-        retiredPicture = previous;
-        retirementTimer = window.setTimeout(removeRetiredPicture, 180);
-      } else {
-        previous.remove();
-      }
+      // Incoming pixels are decoded; retire the old frame atomically.
+      previous.remove();
       displayedIndex = index;
       setViewerStatus('', false);
     }
