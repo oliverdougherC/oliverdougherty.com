@@ -84,14 +84,20 @@ describe('Yahtzee polish behavior', () => {
     expect(stored().record).toEqual(original.record);
   });
 
-  it('does not restore the old match when rules and table finish after a reset', async () => {
+  it('allows reset after save validation without waiting for the table or reviving the old match', async () => {
     const original = seedRecord();
     original.match.dice = [1, 2, 3, 4, 5]; original.match.rolls = 2; original.match.held[0] = true;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(original));
     const delayedRules = deferred<RulesEngine>(); const table = deferred<void>();
     const { root, click, exact } = setup({ getRules: () => delayedRules.promise, load: () => table.promise });
+    expect(root.querySelector<HTMLButtonElement>('[data-reset-game]')!.disabled).toBe(true);
     click('[data-reset-game]');
-    delayedRules.resolve(rules); table.resolve(); await flush();
+    expect(stored()).toEqual(original);
+    delayedRules.resolve(rules); await flush();
+    expect(root.querySelector<HTMLButtonElement>('[data-reset-game]')!.disabled).toBe(false);
+    click('[data-reset-game]');
+    expect(stored()).toEqual({ ...original, match: freshMatch() });
+    table.resolve(); await flush();
     expect(stored()).toEqual({ ...original, match: freshMatch() });
     expect(root.dataset.engineState).toBe('ready');
     expect(exact.decide).not.toHaveBeenCalled();

@@ -49,8 +49,8 @@ export class YahtzeeController {
       this.storage = this.dependencies.storage ?? window.localStorage;
       const raw = this.storage.getItem(STORAGE_KEY);
       const restored = parseRivalry(raw);
-      this.state = restored ?? freshRivalry();
-      // Rejected storage must not be reconsidered after fresh-game play starts.
+      // A candidate is not live state until Rust validates its score sheets.
+      // Structurally rejected storage leaves a fresh game immediately playable.
       this.rawRestore = restored ? raw : null;
     } catch { this.storageUnavailable = true; }
     this.root.innerHTML = `<div class="yahtzee-record-bar"><span data-record></span><div class="yahtzee-reset"><button type="button" data-reset-game>Reset game</button><span data-reset-question hidden>Clear record?</span><button type="button" data-reset>Reset record</button><button type="button" data-reset-cancel hidden>Cancel</button></div></div>
@@ -207,10 +207,10 @@ export class YahtzeeController {
             const rules = await (this.dependencies.rules ?? loadRules)();
             if (this.destroyed) return;
             this.rules = rules;
-            if (this.rawRestore && !parseRivalry(this.rawRestore, rules)) {
-              this.invalidate();
-              this.state = freshRivalry();
-              this.error = 'Saved game could not be restored. A new match is ready.';
+            if (this.rawRestore) {
+              const restored = parseRivalry(this.rawRestore, rules);
+              this.state = restored ?? freshRivalry();
+              if (!restored) this.error = 'Saved game could not be restored. A new match is ready.';
             }
             this.rawRestore = null;
             this.save();
@@ -238,6 +238,7 @@ export class YahtzeeController {
     return this.loading;
   }
   private save(): void {
+    if (this.rawRestore) return;
     // Record and terminal match are one atomic value: recovery never counts twice.
     try { this.storage?.setItem(STORAGE_KEY, JSON.stringify(this.state)); }
     catch { this.storageUnavailable = true; }
@@ -246,6 +247,7 @@ export class YahtzeeController {
     if (!this.active) return;
     const button = (event.target as Element).closest<HTMLButtonElement>('button');
     if (!button || button.disabled || !this.root.contains(button)) return;
+    if (this.rawRestore && !button.hasAttribute('data-retry')) return;
     if (this.progress.phase !== 'failed') this.error = '';
     if (button.hasAttribute('data-roll')) {
       const indices = this.state.match.held.flatMap((held, index) => held ? [] : [index]);
@@ -314,12 +316,13 @@ export class YahtzeeController {
   }
   private element<T extends HTMLElement = HTMLElement>(selector: string): T { return this.root.querySelector<T>(selector)!; }
   private render(): void {
+    const pendingRestore = this.rawRestore !== null;
     const match = this.state.match;
     const frame = this.botFrame;
     const dice = frame?.dice ?? match.dice;
     const held = frame?.held ?? match.held;
     const rolls = frame?.rolls ?? match.rolls;
-    const human = match.turn === 'human';
+    const human = !pendingRestore && match.turn === 'human';
     const complete = match.turn === 'complete';
     this.root.dataset.turn = match.turn;
     this.root.dataset.rolling = String(this.rolling);
@@ -330,7 +333,10 @@ export class YahtzeeController {
     this.element('[data-reset-question]').hidden = !this.resetConfirm;
     this.element('[data-reset-cancel]').hidden = !this.resetConfirm;
     this.element('[data-reset]').textContent = this.resetConfirm ? 'Clear' : 'Reset record';
-    this.element('[data-turn]').textContent = complete ? 'FINAL SCORE' : human ? 'YOUR TURN' : "KEIRI’S TURN";
+    for (const selector of ['[data-reset]', '[data-reset-game]', '[data-reset-cancel]', '[data-again]']) {
+      this.element<HTMLButtonElement>(selector).disabled = pendingRestore;
+    }
+    this.element('[data-turn]').textContent = pendingRestore ? 'RESTORING GAME' : complete ? 'FINAL SCORE' : human ? 'YOUR TURN' : "KEIRI’S TURN";
     this.element('[data-roll-count]').textContent = complete ? 'MATCH COMPLETE' : `ROLL ${rolls} / 3`;
     const preview = human && rolls && this.rules && !this.rolling ? this.rules.preview(match.human, dice) : [];
     CATEGORIES.forEach((name, category) => {
@@ -379,6 +385,7 @@ export class YahtzeeController {
       status = `${winner} · ${finalScores}`;
     }
     if (this.rolling) status = human ? 'Rolling your dice.' : 'Keiri is rolling.';
+    if (pendingRestore) status = 'Checking saved game…';
     if (this.error) status = this.error;
     if (status !== this.liveText) { this.liveText = status; this.element('[data-status]').textContent = status; }
     const progress = this.element<HTMLProgressElement>('[data-progress]');

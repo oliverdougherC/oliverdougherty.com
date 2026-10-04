@@ -57,8 +57,12 @@ turn sequence. Human and Keiri sheets have equal filled-category counts on human
 turns; the human leads by one on Keiri turns. Terminal matches require both full
 sheets. Structurally malformed or obsolete storage is discarded immediately,
 so rolls and holds in the fresh game survive delayed rules loading. Only a
-structurally valid restore candidate awaits Rust semantic validation. Malformed
-or incompatible values begin a clean rivalry. Blocked or
+structurally valid restore candidate awaits Rust semantic validation. While it is
+pending, the UI says “Checking saved game…” and disables game and reset controls;
+the candidate is neither displayed as a restored match nor overwritten. Navigation
+and loading retries remain available. Once the small rules WASM validates it, the
+match resumes exactly or a rejected candidate becomes a fresh rivalry with an
+explanation. Neither path waits for the exact table. Blocked or
 quota-limited storage allows play and displays that progress cannot save.
 
 Human rolls, holds and score commitments persist immediately. Bot animation frames
@@ -188,7 +192,7 @@ native motion tracks, material continuity, and layout at 1440×900, 1280×720,
 
 ### Final-pass evidence — 2026-10-04
 
-Type checking and all 576 unit tests pass for the current implementation. The pinned
+Type checking and all 579 unit tests pass for the current implementation. The pinned
 engine rebuild (three native tests and matching binary hashes), production builds,
 quality checks, deploy smoke checks, and packaged WebKit game suite pass. The full
 packaged Chromium Utilities suite also passes. An independent

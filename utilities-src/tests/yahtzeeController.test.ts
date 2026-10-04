@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RulesEngine, Sheet } from '../src/keiriEngine';
 import { YahtzeeController } from '../src/yahtzeeController';
-import { STORAGE_KEY, freshRivalry } from '../src/yahtzeeCore';
+import { STORAGE_KEY, freshRivalry, parseRivalry } from '../src/yahtzeeCore';
 
 vi.mock('../src/keiriEngine', () => ({ ExactEngine: class {}, loadRules: vi.fn() }));
 const rules: RulesEngine = {
@@ -103,6 +103,63 @@ describe('Yahtzee controller lifecycle', () => {
     expect(root.dataset.rolls).toBe('2');
     expect(root.querySelector('[data-die="1"]')!.getAttribute('aria-pressed')).toBe('true');
     expect(root.querySelector<HTMLButtonElement>('[data-score="0"]')!.disabled).toBe(false);
+  });
+  it.each([3, 4])('keeps a saved Twos score of %i pending until semantic validation, independently of the table', async twos => {
+    const candidate = freshRivalry();
+    candidate.record.human = 2;
+    candidate.match.human.scores[1] = twos;
+    candidate.match.keiri.scores[1] = twos;
+    candidate.match.dice = [2, 3, 4, 5, 6];
+    candidate.match.rolls = 1;
+    candidate.match.held[0] = true;
+    const raw = JSON.stringify(candidate);
+    expect(parseRivalry(raw)).toEqual(candidate);
+    localStorage.setItem(STORAGE_KEY, raw);
+    const delayedRules = deferred<RulesEngine>();
+    const table = deferred<void>();
+    const { root, click } = setup({ getRules: () => delayedRules.promise, load: () => table.promise });
+    expect(root.querySelector('[data-status]')!.textContent).toBe('Checking saved game…');
+    expect(root.querySelector('[data-keiri-score="1"]')!.textContent).toBe('—');
+    for (const selector of ['[data-roll]', '[data-die="0"]', '[data-score="0"]', '[data-reset-game]', '[data-reset]', '[data-again]']) {
+      expect(root.querySelector<HTMLButtonElement>(selector)!.disabled).toBe(true);
+      click(selector);
+    }
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(raw);
+    root.dispatchEvent(new Event('utility-deactivate'));
+    const hidden = root.innerHTML;
+    const validateSheet = vi.fn((sheet: Sheet) => sheet.scores[1] !== 3);
+    delayedRules.resolve({ ...rules, validateSheet }); await flush();
+    expect(validateSheet).toHaveBeenCalled();
+    expect(root.innerHTML).toBe(hidden);
+    root.dispatchEvent(new Event('utility-activate'));
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual(twos === 3 ? freshRivalry() : candidate);
+    if (twos === 3) expect(root.querySelector('[data-status]')!.textContent).toContain('Saved game could not be restored');
+    expect(root.dataset.engineState).toBe('download');
+    click('[data-roll]'); click('[data-die="1"]');
+    const beforeTable = localStorage.getItem(STORAGE_KEY);
+    expect(JSON.parse(beforeTable!).match.rolls).toBe(twos === 3 ? 1 : 2);
+    expect(JSON.parse(beforeTable!).match.held[1]).toBe(true);
+    table.resolve(); await flush();
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(beforeTable);
+  });
+  it('keeps a pending restore intact across rules failure, retry and BFCache', async () => {
+    const raw = JSON.stringify(freshRivalry());
+    localStorage.setItem(STORAGE_KEY, raw);
+    const retriedRules = deferred<RulesEngine>();
+    let attempts = 0;
+    const { root, click } = setup({ getRules: () => ++attempts === 1 ? Promise.reject(new Error('offline')) : retriedRules.promise });
+    await flush();
+    expect(root.dataset.engineState).toBe('failed');
+    expect(root.querySelector<HTMLButtonElement>('[data-roll]')!.disabled).toBe(true);
+    click('[data-retry]'); await flush();
+    expect(attempts).toBe(2);
+    window.dispatchEvent(new Event('pagehide'));
+    window.dispatchEvent(new Event('pageshow'));
+    click('[data-roll]'); click('[data-reset-game]');
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(raw);
+    retriedRules.resolve(rules); await flush();
+    click('[data-roll]');
+    expect(root.dataset.rolls).toBe('1');
   });
   it('keeps human rolls made before delayed rules become available', async () => {
     const delayedRules = deferred<RulesEngine>();

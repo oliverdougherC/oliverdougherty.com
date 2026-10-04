@@ -465,13 +465,32 @@ async function assertWarmCache() {
   console.log('Yahtzee: actual warm-cache navigation reuses the complete table with zero transfer.');
 }
 
-async function assertInvalidStorage(browser, baseUrl) {
-  for (const raw of ['{invalid JSON', JSON.stringify({ version: 0, record: { human: 999 }, match: {} })]) {
+async function assertStorageRecovery(browser, baseUrl) {
+  const candidate = twos => ({
+    version: 1, record: { human: 2, keiri: 1, ties: 0 },
+    match: {
+      human: { scores: Array.from({ length: 13 }, (_, i) => i === 1 ? twos : null), yahtzeeBonus: 0 },
+      keiri: { scores: Array.from({ length: 13 }, (_, i) => i === 1 ? twos : null), yahtzeeBonus: 0 },
+      turn: 'human', dice: [2, 3, 4, 5, 6], held: [true, false, false, false, false], rolls: 1
+    }
+  });
+  for (const { raw, pending, valid } of [
+    { raw: '{invalid JSON' },
+    { raw: JSON.stringify({ version: 0, record: { human: 999 }, match: {} }) },
+    { raw: JSON.stringify(candidate(3)), pending: true, valid: false },
+    { raw: JSON.stringify(candidate(4)), pending: true, valid: true }
+  ]) {
     const page = await createPage(browser);
     let releaseRules;
+    let releaseTable;
     const rulesGate = new Promise(resolve => { releaseRules = resolve; });
+    const tableGate = new Promise(resolve => { releaseTable = resolve; });
     await page.route(RULES_WASM_URL, async route => {
       await rulesGate;
+      await route.continue();
+    });
+    await page.route(TABLE_URL, async route => {
+      await tableGate;
       await route.continue();
     });
     try {
@@ -479,28 +498,54 @@ async function assertInvalidStorage(browser, baseUrl) {
       const rulesRequested = page.waitForRequest(RULES_WASM_URL);
       await openGame(page, baseUrl);
       await rulesRequested;
-      // Do not use roll(), which waits for score previews and therefore rules.
+      if (pending) {
+        assert.equal(await page.locator(`${APP} [data-status]`).textContent(), 'Checking saved game…');
+        assert.equal(await page.locator(`${APP} [data-keiri-score="1"]`).textContent(), '—', 'Unvalidated scores must not appear as restored gameplay');
+        for (const selector of ['[data-roll]', '[data-die="0"]', '[data-score="0"]', '[data-reset-game]', '[data-reset]', '[data-again]']) {
+          assert.equal(await page.locator(`${APP} ${selector}`).isDisabled(), true);
+          await page.locator(`${APP} ${selector}`).evaluate(button => button.click());
+        }
+        await navigate(page, 'stress-test');
+        await navigate(page, 'yahtzee-keiri');
+        assert.equal(await page.locator(`${APP} [data-roll]`).isDisabled(), true);
+        assert.deepEqual(await saved(page), JSON.parse(raw), 'Pending restoration must not overwrite storage');
+        releaseRules();
+        await page.waitForFunction(selector => !document.querySelector(`${selector} [data-roll]`).disabled, APP);
+        const restored = await saved(page);
+        if (valid) assert.deepEqual(restored, JSON.parse(raw), 'Rust-valid saves resume exactly');
+        else {
+          assert.deepEqual(restored.record, { human: 0, keiri: 0, ties: 0 });
+          assert.deepEqual(restored.match.human.scores, Array(13).fill(null));
+          assert.deepEqual(restored.match.keiri.scores, Array(13).fill(null));
+          assert.equal(restored.match.rolls, 0);
+          assert.match(await page.locator(`${APP} [data-status]`).textContent(), /Saved game could not be restored/);
+        }
+      }
+      // Fresh games can play before rules; restored games wait only for rules.
       await page.locator(`${APP} [data-roll]`).click();
       await page.locator(`${APP} [data-die="1"]`).click();
-      await page.locator(`${APP} [data-roll]`).click();
+      if (!valid) await page.locator(`${APP} [data-roll]`).click();
       const before = await saved(page);
       assert.equal(before.version, 1);
-      assert.deepEqual(before.record, { human: 0, keiri: 0, ties: 0 });
+      assert.deepEqual(before.record, valid ? candidate(4).record : { human: 0, keiri: 0, ties: 0 });
       assert.equal(before.match.turn, 'human');
       assert.equal(before.match.rolls, 2);
       assert.equal(before.match.held[1], true);
-      assert.equal(await page.locator(`${APP} [data-score]:enabled`).count(), 0, 'Rules are still blocked during fresh-game play');
-
+      assert.notEqual(await page.locator(APP).getAttribute('data-engine-state'), 'ready', 'Exact table remains blocked during human play');
+      if (!pending) assert.equal(await page.locator(`${APP} [data-score]:enabled`).count(), 0, 'Rules are still blocked during fresh-game play');
       releaseRules();
-      await waitForEngine(page);
       await page.locator(`${APP} [data-score]:enabled`).first().waitFor();
-      assert.deepEqual(await saved(page), before, 'Late rules validation must preserve rolls/holds after invalid-storage recovery');
+      assert.deepEqual(await saved(page), before, 'Rules validation must preserve legal rolls/holds');
+      releaseTable();
+      await waitForEngine(page);
+      assert.deepEqual(await saved(page), before, 'Table completion must preserve early human progress');
     } finally {
       releaseRules();
+      releaseTable();
       await page.close();
     }
   }
-  console.log('Yahtzee: malformed/obsolete storage recovery preserves early rolls and holds through delayed rules loading.');
+  console.log('Yahtzee: delayed rules preserve fresh play, reject Rust-invalid saves, and resume valid saves without waiting for the exact table.');
 }
 
 async function runYahtzeeChecks(browser, baseUrl) {
@@ -509,7 +554,7 @@ async function runYahtzeeChecks(browser, baseUrl) {
   await assertByteProgress(browser, baseUrl);
   await assertMatchAndPersistence(browser, baseUrl);
   await assertViewports(browser, baseUrl);
-  await assertInvalidStorage(browser, baseUrl);
+  await assertStorageRecovery(browser, baseUrl);
   if (browser.browserType().name() === 'chromium') await assertWarmCache();
   console.log(`Yahtzee browser check passed: ${browser.browserType().name()}.`);
 }
