@@ -27,7 +27,7 @@ UTILITIES_BROWSER=chromium node scripts/index-arrow-check.js
 INDEX_ARROW_BROWSER_EXECUTABLE=/usr/bin/chromium node scripts/index-arrow-check.js
 ```
 
-The representative cases cover all three tools, permanently blocked fonts,
+The representative cases cover all four current tools, permanently blocked fonts,
 delayed Inter followed by a real swap after first paint, DPR 1/2, normal and
 representative hover/focus. Click, Enter, Space, switcher, history Back/Forward,
 footer restoration, accessible name and decorative SVG semantics are checked.
@@ -77,12 +77,22 @@ This reproduces the assertion's pre-existing timing sensitivity independently
 of the arrow. It is a bounded playback probe, not an exact replay of the CI
 runner clock. The old CI assertion did not record terminal playback state.
 
-The browser-check helper now transfers the same raw RGBA bytes as base64 and
-decodes a Buffer, avoiding millions of serialized JSON numbers. Frozen-canvas
-comparisons match all 2,995,608 bytes on each revision. Fourier production code,
-playback assertions, and the 300-second limit are unchanged.
+A lossless base64/Buffer transfer measured during this investigation matched
+all 2,995,608 frozen-canvas bytes on each revision. While this pass was running,
+main advanced to `6708df0`, incorporating PR #95's Fourier fixes and deterministic
+waveform checks plus PR #93's Yahtzee utility. The branch merges that main and
+keeps its browser checks unchanged; the experimental transfer is no longer part
+of the final diff. The old comparison remains evidence for the reviewed failure,
+not a claim that current main still uses the old check. No Fourier runtime
+changes, retries, assertion changes or timeout increases are introduced by this
+PR. The focused arrow cases now include the newly exposed fourth tool.
 
 ## Validation
+
+The following local measurements preceded the final main merge. Final-head
+source/build/browser checks and required CI results are recorded in the PR
+description.
+
 
 Source quality, utilities typecheck/tests (505 passed, 5 existing skips),
 utilities build and deployment build pass locally. System Chromium
@@ -92,4 +102,4 @@ check passes in 151.3s, including Fourier, worker recovery and reduced motion;
 its embedded arrow check takes 8.5s in that local run. Local packaged checks use system
 Chromium and local font responses through an untracked preload because pinned
 browser downloads and live Google Fonts are blocked in this environment.
-Required CI results for the final head are linked in the PR description.
+
