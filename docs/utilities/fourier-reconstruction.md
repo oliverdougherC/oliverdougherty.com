@@ -104,6 +104,8 @@ The `AudioFourierController` uses the Web Audio API for live playback:
 - A master gain node applies the makeup gain.
 - Playback starts with a 35ms delay and 100ms fade-in to avoid clicks.
 - The visual playhead is synced to the audio clock with reconciliation every 80ms.
+- The bottom analysis track transitions into an audio timeline after generation, with elapsed and total time. Clicking seeks immediately; dragging previews the waveform and resumes on release if playback was running. Paused seeking stays paused. Arrow keys seek five seconds, Page Up/Down seek 10% of the song, and Home/End select the endpoints.
+- The timeline retains its layout during the handover, fades in its playhead, and respects reduced motion. Analysis exposes a progressbar; playback exposes a labeled native range control.
 
 ## Presets
 
