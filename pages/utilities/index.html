@@ -154,7 +154,13 @@
                   </div>
                   <div class="instrument-bar"><div class="canvas-overlay-controls"><button type="button" class="btn-secondary-minimal" id="audioFourierPlayBtn" disabled="" aria-label="Play">Play</button></div><dl class="instrument-stats"><div><dt>Sample rate</dt><dd id="audioFourierSampleRate">—</dd></div><div><dt>Components</dt><dd id="audioFourierComponentCount">—</dd></div><div><dt>Duration</dt><dd id="audioFourierSourceDuration">—</dd></div><div><dt>Compute</dt><dd id="audioFourierDuration">—</dd></div></dl></div>
                 </article>
-                <div class="utility-progress-minimal workbench-status" aria-live="polite"><div class="utility-progress-copy-minimal"><p id="audioFourierProgressText">Ready.</p><span id="audioFourierProgressMeta">Balanced / 22050 Hz</span></div><div class="utility-progress-bar-minimal" role="progressbar" aria-label="Fourier analysis progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="audioFourierProgressBar"><span id="audioFourierProgressFill"></span></div></div>
+                <div class="utility-progress-minimal workbench-status">
+                  <div class="utility-progress-copy-minimal"><p id="audioFourierProgressText" aria-live="polite">Ready.</p><span id="audioFourierProgressMeta">Balanced / 22050 Hz</span></div>
+                  <div id="audioFourierTimeline" class="audio-timeline" data-mode="analysis">
+                    <div class="utility-progress-bar-minimal" role="progressbar" aria-label="Fourier analysis progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="audioFourierProgressBar"><span id="audioFourierProgressFill"></span></div>
+                    <input id="audioFourierSeek" class="audio-playback-slider" type="range" min="0" max="1" step="any" value="0" aria-label="Audio playback position" aria-hidden="true" disabled>
+                  </div>
+                </div>
                 <div class="support-panels audio-support-panels" hidden=""><canvas id="audioFourierSpectrumCanvas" width="640" height="260"></canvas><canvas id="audioFourierComponentCanvas" width="640" height="260"></canvas></div>
               </div>
             </div>
