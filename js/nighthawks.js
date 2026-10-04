@@ -9,12 +9,13 @@
 
   const source = characters.textContent;
   const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
-  const staged = document.documentElement.classList.contains('home-stage');
+  const staged = document.documentElement.matches('.home-stage, .home-stage-collapsed');
   const readyDeadline = Number(document.documentElement.dataset.homeArtDeadline || 0);
   let frame = 0;
   let deadline = 0;
   // The inline bootstrap owns the black-start window, before this file downloads.
-  artwork.dataset.reveal = staged && !motion.matches && !document.hidden && window.scrollY <= 24
+  // Playback belongs to this page visit, independent of scrolling or stage sizing.
+  artwork.dataset.reveal = staged && !motion.matches
     && performance.now() < readyDeadline
     ? 'waiting' : 'complete';
 
@@ -26,31 +27,13 @@
     characters.style.removeProperty('filter');
     characters.textContent = source;
     artwork.dataset.reveal = 'complete';
-    window.removeEventListener('scroll', interruptOnScroll);
     window.removeEventListener('pagehide', finishReveal);
-    document.removeEventListener('visibilitychange', interruptWhenHidden);
-    motion.removeEventListener('change', interruptForMotion);
-  }
-
-  function interruptOnScroll() {
-    if (window.scrollY > 24) finishReveal();
-  }
-
-  function interruptWhenHidden() {
-    if (document.hidden) finishReveal();
-  }
-
-  function interruptForMotion() {
-    if (motion.matches) finishReveal();
   }
 
   if (artwork.dataset.reveal === 'waiting') {
     // Never hold the black stage indefinitely for a font or image request.
     deadline = setTimeout(finishReveal, Math.max(0, readyDeadline - performance.now()));
-    window.addEventListener('scroll', interruptOnScroll, { passive: true });
     window.addEventListener('pagehide', finishReveal);
-    document.addEventListener('visibilitychange', interruptWhenHidden);
-    motion.addEventListener('change', interruptForMotion);
   } else {
     delete document.documentElement.dataset.homeArtDeadline;
   }
