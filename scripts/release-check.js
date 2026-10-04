@@ -71,8 +71,10 @@ function createCheckPlan({ browsers = BROWSERS, group } = {}) {
   assert.equal(new Set(browsers).size, browsers.length, 'Duplicate release browsers');
   assert(group === undefined || GROUPS.includes(group), `Unknown release group: ${group}`);
   const checks = [{ name: 'cache-releases', file: 'cache-release-check.js', group: 'cache', env: {} }];
+  const gameChecks = [];
   for (const browser of browsers) {
     const env = { BROWSER: browser, HOME_CHECK_BROWSERS: browser, UTILITIES_BROWSER: browser };
+    gameChecks.push({ name: `${browser}-yahtzee`, file: 'yahtzee-check.js', group: 'utilities', env });
     const add = (name, file, checkGroup, extra = {}) => checks.push({ name: `${browser}-${name}`, file, group: checkGroup, env: { ...env, ...extra } });
     for (const [name, file] of [['nav', 'nav-overlay-check.js'], ['nav-stability', 'navigation-stability-check.js'], ['optional-startup', 'optional-startup-check.js'], ['blackout-storage', 'blackout-storage-check.js']]) add(name, file, 'navigation');
     for (const [name, file] of [['gallery-release', 'gallery-release-check.js'], ['gallery-heading', 'gallery-heading-check.js'], ['gallery-inspector', 'gallery-inspector-check.js'], ['gallery-prefetch', 'gallery-prefetch-check.js'], ['gallery-transitions', 'gallery-transition-check.js'], ['gallery-status', 'gallery-status-check.js']]) add(name, file, 'gallery');
@@ -84,12 +86,17 @@ function createCheckPlan({ browsers = BROWSERS, group } = {}) {
       add('mobile', 'mobile-site-check.js', 'navigation');
       for (const [name, file] of [['home', 'home-check.js'], ['resume-lifecycle', 'resume-lifecycle-check.js']]) add(name, file, 'home');
       for (const [name, file] of [['gallery', 'gallery-dropdown-check.js'], ['gallery-data', 'gallery-data-loading-check.js']]) add(name, file, 'gallery');
-      for (const [name, file] of [['utilities', 'utilities-check.js'], ['transform-preparation', 'transform-preparation-check.js'], ['stress', 'stress-test-check.js']]) add(name, file, 'utilities');
+      for (const [name, file] of [['utilities', 'utilities-check.js'], ['transform-preparation', 'transform-preparation-check.js'], ['stress', 'stress-test-check.js']]) {
+        add(name, file, 'utilities', name === 'utilities' ? { UTILITIES_SKIP_YAHTZEE: '1' } : {});
+      }
     } else {
       add('stress-pool', 'stress-test-check.js', 'utilities', { STRESS_BROWSER_TYPE: browser, STRESS_POOL_ONLY: '1' });
     }
   }
-  return group ? checks.filter(check => check.group === group) : checks;
+  // Each game suite gets its own bounded process; run it before the longer
+  // legacy workloads rather than extending their existing five-minute guard.
+  const plan = [...gameChecks, ...checks];
+  return group ? plan.filter(check => check.group === group) : plan;
 }
 
 async function executeChecks(checks, env, { failFast = false, runCheck = run, onResult = () => {} } = {}) {

@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 const { createCheckPlan, executeChecks, GROUPS } = createRequire(import.meta.url)('../../scripts/release-check.js');
 
-it('preserves every existing release check exactly once and adds the separate reveal and inspector checks', () => {
+it('preserves existing release checks and includes cross-browser game coverage', () => {
   const plan = createCheckPlan();
   const legacy = ['cache-releases'];
   for (const browser of ['chromium', 'firefox', 'webkit']) {
@@ -15,9 +15,10 @@ it('preserves every existing release check exactly once and adds the separate re
   expect(legacy).toHaveLength(44);
   expect(plan.map((check: { name: string }) => check.name).sort()).toEqual([
     ...legacy, 'chromium-home-reveal', 'firefox-home-reveal', 'webkit-home-reveal',
-    'chromium-gallery-inspector', 'firefox-gallery-inspector', 'webkit-gallery-inspector'
+    'chromium-gallery-inspector', 'firefox-gallery-inspector', 'webkit-gallery-inspector',
+    'chromium-yahtzee', 'firefox-yahtzee', 'webkit-yahtzee'
   ].sort());
-  expect(new Set(plan.map((check: { name: string }) => check.name)).size).toBe(50);
+  expect(new Set(plan.map((check: { name: string }) => check.name)).size).toBe(53);
 });
 
 it('partitions exhaustive coverage into disjoint, nonempty groups', () => {
@@ -54,4 +55,16 @@ it.each([true, false])('writes each result and honors failFast=%s', async failFa
   const results = await executeChecks(checks, {}, { failFast, runCheck, onResult });
   expect(results.map((result: { name: string }) => result.name)).toEqual(failFast ? ['good', 'bad'] : ['good', 'bad', 'later']);
   expect(onResult).toHaveBeenCalledTimes(results.length);
+});
+
+
+it.each(['chromium', 'firefox', 'webkit'])('runs the real Yahtzee suite in the %s utilities lane', browser => {
+  const plan = createCheckPlan({ browsers: [browser], group: 'utilities' });
+  const games = plan.filter((check: { file: string }) => check.file === 'yahtzee-check.js');
+  expect(games).toHaveLength(1);
+  expect(games[0]).toMatchObject({ name: `${browser}-yahtzee`, group: 'utilities', env: { UTILITIES_BROWSER: browser } });
+  const legacy = plan.find((check: { file: string }) => check.file === 'utilities-check.js');
+  if (browser === 'chromium') expect(legacy.env.UTILITIES_SKIP_YAHTZEE).toBe('1');
+  else expect(legacy).toBeUndefined();
+  expect(plan[0]).toBe(games[0]);
 });
