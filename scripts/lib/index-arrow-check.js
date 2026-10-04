@@ -155,7 +155,7 @@ async function assertIndexArrow(browser, baseUrl, browserName) {
     browser: browserName, version: browser.version(), platform: process.platform,
     zoomCoverage: 'Effective CSS viewport = 1440x900 / 100,125,150,200%; native browser zoom and its rasterization are not automated',
     platformCoverage: 'Host fallback fonts; cross-platform system fonts require separate runs',
-    fontCoverage: 'Real Inter 500 fixture via intercepted Google Fonts requests',
+    fontCoverage: 'Real Inter 500 fixture via intercepted Google Fonts requests; test explicitly activates the deferred stylesheet',
     results: [], errors: [], status: 'fail'
   };
   try {
@@ -163,14 +163,15 @@ async function assertIndexArrow(browser, baseUrl, browserName) {
       const context = await browser.newContext({ viewport: WINDOW, deviceScaleFactor: dpr, reducedMotion: 'reduce' });
       let releaseFont;
       const released = new Promise(resolve => { releaseFont = resolve; });
-      let fontRequested = false;
+      let requestFont;
+      const fontRequested = new Promise(resolve => { requestFont = resolve; });
       try {
         await context.route('https://fonts.googleapis.com/**', route => mode === 'blocked' ? route.abort() : route.fulfill({
           contentType: 'text/css',
           body: '@font-face { font-family: Inter; font-weight: 500; font-display: swap; src: url(https://fonts.gstatic.com/index-arrow-inter.woff2) format("woff2"); }'
         }));
         await context.route('https://fonts.gstatic.com/**', async route => {
-          fontRequested = true;
+          requestFont();
           await released;
           await route.fulfill({ contentType: 'font/woff2', body: FONT, headers: { 'access-control-allow-origin': '*' } });
         });
@@ -178,14 +179,23 @@ async function assertIndexArrow(browser, baseUrl, browserName) {
         page.on('pageerror', error => report.errors.push(error.message));
         await page.goto(`${baseUrl}/pages/utilities/?full=1#image-transform`, { waitUntil: 'domcontentloaded' });
         await activeTool(page, TOOLS[0]);
-        assert.equal(await page.evaluate(() => [...document.fonts].some(font => font.family === 'Inter' && font.status === 'loaded')), false);
+        assert.equal(await page.evaluate(() => [...document.fonts].some(font => font.family.replace(/["']/g, '') === 'Inter' && font.status === 'loaded')), false);
         if (mode === 'swap') {
-          await page.waitForFunction(() => document.fonts.status === 'loading');
+          // The site's font CSS starts as media=print. Activate the fixture
+          // explicitly: WebKit need not download a nonmatching stylesheet.
+          await page.locator('link[href^="https://fonts.googleapis.com/"]').evaluate(link => { link.media = 'all'; });
+          await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('Inter fixture was not requested within 5s')), 5000);
+            fontRequested.then(() => { clearTimeout(timer); resolve(); });
+          });
+          assert.equal(await page.evaluate(() => [...document.fonts].some(font => font.family.replace(/["']/g, '') === 'Inter' && font.status === 'loaded')), false);
           report.results.push(await measureArrow(page, { output, name: 'delayed-dpr2-100-image-transform', dpr }));
-          assert(fontRequested, 'The delayed font must actually have been requested');
           releaseFont();
-          await page.evaluate(() => document.fonts.ready);
-          assert(await page.evaluate(() => [...document.fonts].some(font => font.family === 'Inter' && font.status === 'loaded')), 'Inter must load after the fallback first paint');
+          await page.evaluate(async () => {
+            await document.fonts.load('500 12px "Inter"');
+            await document.fonts.ready;
+          });
+          assert(await page.evaluate(() => [...document.fonts].some(font => font.family.replace(/["']/g, '') === 'Inter' && font.status === 'loaded')), 'Inter must load after the fallback first paint');
         }
         for (const [layoutZoom, tool] of CASES) {
           // Model native zoom's layout input, not CSS scaling. Resizing changes
