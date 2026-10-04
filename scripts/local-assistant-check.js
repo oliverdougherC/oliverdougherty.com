@@ -25,13 +25,13 @@ async function phase(page, expected, timeout = 20000) {
     await page.waitForFunction(({ app, expected }) => document.querySelector(app)?.dataset.phase === expected,
       { app: APP, expected }, { timeout });
   } catch (error) {
-    const actual = await page.locator(APP).getAttribute('data-phase').catch(() => 'missing');
-    const status = await element(page, 'load-status').textContent().catch(() => 'missing');
-    throw new Error(`Expected assistant phase ${expected}; got ${actual}: ${status}`, { cause: error });
+    const actual = await page.evaluate(app => ({ phase: document.querySelector(app)?.getAttribute('data-phase') ?? 'missing', status: document.querySelector(`${app} [data-load-status]`)?.textContent ?? 'missing' }), APP);
+    throw new Error(`Expected assistant phase ${expected}; got ${actual.phase}: ${actual.status} at ${page.url()}`, { cause: error });
   }
 }
 async function navigate(page, route) {
-  await page.evaluate(hash => { location.hash = hash; }, route);
+  await page.selectOption('#utilitySwitcher', route);
+  await page.waitForURL(current => current.hash === `#${route}`);
   if (route === 'local-assistant') await page.locator(APP).waitFor({ state: 'visible' });
   else await page.locator(APP).waitFor({ state: 'hidden' });
 }
@@ -92,7 +92,7 @@ async function assertDownloadFailure(browser, baseUrl) {
 }
 
 // The fixture intentionally delivers callbacks after abort to check stale work.
-// It provides no observations: browser fixture numbers are not GPU measurements.
+// Layout observations below are explicitly synthetic test data, never GPU measurements.
 const RUNTIME_FIXTURE = `
 const fixture = globalThis.__localAssistantFixture = { loads: 0, disposals: 0, resets: 0, pending: [], generations: [] };
 export function createAssistantRuntime() {
@@ -108,8 +108,8 @@ export function createAssistantRuntime() {
       });
     },
     generate(messages, thinking, signal, update) {
-      return new Promise(resolve => {
-        fixture.generations.push({ update, finish: resolve });
+      return new Promise((resolve, reject) => {
+        fixture.generations.push({ update, finish: resolve, fail: reject });
         signal.addEventListener('abort', () => { update('STALE ANSWER', '', {}); resolve(); }, { once: true });
         update('Fixture response pending.', thinking ? 'Fixture reasoning.' : '', {});
       });
@@ -162,7 +162,7 @@ async function assertFixtureLifecycle(browser, baseUrl) {
   try {
     await page.goto(url(baseUrl), { waitUntil: 'domcontentloaded' });
     await phase(page, 'loading');
-    assert.match(await element(page, 'percent').innerText(), /25%/);
+    assert.equal(await element(page, 'progress').evaluate(node => node.value / node.max), 0.25);
     await element(page, 'play').click();
     assert.equal(await page.evaluate(() => document.activeElement?.hasAttribute('data-canvas')), true);
     assert.equal(await element(page, 'canvas').evaluate(canvas => !canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }))), true, 'Focused Snake consumes game key');
@@ -229,10 +229,17 @@ async function assertFixtureViewports(browser, baseUrl) {
     await phase(page, 'generating');
     await page.evaluate(() => {
       const generation = globalThis.__localAssistantFixture.generations.at(-1);
-      generation.update('## Fixture answer\n\n**Bold** and $x^2$ with safe output.\n\n```js\nconst sample = "<script>alert(1)</script>";\n```\n\n' + 'Long transcript content. '.repeat(300), 'Fixture reasoning.', {});
+      generation.update('## Fixture answer\n\n**Bold** and $x^2$ with safe output.\n\n```js\nconst sample = "<script>alert(1)</script>";\n```\n\n' + 'Long transcript content. '.repeat(300), 'Fixture reasoning.', {
+        promptTokens: Array.from({ length: 8 }, (_, id) => ({ id, piece: `input${id}` })),
+        token: { id: 42, piece: 'fixture' }, generated: 1024, contextUsed: 65536, tokensPerSecond: 999.9, promptMs: 1234.5,
+        candidates: [{ id: 42, piece: 'fixture', probability: 0.6 }, { id: 43, piece: 'layout', probability: 0.3 }, { id: 44, piece: 'test', probability: 0.1 }],
+        layers: Array.from({ length: 24 }, (_, layer) => ({ layer, rms: 0.75 }))
+      });
       generation.finish();
     });
     await phase(page, 'ready');
+    await page.locator(`${APP} [data-tokens] button`).click();
+    await page.locator(`${APP} [data-inspect-layer="23"]`).click();
     assert.equal(await page.locator(`${APP} [data-transcript] math`).count(), 1, 'Math renders');
     assert.equal(await page.locator(`${APP} [data-transcript] script`).count(), 0, 'Model source cannot create scripts');
     for (const [width, height] of [[1440, 900], [1280, 720], [1024, 600], [800, 600]]) {
@@ -250,6 +257,21 @@ async function assertFixtureViewports(browser, baseUrl) {
     await element(page, 'latest').waitFor({ state: 'visible' });
     await element(page, 'latest').click();
     await page.waitForFunction(() => { const node = document.querySelector('[data-transcript]'); return node.scrollHeight - node.scrollTop - node.clientHeight < 48; });
+    await element(page, 'input').fill('Exercise visible error recovery');
+    await element(page, 'send').click();
+    await phase(page, 'generating');
+    await page.evaluate(() => globalThis.__localAssistantFixture.generations.at(-1).fail(new Error('This is a deliberately long test error. Start a new chat or reload the model to continue.')));
+    await phase(page, 'error');
+    await page.waitForFunction(() => { const node = document.querySelector('[data-transcript]'); return node.scrollHeight - node.scrollTop - node.clientHeight < 48; });
+    await element(page, 'transcript').evaluate(node => { node.scrollTop = 0; });
+    await element(page, 'latest').waitFor({ state: 'visible' });
+    assert.equal(await page.locator(APP).evaluate(root => {
+      const transcript = root.querySelector('[data-transcript]').getBoundingClientRect();
+      const latest = root.querySelector('[data-latest]').getBoundingClientRect();
+      const error = root.querySelector('[data-chat-error]').getBoundingClientRect();
+      return latest.bottom <= transcript.bottom && latest.bottom <= error.top;
+    }), true, 'Latest stays inside the transcript and cannot cover error recovery');
+    await assertFits(page, 'Error recovery 800x600');
     noErrors(page);
   } finally { await page.close(); }
 }
