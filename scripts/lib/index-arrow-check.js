@@ -72,9 +72,14 @@ async function measureArrow(page, { output, name, dpr, state = 'normal', capture
   assert.equal(Number(geometry.cssZoom), 1, 'Do not substitute CSS zoom for browser viewport changes');
   assert.equal(geometry.compact, geometry.viewport.height <= 650);
   assert(Math.abs(geometry.toolbar.height - (geometry.compact ? 46 : 54)) < 0.1, 'Keep the existing responsive toolbar height');
-  assert.deepEqual(geometry.targetStyle, {
-    fontSize: '12px', lineHeight: '16.8px', paddingTop: '7px', paddingBottom: '7px', borderTop: '0px', borderBottom: '0px'
-  }, 'Keep the existing Index font and click-target padding');
+  for (const [property, expected] of Object.entries({
+    fontSize: 12, lineHeight: 16.8, paddingTop: 7, paddingBottom: 7, borderTop: 0, borderBottom: 0
+  })) {
+    const actual = geometry.targetStyle[property];
+    // WebKit serializes 12 * 1.4 as 16.799999px; compare numeric CSS pixels.
+    assert(actual.endsWith('px') && Math.abs(Number.parseFloat(actual) - expected) < 0.0001,
+      `Keep the existing Index ${property}: ${actual}, expected ${expected}px`);
+  }
   // WebKit can quantize the rendered text line box differently. The native
   // target must still contain that label plus the unchanged 7px padding edges.
   assert(Math.abs(geometry.button.height - geometry.label.height - 14) < 0.1,
