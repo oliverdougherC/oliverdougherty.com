@@ -133,22 +133,6 @@ async function waitForAudioStatusMatch(page, pattern, timeout = 15000, label = p
   }
 }
 
-async function waitForAudioProgressFill(page, minimumPercent, timeout = 15000, label = `${minimumPercent}%`) {
-  try {
-    await page.waitForFunction((threshold) => {
-      const fill = document.getElementById('audioFourierProgressFill');
-      if (!fill) return false;
-      const width = Number.parseFloat(fill.style.width || '0');
-      return width >= threshold;
-    }, minimumPercent, { timeout });
-  } catch (error) {
-    const currentWidth = await page
-      .evaluate(() => document.getElementById('audioFourierProgressFill')?.style.width ?? '')
-      .catch(() => '');
-    throw new Error(`audio progress wait failed (${label}) after ${timeout}ms; current width: ${currentWidth || 'n/a'}`);
-  }
-}
-
 async function ensureAudioFourierPlayback(page, label = 'Audio Fourier playback') {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await page.waitForTimeout(160);
@@ -161,6 +145,110 @@ async function ensureAudioFourierPlayback(page, label = 'Audio Fourier playback'
   }
 
   await waitForAudioStatusMatch(page, 'Playing selected Fourier energy mix', 5000, label);
+}
+
+async function assertAudioPlaybackTimeline(page) {
+  await page.evaluate(() => {
+    const start = AudioBufferSourceNode.prototype.start;
+    window.__audioTimelineTest = { offsets: [], restore: () => {
+      AudioBufferSourceNode.prototype.start = start;
+      delete window.__audioTimelineTest;
+    } };
+    AudioBufferSourceNode.prototype.start = function (...args) {
+      window.__audioTimelineTest.offsets.push(args[1] ?? 0);
+      return start.apply(this, args);
+    };
+  });
+  const read = () => page.evaluate(() => {
+    const slider = document.getElementById('audioFourierSeek');
+    return {
+      value: Number(slider.value), duration: Number(slider.max), disabled: slider.disabled,
+      state: document.getElementById('audioFourierApp').dataset.audioState,
+      mode: document.getElementById('audioFourierTimeline').dataset.mode,
+      fill: Number.parseFloat(document.getElementById('audioFourierProgressFill').style.width),
+      offsets: window.__audioTimelineTest.offsets.slice(),
+      bands: Number(document.getElementById('audioFourierApp').dataset.audioBandCount),
+      text: slider.getAttribute('aria-valuetext'),
+      progressRole: document.getElementById('audioFourierProgressBar').getAttribute('role')
+    };
+  });
+  const box = await page.locator('#audioFourierSeek').boundingBox();
+  assert(box && box.height >= 24, 'Audio timeline should have a usable pointer target.');
+  const x = fraction => box.x + 6 + (box.width - 12) * fraction;
+  const y = box.y + box.height / 2;
+  const readWavePreview = () => page.evaluate(() => {
+    const preview = document.createElement('canvas');
+    preview.width = preview.height = 32;
+    preview.getContext('2d').drawImage(document.getElementById('audioFourierWaveCanvas'), 0, 0, 32, 32);
+    return preview.toDataURL();
+  });
+  try {
+    const initial = await read();
+    assert(initial.mode === 'playback' && !initial.disabled && initial.progressRole === null, 'Analysis should hand over to an accessible playback slider.');
+    assert(initial.fill < 10 && initial.text.includes(' / '), 'Playback should rewind the analysis fill and show elapsed / total time.');
+    await page.waitForFunction(value => Number(document.getElementById('audioFourierSeek').value) > value + 0.2, initial.value);
+    const advancing = await read();
+    assert(Math.abs(advancing.fill - advancing.value / advancing.duration * 100) < 0.01, 'The playback fill should follow the audio position.');
+
+    await page.mouse.click(x(0.6), y);
+    await page.waitForFunction(() => document.getElementById('audioFourierApp').dataset.audioState === 'animating');
+    const clicked = await read();
+    assert(Math.abs(clicked.value / clicked.duration - 0.6) < 0.01, 'Clicking the timeline should jump to that part of the song.');
+    assert(clicked.offsets.length === clicked.bands && clicked.offsets.every(offset => Math.abs(offset / clicked.duration - 0.6) < 0.01), 'Every audio band should restart at the clicked position.');
+
+    await page.mouse.move(x(0.8), y);
+    await page.mouse.down();
+    const forward = await readWavePreview();
+    await page.mouse.move(x(0.2), y, { steps: 8 });
+    const dragging = await read();
+    const backward = await readWavePreview();
+    assert(dragging.state === 'ready' && Math.abs(dragging.value / dragging.duration - 0.2) < 0.01, 'Dragging should preview the requested position without advancing underneath the pointer.');
+    assert(dragging.offsets.length === clicked.offsets.length, 'Dragging should not repeatedly start audio sources.');
+    assert(forward !== backward, 'Dragging should move the waveform viewport along with the timeline.');
+    await page.mouse.up();
+    await page.waitForFunction(() => document.getElementById('audioFourierApp').dataset.audioState === 'animating');
+    const released = await read();
+    assert(released.offsets.length === clicked.offsets.length + released.bands && Math.abs(released.offsets.at(-1) / released.duration - 0.2) < 0.01, 'Releasing a playing scrub should resume all bands from the selected position.');
+
+    await page.click('#audioFourierPlayBtn');
+    await page.mouse.click(x(0.4), y);
+    const paused = await read();
+    await page.waitForTimeout(250);
+    const settled = await read();
+    assert(paused.state === 'ready' && settled.value === paused.value && settled.offsets.length === released.offsets.length, 'Seeking while paused should keep the chosen position and remain paused.');
+    await page.locator('#audioFourierSeek').press('ArrowRight');
+    const keyboard = await read();
+    assert(Math.abs(keyboard.value - paused.value - 5) < 0.01 && keyboard.state === 'ready', 'Arrow keys should seek five seconds while preserving pause.');
+    await page.mouse.click(x(1), y);
+    const pointerEnd = await read();
+    assert(pointerEnd.state === 'complete' && pointerEnd.fill === 100, 'Clicking the endpoint should select Replay even for fractional song durations.');
+    await page.locator('#audioFourierSeek').press('ArrowLeft');
+    await page.locator('#audioFourierSeek').press('End');
+    const end = await read();
+    assert(end.state === 'complete' && Math.abs(end.value - end.duration) < 0.01 && end.fill === 100, `End should select the end of the song and expose Replay (${JSON.stringify(end)}).`);
+    await page.locator('#audioFourierSeek').press('ArrowLeft');
+    assert((await read()).state === 'ready', 'Seeking backward from completion should restore Play.');
+    await page.locator('#audioFourierSeek').press('Home');
+    assert((await read()).value === 0, 'Home should seek to the beginning.');
+
+    // Let the actual audio clock end playback, rather than only testing a seek to End.
+    await page.evaluate(() => {
+      const slider = document.getElementById('audioFourierSeek');
+      slider.value = String(Number(slider.max) - 0.25);
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+      slider.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.click('#audioFourierPlayBtn');
+    await page.waitForFunction(() => document.getElementById('audioFourierApp').dataset.audioState === 'complete');
+    const complete = await read();
+    assert(Math.abs(complete.value - complete.duration) < 0.01 && complete.fill === 100, 'Natural completion should settle the playhead and fill at the end.');
+    await page.click('#audioFourierPlayBtn');
+    await page.waitForFunction(() => document.getElementById('audioFourierApp').dataset.audioState === 'animating');
+    assert((await read()).offsets.at(-1) === 0, 'Replay should start the actual audio from zero.');
+  } finally {
+    await page.mouse.up();
+    await page.evaluate(() => window.__audioTimelineTest?.restore());
+  }
 }
 
 async function assertPendingAudioPlayback(page) {
@@ -215,6 +303,20 @@ async function assertPendingAudioPlayback(page) {
     assert(started.bands > 0 && started.sources === started.bands, 'Two pending Play clicks should create only one set of audio sources.');
     await page.click('#audioFourierPlayBtn');
     await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'pending playback test pauses');
+    const beforeSeek = await page.locator('#audioFourierSeek').inputValue();
+    await page.click('#audioFourierPlayBtn');
+    await page.waitForFunction(() => window.__pendingAudioTest.resolvers.length === 1);
+    await page.locator('#audioFourierSeek').press('ArrowRight');
+    await page.evaluate(async () => {
+      window.__pendingAudioTest.resolvers.splice(0).forEach(resolve => resolve());
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    });
+    const afterSeek = await page.evaluate(() => ({
+      state: document.getElementById('audioFourierApp').dataset.audioState,
+      value: Number(document.getElementById('audioFourierSeek').value),
+      starts: window.__pendingAudioTest.starts
+    }));
+    assert(afterSeek.state === 'ready' && afterSeek.starts === started.sources && Math.abs(afterSeek.value - Number(beforeSeek) - 5) < 0.01, 'Seeking should invalidate a pending Play attempt and preserve the chosen position.');
   } finally {
     await page.evaluate(() => window.__pendingAudioTest?.restore());
   }
@@ -663,7 +765,7 @@ async function assertControlPanelGeometry(page, utilityId, label) {
         '#audioFourierDropzone', '#audioFourierQuality', '#audioFourierGenerateBtn',
         '#audioFourierResetBtn', '[data-audio-preset]', '#audioFourierComponentSlider',
         '#audioFourierPlayBtn', '#audioFourierStatusChip', '#audioFourierProgressText',
-        '#audioFourierProgressMeta', '#audioFourierSignalStrengthMetric', '#audioFourierSignalCountMetric',
+        '#audioFourierProgressMeta', '#audioFourierTimeline', '#audioFourierSignalStrengthMetric', '#audioFourierSignalCountMetric',
         '#audioFourierSampleRate', '#audioFourierComponentCount', '#audioFourierSourceDuration', '#audioFourierDuration'
       ],
       'stress-test': [
@@ -1073,18 +1175,26 @@ async function readImagePreviews(page) {
   }));
 }
 
-async function readCanvasPixels(page, id) {
-  return page.evaluate((canvasId) => {
+async function readCanvasPixels(page, id, maxDimension = null) {
+  return page.evaluate(({ canvasId, maxDimension }) => {
     const canvas = document.getElementById(canvasId);
     if (!(canvas instanceof HTMLCanvasElement)) {
       throw new Error(`Canvas not found: ${canvasId}`);
     }
-    const context = canvas.getContext('2d');
+    let sample = canvas;
+    if (maxDimension) {
+      sample = document.createElement('canvas');
+      const scale = Math.min(1, maxDimension / Math.max(canvas.width, canvas.height));
+      sample.width = Math.max(1, Math.round(canvas.width * scale));
+      sample.height = Math.max(1, Math.round(canvas.height * scale));
+      sample.getContext('2d').drawImage(canvas, 0, 0, sample.width, sample.height);
+    }
+    const context = sample.getContext('2d');
     if (!context) {
       throw new Error(`Unable to read canvas: ${canvasId}`);
     }
-    return Array.from(context.getImageData(0, 0, canvas.width, canvas.height).data);
-  }, id);
+    return Array.from(context.getImageData(0, 0, sample.width, sample.height).data);
+  }, { canvasId: id, maxDimension });
 }
 
 async function readCanvasActiveBounds(page, id) {
@@ -1885,6 +1995,8 @@ async function main() {
     assert(initialAudioState.generateDisabled === false, 'Audio Fourier generate should be available for the default preset.');
     assert(initialAudioState.playDisabled === true, 'Audio Fourier playback should be disabled before generation.');
     assert(initialAudioState.telemetryPresent === false, 'Audio Fourier should not analyze audio on first paint.');
+    assert(await page.locator('#audioFourierSeek').isDisabled(), 'Audio seeking should be disabled before analysis.');
+    const timelineHeight = await page.locator('#audioFourierTimeline').evaluate(element => element.getBoundingClientRect().height);
     await runUtilitySection(utilitySectionFailures, 'Audio Idle Geometry', async () => {
       await assertControlPanelSizes(page, 'audio-fourier', 'audio:idle');
     });
@@ -1892,6 +2004,8 @@ async function main() {
     await page.selectOption('#audioFourierQuality', 'fast');
     await page.click('[data-audio-preset="best-friends"]');
     await page.click('#audioFourierGenerateBtn');
+    assert(await page.locator('#audioFourierSeek').isDisabled(), 'Audio seeking should be disabled during analysis.');
+    assert(await page.locator('#audioFourierProgressBar').getAttribute('role') === 'progressbar', 'Analysis should expose progressbar semantics.');
     await waitForAudioStatusMatch(page, 'Fourier proxy ready|auditory midpoint|Playing selected|Press Play', 60000, 'built-in song preset ready');
     await ensureAudioFourierPlayback(page, 'built-in song preset playback starts');
 
@@ -1952,14 +2066,20 @@ async function main() {
     await runUtilitySection(utilitySectionFailures, 'Audio Generated Geometry', async () => {
       await assertControlPanelSizes(page, 'audio-fourier', 'audio:generated');
     });
-    const generatedWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
+    assert(await page.locator('#audioFourierTimeline').evaluate(element => element.getBoundingClientRect().height) === timelineHeight, 'Analysis and playback should share a track without shifting the layout.');
+    await assertAudioPlaybackTimeline(page);
+    await page.click('#audioFourierPlayBtn');
+    for (let step = 0; step < 3; step += 1) await page.locator('#audioFourierSeek').press('PageUp');
+    const generatedWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas', 256);
+    const generatedWaveImage = await page.locator('#audioFourierWaveCanvas').evaluate(canvas => canvas.toDataURL());
     await page.fill('#audioFourierComponentSlider', '100');
-    await waitForAudioProgressFill(page, 99, 15000, 'built-in song preset slider max');
-    const fullSignalWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
+    await page.waitForFunction(() => document.getElementById('audioFourierSignalStrengthMetric').textContent === '100%');
+    await page.waitForFunction(before => document.getElementById('audioFourierWaveCanvas').toDataURL() !== before, generatedWaveImage);
+    const fullSignalWaveImage = await page.locator('#audioFourierWaveCanvas').evaluate(canvas => canvas.toDataURL());
     const generatedSpectrumPixels = await readCanvasPixels(page, 'audioFourierSpectrumCanvas');
     const generatedComponentPixels = await readCanvasPixels(page, 'audioFourierComponentCanvas');
     assert(countActiveCanvasPixels(generatedWavePixels) > 100, 'Audio Fourier waveform canvas should be visibly nonblank.');
-    assert(totalAbsoluteDifference(generatedWavePixels, fullSignalWavePixels) > 0, 'Dragging the Audio Fourier slider should visibly change the waveform.');
+    assert(generatedWaveImage !== fullSignalWaveImage, 'Dragging the Audio Fourier slider should visibly change the waveform.');
     assert(countActiveCanvasPixels(generatedSpectrumPixels) === 0, 'Hidden spectrum plot should not render expensive unused output.');
     assert(countActiveCanvasPixels(generatedComponentPixels) === 0, 'Hidden component plot should not render expensive unused output.');
     await assertUtilityIsolationLayout(page, 'audio-preset:desktop');
@@ -1969,12 +2089,12 @@ async function main() {
 
     await page.setViewportSize({ width: 2048, height: 998 });
     await page.waitForTimeout(120);
-    const prePlaybackWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
+    const prePlaybackWaveImage = await page.locator('#audioFourierWaveCanvas').evaluate(canvas => canvas.toDataURL());
     await ensureAudioFourierPlayback(page, 'built-in song preset playback restarts');
     await page.waitForTimeout(1400);
-    const playbackWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
+    const playbackWaveImage = await page.locator('#audioFourierWaveCanvas').evaluate(canvas => canvas.toDataURL());
     const playbackWaveBounds = await readCanvasActiveBounds(page, 'audioFourierWaveCanvas');
-    assert(totalAbsoluteDifference(prePlaybackWavePixels, playbackWavePixels) > 0, 'Audio Fourier viewport should advance during playback.');
+    assert(prePlaybackWaveImage !== playbackWaveImage, 'Audio Fourier viewport should advance during playback.');
     assert(playbackWaveBounds.activePixels > 100, 'Audio Fourier advancing viewport should remain visibly nonblank.');
     assert(
       playbackWaveBounds.horizontalSpread > playbackWaveBounds.width * 0.25,
@@ -1990,7 +2110,7 @@ async function main() {
     assert(/Playing selected Fourier energy mix/.test(sliderDuringPlaybackState.status), 'Audio Fourier slider should not stop playback.');
     assert(/60% signal energy/.test(sliderDuringPlaybackState.readout), 'Audio Fourier readout should update with perceptual slider mapping during playback.');
     assert(sliderDuringPlaybackState.signalStrength === '60%', 'Audio Fourier signal strength metric should update during playback.');
-    const preRapidSliderPixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
+    const preRapidSliderImage = await page.locator('#audioFourierWaveCanvas').evaluate(canvas => canvas.toDataURL());
     await page.evaluate(async () => {
       const slider = document.getElementById('audioFourierComponentSlider');
       if (!(slider instanceof HTMLInputElement)) {
@@ -2003,7 +2123,7 @@ async function main() {
       }
     });
     await page.waitForTimeout(180);
-    const postRapidSliderPixels = await readCanvasPixels(page, 'audioFourierWaveCanvas');
+    const postRapidSliderImage = await page.locator('#audioFourierWaveCanvas').evaluate(canvas => canvas.toDataURL());
     const rapidSliderState = await page.evaluate(() => ({
       audioState: document.getElementById('audioFourierApp')?.dataset.audioState ?? '',
       status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
@@ -2012,7 +2132,7 @@ async function main() {
     assert(rapidSliderState.audioState === 'animating', 'Rapid Audio Fourier slider changes should keep playback animating.');
     assert(/Playing selected Fourier energy mix/.test(rapidSliderState.status), 'Rapid Audio Fourier slider changes should not interrupt playback status.');
     assert(rapidSliderState.signalStrength === '92%', 'Rapid Audio Fourier slider changes should update signal strength after the final value.');
-    assert(totalAbsoluteDifference(preRapidSliderPixels, postRapidSliderPixels) > 0, 'Rapid Audio Fourier slider changes should keep waveform rendering live.');
+    assert(preRapidSliderImage !== postRapidSliderImage, 'Rapid Audio Fourier slider changes should keep waveform rendering live.');
     await page.click('#audioFourierPlayBtn');
     await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'built-in song preset playback pauses');
     await assertPendingAudioPlayback(page);
