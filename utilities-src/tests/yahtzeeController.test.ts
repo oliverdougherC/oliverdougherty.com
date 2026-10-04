@@ -81,6 +81,29 @@ describe('Yahtzee controller lifecycle', () => {
     expect(root.dataset.turn).toBe('human');
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).match.human.scores[0]).toBe(15);
   });
+  it.each([
+    ['malformed JSON', '{invalid JSON'],
+    ['obsolete version', JSON.stringify({ ...freshRivalry(), version: 0 })],
+    ['invalid structure', JSON.stringify({ version: 1, record: { human: 0, keiri: 0, ties: 0 }, match: {} })]
+  ])('preserves fresh-game progress after %s recovery while rules are delayed', async (_label, raw) => {
+    localStorage.setItem(STORAGE_KEY, raw);
+    const delayedRules = deferred<RulesEngine>();
+    const { root, click } = setup({ getRules: () => delayedRules.promise });
+    click('[data-roll]');
+    click('[data-die="1"]');
+    click('[data-roll]');
+    const before = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+    expect(before.match.rolls).toBe(2);
+    expect(before.match.held[1]).toBe(true);
+    expect(root.querySelector<HTMLButtonElement>('[data-score="0"]')!.disabled).toBe(true);
+
+    delayedRules.resolve(rules); await flush();
+
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!)).toEqual(before);
+    expect(root.dataset.rolls).toBe('2');
+    expect(root.querySelector('[data-die="1"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(root.querySelector<HTMLButtonElement>('[data-score="0"]')!.disabled).toBe(false);
+  });
   it('keeps human rolls made before delayed rules become available', async () => {
     const delayedRules = deferred<RulesEngine>();
     const { root, click } = setup({ getRules: () => delayedRules.promise });

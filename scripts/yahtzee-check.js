@@ -12,6 +12,7 @@ const { startLocalStaticServer, waitForServer } = require('./lib/playwright-stat
 
 const ROOT = path.resolve(__dirname, '..');
 const STORAGE_KEY = 'od.yahtzee-keiri.v1';
+const RULES_WASM_URL = /\/keiri-[^/]*\.wasm(?:\?.*)?$/;
 const TABLE_URL = /\/bbg-anchor[^/]*\.bin(?:\?.*)?$/;
 const APP = '#yahtzeeKeiriApp';
 const OUTPUT = path.join(ROOT, 'output', 'yahtzee');
@@ -428,10 +429,10 @@ async function assertViewports(browser, baseUrl) {
   console.log('Yahtzee: all visible child bounds and screenshots passed at four required viewports.');
 }
 
-async function assertWarmCache(browser) {
+async function assertWarmCache() {
   // Resource Timing in Chromium workers distinguishes an actual cached table
   // response from merely retaining an already initialized engine in memory.
-  if (browser.browserType().name() !== 'chromium' || process.env.UTILITIES_CHECK_URL) return;
+  if (process.env.UTILITIES_CHECK_URL) return;
   const server = await startLocalStaticServer({ url: 'http://127.0.0.1:4189', cwd: ROOT, cacheControl: 'public, max-age=3600' });
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'yahtzee-cache-check-'));
   // Incognito contexts have only a small in-memory HTTP cache. Use an isolated
@@ -467,19 +468,39 @@ async function assertWarmCache(browser) {
 async function assertInvalidStorage(browser, baseUrl) {
   for (const raw of ['{invalid JSON', JSON.stringify({ version: 0, record: { human: 999 }, match: {} })]) {
     const page = await createPage(browser);
+    let releaseRules;
+    const rulesGate = new Promise(resolve => { releaseRules = resolve; });
+    await page.route(RULES_WASM_URL, async route => {
+      await rulesGate;
+      await route.continue();
+    });
     try {
       await page.addInitScript(({ key, raw }) => localStorage.setItem(key, raw), { key: STORAGE_KEY, raw });
+      const rulesRequested = page.waitForRequest(RULES_WASM_URL);
       await openGame(page, baseUrl);
+      await rulesRequested;
+      // Do not use roll(), which waits for score previews and therefore rules.
+      await page.locator(`${APP} [data-roll]`).click();
+      await page.locator(`${APP} [data-die="1"]`).click();
+      await page.locator(`${APP} [data-roll]`).click();
+      const before = await saved(page);
+      assert.equal(before.version, 1);
+      assert.deepEqual(before.record, { human: 0, keiri: 0, ties: 0 });
+      assert.equal(before.match.turn, 'human');
+      assert.equal(before.match.rolls, 2);
+      assert.equal(before.match.held[1], true);
+      assert.equal(await page.locator(`${APP} [data-score]:enabled`).count(), 0, 'Rules are still blocked during fresh-game play');
+
+      releaseRules();
       await waitForEngine(page);
-      const state = await saved(page);
-      assert.equal(state.version, 1);
-      assert.deepEqual(state.record, { human: 0, keiri: 0, ties: 0 });
-      assert.equal(state.match.turn, 'human');
-      assert.equal(state.match.rolls, 0);
-      await roll(page);
-    } finally { await page.close(); }
+      await page.locator(`${APP} [data-score]:enabled`).first().waitFor();
+      assert.deepEqual(await saved(page), before, 'Late rules validation must preserve rolls/holds after invalid-storage recovery');
+    } finally {
+      releaseRules();
+      await page.close();
+    }
   }
-  console.log('Yahtzee: malformed and obsolete browser storage recover to a playable match.');
+  console.log('Yahtzee: malformed/obsolete storage recovery preserves early rolls and holds through delayed rules loading.');
 }
 
 async function runYahtzeeChecks(browser, baseUrl) {
@@ -489,7 +510,7 @@ async function runYahtzeeChecks(browser, baseUrl) {
   await assertMatchAndPersistence(browser, baseUrl);
   await assertViewports(browser, baseUrl);
   await assertInvalidStorage(browser, baseUrl);
-  await assertWarmCache(browser);
+  if (browser.browserType().name() === 'chromium') await assertWarmCache();
   console.log(`Yahtzee browser check passed: ${browser.browserType().name()}.`);
 }
 
