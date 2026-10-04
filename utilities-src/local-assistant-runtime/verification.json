@@ -1,0 +1,212 @@
+{
+  "date": "2026-10-04",
+  "host": "Apple M4 Pro",
+  "browser": "headed Google Chrome 154.0.8037.93",
+  "gpu": {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "device": "",
+    "description": "",
+    "isFallbackAdapter": false
+  },
+  "context": 2048,
+  "n_threads": 2,
+  "seed": 42,
+  "model": "Qwen3.5-2B-Q4_K_M",
+  "prompt": "Explain how rain forms, step by step, for a curious student.",
+  "thinking": true,
+  "max_tokens": 128,
+  "sampling": {
+    "temperature": 0.6,
+    "top_k": 20,
+    "top_p": 0.95,
+    "min_p": 0
+  },
+  "observed": {
+    "mean": 60.79832542493807,
+    "median": 60.73065094874863,
+    "min": 60.439811465860544,
+    "max": 61.20617613691677,
+    "unit": "tokens/sec"
+  },
+  "baseline": {
+    "mean": 63.69815722306768,
+    "median": 63.58320142681667,
+    "min": 63.426900497177,
+    "max": 64.17560872080831,
+    "unit": "tokens/sec"
+  },
+  "throughput_reduction_percent": 4.55245791173291,
+  "limitations": [
+    "One Apple Silicon workstation; no discrete GPU measurements.",
+    "No other coordinated GPU tests were active; ordinary workstation load was not isolated.",
+    "WASM control/sampling uses CPU; heavy tensor inference and statistic reductions use WebGPU."
+  ],
+  "samples": [
+    {
+      "observatory": true,
+      "repetition": 0,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 169.811,
+      "prompt_per_token_ms": 6.79244,
+      "prompt_per_second": 147.22250030916723,
+      "predicted_n": 128,
+      "predicted_ms": 2094.82,
+      "predicted_per_token_ms": 16.49464566929134,
+      "predicted_per_second": 60.625733953275216
+    },
+    {
+      "observatory": true,
+      "repetition": 1,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 167.296,
+      "prompt_per_token_ms": 6.69184,
+      "prompt_per_second": 149.43573068094875,
+      "predicted_n": 128,
+      "predicted_ms": 2074.954,
+      "predicted_per_token_ms": 16.338220472440945,
+      "predicted_per_second": 61.20617613691677
+    },
+    {
+      "observatory": true,
+      "repetition": 2,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 165.065,
+      "prompt_per_token_ms": 6.6026,
+      "prompt_per_second": 151.45548723230243,
+      "predicted_n": 128,
+      "predicted_ms": 2092.954,
+      "predicted_per_token_ms": 16.47995275590551,
+      "predicted_per_second": 60.679785604461436
+    },
+    {
+      "observatory": false,
+      "repetition": 0,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 162.88,
+      "prompt_per_token_ms": 6.5152,
+      "prompt_per_second": 153.48722986247546,
+      "predicted_n": 128,
+      "predicted_ms": 1994.2,
+      "predicted_per_token_ms": 15.70236220472441,
+      "predicted_per_second": 63.68468558820579
+    },
+    {
+      "observatory": false,
+      "repetition": 1,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 165.62,
+      "prompt_per_token_ms": 6.6248000000000005,
+      "prompt_per_second": 150.94795314575532,
+      "predicted_n": 128,
+      "predicted_ms": 1978.945,
+      "predicted_per_token_ms": 15.582244094488189,
+      "predicted_per_second": 64.17560872080831
+    },
+    {
+      "observatory": false,
+      "repetition": 2,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 166.179,
+      "prompt_per_token_ms": 6.64716,
+      "prompt_per_second": 150.44018799005892,
+      "predicted_n": 128,
+      "predicted_ms": 2001.021,
+      "predicted_per_token_ms": 15.756070866141732,
+      "predicted_per_second": 63.46759979030705
+    },
+    {
+      "observatory": false,
+      "repetition": 0,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 164.729,
+      "prompt_per_token_ms": 6.589160000000001,
+      "prompt_per_second": 151.7644130663089,
+      "predicted_n": 128,
+      "predicted_ms": 2000.576,
+      "predicted_per_token_ms": 15.752566929133858,
+      "predicted_per_second": 63.48171726542756
+    },
+    {
+      "observatory": false,
+      "repetition": 1,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 165.934,
+      "prompt_per_token_ms": 6.63736,
+      "prompt_per_second": 150.6623115214483,
+      "predicted_n": 128,
+      "predicted_ms": 1985.851,
+      "predicted_per_token_ms": 15.636622047244096,
+      "predicted_per_second": 63.95243147648035
+    },
+    {
+      "observatory": false,
+      "repetition": 2,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 166.985,
+      "prompt_per_token_ms": 6.6794,
+      "prompt_per_second": 149.71404617181184,
+      "predicted_n": 128,
+      "predicted_ms": 2002.305,
+      "predicted_per_token_ms": 15.766181102362205,
+      "predicted_per_second": 63.426900497177
+    },
+    {
+      "observatory": true,
+      "repetition": 0,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 168.19,
+      "prompt_per_token_ms": 6.7276,
+      "prompt_per_second": 148.64141744455674,
+      "predicted_n": 128,
+      "predicted_ms": 2101.264,
+      "predicted_per_token_ms": 16.545385826771653,
+      "predicted_per_second": 60.439811465860544
+    },
+    {
+      "observatory": true,
+      "repetition": 1,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 168.314,
+      "prompt_per_token_ms": 6.732559999999999,
+      "prompt_per_second": 148.5319105956724,
+      "predicted_n": 128,
+      "predicted_ms": 2080.026,
+      "predicted_per_token_ms": 16.37815748031496,
+      "predicted_per_second": 61.056929096078605
+    },
+    {
+      "observatory": true,
+      "repetition": 2,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 167.709,
+      "prompt_per_token_ms": 6.70836,
+      "prompt_per_second": 149.06773041399092,
+      "predicted_n": 128,
+      "predicted_ms": 2089.451,
+      "predicted_per_token_ms": 16.452370078740156,
+      "predicted_per_second": 60.78151629303582
+    }
+  ],
+  "correctness": {
+    "hardwareGPU": true,
+    "allLayersOffloaded": true,
+    "reductionBuffer": "WebGPU",
+    "layers": 24,
+    "tokenAlignment": true,
+    "reset": true,
+    "cancelledInitialization": true
+  }
+}

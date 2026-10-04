@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = process.env.CHECK_LINKS_ROOT ? path.resolve(process.env.CHECK_LINKS_ROOT) : path.join(__dirname, '..');
-const SKIP_DIRECTORIES = new Set(['.git', 'dist', 'node_modules', 'target', 'image-transform', 'output', '.omx']);
+const SKIP_DIRECTORIES = new Set(['.git', 'dist', 'node_modules', 'target', 'image-transform', 'output', '.omx', '.codex-tmp']);
 
 function rel(filePath) {
   return path.relative(ROOT, filePath);

@@ -1,0 +1,98 @@
+diff --git a/common/common.h b/common/common.h
+index 5700d20..6822fd3 100644
+--- a/common/common.h
++++ b/common/common.h
+@@ -492,6 +492,8 @@ struct common_params {
+ 
+     ggml_backend_sched_eval_callback cb_eval = nullptr;
+     void * cb_eval_user_data                 = nullptr;
++    // Optional bounded snapshot, captured alongside the sampled token before queuing.
++    std::function<std::pair<uint64_t, std::vector<float>>()> observatory_snapshot;
+ 
+     ggml_numa_strategy numa = GGML_NUMA_STRATEGY_DISABLED;
+ 
+diff --git a/src/models/qwen35.cpp b/src/models/qwen35.cpp
+index d50f067..f472a3d 100644
+--- a/src/models/qwen35.cpp
++++ b/src/models/qwen35.cpp
+@@ -1,5 +1,6 @@
+ #include "models.h"
+ #include "llama-memory-recurrent.h"
++#include <cstdlib>
+ 
+ void llama_model_qwen35::load_arch_hparams(llama_model_loader & ml) {
+     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS,       hparams.f_norm_rms_eps);
+@@ -155,6 +156,12 @@ llama_model_qwen35::graph::graph(const llama_model & model, const llm_graph_para
+     ggml_tensor * inp_pos     = build_inp_pos();
+     ggml_tensor * inp_out_ids = build_inp_out_ids();
+ 
++    // Optional observatory: one GPU-reduced value per layer for the final token
++    // of this microbatch. The full hidden states never cross the JS boundary.
++    const char * observatory_env = std::getenv("WLLAMA_OBSERVATORY");
++    const bool observatory = observatory_env && observatory_env[0] == '1';
++    ggml_tensor * layer_mean_squares = nullptr;
++
+     // MTP/NextN layers are loaded as extra decoder blocks but not executed in the main pass.
+     for (int il = 0; il < n_layer; ++il) {
+         res->t_layer_inp[il] = inpL;
+@@ -202,6 +209,17 @@ llama_model_qwen35::graph::graph(const llama_model & model, const llm_graph_para
+         cur = build_cvec(cur, il);
+         cb(cur, "l_out", il);
+ 
++        if (observatory) {
++            GGML_ASSERT(cur->type == GGML_TYPE_F32 && ggml_is_contiguous(cur));
++            const size_t last_offset = ggml_nbytes(cur) - cur->ne[0] * sizeof(float);
++            auto * last = ggml_view_1d(ctx0, cur, cur->ne[0], last_offset);
++            auto * ms = ggml_scale(ctx0, ggml_sum(ctx0, ggml_sqr(ctx0, last)), 1.0f / cur->ne[0]);
++            layer_mean_squares = layer_mean_squares
++                ? ggml_concat(ctx0, layer_mean_squares, ms, 0) : ms;
++            // Schedule the reduction now so prior activations need not be retained.
++            ggml_build_forward_expand(gf, layer_mean_squares);
++        }
++
+         // Input for next layer
+         inpL = cur;
+     }
+@@ -236,6 +254,13 @@ llama_model_qwen35::graph::graph(const llama_model & model, const llm_graph_para
+     res->t_logits = cur;
+ 
+     ggml_build_forward_expand(gf, cur);
++    if (layer_mean_squares) {
++        // A final copy gives the scheduler exactly one observation/readback point.
++        auto * summaries = ggml_cont(ctx0, layer_mean_squares);
++        ggml_set_name(summaries, "observatory_layer_mean_squares");
++        ggml_set_output(summaries);
++        ggml_build_forward_expand(gf, summaries);
++    }
+ }
+ 
+ std::pair<ggml_tensor *, ggml_tensor *> llama_model_qwen35::graph::build_qkvz(
+diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
+index 615b035..9f59cdf 100644
+--- a/tools/server/server-context.cpp
++++ b/tools/server/server-context.cpp
+@@ -2067,6 +2067,11 @@ private:
+ 
+     void send_partial_response(server_slot & slot, const completion_token_output & tkn, bool is_progress, bool is_begin = false) {
+         auto res = std::make_unique<server_task_result_cmpl_partial>();
++        if (!is_begin && params_base.observatory_snapshot) {
++            auto snapshot = params_base.observatory_snapshot();
++            res->observatory_pass = snapshot.first;
++            res->observatory_rms = std::move(snapshot.second);
++        }
+ 
+         res->id    = slot.task->id;
+         res->index = slot.task->index;
+diff --git a/tools/server/server-task.h b/tools/server/server-task.h
+index 8c5fa9a..cf9467a 100644
+--- a/tools/server/server-task.h
++++ b/tools/server/server-task.h
+@@ -420,6 +420,8 @@ struct server_task_result_cmpl_final : server_task_result {
+ };
+ 
+ struct server_task_result_cmpl_partial : server_task_result {
++    uint64_t observatory_pass = 0;
++    std::vector<float> observatory_rms;
+     std::string  content;
+     llama_tokens tokens;
+ 

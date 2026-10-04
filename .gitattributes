@@ -31,3 +31,5 @@
 *.txt text eol=lf
 # Lock files
 package-lock.json text eol=lf
+# Blank context lines in source patches intentionally contain one space.
+utilities-src/local-assistant-runtime/patches/*.patch -whitespace
