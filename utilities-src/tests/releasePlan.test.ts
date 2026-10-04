@@ -16,9 +16,10 @@ it('preserves every existing release check exactly once and adds the separate re
   expect(plan.map((check: { name: string }) => check.name).sort()).toEqual([
     ...legacy, 'chromium-home-reveal', 'firefox-home-reveal', 'webkit-home-reveal',
     'chromium-gallery-inspector', 'firefox-gallery-inspector', 'webkit-gallery-inspector',
-    'chromium-index-arrow', 'firefox-index-arrow', 'webkit-index-arrow'
+    'firefox-index-arrow', 'webkit-index-arrow'
   ].sort());
-  expect(new Set(plan.map((check: { name: string }) => check.name)).size).toBe(53);
+  expect(new Set(plan.map((check: { name: string }) => check.name)).size).toBe(52);
+  expect(plan.some((check: { name: string }) => check.name === 'chromium-index-arrow')).toBe(false);
 });
 
 it('partitions exhaustive coverage into disjoint, nonempty groups', () => {

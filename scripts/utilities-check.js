@@ -1075,7 +1075,7 @@ async function readImagePreviews(page) {
 }
 
 async function readCanvasPixels(page, id) {
-  return page.evaluate((canvasId) => {
+  const encoded = await page.evaluate((canvasId) => {
     const canvas = document.getElementById(canvasId);
     if (!(canvas instanceof HTMLCanvasElement)) {
       throw new Error(`Canvas not found: ${canvasId}`);
@@ -1084,8 +1084,16 @@ async function readCanvasPixels(page, id) {
     if (!context) {
       throw new Error(`Unable to read canvas: ${canvasId}`);
     }
-    return Array.from(context.getImageData(0, 0, canvas.width, canvas.height).data);
+    // Transfer the same RGBA bytes as one string. Serializing millions of JSON
+    // numbers can outlast playback and make live-state assertions race clip end.
+    const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    let binary = '';
+    for (let offset = 0; offset < data.length; offset += 32768) {
+      binary += String.fromCharCode(...data.subarray(offset, offset + 32768));
+    }
+    return btoa(binary);
   }, id);
+  return Buffer.from(encoded, 'base64');
 }
 
 async function readCanvasActiveBounds(page, id) {
@@ -1502,7 +1510,7 @@ async function main() {
     });
     await waitForServer(`${baseUrl}/pages/utilities/index.html`);
     await runUtilitySection(utilitySectionFailures, 'Index Arrow', async () => {
-      await assertIndexArrow(browser, baseUrl, BROWSER_NAME, { fullMatrix: false });
+      await assertIndexArrow(browser, baseUrl, BROWSER_NAME);
     });
     await runUtilitySection(utilitySectionFailures, 'Public and Hidden Routes', async () => {
       await assertPublicUtilityRoutes(browser, baseUrl);

@@ -1,76 +1,95 @@
 # Issue 72: Utility Index arrow
 
-The shared Index button uses a 12px inline SVG with `currentColor`, centered
-beside a label span by inline flex. This removes the Inter-specific glyph lift.
-The button's native semantics, 30.8px height, existing padding, purple hover,
-focus outline, and responsive 54px/46px toolbar heights are preserved.
+The shared Index button uses a 12px decorative `currentColor` SVG and inline
+flex centering. Native Index semantics, 30.8px target height, purple hover, focus
+outline, and responsive 54px/46px toolbar heights are preserved. The validation
+follow-up retains this production implementation.
 
-![Magnified before and after: Inter and blocked-font fallback, normal, hover, and keyboard focus](index-arrow-before-after.png)
+![Magnified before and after: Inter and fallback, normal, hover, and keyboard focus](index-arrow-before-after.png)
 
-Baseline: refreshed `origin/main` at `4cfc1c52041d929ee2b14153b28a6657b091469e`.
-The original button was captured before editing at 1440 × 900, DPR 1, 100% scale,
-with real Inter and deliberately blocked Google Fonts. In this Linux Chromium
-rendering the old arrow was slightly low; the reporter's exact high-arrow
-appearance was not reproduced. Images above are enlarged with nearest-neighbor
-sampling to expose the small differences. The baseline text arrow uses the host
-fallback font because this Latin Inter fixture does not include U+2190; the
-Index label uses Inter in the loaded-font screenshots.
+Baseline: refreshed main `4cfc1c52041d929ee2b14153b28a6657b091469e`, captured
+before editing at 1440 × 900, DPR 1, 100% scale. The old arrow was slightly low
+on this Linux Chromium; the reporter's exact high-arrow appearance was not
+reproduced. The Latin Inter fixture supplies the label but lacks U+2190, so the
+baseline text arrow uses the host fallback font. Images use nearest-neighbor
+magnification.
 
-## Focused browser coverage
+## Representative browser regression
 
-The compact test is part of `npm run utilities:browser-check`. The packaged
-utilities release group runs the full matrix separately on Chromium, Firefox,
-and WebKit so it has its own time budget. It can also be run directly:
+One 13-image check replaces the old 192-image matrix plus 27-image compact run.
+Chromium runs it inside `utilities-check.js`; Firefox and WebKit run the same
+focused check through the release runner. Chromium has no duplicate standalone
+release check. Standalone development use:
 
 ```sh
 UTILITIES_BROWSER=chromium node scripts/index-arrow-check.js
-# Optional installed browser path, useful when pinned Playwright downloads are unavailable:
+# Optional installed executable when pinned Playwright is unavailable:
 INDEX_ARROW_BROWSER_EXECUTABLE=/usr/bin/chromium node scripts/index-arrow-check.js
 ```
 
-The test measures visible ink bounds separately for the arrow and text, with a
-maximum one-CSS-pixel center difference to allow rasterization rounding. It also
-checks layout centers, target/toolbar heights, accessible name, SVG decoration,
-hover color, keyboard focus, click/Enter/Space, the switcher, history Back/Forward,
-and footer visibility. Screenshots, 8× details at normal scale, and measured
-geometry are written to `output/playwright/index-arrow/<browser>/`; the compact
-check writes to its `compact/` subdirectory.
+The representative cases cover all three tools, permanently blocked fonts,
+delayed Inter followed by a real swap after first paint, DPR 1/2, normal and
+representative hover/focus. Click, Enter, Space, switcher, history Back/Forward,
+footer restoration, accessible name and decorative SVG semantics are checked.
+Visible-ink centers must differ by at most one CSS pixel; layout checks also
+verify target height and actual toolbar breakpoint behavior. Navigation reuses
+geometry checks instead of repeatedly capturing an unchanged icon.
 
-Local run on October 4, 2026: system Chromium 151.0.7922.173 on Linux, 192 rendered
-samples, all passing. Loaded Inter samples differed by at most 0.5 CSS px; blocked
-and delayed fallback samples by at most 1 CSS px.
+## Zoom coverage and its boundary
 
-| Dimension | Coverage |
-| --- | --- |
-| Utility | Image Transform, Fourier Reconstruction, Stress Test |
-| Font | Blocked Google Fonts, delayed Inter, actual Inter swap after first paint |
-| Viewport | 1440 × 900 and 800 × 520, with `?full=1` |
-| Scale | CSS zoom 100%, 125%, 150%, 200% |
-| DPR | 1 and 2 |
-| Interaction appearance | Normal throughout; hover/focus at 100% for both viewports and DPRs |
+The test models the **effective CSS viewport** of a 1440 × 900 content area at
+each requested zoom. Resizing the viewport changes media-query inputs; CSS zoom
+stays at 1 and is asserted to stay at 1. Alignment is measured on both sides of
+the 650px toolbar breakpoint:
 
-Inter is an unmodified, licensed `@fontsource/inter@5.2.8` test fixture served via
-intercepted Google Fonts routes. No external request is needed for these checks.
-The fixture is excluded from deployment because it lives under `scripts/`.
+| Nominal browser zoom model | Effective CSS viewport | Toolbar height |
+| --- | --- | --- |
+| 100% | 1440 × 900 | 54px |
+| 125% | 1152 × 720 | 54px |
+| 150% | 960 × 600 | 46px |
+| 200% | 720 × 450 | 46px |
 
-## Validation and limits
+This automates the layout/media-query effect of browser zoom. Native browser
+zoom controls and their fractional-scale rasterization remain unautomated.
+DPR 1/2 are independent rendering samples. Windows/macOS system fonts require
+separate platform runs. The Inter fixture is licensed, unmodified, test-only,
+and served through intercepted Google Fonts routes; live font endpoints are
+outside this deterministic check. Results and screenshots go to
+`output/playwright/index-arrow/<browser>/`.
 
-Source quality, utility typecheck, 505 unit/integration tests, utilities build,
-deployment build, deployment smoke, and deployment local links passed. Five
-existing tests are skipped. The packaged PR smoke passed using the local Inter
-fixture and system Chromium selected by an untracked Node preload. The full
-source utilities browser check passed. Packaged Chromium release checks also
-passed: full alignment matrix (26.2s), main utility check (236.0s), image
-preparation (58.6s), and stress (48.1s). The first packaged utility run reached
-the 300s limit with the full matrix embedded in it. The matrix now has its own
-release check; the main suite keeps a 27-sample compact regression. Both changed
-checks were rerun successfully; already-passing preparation/stress checks were
-retained. Other release groups were outside this change’s local verification.
+## Fourier CI investigation
 
-Pinned Playwright browser downloads were blocked with HTTP 403 “Domain
-forbidden” at `cdn.playwright.dev`. Firefox and WebKit could not be run locally.
-Native browser zoom and Windows/macOS system fonts are unverified. The CSS zoom
-matrix is a layout/rasterization approximation, not native browser zoom coverage.
-The live Google Fonts endpoint is also unverified: packaged PR smoke initially
-failed on `net::ERR_TUNNEL_CONNECTION_FAILED`, then passed with test-only local
-font responses. No production font loading or network configuration changed.
+[Original CI run](https://github.com/oliverdougherC/oliverdougherty.com/actions/runs/37226783198)
+passed both arrow checks, then failed the existing rapid-slider playback
+assertion. Later failures followed the 300-second termination.
+
+[Measured comparison](fourier-validation.json) uses refreshed base `4cfc1c5`
+and reviewed head `1baf44c`. Their Fourier controller blob is identical. Normal
+local sequences pass on both; individual JSON-array canvas reads take 11–14
+seconds. A bounded probe starts native audio sources with three seconds left:
+
+| Product revision | Old full-RGBA transfer | State after old read | Buffer transfer | State after buffer read |
+| --- | --- | --- | --- | --- |
+| Base `4cfc1c5` | 10.506s | Playback complete | 0.263s | Animating |
+| Reviewed head `1baf44c` | 9.380s | Playback complete | 0.249s | Animating |
+
+This reproduces the assertion's pre-existing timing sensitivity independently
+of the arrow. It is a bounded playback probe, not an exact replay of the CI
+runner clock. The old CI assertion did not record terminal playback state.
+
+The browser-check helper now transfers the same raw RGBA bytes as base64 and
+decodes a Buffer, avoiding millions of serialized JSON numbers. Frozen-canvas
+comparisons match all 2,995,608 bytes on each revision. Fourier production code,
+playback assertions, and the 300-second limit are unchanged.
+
+## Validation
+
+Source quality, utilities typecheck/tests (505 passed, 5 existing skips),
+utilities build and deployment build pass locally. System Chromium
+151.0.7922.173 on Linux passes the focused check: 13 rendered images in 3.5s,
+with ink-center differences at most 0.5 CSS px. The packaged main utility
+check passes in 151.3s, including Fourier, worker recovery and reduced motion;
+its embedded arrow check takes 8.5s in that local run. Local packaged checks use system
+Chromium and local font responses through an untracked preload because pinned
+browser downloads and live Google Fonts are blocked in this environment.
+Required CI results for the final head are linked in the PR description.
