@@ -154,7 +154,9 @@ STATIC_ROOT=dist REQUIRE_DEPLOY_ARTIFACT=1 UTILITIES_BROWSER=webkit npm run yaht
 npm run quality
 ```
 
-These browser commands start a local server for the packaged `dist/` site.
+These browser commands start a local server for the packaged `dist/` site. The
+release plan runs the full Utilities suite on Chromium and the focused Yahtzee
+suite on Firefox and WebKit, so CI validates this game in all three engines.
 The core tests cover deterministic complete
 matches, legal turn limits, hold preservation, terminal record accounting,
 unbiased dice and invalid recovery. Controller/polish tests cover loading and
@@ -181,7 +183,7 @@ native motion tracks, material continuity, and layout at 1440×900, 1280×720,
 
 ### Final-pass evidence — 2026-10-04
 
-Type checking and all 570 unit tests pass for the final motion pass. The pinned
+Type checking and all 572 unit tests pass for the final motion pass. The pinned
 engine rebuild (three native tests and matching binary hashes), production builds,
 quality checks, deploy smoke checks, and packaged WebKit game suite pass. The full
 packaged Chromium Utilities suite also passes. An independent
