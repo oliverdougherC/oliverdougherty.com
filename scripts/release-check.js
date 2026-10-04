@@ -90,6 +90,7 @@ function createCheckPlan({ browsers = BROWSERS, group } = {}) {
         add(name, file, 'utilities', name === 'utilities' ? { UTILITIES_SKIP_YAHTZEE: '1' } : {});
       }
     } else {
+      add('index-arrow', 'index-arrow-check.js', 'utilities');
       add('stress-pool', 'stress-test-check.js', 'utilities', { STRESS_BROWSER_TYPE: browser, STRESS_POOL_ONLY: '1' });
     }
   }
