@@ -51,16 +51,20 @@
         <a href="#image-transform" data-utility="image-transform"><span class="utility-index-number">01 //</span><span class="utility-index-name">Image Transform</span><span class="utility-index-action" aria-hidden="true">↗</span></a>
         <a href="#audio-fourier" data-utility="audio-fourier"><span class="utility-index-number">02 //</span><span class="utility-index-name">Fourier Reconstruction</span><span class="utility-index-action" aria-hidden="true">↗</span></a>
         <a href="#stress-test" data-utility="stress-test"><span class="utility-index-number">03 //</span><span class="utility-index-name">Stress Test</span><span class="utility-index-action" aria-hidden="true">↗</span></a>
+        <a href="#yahtzee-keiri" data-utility="yahtzee-keiri"><span class="utility-index-number">04 //</span><span class="utility-index-name">Yahtzee vs. Keiri</span><span class="utility-index-action" aria-hidden="true">↗</span></a>
       </nav>
     </section>
 
     <section id="utilitiesUtilityView" class="utilities-view" hidden="" aria-labelledby="utilityTitle">
       <div class="workbench-toolbar">
         <button type="button" class="nav-back-btn"><span class="nav-back-arrow" aria-hidden="true">←</span> Index</button>
-        <div class="workbench-heading"><span class="workbench-label" id="utilityNumber">01</span><h1 id="utilityTitle" tabindex="-1">Image Transform</h1></div><label class="workbench-switcher"><span class="sr-only">Switch utility</span><select id="utilitySwitcher"><option value="image-transform">01 // Image Transform</option><option value="audio-fourier">02 // Fourier Reconstruction</option><option value="stress-test">03 // Stress Test</option></select></label>
+        <div class="workbench-heading"><span class="workbench-label" id="utilityNumber">01</span><h1 id="utilityTitle" tabindex="-1">Image Transform</h1></div><label class="workbench-switcher"><span class="sr-only">Switch utility</span><select id="utilitySwitcher"><option value="image-transform">01 // Image Transform</option><option value="audio-fourier">02 // Fourier Reconstruction</option><option value="stress-test">03 // Stress Test</option><option value="yahtzee-keiri">04 // Yahtzee vs. Keiri</option></select></label>
       </div>
 
       <div class="utility-stage-wrapper">
+        <div class="utility-stage" data-utility-id="yahtzee-keiri" data-utility-title="Yahtzee vs. Keiri" data-utility-number="04" hidden="">
+          <section class="utility-shell utility-shell--yahtzee" id="yahtzeeKeiriApp" data-utility-root="yahtzee-keiri" aria-label="Yahtzee vs. Keiri" inert></section>
+        </div>
         <div class="utility-stage" data-utility-id="image-transform" data-utility-title="Image Transform" data-utility-number="01" hidden="">
           <section class="utility-shell" id="utilitiesApp" data-utility-root="image-transform" aria-label="Image Transform" inert>
             <div class="utility-layout utility-layout--image-transform">
@@ -243,7 +247,7 @@
   </main>
   <footer class="utilities-footer"><span>© <span data-current-year="">2026</span> Oliver Dougherty</span></footer>
   <script src="../../js/year.js" async></script>
-  <script src="../../js/utilities-shell.js?v=workbench-3" defer onerror="window.__utilitiesShellLoadFailed__ = true; document.getElementById('utilityEntryError')?.removeAttribute('hidden')"></script>
+  <script src="../../js/utilities-shell.js?v=workbench-4" defer onerror="window.__utilitiesShellLoadFailed__ = true; document.getElementById('utilityEntryError')?.removeAttribute('hidden')"></script>
   <div id="utilityEntryError" class="utility-load-recovery" role="alert" hidden>
     <p>The tools could not load. Check your connection or reload for the latest version.</p>
     <button type="button" onclick="window.location.reload()">Reload tools</button>
