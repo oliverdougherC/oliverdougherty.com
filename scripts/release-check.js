@@ -79,6 +79,7 @@ function createCheckPlan({ browsers = BROWSERS, group } = {}) {
     add('artifact', 'artifact-browser-check.js', 'artifact');
     add('home-stage', 'home-check.js', 'home', { HOME_CHECK_STAGE_ONLY: '1' });
     add('home-reveal', 'nighthawks-reveal-check.js', 'home', { NIGHTHAWKS_CHECK_BROWSERS: browser });
+    add('index-arrow', 'index-arrow-check.js', 'utilities');
     if (browser === 'chromium') {
       // Mobile routes include gallery and resume, so both feature selections need this check.
       add('mobile', 'mobile-site-check.js', 'navigation');
