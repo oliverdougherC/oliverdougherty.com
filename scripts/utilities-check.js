@@ -2069,14 +2069,17 @@ async function main() {
     assert(await page.locator('#audioFourierTimeline').evaluate(element => element.getBoundingClientRect().height) === timelineHeight, 'Analysis and playback should share a track without shifting the layout.');
     await assertAudioPlaybackTimeline(page);
     await page.click('#audioFourierPlayBtn');
+    for (let step = 0; step < 3; step += 1) await page.locator('#audioFourierSeek').press('PageUp');
     const generatedWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas', 256);
+    const generatedWaveImage = await page.locator('#audioFourierWaveCanvas').evaluate(canvas => canvas.toDataURL());
     await page.fill('#audioFourierComponentSlider', '100');
     await page.waitForFunction(() => document.getElementById('audioFourierSignalStrengthMetric').textContent === '100%');
-    const fullSignalWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas', 256);
+    await page.waitForFunction(before => document.getElementById('audioFourierWaveCanvas').toDataURL() !== before, generatedWaveImage);
+    const fullSignalWaveImage = await page.locator('#audioFourierWaveCanvas').evaluate(canvas => canvas.toDataURL());
     const generatedSpectrumPixels = await readCanvasPixels(page, 'audioFourierSpectrumCanvas');
     const generatedComponentPixels = await readCanvasPixels(page, 'audioFourierComponentCanvas');
     assert(countActiveCanvasPixels(generatedWavePixels) > 100, 'Audio Fourier waveform canvas should be visibly nonblank.');
-    assert(totalAbsoluteDifference(generatedWavePixels, fullSignalWavePixels) > 0, 'Dragging the Audio Fourier slider should visibly change the waveform.');
+    assert(generatedWaveImage !== fullSignalWaveImage, 'Dragging the Audio Fourier slider should visibly change the waveform.');
     assert(countActiveCanvasPixels(generatedSpectrumPixels) === 0, 'Hidden spectrum plot should not render expensive unused output.');
     assert(countActiveCanvasPixels(generatedComponentPixels) === 0, 'Hidden component plot should not render expensive unused output.');
     await assertUtilityIsolationLayout(page, 'audio-preset:desktop');
@@ -2086,12 +2089,12 @@ async function main() {
 
     await page.setViewportSize({ width: 2048, height: 998 });
     await page.waitForTimeout(120);
-    const prePlaybackWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas', 256);
+    const prePlaybackWaveImage = await page.locator('#audioFourierWaveCanvas').evaluate(canvas => canvas.toDataURL());
     await ensureAudioFourierPlayback(page, 'built-in song preset playback restarts');
     await page.waitForTimeout(1400);
-    const playbackWavePixels = await readCanvasPixels(page, 'audioFourierWaveCanvas', 256);
+    const playbackWaveImage = await page.locator('#audioFourierWaveCanvas').evaluate(canvas => canvas.toDataURL());
     const playbackWaveBounds = await readCanvasActiveBounds(page, 'audioFourierWaveCanvas');
-    assert(totalAbsoluteDifference(prePlaybackWavePixels, playbackWavePixels) > 0, 'Audio Fourier viewport should advance during playback.');
+    assert(prePlaybackWaveImage !== playbackWaveImage, 'Audio Fourier viewport should advance during playback.');
     assert(playbackWaveBounds.activePixels > 100, 'Audio Fourier advancing viewport should remain visibly nonblank.');
     assert(
       playbackWaveBounds.horizontalSpread > playbackWaveBounds.width * 0.25,
@@ -2107,7 +2110,7 @@ async function main() {
     assert(/Playing selected Fourier energy mix/.test(sliderDuringPlaybackState.status), 'Audio Fourier slider should not stop playback.');
     assert(/60% signal energy/.test(sliderDuringPlaybackState.readout), 'Audio Fourier readout should update with perceptual slider mapping during playback.');
     assert(sliderDuringPlaybackState.signalStrength === '60%', 'Audio Fourier signal strength metric should update during playback.');
-    const preRapidSliderPixels = await readCanvasPixels(page, 'audioFourierWaveCanvas', 256);
+    const preRapidSliderImage = await page.locator('#audioFourierWaveCanvas').evaluate(canvas => canvas.toDataURL());
     await page.evaluate(async () => {
       const slider = document.getElementById('audioFourierComponentSlider');
       if (!(slider instanceof HTMLInputElement)) {
@@ -2120,7 +2123,7 @@ async function main() {
       }
     });
     await page.waitForTimeout(180);
-    const postRapidSliderPixels = await readCanvasPixels(page, 'audioFourierWaveCanvas', 256);
+    const postRapidSliderImage = await page.locator('#audioFourierWaveCanvas').evaluate(canvas => canvas.toDataURL());
     const rapidSliderState = await page.evaluate(() => ({
       audioState: document.getElementById('audioFourierApp')?.dataset.audioState ?? '',
       status: document.getElementById('audioFourierStatusText')?.textContent?.trim() ?? '',
@@ -2129,7 +2132,7 @@ async function main() {
     assert(rapidSliderState.audioState === 'animating', 'Rapid Audio Fourier slider changes should keep playback animating.');
     assert(/Playing selected Fourier energy mix/.test(rapidSliderState.status), 'Rapid Audio Fourier slider changes should not interrupt playback status.');
     assert(rapidSliderState.signalStrength === '92%', 'Rapid Audio Fourier slider changes should update signal strength after the final value.');
-    assert(totalAbsoluteDifference(preRapidSliderPixels, postRapidSliderPixels) > 0, 'Rapid Audio Fourier slider changes should keep waveform rendering live.');
+    assert(preRapidSliderImage !== postRapidSliderImage, 'Rapid Audio Fourier slider changes should keep waveform rendering live.');
     await page.click('#audioFourierPlayBtn');
     await waitForAudioStatusMatch(page, 'Playback paused', 5000, 'built-in song preset playback pauses');
     await assertPendingAudioPlayback(page);
