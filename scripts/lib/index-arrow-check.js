@@ -48,8 +48,10 @@ async function measureArrow(page, { output, name, dpr, state = 'normal', capture
     const rect = node => node.getBoundingClientRect().toJSON();
     const icon = element.querySelector('.nav-back-arrow');
     const label = element.querySelector('.nav-back-label');
+    const style = getComputedStyle(element);
     return {
       button: rect(element), icon: rect(icon), label: rect(label),
+      targetStyle: { fontSize: style.fontSize, lineHeight: style.lineHeight, paddingTop: style.paddingTop, paddingBottom: style.paddingBottom, borderTop: style.borderTopWidth, borderBottom: style.borderBottomWidth },
       toolbar: rect(element.closest('.workbench-toolbar')),
       compact: matchMedia('(max-height: 650px)').matches,
       viewport: { width: innerWidth, height: innerHeight },
@@ -70,7 +72,15 @@ async function measureArrow(page, { output, name, dpr, state = 'normal', capture
   assert.equal(Number(geometry.cssZoom), 1, 'Do not substitute CSS zoom for browser viewport changes');
   assert.equal(geometry.compact, geometry.viewport.height <= 650);
   assert(Math.abs(geometry.toolbar.height - (geometry.compact ? 46 : 54)) < 0.1, 'Keep the existing responsive toolbar height');
-  assert(Math.abs(geometry.button.height - 30.8) < 0.1, 'Keep the existing Index click-target height');
+  assert.deepEqual(geometry.targetStyle, {
+    fontSize: '12px', lineHeight: '16.8px', paddingTop: '7px', paddingBottom: '7px', borderTop: '0px', borderBottom: '0px'
+  }, 'Keep the existing Index font and click-target padding');
+  // WebKit can quantize the rendered text line box differently. The native
+  // target must still contain that label plus the unchanged 7px padding edges.
+  assert(Math.abs(geometry.button.height - geometry.label.height - 14) < 0.1,
+    `Keep the native Index click-target height: button=${geometry.button.height}, label=${geometry.label.height}`);
+  assert.equal(geometry.icon.width, 12);
+  assert.equal(geometry.icon.height, 12);
   if (!capture) return { name, state, geometry };
   const clip = {
     x: Math.floor(geometry.button.x - 6), y: Math.floor(geometry.button.y - 6),

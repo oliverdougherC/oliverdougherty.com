@@ -1,7 +1,7 @@
 # Issue 72: Utility Index arrow
 
 The shared Index button uses a 12px decorative `currentColor` SVG and inline
-flex centering. Native Index semantics, 30.8px target height, purple hover, focus
+flex centering. Native Index semantics, 12px/1.4 text with 7px vertical padding, purple hover, focus
 outline, and responsive 54px/46px toolbar heights are preserved. The validation
 follow-up retains this production implementation.
 
@@ -32,7 +32,10 @@ delayed Inter followed by a real swap after first paint, DPR 1/2, normal and
 representative hover/focus. Click, Enter, Space, switcher, history Back/Forward,
 footer restoration, accessible name and decorative SVG semantics are checked.
 Visible-ink centers must differ by at most one CSS pixel; layout checks also
-verify target height and actual toolbar breakpoint behavior. Navigation reuses
+verify the unchanged font/padding contract, target height relative to the
+engine-rendered line box, and actual toolbar breakpoint behavior. Chromium
+and Firefox render a roughly 30.8px target; the check allows WebKit to quantize
+its line box while requiring the same padding and font. Navigation reuses
 geometry checks instead of repeatedly capturing an unchanged icon.
 
 ## Zoom coverage and its boundary
