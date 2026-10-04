@@ -1,0 +1,25 @@
+{
+  "repository": "https://github.com/oliverdougherC/Keiri",
+  "revision": "12d7d1bfde0938e90c5656e80feb44babb6a9f3c",
+  "sourcePath": "src/lib.rs",
+  "upstreamSourceSha256": "f71edf48de05c3f4ca49ec8e17a82985bb7f32b190e61bf0f67adc54769e8c53",
+  "patchedSourceSha256": "ce1edaf9b041448e8e001badbe5086a7542cd834e2d1b6af45789999ef0eb79c",
+  "patch": "wasm-target.patch",
+  "rustVersion": "1.94.0",
+  "ruleset": "BuddyBoardGames",
+  "rulesetId": 2,
+  "tableSchemaVersion": 2,
+  "tableValueCount": 1572864,
+  "tableOrigin": "Read-only copy of the full production table, 2026-10-03 America/Los_Angeles. Production archived lib.rs SHA-256 matches this pinned upstream exactly. No service mutation.",
+  "tableProductionRelease": "20260913T234143Z-756d07608fa6",
+  "assets": {
+    "keiri.wasm": {
+      "bytes": 111308,
+      "sha256": "ae2ad4f67ef5d9530074b4412ebf666fce5a2e3227375e3388df21c3c3552795"
+    },
+    "bbg-anchor-v2.bin": {
+      "bytes": 12582954,
+      "sha256": "bb8b74b5db24564636e210d5fabe0eb85dab6888ba00f38fb510a2ad140fee65"
+    }
+  }
+}
