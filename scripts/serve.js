@@ -30,7 +30,7 @@ const PORT = Number(process.env.PORT || process.argv[2] || 4173);
 const URL = `http://127.0.0.1:${PORT}`;
 // Everything whose mtime means "the built bundles may no longer describe the code".
 const BUILD_INPUTS = ['utilities-src', 'css/yahtzee.css', 'config/vite.utilities.mts', 'package.json', 'pages/utilities/index.html'];
-const LAZY_CHUNKS = ['audioFourierController', 'retroVmController', 'stressTestController', 'yahtzeeController'];
+const LAZY_CHUNKS = ['audioFourierController', 'retroVmController', 'stressTestController', 'yahtzeeController', 'lynxReaderController'];
 
 function newestMtime(target) {
   const stats = fs.statSync(target);

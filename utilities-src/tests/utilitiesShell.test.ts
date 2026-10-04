@@ -7,7 +7,8 @@ const tools = [
   ['image-transform', 'Image Transform'],
   ['audio-fourier', 'Fourier Reconstruction'],
   ['stress-test', 'Stress Test'],
-  ['yahtzee-keiri', 'Yahtzee vs. Keiri']
+  ['yahtzee-keiri', 'Yahtzee vs. Keiri'],
+  ['lynx-reader', 'Lynx Reader']
 ];
 const instances: JSDOM[] = [];
 
@@ -47,7 +48,7 @@ function setup(hash = '', beforeEval?: (window: JSDOM['window']) => void) {
 afterEach(() => instances.splice(0).forEach(dom => dom.window.close()));
 
 describe('utilities shell', () => {
-  it.each([['audio-fourier', 'Fourier Reconstruction', '02'], ['yahtzee-keiri', 'Yahtzee vs. Keiri', '04']])('opens %s deep links and notifies the active controller', (id, title, number) => {
+  it.each([['audio-fourier', 'Fourier Reconstruction', '02'], ['yahtzee-keiri', 'Yahtzee vs. Keiri', '04'], ['lynx-reader', 'Lynx Reader', '05']])('opens %s deep links and notifies the active controller', (id, title, number) => {
     const { window, query, events } = setup(`#${id}`);
     expect(query(`[data-utility-id="${id}"]`).classList.contains('is-active')).toBe(true);
     expect(query(`[data-utility-id="${id}"]`).hidden).toBe(false);

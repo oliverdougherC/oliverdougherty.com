@@ -1,8 +1,8 @@
 # Utilities Documentation
 
 The utilities page (`/pages/utilities/`) is a desktop-only curiosity-driven workbench.
-Its numbered, name-only index opens four tools: Image Transform, Fourier Reconstruction,
-Stress Test, and Yahtzee vs. Keiri. They run client-side. Virtual Machine remains preserved but hidden;
+Its numbered, name-only index opens five tools: Image Transform, Fourier Reconstruction,
+Stress Test, Yahtzee vs. Keiri, and Lynx Reader. They run client-side. Virtual Machine remains preserved but hidden;
 the old Local Assistant implementation has been removed.
 
 White space, black JetBrains Mono typography, thin rules, and violet `#7050C0` controls
@@ -28,6 +28,7 @@ explore. Each tool has room for its own output and control arrangement.
 | **Virtual Machine (hidden, retained)** | x86 PC emulator (v86) running Tiny Core Linux 11 in the browser with networking via TCP relay | `retroVmController.ts`, `retroVmConfig.ts`, `retroVmSupport.ts`, `retroVmTypes.ts` |
 | **Stress Test** | CPU and GPU stress benchmark using Web Workers and WebGPU/WebGL compute shaders | `stressTestController.ts`, `stressTestCore.ts`, `stressTestGpu.ts`, `stressTest.worker.ts` |
 | **Yahtzee vs. Keiri** | Browser-local head-to-head Yahtzee with the real Rust exact-table agent, shared dice, and a persistent rivalry record | `yahtzeeController.ts`, `yahtzeeCore.ts`, `keiriEngine.ts`, `utilities-src/keiri/` |
+| **Lynx Reader** | Pasted-text RSVP with a fixed recognition point, adaptive normalized cadence, and keyboard playback/seek | `lynxReaderCore.ts`, `lynxReaderController.ts` |
 
 ## Shared infrastructure
 
@@ -45,4 +46,5 @@ See [Adding a utility](./adding-a-utility.md) for the shared workspace contract 
 - [Virtual Machine](./virtual-machine.md)
 - [Stress Test](./stress-test.md)
 - [Yahtzee vs. Keiri](./yahtzee-keiri.md)
+- [Lynx Reader](./lynx-reader.md)
 - [Keiri engine integration](./keiri-engine.md)
