@@ -55,8 +55,10 @@ html[data-active-utility] .page-utilities { height: 100dvh; min-height: 0; displ
 .nav-back-btn { justify-self: start; display: inline-flex; align-items: center; gap: 4px; padding: 7px 0; border: 0; background: none; font: 500 12px/1.4 var(--workbench-ui) !important; }
 .nav-back-arrow { display: block; flex: none; width: 12px; height: 12px; }
 .nav-back-btn:hover { color: var(--workbench-accent); }
-/* Explicitly invalidate the SVG stroke when WebKit repaints the hover color. */
-.nav-back-btn:hover .nav-back-arrow { stroke: var(--workbench-accent); }
+/* Keep the shared reduced-motion reset from creating SVG paint transitions. */
+.nav-back-arrow, .nav-back-arrow path { transition: none !important; }
+/* Invalidate the painted path itself when WebKit changes the hover color. */
+.nav-back-btn:hover .nav-back-arrow path { stroke: var(--workbench-accent); }
 .workbench-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .workbench-heading .workbench-label { color: var(--workbench-accent); font-size: 13px; line-height: 1; }
 .workbench-heading .workbench-label::after { content: ' //'; }
