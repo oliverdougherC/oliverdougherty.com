@@ -3,7 +3,7 @@
 The Yahtzee utility uses the real Rust `ExactTableAgent` with the full
 `BuddyBoardGames` anchor table. No gameplay logic or bot heuristic is implemented
 in the TypeScript bridge. Gameplay is entirely local after static asset loading.
-See [Yahtzee vs. Keiri](yahtzee-keiri.md) for the controller and persistence design.
+See [Keiri’s Domain](yahtzee-keiri.md) for the controller and persistence design.
 
 ## Source and table provenance
 
