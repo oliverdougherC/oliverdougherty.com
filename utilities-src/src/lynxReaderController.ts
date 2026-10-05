@@ -42,7 +42,7 @@ export class LynxReaderController {
         <div class="lynx-entry-actions"><button class="btn-primary-minimal" data-lynx-read>Read</button></div>
       </div>
       <div class="lynx-reader" data-lynx-reader hidden>
-        <div class="lynx-topline"><span data-lynx-status role="status">Paused</span><button class="btn-secondary-minimal" data-lynx-edit>Change Text</button></div>
+        <div class="lynx-topline"><span class="sr-only" data-lynx-status role="status">Paused</span><button class="btn-secondary-minimal" data-lynx-edit>Change Text</button></div>
         <div class="lynx-display" data-lynx-display tabindex="0" aria-label="Reading word" aria-keyshortcuts="Space ArrowLeft ArrowRight">
           <div class="lynx-guide" aria-hidden="true"></div>
           <div class="lynx-word" data-lynx-word role="img" aria-label="">
@@ -58,8 +58,7 @@ export class LynxReaderController {
             <label for="lynxFont"><span class="control-label">Word font</span><select id="lynxFont" data-lynx-font class="control-select-minimal"><option value="sans">Sans serif</option><option value="serif">Serif</option><option value="mono">Monospace</option></select></label>
             <label for="lynxSize"><span class="control-label">Word size <output data-lynx-size-value for="lynxSize">88 px</output></span><input id="lynxSize" data-lynx-size type="range" min="32" max="144" step="4" value="88"></label>
           </div>
-          <p class="lynx-hint" id="lynxPauseHelp">Adjust pauses at commas and sentence endings. Target WPM includes pauses.</p>
-          <p class="lynx-hint">Space: play / pause · ← / →: sentence · Scroll ↑ / ↓: faster / slower</p>
+          <p class="sr-only" id="lynxPauseHelp">Adjust pauses at commas and sentence endings. Target WPM includes pauses.</p>
           <div class="lynx-progress"><label class="control-label" for="lynxPosition">Position</label><span data-lynx-position></span><input id="lynxPosition" data-lynx-seek type="range" min="0" max="0" value="0" step="1" aria-label="Reading position"></div>
         </div>
       </div>`;
