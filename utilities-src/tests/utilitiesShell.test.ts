@@ -4,11 +4,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const shell = readFileSync(new URL('../../js/utilities-shell.js', import.meta.url), 'utf8');
 const tools = [
-  ['image-transform', 'Image Transform'],
-  ['audio-fourier', 'Fourier Reconstruction'],
-  ['stress-test', 'Stress Test'],
-  ['yahtzee-keiri', 'Yahtzee vs. Keiri'],
-  ['local-assistant', 'LLM Rumen Cannula']
+  ['image-transform', 'Image Transform', '01'],
+  ['audio-fourier', 'Fourier Reconstruction', '02'],
+  ['stress-test', 'Stress Test', '03'],
+  ['yahtzee-keiri', 'Yahtzee vs. Keiri', '04'],
+  ['local-assistant', 'LLM Rumen Cannula', '06']
 ];
 const instances: JSDOM[] = [];
 
@@ -24,8 +24,8 @@ function setup(hash = '', beforeEval?: (window: JSDOM['window']) => void) {
       <span id="utilityNumber"></span><h1 id="utilityTitle" tabindex="-1"></h1>
       <label class="workbench-switcher"><span class="workbench-switcher-label" aria-hidden="true">Switch utility</span><select id="utilitySwitcher" aria-label="Switch utility">${tools.map(([id, title]) =>
         `<option value="${id}">${title}</option>`).join('')}</select></label>
-      ${tools.map(([id, title], index) => `<section class="utility-stage" data-utility-id="${id}"
-        data-utility-title="${title}" data-utility-number="0${index + 1}" hidden>
+      ${tools.map(([id, title, number]) => `<section class="utility-stage" data-utility-id="${id}"
+        data-utility-title="${title}" data-utility-number="${number}" hidden>
         <div data-utility-root></div></section>`).join('')}
       <section class="utility-stage" data-utility-id="virtual-machine" hidden></section>
     </main>`, { url: `https://example.com/utilities/${hash}`, runScripts: 'outside-only' });
@@ -59,13 +59,13 @@ describe('utilities shell', () => {
     const label = switcher.labels![0];
     expect(label.querySelector('.workbench-switcher-label')?.getAttribute('aria-hidden')).toBe('true');
     expect(label.querySelectorAll('button, select, input, [tabindex]')).toHaveLength(1);
-    expect(Array.from(switcher.options, option => [option.value, option.textContent])).toEqual(tools.map(([id, title], index) => [id, `0${index + 1} // ${title}`]));
+    expect(Array.from(switcher.options, option => [option.value, option.textContent])).toEqual(tools.map(([id, title, number]) => [id, `${number} // ${title}`]));
     expect(document.querySelector('[data-utility="local-assistant"]')?.textContent).toContain('LLM Rumen Cannula');
     expect(document.querySelector('#localAssistantApp')?.getAttribute('aria-label')).toBe('LLM Rumen Cannula');
     expect(document.querySelector('[data-utility-id="local-assistant"]')?.getAttribute('data-utility-title')).toBe('LLM Rumen Cannula');
   });
 
-  it.each([['audio-fourier', 'Fourier Reconstruction', '02'], ['yahtzee-keiri', 'Yahtzee vs. Keiri', '04'], ['local-assistant', 'LLM Rumen Cannula', '05']])('opens %s deep links and notifies the active controller', (id, title, number) => {
+  it.each([['audio-fourier', 'Fourier Reconstruction', '02'], ['yahtzee-keiri', 'Yahtzee vs. Keiri', '04'], ['local-assistant', 'LLM Rumen Cannula', '06']])('opens %s deep links and notifies the active controller', (id, title, number) => {
     const { window, query, events } = setup(`#${id}`);
     expect(query(`[data-utility-id="${id}"]`).classList.contains('is-active')).toBe(true);
     expect(query(`[data-utility-id="${id}"]`).hidden).toBe(false);

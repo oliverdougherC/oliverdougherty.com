@@ -417,7 +417,7 @@ async function assertWorkbenchShell(browser, baseUrl) {
     { id: 'audio-fourier', name: 'Fourier Reconstruction', number: '02' },
     { id: 'stress-test', name: 'Stress Test', number: '03' },
     { id: 'yahtzee-keiri', name: 'Yahtzee vs. Keiri', number: '04' },
-    { id: 'local-assistant', name: 'LLM Rumen Cannula', number: '05' }
+    { id: 'local-assistant', name: 'LLM Rumen Cannula', number: '06' }
   ];
   for (const viewport of [{ width: 1280, height: 800 }, { width: 1440, height: 900 }]) {
     const page = await browser.newPage({ viewport });
