@@ -16,8 +16,8 @@ apostrophes, hyphens, decimals, URLs and Unicode. CRLF/CR normalize to LF; singl
 line wraps and tabs are ordinary separators. Two newlines, including intervening
 spaces/tabs, mark a paragraph. Extra blank lines do not stack pauses. Nonprinting
 controls and bidi overrides are removed; combining marks and emoji joiners remain.
-Pasted content is assigned with `textContent`, never interpreted as HTML.
-
+Pasted content is assigned with `textContent`, never interpreted as HTML. The
+source opens prefilled with a fixed passage so Read works without any input.
 Trailing closing quotes/brackets are ignored for boundary classification. Commas,
 semicolons and colons indicate clauses; question/exclamation marks, periods,
 ellipses and their common Unicode equivalents indicate sentences. A small
@@ -38,10 +38,12 @@ visible clusters. The zero-based recognition index is 0 for length 1, 1 for 2–
 The focal grapheme's center sits at 50% of the reading stage. Prefix and suffix
 are absolutely positioned on its two sides; their widths cannot move the anchor.
 Violet color and fixed black ticks identify the focal position. Ligatures and
-kerning are disabled across fragments. If either side would exceed its available
-space, the whole word scales around the same focal center. Extremely long tokens
-can therefore become small; they never displace the anchor. ResizeObserver and
-font readiness re-fit the current word. There are no movement transitions.
+kerning are disabled across fragments. Fitting is bidirectional around the same
+focal center: long tokens shrink so neither side can exceed its available space,
+while short tokens grow until the 88px guide-framed focal line or the stage
+height binds first. Words therefore fill the instrument without reading as
+page titles, and no token displaces the anchor. ResizeObserver and font
+readiness re-fit the current word. There are no movement transitions.
 
 The source textarea alone may scroll. The reader is a viewport-sized grid using
 the existing white surface, Inter controls, violet accent and thin rules.
