@@ -2660,11 +2660,13 @@ async function main() {
       }
     });
 
-    await runUtilitySection(utilitySectionFailures, 'Lynx Reader', async () => {
-      await runLynxChecks(browser, baseUrl);
-    });
+    if (process.env.UTILITIES_SKIP_LYNX !== '1') {
+      await runUtilitySection(utilitySectionFailures, 'Lynx Reader', async () => {
+        await runLynxChecks(browser, baseUrl);
+      });
+    }
 
-    // release-check runs the focused game suite separately in every browser.
+    // release-check runs focused utility suites in separate bounded processes.
     // Direct utilities:browser-check invocations still include it by default.
     if (process.env.UTILITIES_SKIP_YAHTZEE !== '1') {
       await runUtilitySection(utilitySectionFailures, 'Keiri’s Domain', async () => {
@@ -2672,9 +2674,11 @@ async function main() {
       });
     }
 
-    await runUtilitySection(utilitySectionFailures, 'LLM Rumen Cannula', async () => {
-      await runLocalAssistantChecks(browser, baseUrl);
-    });
+    if (process.env.UTILITIES_SKIP_LOCAL_ASSISTANT !== '1') {
+      await runUtilitySection(utilitySectionFailures, 'LLM Rumen Cannula', async () => {
+        await runLocalAssistantChecks(browser, baseUrl);
+      });
+    }
 
     await runUtilitySection(utilitySectionFailures, 'Reduced Motion', async () => {
       const reducedMotionPage = await browser.newPage({

@@ -55,7 +55,7 @@ async function run(name, file, env, timeout = 300000) {
       if (timedOut) stop('SIGKILL');
       log.end();
       const result = { name, code, signal, timedOut, seconds: (Date.now() - started) / 1000, status: code === 0 && !timedOut ? 'pass' : 'fail' };
-      console.log(`${result.status.toUpperCase()}: ${name} (${result.seconds.toFixed(1)}s)`);
+      console.log(`${result.status.toUpperCase()}: ${name} (${result.seconds.toFixed(1)}s${timedOut ? `; exceeded ${timeout}ms process deadline` : ''})`);
       resolve(result);
     });
   });
@@ -71,10 +71,10 @@ function createCheckPlan({ browsers = BROWSERS, group } = {}) {
   assert.equal(new Set(browsers).size, browsers.length, 'Duplicate release browsers');
   assert(group === undefined || GROUPS.includes(group), `Unknown release group: ${group}`);
   const checks = [{ name: 'cache-releases', file: 'cache-release-check.js', group: 'cache', env: {} }];
-  const gameChecks = [];
+  const utilityChecks = [];
   for (const browser of browsers) {
     const env = { BROWSER: browser, HOME_CHECK_BROWSERS: browser, UTILITIES_BROWSER: browser };
-    gameChecks.push({ name: `${browser}-yahtzee`, file: 'yahtzee-check.js', group: 'utilities', env });
+    utilityChecks.push({ name: `${browser}-yahtzee`, file: 'yahtzee-check.js', group: 'utilities', env });
     const add = (name, file, checkGroup, extra = {}) => checks.push({ name: `${browser}-${name}`, file, group: checkGroup, env: { ...env, ...extra } });
     for (const [name, file] of [['nav', 'nav-overlay-check.js'], ['nav-stability', 'navigation-stability-check.js'], ['optional-startup', 'optional-startup-check.js'], ['blackout-storage', 'blackout-storage-check.js']]) add(name, file, 'navigation');
     for (const [name, file] of [['gallery-release', 'gallery-release-check.js'], ['gallery-heading', 'gallery-heading-check.js'], ['gallery-inspector', 'gallery-inspector-check.js'], ['gallery-prefetch', 'gallery-prefetch-check.js'], ['gallery-transitions', 'gallery-transition-check.js'], ['gallery-status', 'gallery-status-check.js']]) add(name, file, 'gallery');
@@ -82,21 +82,24 @@ function createCheckPlan({ browsers = BROWSERS, group } = {}) {
     add('home-stage', 'home-check.js', 'home', { HOME_CHECK_STAGE_ONLY: '1' });
     add('home-reveal', 'nighthawks-reveal-check.js', 'home', { NIGHTHAWKS_CHECK_BROWSERS: browser });
     if (browser === 'chromium') {
+      for (const [name, file] of [['lynx-reader', 'lynx-reader-check.js'], ['local-assistant', 'local-assistant-check.js']]) {
+        utilityChecks.push({ name: `${browser}-${name}`, file, group: 'utilities', env });
+      }
       // Mobile routes include gallery and resume, so both feature selections need this check.
       add('mobile', 'mobile-site-check.js', 'navigation');
       for (const [name, file] of [['home', 'home-check.js'], ['resume-lifecycle', 'resume-lifecycle-check.js']]) add(name, file, 'home');
       for (const [name, file] of [['gallery', 'gallery-dropdown-check.js'], ['gallery-data', 'gallery-data-loading-check.js']]) add(name, file, 'gallery');
       for (const [name, file] of [['utilities', 'utilities-check.js'], ['transform-preparation', 'transform-preparation-check.js'], ['stress', 'stress-test-check.js']]) {
-        add(name, file, 'utilities', name === 'utilities' ? { UTILITIES_SKIP_YAHTZEE: '1' } : {});
+        add(name, file, 'utilities', name === 'utilities' ? { UTILITIES_SKIP_YAHTZEE: '1', UTILITIES_SKIP_LYNX: '1', UTILITIES_SKIP_LOCAL_ASSISTANT: '1' } : {});
       }
     } else {
       add('index-arrow', 'index-arrow-check.js', 'utilities');
       add('stress-pool', 'stress-test-check.js', 'utilities', { STRESS_BROWSER_TYPE: browser, STRESS_POOL_ONLY: '1' });
     }
   }
-  // Each game suite gets its own bounded process; run it before the longer
+  // Focused utility suites get their own bounded processes before the longer
   // legacy workloads rather than extending their existing five-minute guard.
-  const plan = [...gameChecks, ...checks];
+  const plan = [...utilityChecks, ...checks];
   return group ? plan.filter(check => check.group === group) : plan;
 }
 
