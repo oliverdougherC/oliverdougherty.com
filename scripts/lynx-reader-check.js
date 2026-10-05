@@ -237,16 +237,18 @@ async function runLynxChecks(browser, baseUrl) {
 module.exports = { runLynxChecks };
 if (require.main === module) {
   (async () => {
-    const server = await startLocalStaticServer({ cwd: ROOT, url: process.env.LYNX_READER_CHECK_URL || 'http://127.0.0.1:4189' });
-    const baseUrl = server.url;
+    const externalUrl = process.env.UTILITIES_CHECK_URL;
+    const requestedUrl = externalUrl || process.env.LYNX_READER_CHECK_URL || 'http://127.0.0.1:4189';
+    const server = await startLocalStaticServer({ cwd: ROOT, url: requestedUrl, skip: Boolean(externalUrl) });
+    const baseUrl = server?.url || requestedUrl;
     let browser;
     try {
       await waitForServer(baseUrl);
-      const browserName = process.env.LYNX_READER_BROWSER || 'chromium';
+      const browserName = process.env.LYNX_READER_BROWSER || process.env.UTILITIES_BROWSER || 'chromium';
       const browserType = { chromium, webkit }[browserName];
       assert.ok(browserType, `Unsupported Lynx test browser: ${browserName}`);
       browser = await browserType.launch({ headless: true });
       await runLynxChecks(browser, baseUrl);
-    } finally { await browser?.close(); server.kill('SIGTERM'); }
+    } finally { await browser?.close(); server?.kill('SIGTERM'); }
   })().catch(error => { console.error(error); process.exitCode = 1; });
 }

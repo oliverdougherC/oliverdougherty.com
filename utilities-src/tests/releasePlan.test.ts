@@ -17,9 +17,9 @@ it('preserves existing release checks and includes cross-browser game coverage',
     ...legacy, 'chromium-home-reveal', 'firefox-home-reveal', 'webkit-home-reveal',
     'chromium-gallery-inspector', 'firefox-gallery-inspector', 'webkit-gallery-inspector',
     'chromium-yahtzee', 'firefox-yahtzee', 'webkit-yahtzee',
-    'firefox-index-arrow', 'webkit-index-arrow'
+    'firefox-index-arrow', 'webkit-index-arrow', 'chromium-lynx-reader', 'chromium-local-assistant'
   ].sort());
-  expect(new Set(plan.map((check: { name: string }) => check.name)).size).toBe(55);
+  expect(new Set(plan.map((check: { name: string }) => check.name)).size).toBe(57);
   expect(plan.some((check: { name: string }) => check.name === 'chromium-index-arrow')).toBe(false);
 });
 
@@ -69,4 +69,23 @@ it.each(['chromium', 'firefox', 'webkit'])('runs the real Yahtzee suite in the %
   if (browser === 'chromium') expect(legacy.env.UTILITIES_SKIP_YAHTZEE).toBe('1');
   else expect(legacy).toBeUndefined();
   expect(plan[0]).toBe(games[0]);
+});
+
+
+it('runs each added utility in its own process without losing or duplicating release coverage', async () => {
+  const plan = createCheckPlan({ browsers: ['chromium'], group: 'utilities' });
+  const legacy = plan.find((check: { name: string }) => check.name === 'chromium-utilities');
+  expect(legacy.env).toMatchObject({ UTILITIES_SKIP_YAHTZEE: '1', UTILITIES_SKIP_LYNX: '1', UTILITIES_SKIP_LOCAL_ASSISTANT: '1' });
+  for (const [name, file] of [['lynx-reader', 'lynx-reader-check.js'], ['local-assistant', 'local-assistant-check.js']]) {
+    const focused = plan.filter((check: { file: string }) => check.file === file);
+    expect(focused).toHaveLength(1);
+    expect(focused[0]).toMatchObject({ name: `chromium-${name}`, group: 'utilities', env: { UTILITIES_BROWSER: 'chromium' } });
+    expect(plan.indexOf(focused[0])).toBeLessThan(plan.indexOf(legacy));
+    expect(focused[0].env.UTILITIES_SKIP_LYNX).toBeUndefined();
+    expect(focused[0].env.UTILITIES_SKIP_LOCAL_ASSISTANT).toBeUndefined();
+  }
+  const runCheck = vi.fn(async (name: string, _file: string, _env: Record<string, string>) => ({ name, status: 'pass' }));
+  await executeChecks(plan, { UTILITIES_CHECK_URL: 'http://127.0.0.1:12345', REQUIRE_DEPLOY_ARTIFACT: '1' }, { runCheck });
+  expect(runCheck).toHaveBeenCalledTimes(plan.length);
+  for (const call of runCheck.mock.calls) expect(call[2]).toMatchObject({ UTILITIES_CHECK_URL: 'http://127.0.0.1:12345', REQUIRE_DEPLOY_ARTIFACT: '1' });
 });
