@@ -24,6 +24,9 @@ node utilities-src/local-assistant-runtime/verify.mjs --benchmark
 node utilities-src/local-assistant-runtime/verify.mjs --v1
 # Validate bounded attention/delta/lens telemetry, live controls, and UTF-8 tokens.
 node utilities-src/local-assistant-runtime/verify.mjs --v3 --controls --unicode
+# Review-fix regressions: selected rank-10 sampling and physical context exhaustion.
+node utilities-src/local-assistant-runtime/verify.mjs --sampling --context-limit
+npx vitest run --config config/vitest.utilities.mts utilities-src/tests/localAssistantNativeBridge.test.ts
 ```
 
 The build requires Git, Node/npm, Python, CMake, Ninja, curl, and unzip. It downloads
@@ -76,9 +79,14 @@ template has formatted the request, including control tokens. An initial stream
 event returns them before the first prefill graph runs, with actual prompt total
 and zero processed tokens. Subsequent `prompt_progress` events report native
 prefill work; they do not increment the generated-token count. Candidate IDs and
-weights come from the actual native sampler. Top-eight weights are a subset of
-the full distribution, so they need not sum to one. The runtime distinguishes
-post-sampler weights from pre-sampling model softmax probabilities.
+weights come from the actual native sampler. The bounded candidate list contains
+the top eight plus the selected token when it falls outside that prefix (at most
+nine entries, still sorted by probability). The selected token's probability is
+independently obtained from the entire native distribution; it is not assigned
+the eighth candidate's weight or an invented rank. Being ninth in the displayed
+list does not mean native rank nine. These subset weights need not sum to one.
+The runtime distinguishes post-sampler weights from pre-sampling model softmax
+probabilities.
 
 `layers` describes the residual stream after each Qwen3.5 block for the last token
 in that forward-pass microbatch. For a generated token, this is the pass that
@@ -166,6 +174,20 @@ prompt caches, and clears native KV/recurrent memory while preserving weights.
 `exit()` invalidates pending initialization, rejects pending worker RPCs, clears
 model Blob references, terminates the worker, and revokes its object URL.
 
+A worker error, undecodable message, failed model-file read, native abort, or
+failed `postMessage` permanently fails that worker bridge. The original error is
+recorded before queued calls reject; future calls reject immediately. Stream
+cleanup skips cancellation against that dead worker, and optional source-map
+lookup cannot delay failure settlement. Exit is safe before initialization and
+after failure. New Chat can retire the failed runtime so a subsequent send loads
+a fresh one instead of waiting on a dead request queue.
+
+`NativeWorkerBridge` exposes the actual production transport for diagnostics and
+regression tests. The failure tests run the shipped Wllama stream/finally path
+against a worker that stops responding, then exercise Stop, another send, New
+Chat, and successful session recovery. They do not substitute a reimplementation
+of the bridge or its cancellation logic.
+
 `setSlowMode(true)` applies immediately to the active request. It paces requests
 to the native `get_result` action at approximately three decoded tokens per second.
 That action advances one native inference-loop iteration; while the host awaits
@@ -183,6 +205,24 @@ and context shifting stays disabled.
 Set `observatory: false` and omit logprobs to measure the minimal path using the
 same weights, sampler, runtime, and GPU. This skips all additional reduction nodes
 and telemetry. It is not a separate CPU backend.
+
+## Review-fix verification (.4)
+
+Eight tests exercise the shipped native transport and Wllama response/finally
+logic against failures, with a 500 ms deadlock deadline (not a performance target).
+A real Apple WebGPU sampling probe used top-k 20 and temperature 5 to obtain a
+rank-10 draw: token 3710 (`What`), probability 0.0424240343272686. The bounded
+nine-entry observation retained it; its weight exactly matched both the native
+selected-token probability and the independently exposed top-20 distribution.
+
+The physical-context probe requested 128 tokens; this llama.cpp build rounded
+that to **256 actual tokens**. Loaded context metadata now reports `llama_n_ctx`
+rather than echoing the request. With `max_tokens: -1` and EOS suppressed only for
+the test, streaming ended normally with `finish_reason: length` after 24 prompt
+and 232 generated tokens. Reset retained the model, cleared cached tokens, and
+allowed another response. The .4 GPU regression also retained complete Unicode
+telemetry, live Slow toggles, and prompt Stop settlement. Exact results are in
+`verification.json.v4`; no new performance benchmark was run for these fixes.
 
 ## Verified hardware and limits
 

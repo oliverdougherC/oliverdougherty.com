@@ -111,9 +111,19 @@ export function createAssistantRuntime() {
     },
     generate(messages, thinking, signal, update) {
       return new Promise((resolve, reject) => {
-        fixture.generations.push({ update, finish: resolve, fail: reject, thinking, slow });
+        let content = '', reasoning = '';
+        const emit = (answer, thoughts, observation) => { content = answer; reasoning = thoughts; update(answer, thoughts, observation); };
+        fixture.generations.push({ update: emit, finish: resolve, fail: reject, thinking, slow,
+          messages: messages.map(message => ({ ...message })),
+          finishLength() {
+            // Normalized adapter boundary: a streamed length finish preserves
+            // accumulated output, then rejects with the actionable context error.
+            emit(content, reasoning, { finishReason: 'length' });
+            reject(new Error('The context is full. Start a new chat to continue.'));
+          }
+        });
         signal.addEventListener('abort', () => { update('STALE ANSWER', '', {}); resolve(); }, { once: true });
-        update('', thinking ? 'Fixture reasoning.' : '', { stage: 'prefill', promptProcessed: 0, promptTotal: 1024 });
+        emit('', thinking ? 'Fixture reasoning.' : '', { stage: 'prefill', promptProcessed: 0, promptTotal: 1024 });
       });
     },
     async reset() { fixture.resets++; },
@@ -247,6 +257,102 @@ async function assertAutoEntersChat(browser, baseUrl) {
     await page.evaluate(() => globalThis.__localAssistantFixture.generations.at(-1).finish());
     await phase(page, 'ready');
     assert.equal(await element(page, 'chat').isVisible(), true, 'Chat remains entered after a completed turn');
+    noErrors(page);
+  } finally { await page.close(); }
+}
+
+async function assertContextExhaustionRecovery(browser, baseUrl) {
+  const page = await createPage(browser);
+  await installUiFixture(page);
+  try {
+    await page.goto(url(baseUrl), { waitUntil: 'domcontentloaded' });
+    await phase(page, 'ready');
+    await element(page, 'thinking').check();
+    await element(page, 'input').fill('Use the remaining context.');
+    await element(page, 'send').click();
+    await phase(page, 'generating');
+    await page.evaluate(() => globalThis.__localAssistantFixture.generations.at(-1).update(
+      'Partial answer before the context limit.', 'Reasoning retained before the context limit.',
+      { stage: 'decode', token: { id: 42, piece: 'limit' }, generated: 1, contextUsed: 65536, pass: 2 }
+    ));
+    await page.waitForFunction(() => document.querySelector('.la-message--assistant .la-message-body')?.textContent === 'Partial answer before the context limit.');
+    await page.evaluate(() => globalThis.__localAssistantFixture.generations.at(-1).finishLength());
+    await phase(page, 'error');
+    assert.equal((await page.locator(`${APP} .la-message--assistant .la-message-body`).textContent()).trim(), 'Partial answer before the context limit.', 'A streamed length finish preserves the partial answer');
+    assert.equal((await page.locator(`${APP} .la-message--assistant .la-reasoning`).textContent()).trim(), 'Reasoning retained before the context limit.', 'A streamed length finish preserves partial reasoning');
+    assert.match(await element(page, 'chat-error-text').innerText(), /context is full/i);
+    assert.equal(await element(page, 'chat-retry').innerText(), 'New chat', 'Context exhaustion offers conversation reset instead of model reload');
+    assert.equal(await element(page, 'send').isDisabled(), true, 'The full context cannot accept another prompt');
+    await page.locator(`${APP} .la-message--assistant summary`).click();
+    assert.equal(await page.locator(`${APP} .la-message--assistant .la-reasoning`).isVisible(), true, 'Preserved reasoning remains inspectable after context exhaustion');
+    await assertFits(page, 'Context exhaustion 1280x720');
+    await page.screenshot({ path: path.join(OUTPUT, `fixture-context-full-${browser.browserType().name()}.png`) });
+    await element(page, 'chat-retry').click();
+    await phase(page, 'ready');
+    await page.waitForFunction(() => globalThis.__localAssistantFixture.resets === 1);
+    assert.deepEqual(await page.evaluate(() => ({ loads: globalThis.__localAssistantFixture.loads, disposals: globalThis.__localAssistantFixture.disposals })), { loads: 1, disposals: 0 }, 'New chat resets the loaded runtime without downloading or disposing it');
+    assert.equal(await page.locator(`${APP} .la-message`).count(), 0, 'Context recovery clears the exhausted conversation');
+    assert.equal(await element(page, 'chat-error').isVisible(), false);
+    assert.equal(await element(page, 'input').evaluate(node => node === document.activeElement), true, 'Recovery returns focus to the composer');
+    await assertObservatoryCleared(page, 'Context recovery clears observations and the terminal finish reason');
+    await element(page, 'input').fill('A fresh, short question.');
+    await element(page, 'send').click();
+    await phase(page, 'generating');
+    assert.deepEqual(await page.evaluate(() => globalThis.__localAssistantFixture.generations.at(-1).messages), [{ role: 'user', content: 'A fresh, short question.' }], 'The next prompt starts without exhausted conversation history');
+    await page.evaluate(() => {
+      const turn = globalThis.__localAssistantFixture.generations.at(-1);
+      turn.update('The fresh chat works.', '', { stage: 'decode', token: { id: 43, piece: 'works' }, generated: 1, contextUsed: 2, pass: 3 });
+      turn.finish();
+    });
+    await phase(page, 'ready');
+    assert.equal((await page.locator(`${APP} .la-message--assistant .la-message-body`).textContent()).trim(), 'The fresh chat works.');
+    assert.equal(await element(page, 'chat-error').isVisible(), false, 'A successful new turn does not retain the old length error');
+    await page.screenshot({ path: path.join(OUTPUT, `fixture-context-recovered-${browser.browserType().name()}.png`) });
+    noErrors(page);
+  } finally { await page.close(); }
+}
+
+async function assertSampledTailCandidate(browser, baseUrl) {
+  const page = await createPage(browser);
+  await installUiFixture(page);
+  try {
+    await page.goto(url(baseUrl), { waitUntil: 'domcontentloaded' });
+    await phase(page, 'ready');
+    await element(page, 'thinking').uncheck();
+    await element(page, 'input').fill('Exercise a sampled token outside the native top eight.');
+    await element(page, 'send').click();
+    await phase(page, 'generating');
+    await page.evaluate(() => {
+      const turn = globalThis.__localAssistantFixture.generations.at(-1);
+      turn.update('', '', { stage: 'prefill', promptProcessed: 1, promptTotal: 1, promptTokens: [{ id: 1, piece: 'Prompt' }], contextUsed: 1, pass: 1 });
+      // The normalized packet contains native top eight plus the actual rank-ten
+      // sample. Rank nine and other tail entries are intentionally omitted.
+      const top = [0.25, 0.18, 0.14, 0.1, 0.08, 0.06, 0.045, 0.035].map((probability, index) => ({ id: 100 + index, piece: `top${index + 1}`, probability }));
+      const selected = { id: 110, piece: 'tail-sampled', probability: 0.02 };
+      turn.update('The tail token was sampled.', '', {
+        stage: 'decode', token: { id: selected.id, piece: selected.piece }, generated: 1, contextUsed: 2, pass: 2,
+        candidates: [...top, selected],
+        lens: [{ layer: 11, candidates: [{ ...selected, probability: 0.4 }, top[0], top[1]] }, { layer: 19, candidates: top.slice(0, 3) }]
+      });
+      turn.finish();
+    });
+    await phase(page, 'ready');
+    for (const [width, height, budget] of [[800, 600, 3], [1920, 1080, 5], [3840, 2160, 8]]) {
+      await page.setViewportSize({ width, height });
+      await page.waitForFunction(() => Math.abs(document.body.getBoundingClientRect().height - innerHeight) < 2);
+      await page.waitForFunction(expected => document.querySelector('[data-candidates]')?.dataset.candidateBudget === String(expected), budget);
+      const candidateState = await page.locator(`${APP} [data-observatory-view]`).evaluate(host => ({
+        rows: [...host.querySelectorAll('[data-candidate-id]')].map(row => ({ id: Number(row.dataset.candidateId), sampled: row.dataset.sampled === 'true', probability: row.lastElementChild.textContent, fill: row.style.getPropertyValue('--probability') })),
+        final: [...host.querySelectorAll('[data-lens-layer="-1"]')].map(row => ({ id: Number(row.dataset.lensToken), rank: Number(row.dataset.rank) }))
+      }));
+      assert.deepEqual(candidateState.rows.map(row => row.id), [...Array.from({ length: budget - 1 }, (_, index) => 100 + index), 110], `The ${budget}-row view retains the highest candidates plus the actual sample`);
+      assert.deepEqual(candidateState.rows.filter(row => row.sampled), [{ id: 110, sampled: true, probability: '2%', fill: '2%' }], 'The tail sample is highlighted exactly once with its original, unrenormalized probability');
+      assert.equal(candidateState.rows[0].probability, '25%', 'Leading candidate probability also remains unchanged');
+      assert(candidateState.final.length >= 2 && candidateState.final.length <= 3);
+      assert.deepEqual(candidateState.final, Array.from({ length: candidateState.final.length }, (_, index) => ({ id: 100 + index, rank: index + 1 })), 'The sampled tail token is not promoted into the Final top-three ranks');
+      await assertFits(page, `Tail sampled candidate ${width}x${height}`);
+      await page.screenshot({ path: path.join(OUTPUT, `fixture-tail-sample-${browser.browserType().name()}-${width}x${height}.png`) });
+    }
     noErrors(page);
   } finally { await page.close(); }
 }
@@ -594,7 +700,9 @@ async function runLocalAssistantChecks(browser, baseUrl) {
   console.log('Local Assistant: production download failure/retry passed.');
   await assertFixtureLifecycle(browser, baseUrl);
   await assertAutoEntersChat(browser, baseUrl);
-  console.log('Local Assistant: isolated fixture lifecycle checks passed.');
+  await assertContextExhaustionRecovery(browser, baseUrl);
+  await assertSampledTailCandidate(browser, baseUrl);
+  console.log('Local Assistant: isolated fixture lifecycle and review regressions passed.');
   await assertFixtureViewports(browser, baseUrl);
   console.log(`Local Assistant browser checks passed (${browser.browserType().name()}); lifecycle/layout fixture is not inference evidence.`);
 }
@@ -768,6 +876,8 @@ async function main() {
       fs.mkdirSync(OUTPUT, { recursive: true });
       await assertFixtureLifecycle(browser, baseUrl);
       await assertAutoEntersChat(browser, baseUrl);
+      await assertContextExhaustionRecovery(browser, baseUrl);
+      await assertSampledTailCandidate(browser, baseUrl);
       await assertFixtureViewports(browser, baseUrl);
       console.log('Local Assistant UI fixture checks passed (no inference).');
     } else await runLocalAssistantChecks(browser, baseUrl);

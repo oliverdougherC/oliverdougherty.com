@@ -7,10 +7,11 @@ vi.mock('../src/local-assistant/runtime', () => ({ createAssistantRuntime: vi.fn
 const controllers: LocalAssistantController[] = [];
 async function setup() {
   let update!: (content: string, reasoning: string, observation: Observation) => void;
+  let fail!: (error: Error) => void;
   const runtime: Runtime = {
     setSlowMode: vi.fn(),
     async load() { return { name: 'Test', context: 4096, layers: ['deltanet', 'attention'], backend: 'Test' }; },
-    async generate(_messages, _thinking, signal, callback) { update = callback; await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true })); },
+    async generate(_messages, _thinking, signal, callback) { update = callback; await new Promise<void>((resolve, reject) => { fail = reject; signal.addEventListener('abort', () => resolve(), { once: true }); }); },
     async reset() {}, async dispose() {}
   };
   const root = document.createElement('section'); document.body.append(root);
@@ -20,7 +21,7 @@ async function setup() {
   el<HTMLTextAreaElement>('[data-input]').value = 'Hello';
   el('[data-form]').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   await vi.advanceTimersByTimeAsync(0);
-  return { root, el, runtime, rawUpdate: (content: string, observation: Observation) => update(content, '', observation), update: async (content: string, reasoning = '', observation: Observation = {}) => { update(content, reasoning, observation); await vi.advanceTimersByTimeAsync(55); } };
+  return { root, el, runtime, fail: async (error: Error) => { fail(error); await vi.advanceTimersByTimeAsync(0); }, rawUpdate: (content: string, observation: Observation) => update(content, '', observation), update: async (content: string, reasoning = '', observation: Observation = {}) => { update(content, reasoning, observation); await vi.advanceTimersByTimeAsync(55); } };
 }
 beforeEach(() => {
   vi.useFakeTimers();
@@ -29,6 +30,26 @@ beforeEach(() => {
 });
 afterEach(async () => { for (const controller of controllers.splice(0)) await controller.destroy(); document.getSelection()?.removeAllRanges(); document.body.replaceChildren(); vi.restoreAllMocks(); vi.useRealTimers(); });
 describe('assistant streaming presentation', () => {
+  it.each(['answer', 'reasoning'])('offers New Chat while preserving context-limited %s', async kind => {
+    const { el, runtime, update, fail, root } = await setup();
+    const reset = vi.spyOn(runtime, 'reset');
+    const load = vi.spyOn(runtime, 'load');
+    await update(kind === 'answer' ? 'Partial answer' : '', kind === 'reasoning' ? 'Unfinished reasoning' : '', { finishReason: 'length' });
+    await fail(new Error('The context is full. Start a new chat to continue.'));
+    expect(root.dataset.phase).toBe('error');
+    expect(el('[data-chat-error]').hidden).toBe(false);
+    expect(el('[data-chat-error-text]').textContent).toContain('context is full');
+    expect(el('[data-chat-retry]').textContent).toBe('New chat');
+    expect(el('[data-transcript]').textContent).toContain(kind === 'answer' ? 'Partial answer' : 'Unfinished reasoning');
+    expect(el('[data-announcement]').textContent).not.toBe('Response complete.');
+    el('[data-chat-retry]').click(); await vi.advanceTimersByTimeAsync(0);
+    expect(reset).toHaveBeenCalledOnce(); expect(load).not.toHaveBeenCalled();
+    expect(root.dataset.phase).toBe('ready');
+    expect(el('[data-chat-error]').hidden).toBe(true);
+    expect(el('[data-transcript]').textContent).toBe('');
+    expect(document.activeElement).toBe(el('[data-input]'));
+  });
+
   it('forwards real prompt progress and captures every pass before rendering is throttled', async () => {
     const capture = vi.spyOn(ObservatoryView.prototype, 'ingest');
     const progress = vi.spyOn(ObservatoryView.prototype, 'setProgress');

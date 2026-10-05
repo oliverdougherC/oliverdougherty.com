@@ -6,3 +6,4 @@ export * from './types/types';
 export * from './types/oai-compat';
 export { CacheManager } from './cache-manager';
 export { isValidGgufFile } from './utils';
+export { ProxyToWorker as NativeWorkerBridge } from './worker';

@@ -16,6 +16,7 @@ export interface LayerChange { layer: number; relativeDelta: number; inputRms?: 
 export interface LensCheckpoint { layer: number; candidates: Candidate[] }
 export interface Observation {
   stage?: 'prefill' | 'decode';
+  finishReason?: string;
   promptProcessed?: number;
   promptTotal?: number;
   pass?: number;

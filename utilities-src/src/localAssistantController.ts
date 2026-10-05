@@ -128,7 +128,9 @@ export class LocalAssistantController {
     if (!target) return;
     this.session.touchActivity();
     if (target.hasAttribute('data-enter')) { this.gameRunning = false; this.snake?.stop(); this.session.enterChat(); this.el('[data-input]').focus(); }
-    if (target.hasAttribute('data-retry') || target.hasAttribute('data-chat-retry')) { if (!this.session.state.active) void this.session.activate(); else void this.session.retry(); }
+    if (target.hasAttribute('data-chat-retry') && this.session.state.observation.finishReason === 'length') {
+      await this.session.reset(); this.stickToBottom = true; this.el('[data-input]').focus();
+    } else if (target.hasAttribute('data-retry') || target.hasAttribute('data-chat-retry')) { if (!this.session.state.active) void this.session.activate(); else void this.session.retry(); }
     if (target.hasAttribute('data-cancel')) void this.session.unload();
     if (target.hasAttribute('data-stop')) this.session.stop();
     if (target.hasAttribute('data-new')) { this.resetObservation(); await this.session.reset(); this.stickToBottom = true; this.el('[data-input]').focus(); }
@@ -180,6 +182,7 @@ export class LocalAssistantController {
     const errorChanged = this.el('[data-chat-error]').hidden !== (state.phase !== 'error');
     this.el('[data-chat-error]').hidden = state.phase !== 'error';
     this.el('[data-chat-error-text]').textContent = state.status;
+    this.el('[data-chat-retry]').textContent = state.observation.finishReason === 'length' ? 'New chat' : 'Reload model';
     this.root.dataset.phase = state.phase;
     this.root.classList.toggle('is-chat', chat);
     this.el('[data-welcome]').hidden = chat; this.el('[data-chat]').hidden = !chat;

@@ -16,6 +16,23 @@ beforeEach(() => {
 });
 afterEach(() => { view.destroy(); document.body.replaceChildren(); vi.restoreAllMocks(); });
 describe('linked runtime views', () => {
+  it.each([[350, 160, 3], [700, 250, 5], [1800, 600, 8]])('keeps a rank-10 sampled token inspectable at host height %i', (height, panelHeight, rows) => {
+    Object.defineProperty(host, 'clientHeight', { configurable: true, value: height });
+    Object.defineProperty(el('[data-next-panel]'), 'clientHeight', { configurable: true, value: panelHeight });
+    view.resize();
+    const snapshot = sample(1); snapshot.sampled = { id: 110, piece: 'rank ten' };
+    // Native top eight plus separately measured selected probability. No claim
+    // that the appended sample is ninth in the full distribution.
+    snapshot.candidates = [...Array.from({ length: 8 }, (_, index) => ({ id: 101 + index, piece: `rank ${index + 1}`, probability: .09 - index * .003 })),
+      { id: 110, piece: 'rank ten', probability: .02 }];
+    view.ingest(snapshot); view.render();
+    expect(el('[data-candidates]').children).toHaveLength(rows);
+    expect(host.querySelectorAll('[data-sampled="true"]')).toHaveLength(1);
+    expect(el('[data-sampled="true"]').getAttribute('data-candidate-id')).toBe('110');
+    expect(el('[data-sampled="true"]').textContent).toContain('2%');
+    expect(host.querySelector('[data-lens-layer="-1"][data-lens-token="110"]')).toBeNull();
+  });
+
   it('displays original attention weights and full accessible source identity', () => {
     view.ingest(sample(1)); view.render();
     const edge = el<SVGElement>('[data-key-position="0"]');

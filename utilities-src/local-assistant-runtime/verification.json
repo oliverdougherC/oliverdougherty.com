@@ -1983,5 +1983,325 @@
       },
       "measurements": []
     }
+  },
+  "v4": {
+    "runtimeVersion": "3.8.1-observatory.4",
+    "date": "2026-10-04",
+    "host": "Apple M4 Pro",
+    "passed": true,
+    "browserVersion": "154.0.8037.93",
+    "gpu": {
+      "vendor": "apple",
+      "architecture": "metal-3",
+      "fallback": false
+    },
+    "layers": 24,
+    "deepTelemetryVerified": true,
+    "tokenAlignment": true,
+    "reset": true,
+    "cancelledInitialization": true,
+    "controls": {
+      "slowTokensPerSecond": 2.971030332049423,
+      "slowIntervalsMs": [
+        348.81999999284744,
+        333.960000038147,
+        340.41999995708466,
+        333.6100000143051,
+        332.97000002861023,
+        333.8449999690056,
+        332.460000038147
+      ],
+      "stopLatencyMs": 0.26499998569488525,
+      "tokensBeforeStop": 1,
+      "liveToggle": true,
+      "earlyTokenization": true
+    },
+    "unicode": {
+      "output": "👩🏽‍🚀",
+      "generated": 12,
+      "observed": 12,
+      "intervalsMs": [
+        349.69499999284744,
+        333.1449999809265,
+        351.9000000357628,
+        314.6200000047684,
+        341.67500001192093,
+        333.3149999976158,
+        325.3449999690056,
+        335.3799999952316,
+        338.72500002384186,
+        292.0999999642372,
+        333.3550000190735
+      ]
+    },
+    "selectedCandidate": {
+      "seed": 83,
+      "temperature": 5,
+      "topK": 20,
+      "rank": 10,
+      "token": {
+        "id": 3710,
+        "piece": "What"
+      },
+      "candidates": [
+        {
+          "id": 332,
+          "piece": "**",
+          "probability": 0.1336536556482315
+        },
+        {
+          "id": 760,
+          "piece": "The",
+          "probability": 0.0686953142285347
+        },
+        {
+          "id": 26677,
+          "piece": "Sil",
+          "probability": 0.05705561116337776
+        },
+        {
+          "id": 32,
+          "piece": "A",
+          "probability": 0.05490468069911003
+        },
+        {
+          "id": 22325,
+          "piece": "Sur",
+          "probability": 0.053968291729688644
+        },
+        {
+          "id": 1206,
+          "piece": "To",
+          "probability": 0.048615340143442154
+        },
+        {
+          "id": 8160,
+          "piece": "Here",
+          "probability": 0.0468876026570797
+        },
+        {
+          "id": 50,
+          "piece": "S",
+          "probability": 0.04491063579916954
+        },
+        {
+          "id": 3710,
+          "piece": "What",
+          "probability": 0.0424240343272686
+        }
+      ],
+      "nativeSelectedProbability": 0.0424240343272686,
+      "nativeTop20": [
+        {
+          "id": 332,
+          "token": "**",
+          "bytes": [
+            42,
+            42
+          ],
+          "prob": 0.1336536556482315
+        },
+        {
+          "id": 760,
+          "token": "The",
+          "bytes": [
+            84,
+            104,
+            101
+          ],
+          "prob": 0.0686953142285347
+        },
+        {
+          "id": 26677,
+          "token": "Sil",
+          "bytes": [
+            83,
+            105,
+            108
+          ],
+          "prob": 0.05705561116337776
+        },
+        {
+          "id": 32,
+          "token": "A",
+          "bytes": [
+            65
+          ],
+          "prob": 0.05490468069911003
+        },
+        {
+          "id": 22325,
+          "token": "Sur",
+          "bytes": [
+            83,
+            117,
+            114
+          ],
+          "prob": 0.053968291729688644
+        },
+        {
+          "id": 1206,
+          "token": "To",
+          "bytes": [
+            84,
+            111
+          ],
+          "prob": 0.048615340143442154
+        },
+        {
+          "id": 8160,
+          "token": "Here",
+          "bytes": [
+            72,
+            101,
+            114,
+            101
+          ],
+          "prob": 0.0468876026570797
+        },
+        {
+          "id": 50,
+          "token": "S",
+          "bytes": [
+            83
+          ],
+          "prob": 0.04491063579916954
+        },
+        {
+          "id": 38,
+          "token": "G",
+          "bytes": [
+            71
+          ],
+          "prob": 0.042932383716106415
+        },
+        {
+          "id": 3710,
+          "token": "What",
+          "bytes": [
+            87,
+            104,
+            97,
+            116
+          ],
+          "prob": 0.0424240343272686
+        },
+        {
+          "id": 34,
+          "token": "C",
+          "bytes": [
+            67
+          ],
+          "prob": 0.041977670043706894
+        },
+        {
+          "id": 44,
+          "token": "M",
+          "bytes": [
+            77
+          ],
+          "prob": 0.041832033544778824
+        },
+        {
+          "id": 13962,
+          "token": "###",
+          "bytes": [
+            35,
+            35,
+            35
+          ],
+          "prob": 0.041750140488147736
+        },
+        {
+          "id": 1743,
+          "token": "Un",
+          "bytes": [
+            85,
+            110
+          ],
+          "prob": 0.04155755788087845
+        },
+        {
+          "id": 550,
+          "token": "##",
+          "bytes": [
+            35,
+            35
+          ],
+          "prob": 0.041533906012773514
+        },
+        {
+          "id": 3758,
+          "token": "Per",
+          "bytes": [
+            80,
+            101,
+            114
+          ],
+          "prob": 0.041290100663900375
+        },
+        {
+          "id": 33,
+          "token": "B",
+          "bytes": [
+            66
+          ],
+          "prob": 0.040104832500219345
+        },
+        {
+          "id": 35,
+          "token": "D",
+          "bytes": [
+            68
+          ],
+          "prob": 0.03881649300456047
+        },
+        {
+          "id": 43,
+          "token": "L",
+          "bytes": [
+            76
+          ],
+          "prob": 0.03861411660909653
+        },
+        {
+          "id": 36,
+          "token": "E",
+          "bytes": [
+            69
+          ],
+          "prob": 0.038475606590509415
+        }
+      ]
+    },
+    "contextBoundary": {
+      "requestedContext": 128,
+      "context": 256,
+      "maxTokens": -1,
+      "finishReason": "length",
+      "generated": 232,
+      "promptTokens": 24,
+      "contextUsed": 256,
+      "retainedModel": true,
+      "resetCacheTokens": 0,
+      "recoveredText": "Hello! How can I assist you today"
+    },
+    "nativeBridge": {
+      "tests": 8,
+      "passed": true,
+      "command": "npx vitest run --config config/vitest.utilities.mts utilities-src/tests/localAssistantNativeBridge.test.ts",
+      "coverage": [
+        "uncaught worker failure with real getResponse/finally",
+        "message deserialization during initialization",
+        "asynchronous model-file read failure",
+        "native abort without awaiting diagnostics",
+        "synchronous postMessage failure",
+        "blocked constructor/object URL cleanup",
+        "exit before source resolves",
+        "session Stop, another send, New Chat and recovery"
+      ],
+      "settlementDeadlineMs": 500
+    },
+    "performance": "No new throughput benchmark; normal inference graph is unchanged. Earlier .3 measurements remain historical."
   }
 }

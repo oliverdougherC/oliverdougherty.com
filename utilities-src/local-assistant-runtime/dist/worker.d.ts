@@ -45,12 +45,14 @@ export declare class ProxyToWorker {
     resultQueue: Task[];
     busy: boolean;
     disposed: boolean;
+    private terminalError;
     worker?: Worker | undefined;
     multiThread: boolean;
     nbThread: number;
     useAsyncFile: boolean;
     fileBlobs: Map<string, Blob>;
     constructor(resources: WllamaWorkerResources, nbThread: number, suppressNativeLog: boolean, logger: Logger);
+    isTerminated(): boolean;
     getModuleCode(): Promise<string>;
     moduleInit(ggufFiles: {
         name: string;

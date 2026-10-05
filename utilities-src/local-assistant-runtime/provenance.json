@@ -1,5 +1,5 @@
 {
-  "version": "3.8.1-observatory.3",
+  "version": "3.8.1-observatory.4",
   "revisions": {
     "wllama": "7ed17361caf221a84aa1e80ca85a3d6324f3af85",
     "llamaCpp": "46ca246de9bb1c35269722a6240d37d9dfd79cad",
@@ -23,8 +23,8 @@
       "sha256": "35215d7770da132f2824360e6383751d5dc36c25fc234334a6cf97a7bfe45b94"
     },
     "wllama-observatory.patch": {
-      "bytes": 26007,
-      "sha256": "2a6a0bb169cab587f0a81b1eb83aa9adbfd052c22aa4e27c9494a9d6e55ad9da"
+      "bytes": 33446,
+      "sha256": "53d1140aa2c1919a505c2280b90d1d45752846e1d69972d3100bede79f9b9f72"
     }
   },
   "files": {
@@ -49,12 +49,12 @@
       "sha256": "31f05d0fe941ce7604697df050d60ff5baa45a6d5410cf13c387b8c189f2bf67"
     },
     "index.d.ts": {
-      "bytes": 281,
-      "sha256": "bf0c08d3d86dc0b74b627005dcc31db46eced3bffebb534477c7e8fe8da5ea05"
+      "bytes": 345,
+      "sha256": "a28412cf77d5e53390032ad361aa255ab1f4cc713d51b71bc7efc916c2baffe7"
     },
     "index.js": {
-      "bytes": 387842,
-      "sha256": "0420b8b8d0f00e489d9d50fd740803b92c1991de6f965d910eca1c825c22d9f6"
+      "bytes": 388987,
+      "sha256": "85a6c5740c791c9698aa00d1ff71c1e0cedcc74705156da4f58045eae1437243"
     },
     "model-manager.d.ts": {
       "bytes": 4213,
@@ -97,12 +97,12 @@
       "sha256": "8efad8dac893b3c537c3ededda0fba1803ee4eeba39a080c09e2851288960894"
     },
     "wllama.wasm": {
-      "bytes": 8813934,
-      "sha256": "59021c7fd605a53507120ba5b27d4b3d79e95f7733f5e3dbd9532e71ac0979d0"
+      "bytes": 8821946,
+      "sha256": "a7c0d160a6e5c57f39c516a0621ea6b8fc7773b121bb80d23988aa8b9c51b5cf"
     },
     "worker.d.ts": {
-      "bytes": 2523,
-      "sha256": "42d2ad326f763c8c913fe40ab26ec30b55c9c435888a826d36096f51411ce582"
+      "bytes": 2579,
+      "sha256": "36ddfba2fa561053151b9b58f1ee57dde26a6751d73ddd88ee82f8f4cae620ef"
     },
     "workers-code/generated.d.ts": {
       "bytes": 161276,
