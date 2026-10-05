@@ -29,6 +29,9 @@ node utilities-src/local-assistant-runtime/verify.mjs --sampling --context-limit
 npx vitest run --config config/vitest.utilities.mts utilities-src/tests/localAssistantNativeBridge.test.ts
 ```
 
+The build invokes the checked-in `scripts/lib/run-emscripten.sh` with literal SDK
+paths and tool arguments, rather than constructing inline shell commands.
+
 The build requires Git, Node/npm, Python, CMake, Ninja, curl, and unzip. It downloads
 its pinned Emscripten SDK and upstream source under `.codex-tmp/`; it does not
 install system software. It applies the two small source patches, regenerates the

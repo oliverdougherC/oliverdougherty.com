@@ -268,3 +268,12 @@ plus 232 generated tokens using `max_tokens: -1`. Reset kept the weights loaded,
 cleared the cache, and generated a fresh response. See `verification.json.v4` for
 the original distribution and measured termination/recovery record. The `.3`
 throughput benchmark was not rerun because the inference graph is unchanged.
+
+The PR-specific CodeQL alert
+[`js/shell-command-injection-from-environment` (#16)](https://github.com/oliverdougherC/oliverdougherty.com/security/code-scanning/16)
+pointed at the build helper's inline shell wrapper. The SDK path was already a
+quoted positional argument, so review did not find the reported interpolation
+path. The wrapper now runs a fixed, checked-in shell script instead of `bash -c`.
+Regression tests prove that shell syntax in SDK paths and tool arguments remains
+literal, and a missing SDK prevents the tool from launching. The native rebuild
+was repeated through this helper; no new runtime behavior is introduced.
