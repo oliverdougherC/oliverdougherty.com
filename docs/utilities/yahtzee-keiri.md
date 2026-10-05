@@ -1,4 +1,4 @@
-# Yahtzee vs. Keiri
+# Keiri’s Domain
 
 `#yahtzee-keiri` is the fourth desktop utility. It runs repeated, browser-local
 human versus Keiri matches using the BuddyBoardGames ruleset. The human takes the

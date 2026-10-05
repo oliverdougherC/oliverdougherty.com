@@ -1629,7 +1629,7 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         : utilityId === 'yahtzee-keiri'
         ? {
-            label: 'Yahtzee vs. Keiri',
+            label: 'Keiri’s Domain',
             load: async () => {
               const root = document.getElementById('yahtzeeKeiriApp');
               if (!root) return null;
