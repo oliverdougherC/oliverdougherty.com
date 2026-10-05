@@ -11,7 +11,10 @@ selection, or heuristic fallback.
 The shell owns navigation, route history and lazy utility activation.
 `css/yahtzee.css` is scoped to `.utility-shell--yahtzee` and loaded with the
 controller. One scorecard aligns Keiri values, category names and human values;
-a compact dice rack above it changes ownership with the turn. Dice use drawn pips.
+a dice rack above it changes ownership with the turn. Dice use drawn pips.
+The board uses the available height, while its width, typography, dice, pips and
+controls grow together with both viewport dimensions. Height limits the scale on
+wide, short windows; the compact layout keeps every category visible at 800×600.
 Completed matches replace the rack with the winner, final scores and Play Again.
 
 Open human categories become native score buttons when the small rules module can
@@ -187,8 +190,9 @@ The root exposes `data-turn`, `data-rolls` and `data-engine-state`; controls exp
 These are observation seams rather than production state mutation APIs. Browser
 coverage includes complete/offline play, warm table caching, corrupt/interrupted
 loading and retry, reload, route history, keyboard controls, reset races, actual
-native motion tracks, material continuity, and layout at 1440×900, 1280×720,
-1024×600 and 800×600.
+native motion tracks, material continuity, and layout at 3840×2160, 2560×1440, 1920×1080, 1440×900,
+1280×720, 2560×600, 1024×600 and 800×600. The layout checks also assert that
+score rows, text, dice, pips and controls grow with larger windows.
 
 ### Final-pass evidence — 2026-10-04
 

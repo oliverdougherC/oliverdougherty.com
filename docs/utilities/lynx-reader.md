@@ -41,13 +41,16 @@ are absolutely positioned on its two sides; their widths cannot move the anchor.
 Violet color and fixed black ticks identify the focal position. Ligatures and
 kerning are disabled across fragments. Fitting is bidirectional around the same
 focal center: long tokens shrink so neither side can exceed its available space,
-while short tokens grow until the 88px guide-framed focal line or the stage
-height binds first. Words therefore fill the instrument without reading as
-page titles, and no token displaces the anchor. ResizeObserver and font
+while short tokens grow to the selected size (32–144 px, default 88 px) or the
+stage height, whichever binds first. Sans serif (Inter), serif (Georgia), and
+monospace (JetBrains Mono) are selectable; the guide scales with the chosen size.
+Words therefore fill the instrument without reading as page titles, and no token displaces the anchor. ResizeObserver and font
 readiness re-fit the current word. There are no movement transitions.
 
 The source textarea alone may scroll. The reader is a viewport-sized grid using
-the existing white surface, Inter controls, violet accent and thin rules.
+the existing white surface, Inter controls, violet accent and thin rules. Below
+600 px window height, tighter spacing, a flexible word stage, and hidden hint
+rows keep all controls—including Position—inside the visible shell.
 
 ## Cadence and target WPM
 
@@ -65,9 +68,15 @@ dwell milliseconds = (60000 / target WPM) × weight / mean weight
 Only the strongest boundary bonus applies. Length grows smoothly toward a 0.65
 cap, density is added once, and paragraph gaps cannot accumulate. Short words are
 baseline weight 1; clause/sentence/paragraph multipliers for a short plain word
-are **1.22 / 1.65 / 2.25** before source normalization. All weights stay at or
-below 3.10. Normalization is calculated over the complete source, so total planned
-time, including the final word, is exactly `units × 60000 / WPM`. Subsections can
+are **1.22 / 1.65 / 2.25** before source normalization. At default settings,
+weights stay at or below 3.10. Comma/clause and sentence pauses are independently
+adjustable from 0–200% of baseline word time (defaults +22% and +65%). Semicolons/colons share
+the comma setting; periods, question marks and exclamation marks share the
+sentence setting. Punctuation at a paragraph ending also responds to its setting,
+while retaining the additional paragraph time; unpunctuated paragraph endings
+keep the 1.25 bonus. Custom settings adjust the relevant boundary bonus before
+normalization, so WPM continues to include pauses. Normalization is calculated over the complete source,
+so total planned time, including the final word, is exactly `units × 60000 / WPM`. Subsections can
 have a different effective rate. No minimum-dwell clamp silently changes WPM.
 
 On the 59-unit prose fixture in the browser check, mean weight is 1.1280. At
@@ -94,15 +103,26 @@ fresh measurements and screenshots to ignored `output/lynx-reader/`.
 ## Interaction and lifecycle
 
 Read displays the first unit paused and focuses the reading stage. Space toggles
-playback; Left/Right seek 10 units and pause. Native input/select/textarea behavior
-and button/link Space activation are preserved. Seek is an integer range labelled
-with its exact word position. Pointer-down pauses even before its value changes.
+playback; Left/Right and the sentence buttons skip to the start of the previous
+or next sentence and pause. Back skips the entire current sentence even from
+its middle. Paragraph starts count as sentence starts. At the edges, navigation
+clamps to the first/final word. These shortcuts remain active after dragging a
+slider or focusing any reader control; Enter activates focused buttons. Text
+editing and modified browser shortcuts remain native. Interactive workbench
+controls outside the reader, including Index and Switch utility, also retain
+their native keyboard behavior. Scroll up/down changes
+target speed by +25/−25 WPM, bounded to 100–1000; small trackpad deltas accumulate
+before a change. Zoom gestures and predominantly horizontal scrolling are ignored.
+Wheel handling is inactive in the text editor or another utility. Seek is an
+integer range labelled with its exact word position. Pointer-down pauses even before its value changes.
 Reset pauses at the start. Change Text retains the source for editing. Completion
 holds the final word for its full dwell, then offers Replay.
 
-Changing WPM retains position and playback state, recalculating only the remaining
-fraction of the current dwell. Pausing and resuming gives the displayed word a
-fresh full dwell. The scheduler has one timeout and a generation token; pause,
+Changing WPM or pause settings retains position and playback state, recalculating
+only the remaining fraction of the current dwell. Font and size changes re-fit
+the current word without restarting playback. Preferences remain for the current
+page session when editing text or switching utilities. Pausing and resuming gives
+the displayed word a fresh full dwell. The scheduler has one timeout and a generation token; pause,
 seek, reset, replacement text and deactivation invalidate stale callbacks.
 Repeated initialization is ignored. Shared hash routing owns activation/history;
 switching tools preserves text, index and WPM, then returns paused. Page hiding
@@ -122,9 +142,13 @@ Reduced motion requires no alternate animation because words change instantly.
 
 Unit coverage includes parser boundaries, Unicode ORP, modifier ordering/bounds,
 normalization, stale callbacks, live speed changes, exact seek/resume, completion,
-keyboard exclusions and deactivation. Browser coverage uses the shipped bundle:
+keyboard focus regressions and deactivation. Browser coverage uses the shipped bundle:
 prefilled source with Read enabled, index and deep links, Read/play/pause/seek/
 speed/reset, switch/return, Back/Forward, large paste, reduced motion and reload.
+Font and size extremes are also checked through 2560×1440, including short
+1280×500 and 1920×540 windows. Short-window checks also cover 800×500, actual
+pointer access to Position, clipping ancestors, and keyboard use of the actual
+Index button and utility switcher.
 All controls and word-fragment bounds are checked at **1440×900, 1280×720,
 1024×600 and 800×600**; measured ORP centers remain within 0.6 CSS px of the
 fixed anchor across the token fixture, short tokens fit with scale above 1 and

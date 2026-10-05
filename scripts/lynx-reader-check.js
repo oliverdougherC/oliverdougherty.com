@@ -12,6 +12,9 @@ const q = name => `[data-lynx-${name}]`;
 async function seek(page, index) {
   await page.locator(q('seek')).evaluate((node, value) => { node.value = String(value); node.dispatchEvent(new Event('input')); }, index);
 }
+async function setting(page, name, value) {
+  await page.locator(q(name)).evaluate((node, next) => { node.value = next; node.dispatchEvent(new Event('input')); }, value);
+}
 async function speed(page, wpm) {
   await page.locator(q('wpm')).evaluate((node, value) => { node.value = String(value); node.dispatchEvent(new Event('input')); }, wpm);
 }
@@ -24,6 +27,16 @@ async function fits(page) {
       const box = node.getBoundingClientRect();
       if (!box.width || !box.height) continue;
       if (box.left < -1 || box.right > innerWidth + 1 || box.top < -1 || box.bottom > innerHeight + 1) problems.push(`${node.className || node.tagName} outside viewport`);
+      if (node.matches('button, input, select, textarea, a, [tabindex]')) {
+        for (let ancestor = node.parentElement; ancestor; ancestor = ancestor.parentElement) {
+          const style = getComputedStyle(ancestor);
+          const clip = ancestor.getBoundingClientRect();
+          const left = clip.left + ancestor.clientLeft;
+          const top = clip.top + ancestor.clientTop;
+          if (['clip', 'hidden', 'auto', 'scroll'].includes(style.overflowX) && (box.left < left - 1 || box.right > left + ancestor.clientWidth + 1)) problems.push(`${node.id || node.tagName} clipped horizontally by ${ancestor.className || ancestor.tagName}`);
+          if (['clip', 'hidden', 'auto', 'scroll'].includes(style.overflowY) && (box.top < top - 1 || box.bottom > top + ancestor.clientHeight + 1)) problems.push(`${node.id || node.tagName} clipped vertically by ${ancestor.className || ancestor.tagName}`);
+        }
+      }
       if (node.tagName !== 'TEXTAREA' && ['auto', 'scroll'].includes(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight + 1) problems.push('internal scrolling');
     }
     return problems;
@@ -76,7 +89,49 @@ async function keyboardFocusChecks(page, browserName) {
   return checked;
 }
 
+async function runLynxReviewChecks(browser, baseUrl) {
+  fs.mkdirSync(OUTPUT, { recursive: true });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 500 } });
+  try {
+    await page.goto(`${baseUrl}/pages/utilities/index.html#lynx-reader`, { waitUntil: 'networkidle' });
+    await page.locator(q('read')).click();
+    for (const [width, height] of [[1280, 500], [1920, 540], [800, 500]]) {
+      await page.setViewportSize({ width, height });
+      await fits(page);
+      await page.locator(q('seek')).click();
+      assert.ok(Number(await page.locator(q('seek')).inputValue()) > 0, 'Position slider is reachable with the pointer');
+      await page.keyboard.press('Space');
+      assert.equal(await page.locator(q('play')).getAttribute('aria-pressed'), 'true');
+      await page.keyboard.press('Space');
+      await page.screenshot({ path: path.join(OUTPUT, `${browser.browserType().name()}-compact-${width}x${height}.png`) });
+    }
+    await page.locator('.nav-back-btn').focus();
+    await page.keyboard.press('Space');
+    await page.locator('#utilitiesTitleView').waitFor({ state: 'visible' });
+    assert.equal(await page.locator(q('play')).getAttribute('aria-pressed'), 'false', 'Index Space does not start playback');
+    await page.locator('[data-utility="lynx-reader"]').click();
+    const position = await page.locator(q('seek')).inputValue();
+    await page.locator('#utilitySwitcher').focus();
+    assert.equal(await page.locator('#utilitySwitcher').evaluate(node => node === document.activeElement), true);
+    await page.evaluate(() => {
+      document.addEventListener('keydown', event => { window.lynxReviewKeyPrevented = event.defaultPrevented; }, { once: true });
+    });
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await page.evaluate(() => window.lynxReviewKeyPrevented), false, 'The actual switcher receives ArrowRight without reader interception');
+    assert.equal(await page.locator(q('seek')).inputValue(), position, 'Switcher arrows do not seek the reader');
+    // Headless macOS does not drive the native select popup with arrow keys.
+    // The real key above must remain uncancelled; selecting an option also
+    // verifies that the surrounding workbench still routes normally.
+    if (await page.locator('#utilitySwitcher').inputValue() === 'lynx-reader') {
+      await page.locator('#utilitySwitcher').selectOption('local-assistant');
+    }
+    assert.equal(await page.locator('#utilitySwitcher').inputValue(), 'local-assistant');
+    await page.locator('#localAssistantApp').waitFor({ state: 'visible' });
+  } finally { await page.close(); }
+}
+
 async function runLynxChecks(browser, baseUrl) {
+  await runLynxReviewChecks(browser, baseUrl);
   fs.mkdirSync(OUTPUT, { recursive: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
@@ -194,6 +249,68 @@ async function runLynxChecks(browser, baseUrl) {
       await page.locator(q('edit')).click();
     }
 
+    // Sentence navigation and global shortcuts after a real slider interaction.
+    await page.locator(q('source')).fill('First sentence here. Second sentence here. Third sentence here.');
+    await page.locator(q('read')).click();
+    await seek(page, 4);
+    await page.locator(q('back')).click();
+    assert.equal(await page.locator(q('seek')).inputValue(), '0');
+    await seek(page, 4);
+    await page.locator(q('forward')).click();
+    assert.equal(await page.locator(q('seek')).inputValue(), '6');
+    await page.locator(q('wpm')).click();
+    const sliderValue = await page.locator(q('wpm')).inputValue();
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await page.locator(q('seek')).inputValue(), '3');
+    assert.equal(await page.locator(q('wpm')).inputValue(), sliderValue, 'Sentence shortcuts do not also move the speed slider');
+    await page.keyboard.press('Space');
+    assert.equal(await page.locator(q('play')).getAttribute('aria-pressed'), 'true');
+    await page.keyboard.press('Space');
+    assert.equal(await page.locator(q('play')).getAttribute('aria-pressed'), 'false');
+    await speed(page, 300);
+    await page.locator(q('display')).hover();
+    await page.mouse.wheel(0, -100);
+    await page.waitForFunction(() => document.querySelector('[data-lynx-wpm]').value === '325');
+    await page.mouse.wheel(0, 100);
+    await page.waitForFunction(() => document.querySelector('[data-lynx-wpm]').value === '300');
+    for (const [name, value] of [['comma', '150'], ['period', '100']]) {
+      await setting(page, name, value);
+      assert.equal(await page.locator(q(`${name}-value`)).textContent(), `+${value}%`);
+    }
+    await page.locator(q('edit')).click();
+    await page.locator(q('source')).fill(sample);
+    await page.locator(q('read')).click();
+    for (const [width, height] of [[1280, 500], [1920, 540], [800, 600], [1440, 900], [2560, 1440]]) {
+      await page.setViewportSize({ width, height });
+      for (const font of ['sans', 'serif', 'mono']) {
+        await page.locator(q('font')).selectOption(font);
+        let smallHeight;
+        for (const size of ['32', '144']) {
+          await setting(page, 'size', size);
+          await seek(page, 0);
+          await fits(page);
+          const letter = await page.locator(q('letter')).boundingBox();
+          if (size === '32') smallHeight = letter.height;
+          else assert.ok(letter.height > smallHeight * 1.5, 'Word size visibly changes the rendered word');
+          await seek(page, 7);
+          await fits(page);
+          const centered = await page.evaluate(() => {
+            const letter = document.querySelector('[data-lynx-letter]').getBoundingClientRect();
+            const stage = document.querySelector('[data-lynx-display]').getBoundingClientRect();
+            return Math.abs((letter.left + letter.right - stage.left - stage.right) / 2);
+          });
+          assert.ok(centered < 0.6, 'Font and size changes retain the recognition anchor');
+        }
+      }
+      await seek(page, 0);
+      await page.screenshot({ path: path.join(OUTPUT, `${prefix}preferences-${width}x${height}.png`) });
+    }
+    await page.locator(q('font')).selectOption('sans');
+    await setting(page, 'size', '88');
+    await setting(page, 'comma', '22');
+    await setting(page, 'period', '65');
+    await page.locator(q('edit')).click();
+
     // Real timers: include every dwell, including the final word, in measured throughput.
     await page.locator(q('source')).fill(prose);
     await page.locator(q('read')).click();
@@ -234,7 +351,7 @@ async function runLynxChecks(browser, baseUrl) {
   } finally { await page.close(); }
 }
 
-module.exports = { runLynxChecks };
+module.exports = { runLynxChecks, runLynxReviewChecks };
 if (require.main === module) {
   (async () => {
     const externalUrl = process.env.UTILITIES_CHECK_URL;
