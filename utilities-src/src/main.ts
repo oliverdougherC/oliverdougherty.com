@@ -1617,9 +1617,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // Each lazy branch: dynamic import failure poisons the module URL, and a
     // half-constructed controller may leave listeners behind. Both need reload.
     const lazy: { label: string; load: () => Promise<(() => void) | null> } | null =
-      utilityId === 'yahtzee-keiri'
+      utilityId === 'lynx-reader'
         ? {
-            label: 'Yahtzee vs. Keiri',
+            label: 'Lynx Reader',
+            load: async () => {
+              const root = document.getElementById('lynxReaderApp');
+              if (!root) return null;
+              const { LynxReaderController } = await import('./lynxReaderController');
+              return () => { new LynxReaderController(root).init(); };
+            },
+          }
+        : utilityId === 'yahtzee-keiri'
+        ? {
+            label: 'Keiri’s Domain',
             load: async () => {
               const root = document.getElementById('yahtzeeKeiriApp');
               if (!root) return null;

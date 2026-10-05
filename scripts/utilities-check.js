@@ -5,6 +5,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { chromium, firefox, webkit } = require('playwright');
 const sharp = require('sharp');
+const { runLynxChecks } = require('./lynx-reader-check');
 const { assertIndexArrow } = require('./lib/index-arrow-check');
 const { runYahtzeeChecks } = require('./yahtzee-check');
 const {
@@ -384,8 +385,8 @@ async function assertPublicUtilityRoutes(browser, baseUrl) {
     const visibleRoutes = await page.locator('.utilities-buttons [data-utility]:visible')
       .evaluateAll((entries) => entries.map((entry) => entry.dataset.utility));
     assert(
-      JSON.stringify(visibleRoutes) === JSON.stringify(['image-transform', 'audio-fourier', 'stress-test', 'yahtzee-keiri']),
-      'Utilities should offer exactly the four public routes.'
+      JSON.stringify(visibleRoutes) === JSON.stringify(['image-transform', 'audio-fourier', 'stress-test', 'yahtzee-keiri', 'lynx-reader']),
+      'Utilities should offer exactly the five public routes.'
     );
 
     for (const utilityId of ['local-assistant', 'virtual-machine', 'unknown-tool', '%E0%A4%A']) {
@@ -415,7 +416,8 @@ async function assertWorkbenchShell(browser, baseUrl) {
     { id: 'image-transform', name: 'Image Transform', number: '01' },
     { id: 'audio-fourier', name: 'Fourier Reconstruction', number: '02' },
     { id: 'stress-test', name: 'Stress Test', number: '03' },
-    { id: 'yahtzee-keiri', name: 'Yahtzee vs. Keiri', number: '04' }
+    { id: 'yahtzee-keiri', name: 'Keiri’s Domain', number: '04' },
+    { id: 'lynx-reader', name: 'Lynx Reader', number: '05' }
   ];
   for (const viewport of [{ width: 1280, height: 800 }, { width: 1440, height: 900 }]) {
     const page = await browser.newPage({ viewport });
@@ -443,7 +445,7 @@ async function assertWorkbenchShell(browser, baseUrl) {
       assert(index.background === 'rgb(255, 255, 255)' && index.backgroundImage === 'none', `[${label}] workbench should have a plain white background.`);
       assert(index.decorations === 0, `[${label}] retired decorative markup should be absent.`);
       assert(!index.overflow, `[${label}] index should not overflow horizontally.`);
-      assert(index.entries.length === tools.length, `[${label}] index should contain four entries.`);
+      assert(index.entries.length === tools.length, `[${label}] index should contain five entries.`);
       for (const tool of tools) {
         const entry = index.entries.find(item => item.id === tool.id);
         assert(entry?.tag === 'A' && entry.href === `#${tool.id}`, `[${label}] ${tool.name} should be a native deep link.`);
@@ -494,7 +496,7 @@ async function assertWorkbenchShell(browser, baseUrl) {
       assert(await page.locator('#utilitiesTitleView').isVisible(), `[${label}] collection control should return to the index.`);
       assert(await page.locator('.utilities-buttons [data-utility="audio-fourier"]').evaluate(entry => entry === document.activeElement), `[${label}] returning to the index should restore entry focus.`);
       await page.goBack();
-      await page.waitForFunction(() => document.querySelector('[data-utility-id="yahtzee-keiri"]')?.classList.contains('is-active'));
+      await page.waitForFunction(id => document.querySelector(`[data-utility-id="${id}"]`)?.classList.contains('is-active'), tools.at(-1).id);
       await page.goForward();
       await page.waitForFunction(() => document.getElementById('utilitiesTitleView')?.hidden === false);
       assert(errors.length === 0, `[${label}] shell should not produce browser errors: ${errors.join('; ')}`);
@@ -2636,10 +2638,14 @@ async function main() {
       }
     });
 
+    await runUtilitySection(utilitySectionFailures, 'Lynx Reader', async () => {
+      await runLynxChecks(browser, baseUrl);
+    });
+
     // release-check runs the focused game suite separately in every browser.
     // Direct utilities:browser-check invocations still include it by default.
     if (process.env.UTILITIES_SKIP_YAHTZEE !== '1') {
-      await runUtilitySection(utilitySectionFailures, 'Yahtzee vs. Keiri', async () => {
+      await runUtilitySection(utilitySectionFailures, 'Keiri’s Domain', async () => {
         await runYahtzeeChecks(browser, baseUrl);
       });
     }
