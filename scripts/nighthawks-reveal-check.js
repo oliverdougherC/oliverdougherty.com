@@ -202,35 +202,72 @@ async function checkInterruptions(browser) {
     await settled(page);
   });
   const interruptions = [
-    ['scroll', (page) => page.evaluate(() => window.scrollTo({ top: 100, behavior: 'instant' }))],
-    ['scroll during tonal development', async (page) => {
-      await page.clock.runFor(3100);
-      await page.evaluate(() => window.scrollTo({ top: 100, behavior: 'instant' }));
-    }],
-    ['scroll during final color', async (page) => {
-      await page.clock.runFor(6700);
-      await page.evaluate(() => window.scrollTo({ top: 100, behavior: 'instant' }));
-    }],
-    ['reduced-motion change', (page) => page.emulateMedia({ reducedMotion: 'reduce' })],
-    ['pagehide', (page) => page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))],
-    ['hidden tab', (page) => page.evaluate(() => {
-      Object.defineProperty(document, 'hidden', { configurable: true, value: true });
-      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
-      document.dispatchEvent(new Event('visibilitychange'));
-    })]
+    ['pagehide', (page) => page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')))]
   ];
   for (const [label, interrupt] of interruptions) {
     await withPage(browser, {}, async (page) => {
       await advanceUntil(page, (state) => state.phase === 'switching', `${label}: wave begins`);
       await page.clock.runFor(200);
       await interrupt(page);
-      // Native scroll/media notifications are delivered outside the mocked JS clock.
       await new Promise((resolve) => setTimeout(resolve, 80));
       await page.clock.runFor(48);
       assert.equal((await snapshot(page)).phase, 'complete', `${label} must complete immediately`);
       await settled(page, label);
       await page.clock.runFor(7000);
       await settled(page);
+    });
+  }
+}
+
+async function checkUninterruptedPlayback(browser) {
+  const surroundings = [
+    ['small scroll', 1000, (page) => page.evaluate(() => window.scrollTo({ top: 100, behavior: 'instant' }))],
+    ['scroll during tonal development', 3100, (page) => page.evaluate(() => window.scrollTo({ top: 100, behavior: 'instant' }))],
+    ['scroll during final color', 6700, (page) => page.evaluate(() => window.scrollTo({ top: 100, behavior: 'instant' }))],
+    ['collapsed stage', 1000, (page) => page.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' }))],
+    ['hidden tab', 1000, (page) => page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+      document.dispatchEvent(new Event('visibilitychange'));
+    })],
+    ['motion preference change', 1000, (page) => page.emulateMedia({ reducedMotion: 'reduce' })]
+  ];
+  for (const [label, elapsed, change] of surroundings) {
+    await withPage(browser, {}, async (page) => {
+      await advanceUntil(page, (state) => state.phase === 'switching', `${label}: reveal begins`);
+      await page.clock.runFor(elapsed);
+      const before = await snapshot(page);
+      await change(page);
+      // Native scroll/media notifications are delivered outside the mocked JS clock.
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      await page.clock.runFor(96);
+      const after = await snapshot(page);
+      assert.equal(after.phase, before.phase, `${label}: playback must not finish early`);
+      assertGrid(after, elapsed >= 6400);
+      if (elapsed >= 2400) assert.notEqual(after.filter, before.filter, `${label}: tones must keep developing`);
+      if (elapsed < 6400) assert.notEqual(after.grid, before.grid, `${label}: cells must keep switching`);
+      if (label === 'collapsed stage') {
+        assert(await page.evaluate(() => document.documentElement.classList.contains('home-stage-collapsed')
+          && !document.documentElement.classList.contains('home-stage')
+          && document.querySelector('.nighthawks-hero').getBoundingClientRect().bottom <= 0),
+        'The stage must shrink normally while the artwork is fully off-screen');
+        // Leave it off-screen for part of the reveal, then return before it finishes.
+        await page.clock.runFor(600);
+        const offscreen = await snapshot(page);
+        assert.equal(offscreen.phase, 'switching');
+        assert.notEqual(offscreen.grid, after.grid, 'Off-screen cells must keep switching');
+        await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        await page.clock.runFor(96);
+        assert.equal((await snapshot(page)).phase, 'switching', 'Returning to the painting must not restart or finish it');
+        await page.clock.runFor(6900 - elapsed - 96 - 600 - 96);
+      } else {
+        await page.clock.runFor(6900 - elapsed - 96);
+      }
+      assert.equal((await snapshot(page)).phase, 'color', `${label}: preserve the final color phase`);
+      await page.clock.runFor(700);
+      assert.equal((await snapshot(page)).phase, 'complete', `${label}: preserve the original completion time`);
+      await settled(page, label);
     });
   }
 }
@@ -270,6 +307,39 @@ async function checkResourceFailures(browser) {
     });
   } finally {
     release();
+  }
+}
+
+async function checkScrollBeforeRenderer(browser) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  try {
+    await context.route('**/js/nighthawks.js*', async (route) => {
+      await pending;
+      await route.continue().catch(() => {});
+    });
+    const page = await context.newPage();
+    const time = new Date('2026-10-01T12:00:00Z');
+    await page.clock.install({ time });
+    await page.clock.pauseAt(new Date(time.getTime() + 10000));
+    await page.goto(`${baseUrl}/index.html?full=1`, { waitUntil: 'commit' });
+    await page.locator('#contact').waitFor({ state: 'attached' });
+    await page.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' }));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await page.clock.runFor(96);
+    assert(await page.evaluate(() => document.documentElement.classList.contains('home-stage-collapsed')),
+      'Early scrolling must collapse the stage before the renderer downloads');
+    release();
+    await page.waitForLoadState('load');
+    await advanceUntil(page, (state) => state.phase === 'switching', 'Scrolled first visit must still start the reveal');
+    await page.clock.runFor(6900);
+    assert.equal((await snapshot(page)).phase, 'color', 'Off-screen startup must preserve the reveal duration');
+    await page.clock.runFor(700);
+    await settled(page);
+  } finally {
+    release();
+    await context.close();
   }
 }
 
@@ -313,10 +383,12 @@ async function run() {
       try {
         await checkSequence(browser, name);
         await checkSkipped(browser);
+        await checkUninterruptedPlayback(browser);
         await checkInterruptions(browser);
         await checkResourceFailures(browser);
+        await checkScrollBeforeRenderer(browser);
         await checkDelayedRenderer(browser);
-        console.log(`Verified ${name}: reveal sequence, exact grid restoration, static visits, interruption cleanup, resource failures and watchdog.`);
+        console.log(`Verified ${name}: reveal sequence, exact grid restoration, static visits, uninterrupted scrolling/off-screen playback, page-exit cleanup, resource failures and watchdog.`);
       } finally {
         await browser.close();
       }

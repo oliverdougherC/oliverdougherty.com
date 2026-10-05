@@ -6,6 +6,7 @@ const os = require('node:os');
 const { chromium, firefox, webkit } = require('playwright');
 const sharp = require('sharp');
 const { runLynxChecks } = require('./lynx-reader-check');
+const { assertIndexArrow } = require('./lib/index-arrow-check');
 const { runYahtzeeChecks } = require('./yahtzee-check');
 const {
   startLocalStaticServer,
@@ -1614,6 +1615,9 @@ async function main() {
       args: BROWSER_NAME === 'chromium' ? CHROMIUM_WEBGL_ARGS : undefined
     });
     await waitForServer(`${baseUrl}/pages/utilities/index.html`);
+    await runUtilitySection(utilitySectionFailures, 'Index Arrow', async () => {
+      await assertIndexArrow(browser, baseUrl, BROWSER_NAME);
+    });
     await runUtilitySection(utilitySectionFailures, 'Public and Hidden Routes', async () => {
       await assertPublicUtilityRoutes(browser, baseUrl);
     });
