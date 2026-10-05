@@ -1,0 +1,366 @@
+{
+  "reviewedHead": "1baf44cf97489f2e9106745316b9ec4b92ce1502",
+  "refreshedBase": "4cfc1c52041d929ee2b14153b28a6657b091469e",
+  "controllerBlobAtBothRefs": "8acdd6b66cc3be00e75e56d551acf94517008f06",
+  "environment": {
+    "browser": "system Chromium 151.0.7922.173",
+    "platform": "Linux",
+    "fonts": "local Inter fixture",
+    "viewport": {
+      "width": 2048,
+      "height": 998
+    }
+  },
+  "normalSequence": [
+    {
+      "ref": "4cfc1c5",
+      "trace": [
+        {
+          "label": "generated",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1241,
+            604
+          ]
+        },
+        {
+          "label": "generated",
+          "seconds": 13.951,
+          "bytes": 2998256
+        },
+        {
+          "label": "generated state",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1241,
+            604
+          ]
+        },
+        {
+          "label": "full signal",
+          "seconds": 12.714,
+          "bytes": 2998256
+        },
+        {
+          "label": "full signal state",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1241,
+            604
+          ]
+        },
+        {
+          "label": "spectrum",
+          "seconds": 2.702,
+          "bytes": 665600
+        },
+        {
+          "label": "spectrum state",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1241,
+            604
+          ]
+        },
+        {
+          "label": "component",
+          "seconds": 2.876,
+          "bytes": 665600
+        },
+        {
+          "label": "component state",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1241,
+            604
+          ]
+        },
+        {
+          "label": "before playback",
+          "seconds": 12.096,
+          "bytes": 2995608
+        },
+        {
+          "label": "before playback state",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1621,
+            462
+          ]
+        },
+        {
+          "label": "playback",
+          "seconds": 12.022,
+          "bytes": 2995608
+        },
+        {
+          "label": "playback state",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1621,
+            462
+          ]
+        },
+        {
+          "label": "before rapid",
+          "seconds": 11.063,
+          "bytes": 2995608
+        },
+        {
+          "label": "before rapid state",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1621,
+            462
+          ]
+        },
+        {
+          "label": "after rapid",
+          "seconds": 12.835,
+          "bytes": 2995608
+        },
+        {
+          "label": "after rapid state",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1621,
+            462
+          ]
+        },
+        {
+          "label": "assertion",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1621,
+            462
+          ]
+        }
+      ]
+    },
+    {
+      "ref": "1baf44c",
+      "trace": [
+        {
+          "label": "generated",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1241,
+            604
+          ]
+        },
+        {
+          "label": "generated",
+          "seconds": 12.846,
+          "bytes": 2998256
+        },
+        {
+          "label": "generated state",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1241,
+            604
+          ]
+        },
+        {
+          "label": "full signal",
+          "seconds": 11.863,
+          "bytes": 2998256
+        },
+        {
+          "label": "full signal state",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1241,
+            604
+          ]
+        },
+        {
+          "label": "spectrum",
+          "seconds": 3.269,
+          "bytes": 665600
+        },
+        {
+          "label": "spectrum state",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1241,
+            604
+          ]
+        },
+        {
+          "label": "component",
+          "seconds": 3.367,
+          "bytes": 665600
+        },
+        {
+          "label": "component state",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1241,
+            604
+          ]
+        },
+        {
+          "label": "before playback",
+          "seconds": 14.172,
+          "bytes": 2995608
+        },
+        {
+          "label": "before playback state",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1621,
+            462
+          ]
+        },
+        {
+          "label": "playback",
+          "seconds": 12.923,
+          "bytes": 2995608
+        },
+        {
+          "label": "playback state",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1621,
+            462
+          ]
+        },
+        {
+          "label": "before rapid",
+          "seconds": 12.782,
+          "bytes": 2995608
+        },
+        {
+          "label": "before rapid state",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1621,
+            462
+          ]
+        },
+        {
+          "label": "after rapid",
+          "seconds": 12.779,
+          "bytes": 2995608
+        },
+        {
+          "label": "after rapid state",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1621,
+            462
+          ]
+        },
+        {
+          "label": "assertion",
+          "state": "animating",
+          "status": "Playing selected Fourier energy mix...",
+          "proxyDuration": "188.92",
+          "canvas": [
+            1621,
+            462
+          ]
+        }
+      ]
+    }
+  ],
+  "nearEndProbe": {
+    "method": "After pausing the built-in result, wrap native AudioBufferSourceNode.start to start each band at buffer.duration - 3 seconds. Run the same rapid slider input sequence, capture full waveform RGBA, then inspect playback state. Repeat with the exact-byte base64 transport. This deliberately bounded remaining-playback probe is separate from the unmodified normal sequence.",
+    "results": [
+      {
+        "ref": "4cfc1c5",
+        "runs": [
+          {
+            "transport": "JSON RGBA array",
+            "before": "animating",
+            "seconds": 10.506,
+            "bytes": 2995608,
+            "state": "complete",
+            "status": "Playback complete.",
+            "duration": 188.92190476190476,
+            "offset": 185.92190476190476
+          },
+          {
+            "transport": "base64 RGBA buffer",
+            "before": "animating",
+            "seconds": 0.263,
+            "bytes": 2995608,
+            "state": "animating",
+            "status": "Playing selected Fourier energy mix...",
+            "duration": 188.92190476190476,
+            "offset": 185.92190476190476
+          }
+        ],
+        "identicalBytes": 2995608
+      },
+      {
+        "ref": "1baf44c",
+        "runs": [
+          {
+            "transport": "JSON RGBA array",
+            "before": "animating",
+            "seconds": 9.38,
+            "bytes": 2995608,
+            "state": "complete",
+            "status": "Playback complete.",
+            "duration": 188.92190476190476,
+            "offset": 185.92190476190476
+          },
+          {
+            "transport": "base64 RGBA buffer",
+            "before": "animating",
+            "seconds": 0.249,
+            "bytes": 2995608,
+            "state": "animating",
+            "status": "Playing selected Fourier energy mix...",
+            "duration": 188.92190476190476,
+            "offset": 185.92190476190476
+          }
+        ],
+        "identicalBytes": 2995608
+      }
+    ]
+  },
+  "pixelEquality": "Pause and settle the canvas. Compare every byte from the original JSON array and base64 Buffer. All 2,995,608 bytes match on both product revisions.",
+  "ciEvidence": "https://github.com/oliverdougherC/oliverdougherty.com/actions/runs/37226783198/job/111508018248",
+  "boundary": "Normal local runs pass at both refs. The bounded near-end probe demonstrates the pre-existing timing sensitivity, not an exact replay of the original CI runner clock."
+}
