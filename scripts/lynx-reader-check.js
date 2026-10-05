@@ -42,7 +42,8 @@ async function runLynxChecks(browser, baseUrl) {
     assert.equal(await page.evaluate(() => performance.getEntriesByType('resource').some(r => /lynxReaderController/.test(r.name))), false, 'Reader should load lazily');
     await page.locator('[data-utility="lynx-reader"]').click();
     await page.locator(q('source')).waitFor();
-    assert.equal(await page.locator(q('read')).isDisabled(), true);
+    assert.equal(await page.locator(q('read')).isDisabled(), false);
+    assert.match(await page.locator(q('source')).inputValue(), /^Our refusal to leave the world/);
     await page.locator(q('source')).fill(prose);
     await page.locator(q('source')).press('Space');
     assert.equal(await page.locator(q('entry')).isVisible(), true);
@@ -95,12 +96,17 @@ async function runLynxChecks(browser, baseUrl) {
       for (let index = 0; index < 8; index++) {
         await seek(page, index);
         await fits(page);
-        const delta = await page.evaluate(() => {
+        const geometry = await page.evaluate(() => {
           const letter = document.querySelector('[data-lynx-letter]').getBoundingClientRect();
           const display = document.querySelector('[data-lynx-display]').getBoundingClientRect();
-          return Math.abs((letter.left + letter.right) / 2 - (display.left + display.right) / 2);
+          return {
+            delta: Math.abs((letter.left + letter.right) / 2 - (display.left + display.right) / 2),
+            scale: Number(getComputedStyle(document.querySelector('[data-lynx-focus]')).getPropertyValue('--lynx-scale')),
+          };
         });
-        assert.ok(delta < 0.6, `ORP moved by ${delta}px at ${width}x${height}`);
+        assert.ok(geometry.delta < 0.6, `ORP moved by ${geometry.delta}px at ${width}x${height}`);
+        if (index === 0) assert.ok(geometry.scale > 1, `Short tokens should grow to use the stage, got scale ${geometry.scale}`);
+        if (index === 7) assert.ok(geometry.scale < 1, `Long tokens must still fit, got scale ${geometry.scale}`);
       }
       await seek(page, 1);
       await page.locator(q('display')).focus();

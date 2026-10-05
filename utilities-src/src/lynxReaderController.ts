@@ -1,5 +1,13 @@
 import { normalizedDwells, parseText, ReaderScheduler, type ReadingUnit } from './lynxReaderCore';
 
+const DEFAULT_TEXT = `Our refusal to leave the world as we found it does not always produce cathedrals, symphonies, or footprints on the moon. Usually it produces something so small that history doesn't even notice.
+
+Perhaps the most beautiful song ever sung really was sung by a little Grecian girl to her cat. Maybe she sat with it curled against her side, running her fingers through its fur as she quietly made up a melody just for the two of them. The cat purrs beside her as she looks out over the sea, singing to her companion for no reason beyond love. Content with the moment, she thinks nothing of it. Why would she? To make something where there was nothing before is simply in her nature. There was no audience waiting to applaud her, no one nearby to write down the notes, no thought that the song ought to survive the afternoon. For those few minutes, there was only the girl, her cat, and the little pocket of peace they had made for each other.
+
+To the cat, their world was already complete. The girl made it more beautiful anyway. The scale changes, but the instinct does not. Sometimes that instinct makes a song. Sometimes it sends us over the horizon.
+
+So, if you want to build a ship, don't drum up the men to gather wood, divide the work, and give orders. Instead, teach them to dream about whatever could be just over the horizon. The mind will do the rest.`;
+
 export class LynxReaderController {
   private units: ReadingUnit[] = [];
   private dwells: number[] = [];
@@ -28,7 +36,7 @@ export class LynxReaderController {
       <div class="lynx-entry" data-lynx-entry>
         <label class="control-label" for="lynxSource">Text to read</label>
         <textarea id="lynxSource" data-lynx-source placeholder="Paste your text here." spellcheck="false"></textarea>
-        <div class="lynx-entry-actions"><button class="btn-primary-minimal" data-lynx-read disabled>Read</button></div>
+        <div class="lynx-entry-actions"><button class="btn-primary-minimal" data-lynx-read>Read</button></div>
       </div>
       <div class="lynx-reader" data-lynx-reader hidden>
         <div class="lynx-topline"><span data-lynx-status role="status">Paused</span><button class="btn-secondary-minimal" data-lynx-edit>Change Text</button></div>
@@ -44,6 +52,7 @@ export class LynxReaderController {
           <div class="lynx-progress"><label class="control-label" for="lynxPosition">Position</label><span data-lynx-position></span><input id="lynxPosition" data-lynx-seek type="range" min="0" max="0" value="0" step="1" aria-label="Reading position"></div>
         </div>
       </div>`;
+    this.el<HTMLTextAreaElement>('source').value = DEFAULT_TEXT;
     const on = (target: EventTarget, type: string, handler: EventListener) => target.addEventListener(type, handler, { signal: this.events.signal });
     on(this.el('source'), 'input', () => { this.el<HTMLButtonElement>('read').disabled = !this.el<HTMLTextAreaElement>('source').value.trim(); });
     on(this.el('read'), 'click', () => this.read());
@@ -169,9 +178,16 @@ export class LynxReaderController {
     if (!this.units.length || this.el('reader').hidden || !this.active) return;
     const focus = this.el('focus');
     focus.style.setProperty('--lynx-scale', '1');
-    const halfWidth = this.el('display').clientWidth / 2 - 24;
+    const display = this.el('display');
+    const baseFont = parseFloat(getComputedStyle(this.el('word')).fontSize) || 64;
+    const halfWidth = display.clientWidth / 2 - 24;
     const extent = Math.max(this.el('before').offsetWidth, this.el('after').offsetWidth) + this.el('letter').offsetWidth / 2;
-    focus.style.setProperty('--lynx-scale', String(Math.min(1, Math.max(0, halfWidth) / Math.max(1, extent))));
+    // Fit is bidirectional: long tokens shrink, short tokens grow up to the
+    // 88px guide-framed focal line or the reading-stage height, whichever
+    // binds first, so no word reads as a page title.
+    const widthScale = Math.max(0, halfWidth) / Math.max(1, extent);
+    const heightScale = Math.max(0, display.clientHeight - 16) / (1.3 * baseFont);
+    focus.style.setProperty('--lynx-scale', String(Math.min(88 / baseFont, heightScale, widthScale)));
   }
 
   destroy() {
