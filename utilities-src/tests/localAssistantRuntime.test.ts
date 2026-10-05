@@ -25,6 +25,29 @@ function readyRuntime(createChatCompletion: (options: any) => Promise<void>) {
 }
 
 describe('Local Assistant native stream adaptation', () => {
+  it('maps measured snapshots without carrying optional telemetry into another token', async () => {
+    const updates = vi.fn();
+    const { runtime } = readyRuntime(async options => {
+      options.onData({ choices: [], observatory: {
+        token: { id: 42, piece: 'Paris' }, generated: 1, pass: 8,
+        attention: [{ layer: 3, query_position: 19, key_count: 20, head_count: 16,
+          entries: [{ position: 4, weight: 0.25 }], coverage: 0.25 }],
+        layer_changes: [{ layer: 0, input_rms: 2, delta_rms: 1, relative_delta: 0.5 }],
+        lens: [{ layer: 11, candidates: [{ id: 42, piece: 'Paris', probability: 0.125 }] }],
+      } });
+      options.onData({ choices: [], observatory: { token: { id: 43, piece: '.' }, generated: 2, pass: 9 } });
+    });
+    await runtime.generate([{ role: 'user', content: 'Capital?' }], false, new AbortController().signal, updates);
+    expect(updates.mock.calls[0][2]).toMatchObject({
+      attention: [{ layer: 3, queryPosition: 19, keyCount: 20, headCount: 16,
+        entries: [{ position: 4, weight: 0.25 }], coverage: 0.25 }],
+      layerChanges: [{ layer: 0, inputRms: 2, deltaRms: 1, relativeDelta: 0.5 }],
+      lens: [{ layer: 11, candidates: [{ id: 42, piece: 'Paris', probability: 0.125 }] }],
+    });
+    const merged = { ...updates.mock.calls[0][2], ...updates.mock.calls[1][2] };
+    expect(merged.attention).toBeUndefined(); expect(merged.layerChanges).toBeUndefined();
+    expect(merged.lens).toBeUndefined(); expect(merged.pass).toBe(9);
+  });
   it('requests unlimited output and does not fail at the retired 1024-token limit', async () => {
     const updates = vi.fn();
     const { runtime } = readyRuntime(async options => {

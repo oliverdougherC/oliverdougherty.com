@@ -2,7 +2,7 @@ import '../../css/local-assistant.css';
 import { AssistantSession } from './local-assistant/session';
 import { createAssistantRuntime } from './local-assistant/runtime';
 import { SnakeGame } from './local-assistant/snake';
-import { observationBudget, promptWindow, tokenCapacity, tokenLabel, TOKEN_HISTORY_LIMIT } from './local-assistant/observatory';
+import { ObservatoryView } from './local-assistant/observatoryView';
 import { renderMarkdown } from './local-assistant/render';
 import type { AssistantState, Runtime, Token } from './local-assistant/types';
 
@@ -19,22 +19,14 @@ export class LocalAssistantController {
   private lastAnnouncement = '';
   private renderTimer: ReturnType<typeof setTimeout> | null = null;
   private renderedPhase = '';
-  private layerMetadata = '';
-  private selectedLayer: number | null = null;
   private frame = 0;
   private resizeFrame = 0;
   private resizeObserver?: ResizeObserver;
   private gameRunning = false;
-  private visibleTokenCount = 8;
-  private tokenColumns = 8;
-  private focusedTokenKey: string | null = null;
-  private tokenStage: 'prefill' | 'decode' | null = null;
-  private candidateCount = 3;
-  private layerScale = 0.1;
-  private readonly tokenNodes = new Map<string, HTMLButtonElement>();
+  private observatory?: ObservatoryView;
+  private promptTokens?: Token[];
+  private contextTokens: Token[] = [];
   private copyFeedback: { button: HTMLButtonElement; timer: ReturnType<typeof setTimeout> } | null = null;
-  private readonly generatedTokens: Array<Token & { position: number }> = [];
-  private lastToken?: Token;
   private lastGenerated?: number;
   constructor(private readonly root: HTMLElement, runtimeFactory: () => Runtime = createAssistantRuntime) {
     this.session = new AssistantSession(runtimeFactory);
@@ -60,21 +52,12 @@ export class LocalAssistantController {
       </section><aside class="la-observatory" aria-label="Model observatory" hidden>
         <h2>Qwen3.5 <span>2B</span></h2>
         <div class="la-metrics"><div><span>Context</span><strong data-context>—</strong></div><div><span>Avg. tokens / s</span><strong data-speed>—</strong></div><div><span>Generated</span><strong data-generated>—</strong></div><div><span>Prompt time</span><strong data-prefill>—</strong></div></div>
-        <section class="la-observe-section la-token-section"><h3><span data-token-stage>Prompt processing</span><span class="la-window-label" data-token-range></span></h3><div class="la-token-well" data-token-well><div class="la-tokens" data-tokens role="group" tabindex="-1" aria-label="Prompt tokens"></div></div><p class="la-token-inspection" data-token-inspection hidden></p></section>
-        <section class="la-observe-section la-candidates"><h3 aria-description="Post-sampling probabilities. Temperature 0.6, top-k 20, top-p 0.95.">Next token<span class="la-sampling">T 0.6 · k 20 · p 0.95</span></h3><div data-candidates></div></section>
-        <section class="la-observe-section la-layers-section"><h3>Signal by layer<span class="la-window-label" data-layer-pass></span></h3><div class="la-layer-axis"><span>Input → Output</span><span data-layer-scale>Residual RMS</span></div><div class="la-layers" data-layers aria-label="Residual magnitude after each model block"></div><div class="la-layer-footer"><p class="la-legend"><span>■ DeltaNet</span><span>■ Attention</span></p><p data-layer-reading hidden></p></div></section>
+        <div class="la-observatory-panels" data-observatory-panels></div>
       </aside></div><p class="la-sr" role="status" aria-live="polite" aria-atomic="true" data-announcement></p>`;
     const signal = this.events.signal;
     const listen = (target: EventTarget, type: string, callback: EventListener) => target.addEventListener(type, callback, { signal });
     listen(this.root, 'click', (event) => { void this.click(event); });
-    listen(this.el('[data-tokens]'), 'keydown', event => this.moveTokenFocus(event as KeyboardEvent));
-    listen(this.el('[data-tokens]'), 'focusin', event => {
-      const chip = event.target as HTMLButtonElement;
-      if (!chip.dataset.tokenKey) return;
-      const previous = this.focusedTokenKey ? this.tokenNodes.get(this.focusedTokenKey) : undefined;
-      if (previous) previous.tabIndex = -1;
-      this.focusedTokenKey = chip.dataset.tokenKey; chip.tabIndex = 0;
-    });
+    this.observatory = new ObservatoryView(this.el('[data-observatory-panels]'), { onInteraction: () => this.session.touchActivity() });
     listen(this.el('[data-form]'), 'submit', (event) => { event.preventDefault(); this.send(); });
     listen(this.el('[data-input]'), 'keydown', (event) => {
       const key = event as KeyboardEvent;
@@ -104,7 +87,7 @@ export class LocalAssistantController {
     listen(document, 'selectionchange', () => { if (this.session.state.active) this.renderMessages(this.session.state); });
     listen(this.root, 'focusout', () => queueMicrotask(() => { if (!this.destroyed && this.session.state.active) this.renderMessages(this.session.state); }));
     this.unsubscribe = this.session.subscribe((state) => {
-      this.collectTokens(state);
+      this.collectObservation(state);
       this.root.dataset.phase = state.phase;
       if (!state.active) {
         if (this.renderTimer) clearTimeout(this.renderTimer);
@@ -121,7 +104,7 @@ export class LocalAssistantController {
         this.resizeFrame = requestAnimationFrame(() => { if (this.session.state.active) { this.measureObservatory(); this.renderObservation(this.session.state); } });
       });
       this.resizeObserver.observe(this.root);
-      this.resizeObserver.observe(this.el('[data-token-well]'));
+      this.resizeObserver.observe(this.el('[data-observatory-panels]'));
     }
     void this.session.activate();
   }
@@ -131,6 +114,7 @@ export class LocalAssistantController {
     if (this.renderTimer) clearTimeout(this.renderTimer);
     if (this.copyFeedback) clearTimeout(this.copyFeedback.timer);
     this.resizeObserver?.disconnect(); cancelAnimationFrame(this.resizeFrame);
+    this.observatory?.destroy();
     this.events.abort(); this.unsubscribe?.(); cancelAnimationFrame(this.frame); this.snake?.destroy();
     await this.session.destroy();
   }
@@ -143,13 +127,11 @@ export class LocalAssistantController {
     const target = (event.target as Element).closest<HTMLButtonElement>('button');
     if (!target) return;
     this.session.touchActivity();
-    if (target.hasAttribute('data-inspect-token')) { this.el('[data-token-inspection]').hidden = false; const reading = `ID ${target.dataset.tokenId} · ${JSON.stringify(target.dataset.tokenPiece)}`; this.el('[data-token-inspection]').textContent = reading; this.el('[data-token-inspection]').title = reading; }
-    if (target.hasAttribute('data-inspect-layer')) { this.selectedLayer = Number(target.dataset.inspectLayer); this.renderLayerReading(this.session.state); }
     if (target.hasAttribute('data-enter')) { this.gameRunning = false; this.snake?.stop(); this.session.enterChat(); this.el('[data-input]').focus(); }
     if (target.hasAttribute('data-retry') || target.hasAttribute('data-chat-retry')) { if (!this.session.state.active) void this.session.activate(); else void this.session.retry(); }
     if (target.hasAttribute('data-cancel')) void this.session.unload();
     if (target.hasAttribute('data-stop')) this.session.stop();
-    if (target.hasAttribute('data-new')) { this.generatedTokens.length = 0; this.lastToken = undefined; this.lastGenerated = undefined; this.layerScale = 0.1; await this.session.reset(); this.stickToBottom = true; this.el('[data-input]').focus(); }
+    if (target.hasAttribute('data-new')) { this.resetObservation(); await this.session.reset(); this.stickToBottom = true; this.el('[data-input]').focus(); }
     if (target.hasAttribute('data-latest')) { this.stickToBottom = true; this.scrollToBottom(); }
     if (target.hasAttribute('data-prompt')) { this.el<HTMLTextAreaElement>('[data-input]').value = target.dataset.prompt!; this.send(); }
     if (target.hasAttribute('data-play')) {
@@ -177,8 +159,7 @@ export class LocalAssistantController {
     const input = this.el<HTMLTextAreaElement>('[data-input]');
     if (!input.value.trim() || this.session.state.phase !== 'ready') return;
     const text = input.value; input.value = ''; this.stickToBottom = true;
-    this.clearTokenInspection();
-    this.generatedTokens.length = 0; this.lastToken = undefined; this.lastGenerated = undefined; this.layerScale = 0.1;
+    this.resetObservation();
     void this.session.send(text);
   }
   private updateSend(): void {
@@ -193,6 +174,8 @@ export class LocalAssistantController {
     this.frame = requestAnimationFrame(() => { this.frame = 0; if (!this.stickToBottom) return; const transcript = this.el('[data-transcript]'); transcript.scrollTop = transcript.scrollHeight; this.el('[data-latest]').hidden = true; });
   }
   private render(state: AssistantState): void {
+    // Ready auto-enters chat unless the Snake game is open (playing, paused, or game over); then the button appears.
+    if (state.phase === 'ready' && state.active && !state.entered && !this.el('[data-snake]').classList.contains('is-playing')) { this.session.enterChat(); this.el<HTMLTextAreaElement>('[data-input]').focus(); return; }
     const chat = state.entered && !!state.info;
     const errorChanged = this.el('[data-chat-error]').hidden !== (state.phase !== 'error');
     this.el('[data-chat-error]').hidden = state.phase !== 'error';
@@ -204,7 +187,7 @@ export class LocalAssistantController {
     if (this.gameRunning && state.active && !chat) this.snake?.start(); else this.snake?.stop();
     if (!this.gameRunning && this.el('[data-snake]').classList.contains('is-playing')) this.el('[data-play]').textContent = 'Resume';
     this.el<HTMLButtonElement>('[data-new]').disabled = !chat;
-    this.el('[data-enter]').hidden = state.phase !== 'ready';
+    this.el('[data-enter]').hidden = state.phase !== 'ready' || state.entered;
     this.el('[data-retry]').hidden = !['error', 'idle'].includes(state.phase);
     this.el('[data-cancel]').hidden = state.phase !== 'loading';
     this.el('[data-load-title]').textContent = state.phase === 'ready' ? 'Ready' : state.phase === 'unsupported' ? 'A browser with WebGPU is needed' : state.phase === 'error' ? 'The model couldn’t start' : state.phase === 'idle' ? 'Paused' : /allocating|initializing/i.test(state.status) ? 'Initializing' : 'Downloading';
@@ -224,7 +207,7 @@ export class LocalAssistantController {
     this.measureObservatory();
     this.renderObservation(state);
     if (errorChanged && this.stickToBottom) this.scrollToBottom();
-    const announcement = state.phase === 'generating' ? 'Generating response.' : state.phase === 'ready' && state.messages.length ? state.status === 'Generation stopped.' ? 'Generation stopped.' : 'Response complete.' : state.phase === 'ready' ? 'Model ready. Choose Enter chat when you are ready.' : state.phase === 'loading' ? 'Loading the local model.' : state.status;
+    const announcement = state.phase === 'generating' ? 'Generating response.' : state.phase === 'ready' && state.messages.length ? state.status === 'Generation stopped.' ? 'Generation stopped.' : 'Response complete.' : state.phase === 'ready' ? state.entered ? 'Model ready.' : 'Model ready. Choose Enter chat when you are ready.' : state.phase === 'loading' ? 'Loading the local model.' : state.status;
     this.announce(announcement);
   }
   private renderMessages(state: AssistantState): void {
@@ -275,156 +258,52 @@ export class LocalAssistantController {
     if (plain) body.textContent = content; else body.replaceChildren(renderMarkdown(content));
     return true;
   }
-  private renderLayerReading(state: AssistantState): void {
-    for (const layer of this.root.querySelectorAll<HTMLElement>('[data-inspect-layer]')) layer.setAttribute('aria-pressed', String(this.selectedLayer === Number(layer.dataset.inspectLayer)));
-    const readings = state.observation.layers;
-    const reading = this.selectedLayer === null ? readings?.slice().reverse().find((layer) => layer.rms !== undefined || layer.milliseconds !== undefined) : readings?.find((layer) => layer.layer === this.selectedLayer);
-    const index = this.selectedLayer ?? reading?.layer;
-    const kind = index === undefined ? '' : state.info?.layers[index] ?? '';
-    const label = index === undefined ? '' : reading ? `${index + 1}` : `${index + 1} · ${kind === 'attention' ? 'Attention' : 'DeltaNet'}`;
-    const values = reading ? [reading.rms === undefined ? '' : `RMS ${number(reading.rms, '', 3)}`, reading.milliseconds === undefined ? '' : number(reading.milliseconds, ' ms')].filter(Boolean).join(' · ') : '';
-    this.el('[data-layer-reading]').textContent = [label, values].filter(Boolean).join(' · ');
-    this.el('[data-layer-reading]').hidden = !label;
-
+  private resetObservation(): void {
+    this.lastGenerated = undefined; this.promptTokens = undefined; this.contextTokens = [];
+    this.observatory?.reset();
   }
-  private collectTokens(state: AssistantState): void {
-    if (!state.info || !state.messages.length) {
-      this.generatedTokens.length = 0; this.lastToken = undefined; this.lastGenerated = undefined;
-      this.el('[data-token-inspection]').textContent = '';
-      this.el('[data-token-inspection]').hidden = true;
-      this.el('[data-token-inspection]').removeAttribute('title');
-      return;
+  private collectObservation(state: AssistantState): void {
+    if (!state.info || !state.messages.length) { this.resetObservation(); return; }
+    this.observatory?.setLayers(state.info.layers);
+    const observation = state.observation;
+    if (observation.promptTokens && observation.promptTokens !== this.promptTokens) {
+      this.promptTokens = observation.promptTokens;
+      this.contextTokens = observation.promptTokens.slice();
+      this.observatory?.setContext(this.contextTokens);
     }
-    const { token, generated } = state.observation;
+    if (observation.stage === 'prefill') this.observatory?.setProgress(observation.promptProcessed ?? 0, observation.promptTotal);
+    const { token, generated, pass } = observation;
     if (!token) return;
-    // Record every runtime callback before the presentation throttle. Final timing
-    // updates may repeat the final token with a new object but the same token count.
-    const fresh = generated !== undefined ? generated !== this.lastGenerated : token !== this.lastToken;
-    if (!fresh) return;
-    this.generatedTokens.push({ ...token, position: generated ?? (this.generatedTokens.at(-1)?.position ?? 0) + 1 });
-    if (this.generatedTokens.length > TOKEN_HISTORY_LIMIT) this.generatedTokens.shift();
-    this.lastToken = token; this.lastGenerated = generated;
+    const position = observation.contextUsed === undefined ? undefined : observation.contextUsed - 1;
+    if (position !== undefined && Number.isInteger(position) && position >= 0 && position < state.info.context) this.contextTokens[position] = token;
+    if (generated === undefined || pass === undefined || generated === this.lastGenerated) return;
+    this.lastGenerated = generated;
+    const queryPosition = observation.attention?.[0]?.queryPosition;
+    const queryToken = queryPosition === undefined ? undefined : this.contextTokens[queryPosition];
+    // Capture every native token before presentation throttling; timing-only updates
+    // do not add columns or replace the measurements tied to that sampled token.
+    this.observatory?.ingest({
+      step: pass,
+      sampled: { ...token, position },
+      query: queryToken && queryPosition !== undefined ? { ...queryToken, position: queryPosition } : undefined,
+      attention: observation.attention,
+      deltas: observation.layerChanges?.map(reading => ({ layer: reading.layer, value: reading.relativeDelta })),
+      lens: observation.lens?.map(checkpoint => ({ layer: checkpoint.layer,
+        candidates: checkpoint.candidates.filter(candidate => candidate.id !== undefined).map((candidate, index) => ({
+          id: candidate.id!, piece: candidate.piece, probability: candidate.probability, rank: index + 1,
+        })),
+      })),
+      candidates: observation.candidates,
+      layerCount: state.info.layers.length,
+    });
   }
-  private clearTokenInspection(): void {
-    const inspection = this.el('[data-token-inspection]');
-    inspection.hidden = true; inspection.textContent = ''; inspection.removeAttribute('title');
-  }
-  private moveTokenFocus(event: KeyboardEvent): void {
-    if (event.altKey || event.metaKey || event.ctrlKey) return;
-    const chips = [...this.el('[data-tokens]').querySelectorAll<HTMLButtonElement>('button')];
-    const index = chips.indexOf(document.activeElement as HTMLButtonElement);
-    if (index < 0) return;
-    const next = event.key === 'ArrowRight' ? index + 1 : event.key === 'ArrowLeft' ? index - 1
-      : event.key === 'ArrowDown' ? index + this.tokenColumns : event.key === 'ArrowUp' ? index - this.tokenColumns
-      : event.key === 'Home' ? 0 : event.key === 'End' ? chips.length - 1 : null;
-    if (next === null) return;
-    event.preventDefault(); chips[Math.max(0, Math.min(chips.length - 1, next))]?.focus({ preventScroll: true });
-  }
-  private measureObservatory(): void {
-    const height = this.root.clientHeight;
-    const budget = observationBudget(height);
-    this.candidateCount = budget.candidates;
-    this.root.dataset.density = budget.expanded ? 'expanded' : 'compact';
-    this.root.style.setProperty('--candidate-count', String(budget.candidates));
-    this.root.style.setProperty('--chart-height', `${budget.chartHeight}px`);
-    this.root.style.setProperty('--token-row-height', `${budget.rowHeight}px`);
-    const well = this.el('[data-token-well]');
-    const capacity = tokenCapacity(well.clientWidth, well.clientHeight, budget.rowHeight);
-    this.visibleTokenCount = capacity.count; this.tokenColumns = capacity.columns;
-    this.el('[data-tokens]').style.setProperty('--token-columns', String(capacity.columns));
-    this.root.classList.toggle('la-rich-layers', budget.expanded && this.el('[data-layers]').clientWidth >= 800);
-  }
+  private measureObservatory(): void { this.observatory?.resize(); }
   private renderObservation(state: AssistantState): void {
     const observation = state.observation;
     this.el('[data-context]').textContent = `${number(observation.contextUsed)}${state.info ? ` / ${state.info.context.toLocaleString()}` : ''}`;
     this.el('[data-speed]').textContent = number(observation.tokensPerSecond);
     this.el('[data-generated]').textContent = number(observation.generated);
     this.el('[data-prefill]').textContent = number(observation.promptMs, ' ms');
-    const stage = observation.token ? 'decode' : observation.stage ?? 'prefill';
-    if (stage !== this.tokenStage) { this.clearTokenInspection(); this.tokenStage = stage; }
-    const prompt = observation.promptTokens ?? [];
-    const processed = Math.min(prompt.length, Math.max(0, observation.promptProcessed ?? 0));
-    const start = promptWindow(prompt.length, processed, this.visibleTokenCount);
-    const visible = stage === 'decode' ? this.generatedTokens.slice(-this.visibleTokenCount)
-      : prompt.slice(start, start + this.visibleTokenCount).map((token, index) => ({ ...token, position: start + index + 1 }));
-    this.el('[data-token-stage]').textContent = stage === 'decode' ? 'Output tokens' : 'Prompt processing';
-    const range = stage === 'decode' ? visible.length ? `${visible[0].position}–${visible[visible.length - 1].position}` : ''
-      : observation.promptTotal === undefined ? '' : `${number(observation.promptProcessed ?? 0)} / ${number(observation.promptTotal)}`;
-    this.el('[data-token-range]').textContent = range;
-    const container = this.el('[data-tokens]');
-    container.setAttribute('aria-label', stage === 'decode' ? 'Output tokens' : 'Prompt tokens');
-    const keys = new Set(visible.map(token => `${stage}:${token.position}`));
-    const active = document.activeElement as HTMLElement | null;
-    const transferFocus = !!active && container.contains(active) && !keys.has(active.dataset.tokenKey ?? '');
-    for (const [key, node] of this.tokenNodes) if (!keys.has(key)) { node.remove(); this.tokenNodes.delete(key); }
-    container.querySelector('.la-muted')?.remove();
-    visible.forEach((token, index) => {
-      const key = `${stage}:${token.position}`;
-      let chip = this.tokenNodes.get(key);
-      if (!chip) {
-        chip = document.createElement('button'); chip.type = 'button'; chip.className = 'la-token'; chip.dataset.inspectToken = '';
-        chip.dataset.tokenKey = key; chip.tabIndex = -1;
-        chip.dataset.tokenId = String(token.id); chip.dataset.tokenPiece = token.piece; chip.dataset.tokenPosition = String(token.position);
-        chip.setAttribute('aria-label', `Inspect token ${token.id}: ${token.piece}`);
-        chip.title = `Token ${token.position} · ID ${token.id}: ${token.piece}`;
-        const piece = document.createElement('span'); piece.textContent = tokenLabel(token.piece);
-        const id = document.createElement('small'); id.textContent = String(token.id); chip.append(piece, id); this.tokenNodes.set(key, chip);
-      }
-      chip.classList.toggle('is-pending', stage === 'prefill' && token.position > processed);
-      if (container.children[index] !== chip) container.insertBefore(chip, container.children[index] ?? null);
-    });
-    if (!visible.length) { const empty = document.createElement('span'); empty.className = 'la-muted'; empty.textContent = '—'; container.append(empty); }
-    const entry = this.focusedTokenKey ? this.tokenNodes.get(this.focusedTokenKey) : undefined;
-    const nextFocus = entry ?? (container.querySelector<HTMLButtonElement>('button') || undefined);
-    if (nextFocus) { nextFocus.tabIndex = 0; this.focusedTokenKey = nextFocus.dataset.tokenKey!; }
-    if (transferFocus) (nextFocus ?? container).focus({ preventScroll: true });
-    const candidates = this.el('[data-candidates]'); candidates.replaceChildren();
-    const available = stage === 'decode' ? observation.candidates ?? [] : [];
-    if (!available.length) { const empty = document.createElement('p'); empty.className = 'la-muted'; empty.textContent = '—'; candidates.append(empty); }
-    const visibleCandidates = available.slice(0, this.candidateCount);
-    const token = observation.token;
-    const selected = available.find(candidate => token && (candidate.id !== undefined ? candidate.id === token.id : candidate.piece === token.piece));
-    if (selected && !visibleCandidates.includes(selected)) visibleCandidates[visibleCandidates.length - 1] = selected;
-    for (const candidate of visibleCandidates) {
-      const row = document.createElement('div'); row.className = 'la-candidate';
-      const chosen = !!token && (candidate.id !== undefined ? candidate.id === token.id : candidate.piece === token.piece);
-      const name = document.createElement('span'); name.textContent = `${chosen ? '✓ ' : ''}${candidate.piece ? tokenLabel(candidate.piece) : candidate.id === undefined ? '∅' : `#${candidate.id}`}`;
-      name.title = candidate.id === undefined ? candidate.piece : `${candidate.piece} · ID ${candidate.id}`;
-      const probability = document.createElement('span'); probability.textContent = number(candidate.probability * 100, '%');
-      row.style.setProperty('--probability', `${Math.max(0, Math.min(1, candidate.probability)) * 100}%`); row.append(name, probability); candidates.append(row);
-    }
-    const layers = this.el('[data-layers]');
-    const metadata = state.info?.layers ?? [];
-    const metadataKey = metadata.join(',');
-    if (metadataKey !== this.layerMetadata || !layers.children.length) {
-      this.layerMetadata = metadataKey; layers.replaceChildren();
-      layers.style.setProperty('--layer-count', String(metadata.length || 24));
-      for (let index = 0; index < metadata.length; index++) {
-        const layer = document.createElement('button'); layer.type = 'button'; layer.className = `la-layer la-layer--${metadata[index]}`; layer.dataset.inspectLayer = String(index);
-        layer.setAttribute('aria-label', `Inspect layer ${index + 1}, ${metadata[index]}`);
-        const track = document.createElement('span'); track.className = 'la-layer-track';
-        const bar = document.createElement('span'); bar.className = 'la-layer-bar'; bar.dataset.layerBar = ''; track.append(bar);
-        const label = document.createElement('span'); label.className = 'la-layer-index'; label.textContent = String(index + 1);
-        label.classList.toggle('is-axis-label', index === 0 || (index + 1) % 4 === 0 || index === metadata.length - 1);
-        const value = document.createElement('span'); value.className = 'la-layer-value'; value.dataset.layerValue = '';
-        layer.append(track, label, value); layers.append(layer);
-      }
-    }
-    const readings = observation.layers ?? [];
-    const max = Math.max(0, ...readings.map(reading => Number.isFinite(reading.rms) ? reading.rms! : 0));
-    this.layerScale = Math.max(this.layerScale, Math.ceil(max * 10) / 10);
-    this.el('[data-layer-scale]').textContent = readings.length ? `RMS · 0–${number(this.layerScale, '', 2)}` : 'Residual RMS';
-    this.el('[data-layer-pass]').textContent = observation.pass === undefined ? '' : `Pass ${number(observation.pass)}`;
-    for (const layer of layers.querySelectorAll<HTMLElement>('[data-inspect-layer]')) {
-      const index = Number(layer.dataset.inspectLayer); const measured = readings.find(value => value.layer === index);
-      const value = measured?.rms;
-      layer.title = `Layer ${index + 1} · ${metadata[index]}${value === undefined ? '' : ` · Residual RMS ${number(value, '', 3)}`}`;
-      const bar = layer.querySelector<HTMLElement>('[data-layer-bar]')!;
-      bar.style.transform = `scaleY(${value === undefined ? 0 : Math.max(0, Math.min(1, value / this.layerScale))})`;
-      bar.dataset.rms = value === undefined ? '' : String(value);
-      layer.querySelector<HTMLElement>('[data-layer-value]')!.textContent = number(value, '', 3);
-      layer.setAttribute('aria-pressed', String(this.selectedLayer === index));
-    }
-    this.renderLayerReading(state);
+    this.observatory?.render();
   }
 }

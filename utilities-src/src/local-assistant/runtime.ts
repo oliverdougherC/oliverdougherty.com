@@ -12,6 +12,9 @@ interface NativeChunk {
   observatory?: {
     layers?: Observation['layers']; prompt_tokens?: Observation['promptTokens']; token?: Observation['token'];
     candidates?: Observation['candidates']; generated?: number; context_used?: number; pass?: number; layer_backend?: string;
+    attention?: Array<{ layer: number; query_position: number; key_count: number; head_count: number; entries: Array<{ position: number; weight: number }>; coverage?: number }>;
+    layer_changes?: Array<{ layer: number; input_rms: number; delta_rms: number; relative_delta: number }>;
+    lens?: Observation['lens'];
   };
 }
 /** Generation owns one slot; all model work executes in wllama's dedicated worker. */
@@ -112,6 +115,23 @@ export class AssistantRuntime implements Runtime {
           reasoning += choice?.delta?.reasoning_content ?? '';
           const event = chunk.observatory;
           const observation: Observation = {};
+          if (event?.token) {
+            // Each sampled token owns its snapshot. Missing measurements must not
+            // inherit values from an earlier pass through session state merging.
+            observation.attention = event.attention?.map(reading => ({
+              layer: reading.layer, queryPosition: reading.query_position,
+              keyCount: reading.key_count, headCount: reading.head_count,
+              entries: reading.entries, coverage: reading.coverage,
+            }));
+            observation.layerChanges = event.layer_changes?.map(reading => ({
+              layer: reading.layer, inputRms: reading.input_rms,
+              deltaRms: reading.delta_rms, relativeDelta: reading.relative_delta,
+            }));
+            observation.lens = event.lens;
+            observation.candidates = event.candidates;
+            observation.layers = event.layers;
+            observation.pass = event.pass;
+          }
           if (event?.layers) observation.layers = event.layers;
           if (event?.prompt_tokens) observation.promptTokens = event.prompt_tokens;
           if (event?.token) observation.token = event.token;

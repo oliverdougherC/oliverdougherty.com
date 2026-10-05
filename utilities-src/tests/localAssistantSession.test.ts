@@ -22,6 +22,39 @@ describe('local assistant session lifecycle', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it('does not borrow optional measurements from an earlier sampled token', async () => {
+    const model = runtime();
+    model.generate.mockImplementation(async (_messages, _thinking, _signal, update) => {
+      update('A', '', { token: { id: 1, piece: 'A' }, generated: 1, pass: 1, contextUsed: 20,
+        layerChanges: [{ layer: 0, relativeDelta: 0.5 }],
+        lens: [{ layer: 0, candidates: [{ id: 1, piece: 'A', probability: 0.5 }] }] });
+      update('AB', '', { token: { id: 2, piece: 'B' }, generated: 2, pass: 2 });
+      update('AB', '', { tokensPerSecond: 42 });
+    });
+    const session = new AssistantSession(() => model);
+    await session.activate(); await session.send('Hello');
+    expect(session.state.observation).toMatchObject({ pass: 2, generated: 2, tokensPerSecond: 42 });
+    expect(session.state.observation.layerChanges).toBeUndefined();
+    expect(session.state.observation.lens).toBeUndefined();
+    expect(session.state.observation.contextUsed).toBeUndefined();
+    await session.destroy();
+  });
+
+  it('clears captured inference measurements when reloading while preserving the conversation', async () => {
+    const model = runtime();
+    model.generate.mockImplementation(async (_messages, _thinking, _signal, update) => {
+      update('Answer', '', { token: { id: 8, piece: 'Answer' }, generated: 1, pass: 4,
+        layerChanges: [{ layer: 0, relativeDelta: 0.5 }] });
+    });
+    const session = new AssistantSession(() => model);
+    await session.activate(); await session.send('Hello');
+    expect(session.state.observation.pass).toBe(4);
+    await session.retry();
+    expect(session.state.observation).toEqual({});
+    expect(session.state.messages.at(-1)?.content).toBe('Answer');
+    await session.destroy();
+  });
+
   it('is lazy, defaults thinking on, and requires an explicit chat entrance', async () => {
     const model = runtime();
     const factory = vi.fn(() => model);

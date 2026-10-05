@@ -92,7 +92,7 @@ export class AssistantSession {
     }
     const version = this.cancel();
     const controller = this.controller = new AbortController();
-    this.publish({ phase: 'loading', entered: false, info: null, loaded: 0, total: null, status: 'Preparing local inference…' });
+    this.publish({ phase: 'loading', entered: false, info: null, observation: {}, loaded: 0, total: null, status: 'Preparing local inference…' });
     let handle: RuntimeHandle;
     try {
       handle = { runtime: this.factory(), task: Promise.resolve(), loaded: false };
@@ -176,7 +176,15 @@ export class AssistantSession {
       try {
         await handle.runtime.generate(messages, thinking, controller.signal, (answer, reasoning, observation) => {
           if (!this.valid(handle, version)) return;
-          this.publish({ messages: [...messages, { role: 'assistant', content: answer, reasoning }], observation: { ...this.current.observation, ...observation } });
+          const previous = this.current.observation;
+          const nextToken = observation.token && (observation.generated === undefined
+            ? observation.token !== previous.token : observation.generated !== previous.generated);
+          // Timing/progress updates merge into the current pass. A new token starts
+          // a new measurement packet, so optional readouts cannot become stale.
+          const cleared = nextToken ? { stage: 'decode' as const, pass: undefined,
+            contextUsed: undefined, layers: undefined, candidates: undefined,
+            attention: undefined, layerChanges: undefined, lens: undefined } : {};
+          this.publish({ messages: [...messages, { role: 'assistant', content: answer, reasoning }], observation: { ...previous, ...cleared, ...observation } });
         });
         if (!this.valid(handle, version)) return;
         this.controller = null;

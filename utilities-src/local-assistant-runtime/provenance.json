@@ -1,5 +1,5 @@
 {
-  "version": "3.8.1-observatory.2",
+  "version": "3.8.1-observatory.3",
   "revisions": {
     "wllama": "7ed17361caf221a84aa1e80ca85a3d6324f3af85",
     "llamaCpp": "46ca246de9bb1c35269722a6240d37d9dfd79cad",
@@ -11,17 +11,20 @@
     "WebGPU",
     "WASM64",
     "JSPI",
-    "GPU residual RMS reduction",
-    "token-aligned sampler telemetry"
+    "GPU residual RMS and change reduction",
+    "head-mean last-query attention",
+    "intermediate normalized logit lens",
+    "token-aligned sampler telemetry",
+    "live inference pacing"
   ],
   "patches": {
     "llama-observatory.patch": {
-      "bytes": 4352,
-      "sha256": "d57d11fd195128d0138ee5b2ceea4822819ff7a7b5bba818013d89dd52ecb3f0"
+      "bytes": 10040,
+      "sha256": "35215d7770da132f2824360e6383751d5dc36c25fc234334a6cf97a7bfe45b94"
     },
     "wllama-observatory.patch": {
-      "bytes": 21777,
-      "sha256": "54a9f0d092c19793e44fb499d103fca53d0ee283b9f35ea19536ffb1d79f86fa"
+      "bytes": 26007,
+      "sha256": "2a6a0bb169cab587f0a81b1eb83aa9adbfd052c22aa4e27c9494a9d6e55ad9da"
     }
   },
   "files": {
@@ -38,8 +41,8 @@
       "sha256": "3122a715e00e3d78e5c60650408009e6a2be16c927ae8b59ed59f245d4d1f14d"
     },
     "glue/messages.d.ts": {
-      "bytes": 5778,
-      "sha256": "bede75693b647347db8d5e7c50f370ed49d5a82b25d00d898c2c67b872d9b99b"
+      "bytes": 5822,
+      "sha256": "ac387d7a73e42e8457af68cd7664647b83611014b4a3dcfc6f4da71081fc308b"
     },
     "huggingface.d.ts": {
       "bytes": 1195,
@@ -50,8 +53,8 @@
       "sha256": "bf0c08d3d86dc0b74b627005dcc31db46eced3bffebb534477c7e8fe8da5ea05"
     },
     "index.js": {
-      "bytes": 387656,
-      "sha256": "531c508fdc547315ec9e1fb503ce4c932f0c76c689244bb736e458d90dc5633a"
+      "bytes": 387842,
+      "sha256": "0420b8b8d0f00e489d9d50fd740803b92c1991de6f965d910eca1c825c22d9f6"
     },
     "model-manager.d.ts": {
       "bytes": 4213,
@@ -70,12 +73,12 @@
       "sha256": "33969056afdd50d02fa865f1184a0d3cb45dce479821e797e9d887a2cb078711"
     },
     "types/oai-compat.d.ts": {
-      "bytes": 9457,
-      "sha256": "cbe1eac7f15327b41929166288c9c3e384292cd16517dd7862787f4d7ceccfc6"
+      "bytes": 10053,
+      "sha256": "cdde37332981fcaf8dec707da1f26d748626bb6b54920d5598bf4ce997c8fee5"
     },
     "types/types.d.ts": {
-      "bytes": 3643,
-      "sha256": "c0923ed7f8288981c37582205592a59938c9801b94c938ce18e972f4cd82d343"
+      "bytes": 3675,
+      "sha256": "8f6cf619ae9f6d27f141f02c0806eb10c473601d6db6070d03b23b31466373ce"
     },
     "utils.d.ts": {
       "bytes": 4329,
@@ -94,8 +97,8 @@
       "sha256": "8efad8dac893b3c537c3ededda0fba1803ee4eeba39a080c09e2851288960894"
     },
     "wllama.wasm": {
-      "bytes": 8799386,
-      "sha256": "14f0a18a99a3872731e6809b65e1f32b7fd5d6ed0714a842e267193af93a6b49"
+      "bytes": 8813934,
+      "sha256": "59021c7fd605a53507120ba5b27d4b3d79e95f7733f5e3dbd9532e71ac0979d0"
     },
     "worker.d.ts": {
       "bytes": 2523,
