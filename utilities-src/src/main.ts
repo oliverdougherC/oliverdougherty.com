@@ -1627,9 +1627,19 @@ document.addEventListener('DOMContentLoaded', () => {
               return () => { new LocalAssistantController(root).init(); };
             },
           }
+        : utilityId === 'lynx-reader'
+        ? {
+            label: 'Lynx Reader',
+            load: async () => {
+              const root = document.getElementById('lynxReaderApp');
+              if (!root) return null;
+              const { LynxReaderController } = await import('./lynxReaderController');
+              return () => { new LynxReaderController(root).init(); };
+            },
+          }
         : utilityId === 'yahtzee-keiri'
         ? {
-            label: 'Yahtzee vs. Keiri',
+            label: 'Keiri’s Domain',
             load: async () => {
               const root = document.getElementById('yahtzeeKeiriApp');
               if (!root) return null;
