@@ -27,7 +27,7 @@ it('starts paused, resumes exactly the displayed word and seeks with clamping', 
   expect(key('Space').defaultPrevented).toBe(true);
   vi.advanceTimersByTime(201);
   expect(el('position').textContent).toBe('2 / 30');
-  click('forward');
+  input('seek', '11');
   expect(el('position').textContent).toBe('12 / 30');
   vi.advanceTimersByTime(1000);
   expect(el('position').textContent).toBe('12 / 30');
@@ -71,13 +71,15 @@ it('invalidates rapid state changes and preserves state while deactivated', () =
   expect(el<HTMLTextAreaElement>('source').value).toContain('word0');
 });
 
-it('keeps editing and native control keyboard events intact', () => {
+it('keeps text editing intact but handles shortcuts after focusing controls', () => {
   expect(key('Space', el('source')).defaultPrevented).toBe(false);
   click('read');
-  expect(key('Space', el('wpm')).defaultPrevented).toBe(false);
-  expect(key('ArrowRight', el('seek')).defaultPrevented).toBe(false);
-  expect(key('Space', el('reset')).defaultPrevented).toBe(false);
-  expect(el('play').getAttribute('aria-pressed')).toBe('false');
+  expect(key('Space', el('wpm')).defaultPrevented).toBe(true);
+  expect(el('play').getAttribute('aria-pressed')).toBe('true');
+  expect(key('ArrowRight', el('seek')).defaultPrevented).toBe(true);
+  expect(el('position').textContent).toBe('30 / 30');
+  expect(key('Space', el('reset')).defaultPrevented).toBe(true);
+  expect(el('play').getAttribute('aria-pressed')).toBe('true');
 });
 
 it('holds the final word for its dwell, finishes, and can replay or reset', () => {
@@ -89,4 +91,64 @@ it('holds the final word for its dwell, finishes, and can replay or reset', () =
   expect(vi.getTimerCount()).toBe(0);
   click('play'); expect(el('status').textContent).toBe('Reading');
   click('reset'); expect(el('status').textContent).toBe('Paused');
+});
+
+it('jumps to the previous sentence from mid-sentence and the next immediate sentence', () => {
+  input('source', 'First sentence here. Second sentence here. Third sentence here.'); click('read');
+  input('seek', '4'); click('back');
+  expect(el('position').textContent).toBe('1 / 9');
+  input('seek', '4'); key('ArrowRight', el('wpm'));
+  expect(el('position').textContent).toBe('7 / 9');
+  input('seek', '7'); key('ArrowLeft', el('font'));
+  expect(el('position').textContent).toBe('4 / 9');
+  expect(el('play').getAttribute('aria-pressed')).toBe('false');
+});
+
+it('changes WPM with wheel and trackpad input, clamps, and ignores zoom and inactive views', () => {
+  const wheel = (deltaY: number, extra = {}) => {
+    const event = new WheelEvent('wheel', { deltaY, bubbles: true, cancelable: true, ...extra });
+    root.dispatchEvent(event); return event;
+  };
+  expect(wheel(-100).defaultPrevented).toBe(false);
+  click('read'); click('play'); vi.advanceTimersByTime(0);
+  expect(wheel(-100).defaultPrevented).toBe(true);
+  expect(el('speed').textContent).toBe('325');
+  expect(el('play').getAttribute('aria-pressed')).toBe('true');
+  expect(vi.getTimerCount()).toBe(1);
+  wheel(20); expect(el('speed').textContent).toBe('325');
+  wheel(20); expect(el('speed').textContent).toBe('300');
+  wheel(-3, { deltaMode: 1 }); expect(el('speed').textContent).toBe('325');
+  expect(wheel(-100, { ctrlKey: true }).defaultPrevented).toBe(false);
+  expect(wheel(-100, { deltaX: 200 }).defaultPrevented).toBe(false);
+  input('wpm', '1000'); wheel(-100); expect(el('speed').textContent).toBe('1000');
+  input('wpm', '100'); wheel(100); expect(el('speed').textContent).toBe('100');
+  root.dispatchEvent(new Event('utility-deactivate'));
+  expect(wheel(-100).defaultPrevented).toBe(false);
+});
+
+it('changes punctuation timing during playback without losing the current dwell fraction', () => {
+  input('source', 'one, two. three'); click('read'); click('play');
+  vi.advanceTimersByTime(50);
+  input('comma', '200'); input('period', '0');
+  expect(el('position').textContent).toBe('1 / 3');
+  expect(el('comma-value').textContent).toBe('+200%');
+  expect(el('period-value').textContent).toBe('+0%');
+  expect(el('play').getAttribute('aria-pressed')).toBe('true');
+  expect(vi.getTimerCount()).toBe(1);
+  vi.advanceTimersByTime(263);
+  expect(el('position').textContent).toBe('1 / 3');
+  vi.advanceTimersByTime(2);
+  expect(el('position').textContent).toBe('2 / 3');
+});
+
+it('updates word appearance without changing playback or position', () => {
+  click('read'); click('play'); vi.advanceTimersByTime(0);
+  input('size', '120');
+  el<HTMLSelectElement>('font').value = 'serif'; el('font').dispatchEvent(new Event('change'));
+  expect(el('word').style.fontFamily).toBe('Georgia, serif');
+  expect(root.style.getPropertyValue('--lynx-word-size')).toBe('120px');
+  expect(el('size-value').textContent).toBe('120 px');
+  expect(el('position').textContent).toBe('1 / 30');
+  expect(el('play').getAttribute('aria-pressed')).toBe('true');
+  expect(vi.getTimerCount()).toBe(1);
 });

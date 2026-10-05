@@ -12,6 +12,9 @@ const q = name => `[data-lynx-${name}]`;
 async function seek(page, index) {
   await page.locator(q('seek')).evaluate((node, value) => { node.value = String(value); node.dispatchEvent(new Event('input')); }, index);
 }
+async function setting(page, name, value) {
+  await page.locator(q(name)).evaluate((node, next) => { node.value = next; node.dispatchEvent(new Event('input')); }, value);
+}
 async function speed(page, wpm) {
   await page.locator(q('wpm')).evaluate((node, value) => { node.value = String(value); node.dispatchEvent(new Event('input')); }, wpm);
 }
@@ -193,6 +196,68 @@ async function runLynxChecks(browser, baseUrl) {
       await page.screenshot({ path: path.join(OUTPUT, `${prefix}reader-${width}x${height}.png`) });
       await page.locator(q('edit')).click();
     }
+
+    // Sentence navigation and global shortcuts after a real slider interaction.
+    await page.locator(q('source')).fill('First sentence here. Second sentence here. Third sentence here.');
+    await page.locator(q('read')).click();
+    await seek(page, 4);
+    await page.locator(q('back')).click();
+    assert.equal(await page.locator(q('seek')).inputValue(), '0');
+    await seek(page, 4);
+    await page.locator(q('forward')).click();
+    assert.equal(await page.locator(q('seek')).inputValue(), '6');
+    await page.locator(q('wpm')).click();
+    const sliderValue = await page.locator(q('wpm')).inputValue();
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await page.locator(q('seek')).inputValue(), '3');
+    assert.equal(await page.locator(q('wpm')).inputValue(), sliderValue, 'Sentence shortcuts do not also move the speed slider');
+    await page.keyboard.press('Space');
+    assert.equal(await page.locator(q('play')).getAttribute('aria-pressed'), 'true');
+    await page.keyboard.press('Space');
+    assert.equal(await page.locator(q('play')).getAttribute('aria-pressed'), 'false');
+    await speed(page, 300);
+    await page.locator(q('display')).hover();
+    await page.mouse.wheel(0, -100);
+    await page.waitForFunction(() => document.querySelector('[data-lynx-wpm]').value === '325');
+    await page.mouse.wheel(0, 100);
+    await page.waitForFunction(() => document.querySelector('[data-lynx-wpm]').value === '300');
+    for (const [name, value] of [['comma', '150'], ['period', '100']]) {
+      await setting(page, name, value);
+      assert.equal(await page.locator(q(`${name}-value`)).textContent(), `+${value}%`);
+    }
+    await page.locator(q('edit')).click();
+    await page.locator(q('source')).fill(sample);
+    await page.locator(q('read')).click();
+    for (const [width, height] of [[800, 600], [1440, 900], [2560, 1440]]) {
+      await page.setViewportSize({ width, height });
+      for (const font of ['sans', 'serif', 'mono']) {
+        await page.locator(q('font')).selectOption(font);
+        let smallHeight;
+        for (const size of ['32', '144']) {
+          await setting(page, 'size', size);
+          await seek(page, 0);
+          await fits(page);
+          const letter = await page.locator(q('letter')).boundingBox();
+          if (size === '32') smallHeight = letter.height;
+          else assert.ok(letter.height > smallHeight * 1.5, 'Word size visibly changes the rendered word');
+          await seek(page, 7);
+          await fits(page);
+          const centered = await page.evaluate(() => {
+            const letter = document.querySelector('[data-lynx-letter]').getBoundingClientRect();
+            const stage = document.querySelector('[data-lynx-display]').getBoundingClientRect();
+            return Math.abs((letter.left + letter.right - stage.left - stage.right) / 2);
+          });
+          assert.ok(centered < 0.6, 'Font and size changes retain the recognition anchor');
+        }
+      }
+      await seek(page, 0);
+      await page.screenshot({ path: path.join(OUTPUT, `${prefix}preferences-${width}x${height}.png`) });
+    }
+    await page.locator(q('font')).selectOption('sans');
+    await setting(page, 'size', '88');
+    await setting(page, 'comma', '22');
+    await setting(page, 'period', '65');
+    await page.locator(q('edit')).click();
 
     // Real timers: include every dwell, including the final word, in measured throughput.
     await page.locator(q('source')).fill(prose);
