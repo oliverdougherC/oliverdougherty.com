@@ -11,7 +11,7 @@ export const ASSISTANT_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 
 export class AssistantSession {
   private current: AssistantState = {
-    phase: 'idle', active: false, thinking: true, entered: false, messages: [],
+    phase: 'idle', active: false, thinking: true, slow: false, entered: false, messages: [],
     info: null, observation: {}, loaded: 0, total: null, status: 'Ready to load the local model.'
   };
   private listeners = new Set<(state: AssistantState) => void>();
@@ -65,7 +65,7 @@ export class AssistantSession {
       const handle = this.handle;
       this.cancel();
       this.handle = null;
-      this.publish({ phase: 'idle', entered: false, info: null, loaded: 0, total: null, status: 'Model unloaded after five minutes idle. Return to reload.' });
+      this.publish({ phase: 'idle', entered: false, info: null, observation: {}, loaded: 0, total: null, status: 'Model unloaded after five minutes idle. Return to reload.' });
       if (handle) void this.release(handle);
     }, this.options.idleTimeoutMs ?? ASSISTANT_IDLE_TIMEOUT_MS);
   }
@@ -101,6 +101,7 @@ export class AssistantSession {
       return;
     }
     this.handle = handle;
+    handle.runtime.setSlowMode?.(this.current.slow);
     handle.task = (async () => {
       try {
         const info = await handle.runtime.load(controller.signal, (loaded, total, status) => {
@@ -150,6 +151,12 @@ export class AssistantSession {
     this.touch();
   }
 
+  setSlow(slow: boolean): void {
+    this.handle?.runtime.setSlowMode?.(slow);
+    this.publish({ slow });
+    this.touch();
+  }
+
   async send(text: string): Promise<void> {
     const content = text.trim();
     if (!content || this.destroyed || !this.current.active || this.current.phase === 'generating') return;
@@ -161,7 +168,7 @@ export class AssistantSession {
     const messages = [...this.current.messages, { role: 'user' as const, content }];
     const thinking = this.current.thinking;
     this.clearTimer();
-    this.publish({ phase: 'generating', entered: true, messages: [...messages, { role: 'assistant', content: '', reasoning: '' }], observation: {}, status: 'Generating locally…' });
+    this.publish({ phase: 'generating', entered: true, messages: [...messages, { role: 'assistant', content: '', reasoning: '' }], observation: { stage: 'prefill', promptProcessed: 0 }, status: 'Generating locally…' });
     const previous = handle.task;
     handle.task = (async () => {
       await previous;

@@ -22,11 +22,12 @@ export class SnakeGame {
   private score = 0;
   private columns = 20;
   private rows = 20;
+  private measuredWidth = 0;
+  private measuredHeight = 0;
 
   constructor(private canvas: HTMLCanvasElement, private onScore: (score: number) => void = () => {}) {
     this.context = canvas.getContext('2d');
     if (!canvas.hasAttribute('tabindex')) canvas.tabIndex = 0;
-    canvas.addEventListener('keydown', this.keydown);
     if (typeof ResizeObserver !== 'undefined') {
       this.observer = new ResizeObserver(() => { if (this.running) this.draw(); });
       this.observer.observe(canvas);
@@ -38,12 +39,14 @@ export class SnakeGame {
   start(): void {
     if (this.destroyed || this.running) return;
     this.running = true;
+    this.canvas.ownerDocument.addEventListener('keydown', this.keydown);
     if (!this.dead) this.timer = setInterval(() => this.step(), STEP_MS);
     this.draw();
   }
 
   stop(): void {
     this.running = false;
+    this.canvas.ownerDocument.removeEventListener('keydown', this.keydown);
     if (this.timer !== null) clearInterval(this.timer);
     this.timer = null;
   }
@@ -60,7 +63,6 @@ export class SnakeGame {
     this.stop();
     this.destroyed = true;
     this.observer?.disconnect();
-    this.canvas.removeEventListener('keydown', this.keydown);
   }
 
   private resetBoard(): void {
@@ -75,16 +77,19 @@ export class SnakeGame {
   }
 
   private keydown = (event: KeyboardEvent): void => {
-    if (!this.running || this.canvas.ownerDocument.activeElement !== this.canvas) return;
+    if (!this.running || event.ctrlKey || event.altKey || event.metaKey || event.defaultPrevented) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
     if (event.key === ' ' || event.key === 'Enter') {
-      event.preventDefault();
-      if (this.dead) this.restart();
+      const control = target instanceof Element ? target.closest('button, a[href], summary, [role="button"], [role="link"]') : null;
+      if (control && !this.canvas.parentElement?.contains(control)) return;
+      if (this.dead) { event.preventDefault(); this.restart(); }
       return;
     }
+    if (this.dead) return;
     const next = DIRECTIONS[event.key.length === 1 ? event.key.toLowerCase() : event.key];
     if (!next) return;
     event.preventDefault();
-    if (this.dead) this.restart();
     // Compare against the last committed movement, even for rapid key sequences.
     if (next.x !== -this.direction.x || next.y !== -this.direction.y) this.nextDirection = next;
   };
@@ -124,18 +129,26 @@ export class SnakeGame {
     const width = rect.width || 320;
     const height = rect.height || width;
     const ratio = Math.min(globalThis.devicePixelRatio || 1, 2);
-    const rows = Math.max(8, Math.floor(height / 16));
-    const columns = Math.max(8, Math.floor(width / (height / rows)));
+    // Cap large displays near 48 cells per axis without making short boards tiny.
+    const preferredCell = Math.max(Math.min(16, Math.min(width, height) / 8), Math.max(width, height) / 48);
+    const minX = this.body.length ? Math.min(...this.body.map(point => point.x)) : 0;
+    const maxX = this.body.length ? Math.max(...this.body.map(point => point.x)) : 0;
+    const minY = this.body.length ? Math.min(...this.body.map(point => point.y)) : 0;
+    const maxY = this.body.length ? Math.max(...this.body.map(point => point.y)) : 0;
+    // Keep the whole connected body plus a movement margin; scale if it cannot fit.
+    const resized = width !== this.measuredWidth || height !== this.measuredHeight;
+    const rows = resized ? Math.max(8, Math.floor(height / preferredCell), maxY - minY + 3) : this.rows;
+    const columns = resized ? Math.max(8, Math.floor(width / preferredCell), maxX - minX + 3) : this.columns;
+    this.measuredWidth = width;
+    this.measuredHeight = height;
     const changed = rows !== this.rows || columns !== this.columns;
     this.rows = rows;
     this.columns = columns;
     if (changed && this.body.length) {
-      if (this.body.some(point => point.x >= columns || point.y >= rows)) {
-        // A smaller board can cut off the snake: announce the necessary restart.
-        this.resetBoard();
-        if (this.running && this.timer === null) this.timer = setInterval(() => this.step(), STEP_MS);
-        this.canvas.dispatchEvent(new CustomEvent('snake-reset', { detail: { reason: 'resize' } }));
-      } else if (this.food.x >= columns || this.food.y >= rows) this.placeFood();
+      const dx = maxX >= columns - 1 ? columns - 2 - maxX : minX < 0 ? -minX : 0;
+      const dy = maxY >= rows - 1 ? rows - 2 - maxY : minY < 0 ? -minY : 0;
+      if (dx || dy) this.body = this.body.map(point => ({ x: point.x + dx, y: point.y + dy }));
+      if (this.food.x >= columns || this.food.y >= rows || this.body.some(point => point.x === this.food.x && point.y === this.food.y)) this.placeFood();
     }
     const cell = Math.min(width / columns, height / rows) * ratio;
     const pixelsWide = Math.round(width * ratio);
@@ -152,9 +165,11 @@ export class SnakeGame {
     ctx.fillStyle = '#faf8fd';
     ctx.fillRect(0, 0, width, height);
     ctx.fillStyle = '#202024';
-    ctx.fillRect(left + this.food.x * cell + ratio * 2, top + this.food.y * cell + ratio * 2, cell - ratio * 4, cell - ratio * 4);
+    const foodInset = Math.min(ratio * 2, cell * 0.22);
+    ctx.fillRect(left + this.food.x * cell + foodInset, top + this.food.y * cell + foodInset, cell - foodInset * 2, cell - foodInset * 2);
     ctx.fillStyle = '#7050c0';
-    for (const point of this.body) ctx.fillRect(left + point.x * cell + ratio, top + point.y * cell + ratio, cell - ratio * 2, cell - ratio * 2);
+    const inset = Math.min(ratio, cell * 0.1);
+    for (const point of this.body) ctx.fillRect(left + point.x * cell + inset, top + point.y * cell + inset, cell - inset * 2, cell - inset * 2);
     if (this.dead) {
       ctx.fillStyle = 'rgba(250, 248, 253, 0.94)';
       ctx.fillRect(0, height / 2 - 24 * ratio, width, 48 * ratio);
@@ -163,7 +178,7 @@ export class SnakeGame {
       ctx.textAlign = 'center';
       ctx.fillText(this.body.length === this.columns * this.rows ? 'Board complete!' : 'Game over', width / 2, height / 2 - 3 * ratio);
       ctx.font = `${12 * ratio}px system-ui`;
-      const restartHint = width / ratio < 260 ? 'Enter to restart' : 'Enter or arrow key to restart';
+      const restartHint = width / ratio < 260 ? 'Enter to restart' : 'Space or Enter to restart';
       ctx.fillText(restartHint, width / 2, height / 2 + 15 * ratio);
     }
   }

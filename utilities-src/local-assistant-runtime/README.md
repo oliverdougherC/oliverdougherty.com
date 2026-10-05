@@ -20,6 +20,8 @@ node scripts/build-local-assistant-runtime.mjs
 node utilities-src/local-assistant-runtime/verify.mjs
 # Optional: repeat the ABBA throughput comparison after the correctness checks.
 node utilities-src/local-assistant-runtime/verify.mjs --benchmark
+# Verify live Slow/Stop controls and an uncapped 1,100-token generation.
+node utilities-src/local-assistant-runtime/verify.mjs --v1
 ```
 
 The build requires Git, Node/npm, Python, CMake, Ninja, curl, and unzip. It downloads
@@ -62,7 +64,10 @@ Each relevant stream chunk includes `observatory`:
 ```
 
 Prompt tokens come from the runtime's actual tokenizer **after** the model's Jinja
-template has formatted the request, including control tokens. Candidate IDs and
+template has formatted the request, including control tokens. An initial stream
+event returns them before the first prefill graph runs, with actual prompt total
+and zero processed tokens. Subsequent `prompt_progress` events report native
+prefill work; they do not increment the generated-token count. Candidate IDs and
 weights come from the actual native sampler. Top-eight weights are a subset of
 the full distribution, so they need not sum to one. The runtime distinguishes
 post-sampler weights from pre-sampling model softmax probabilities.
@@ -100,6 +105,20 @@ bounded inspection. `resetConversation()` cancels readers, erases server-slot
 prompt caches, and clears native KV/recurrent memory while preserving weights.
 `exit()` invalidates pending initialization, rejects pending worker RPCs, clears
 model Blob references, terminates the worker, and revokes its object URL.
+
+`setSlowMode(true)` applies immediately to the active request. It paces requests
+to the native `get_result` action at approximately three decoded tokens per second.
+That action advances one native inference-loop iteration; while the host awaits
+the next pull, the worker does not run ahead generating hidden text. Existing
+native result buffering is bounded, and no token-playback queue is introduced.
+Prefill remains unpaced. Stop, disposal, and switching Slow off interrupt the
+wait immediately. RMS, sampler values, and visible text arrive together from
+the same native token result. This is inference backpressure, not a visual timer.
+
+The application sends `max_tokens: -1`: generation ends at a model stop token,
+explicit Stop, genuine context exhaustion, or a detected repeating-token loop.
+There is no separate 1,024-token response limit. Physical context remains finite
+and context shifting stays disabled.
 
 Set `observatory: false` and omit logprobs to measure the minimal path using the
 same weights, sampler, runtime, and GPU. This skips all additional reduction nodes

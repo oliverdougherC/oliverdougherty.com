@@ -1,7 +1,7 @@
-# Local Assistant
+# LLM Rumen Cannula
 
 Issue [#90](https://github.com/oliverdougherC/oliverdougherty.com/issues/90) adds
-`05 // Local Assistant` as a new implementation. The retired assistant is not reused.
+`05 // LLM Rumen Cannula` as a new implementation. The retired assistant is not reused.
 The conversation is the input/output surface for a Qwen3.5 model observatory.
 
 ## Model provenance
@@ -70,9 +70,12 @@ there is no background tensor dump or competing deep-inspection workload.
 Sampling is temperature 0.6, top-k 20, top-p 0.95, min-p 0, with repetition penalty 1.
 Thinking defaults on and uses the GGUF Jinja template's `enable_thinking` parameter
 for each request. The runtime's actual reasoning field is displayed separately.
-Both reasoning and response tokens use the same observability path. Generation
-stops after 1,024 tokens; a sixfold exact 16-token cycle stops with an explicit
-message. Normal output is not rewritten.
+Both reasoning and response tokens use the same observability path. There is no artificial output-token limit: generation runs until EOS, Stop, a
+physical context limit, or a repeated token loop. Repetition detection examines
+exact suffix periods 1–32 with at least 32 tokens and six cycles; output is never rewritten.
+Slow is a live 3 tokens/sec mode. It paces the runtime's result pulls, so the worker's
+actual decode and telemetry slow together, with no completed-answer playback queue.
+Stop/toggle/teardown interrupt the pacing wait immediately; prefill stays unpaced.
 
 ## Memory and lifecycle
 
@@ -98,23 +101,36 @@ Page teardown releases the runtime. Reset clears the conversation and native
 slot/KV state while retaining the loaded weights. Abort/version guards reject stale
 callbacks after cancellation, reset, retry and deactivation.
 
-Snake uses square cells on an adaptive rectangular board; a resize only resets the
-game if the snake no longer fits, with an accessible announcement. Snake is focus-scoped, with arrow/WASD controls and Space to restart. The ready
-transition leaves the game open until the user chooses Enter chat.
+Starting Snake expands it across the remaining workbench height and width while
+keeping loading/Enter chat controls available. Arrow/WASD controls work globally
+while playing, without canvas focus. Editable controls, Tab and Escape remain
+available; Pause, chat entry, deactivation and destruction release game input.
+Resizing translates/scales the existing board without losing the snake or score.
+The ready transition never forces the user out of the game.
 
 ## UI and rendering
 
+The public name is **LLM Rumen Cannula**; `#local-assistant` remains a stable route.
 The presentation follows the other Utilities: one shared title, white surfaces,
-thin rules and bold JetBrains Mono for the model and user prompts. The duplicate
+thin rules and bold JetBrains Mono for model identity. User messages use ordinary
+sentence typography on a restrained, right-aligned surface. The duplicate
 in-tool header, disclaimer, slogans, empty-chat suggestions and permanent telemetry
 instructions are removed. New chat sits with Thinking and Send. The closed native
 switcher says “Switch utility” without repeating the current tool name.
 
-The observatory receives more width and uses readable labels and values. Token
-IDs appear on selection; layer inspection omits unavailable measurements. Three
-candidate rows retain a stable height while sampling so the layer controls do not
-move under the pointer. At short heights, the layer grid uses two rows and the
-secondary measurements share one line. Thinking content keeps a restrained rule
+The observatory receives more width and uses readable labels and values. Token IDs appear on selection. One panel follows the active stage: exact prompt
+tokenization and processed counts during prefill, then the output stream during
+decode. It retains at most 2,048 output tokens in memory and renders only the number
+that fits, capped at 1,024 visible tokens. Larger windows reveal IDs, more history,
+and all eight candidate weights; laptops retain the essentials. Candidate height
+is reserved for 3/5/8 rows so sampling changes do not move other controls.
+
+The layer view charts the **actual residual RMS after every block**, with one
+shared, labeled scale and distinct DeltaNet/full-attention encodings. The scale
+can grow during a turn but does not shrink with every token. Graph pass numbers
+come from the runtime; they are not token counts or invented per-layer timings.
+No animated traversal claims to show a layer currently computing. At larger
+sizes, each block's numeric value is visible without selecting it. Thinking is collapsed initially and uses a braille state indicator, frozen under reduced motion. Thinking content keeps a restrained rule
 rather than a large tinted card. Copy acknowledges success in its existing label.
 
 The outer workbench stays bounded to the viewport. The transcript is the sole
@@ -149,7 +165,7 @@ The real integrated UI completed a fresh 1,280,835,840-byte upstream transfer an
 65,536-token allocation on Apple M4 Pro in 24.65 seconds. Byte progress was
 monotonic; the largest observed loading/init animation-frame gap was 58.3 ms
 across 3,015 frames. Snake stayed selected after readiness. A 36-token non-thinking
-response measured 58.8 tok/s and 204.2 ms prefill (short-run startup effects apply). The native 2K-context ABBA
+response measured 58.8 tok/s and 204.2 ms prefill (short-run startup effects apply). The original `.1` runtime’s 2K-context ABBA
 comparison averaged 60.80 tok/s with residual/sampler telemetry and 63.70 tok/s
 without it: a 4.55% throughput reduction across six runs in each condition.
 The final paired run used no known concurrent GPU tests; use these as single-machine
@@ -162,4 +178,23 @@ and overhead measurements on Apple Silicon and a discrete GPU before making a
 product choice. The present build has no measured discrete-GPU coverage.
 
 The [cold-load trace](./local-assistant-evidence/cold-load.json) records the actual
-upstream transfer and response. The performance trace and [initial loading capture](./screenshots/local-assistant-loading.png) belong to the initial prototype. Updated [model-ready/Snake](./screenshots/local-assistant-ready.png), [desktop chat](./screenshots/local-assistant-chat.png) and [800×600 chat](./screenshots/local-assistant-chat-800x600.png) screenshots come from a later real-model in-app browser run. Browser fixture screenshots are kept separate under `output/`.
+upstream transfer and response. The performance trace and [initial loading capture](./screenshots/local-assistant-loading.png) belong to the initial prototype. Updated [model-ready/Snake](./screenshots/local-assistant-ready.png) and [desktop chat](./screenshots/local-assistant-chat.png) screenshots show the current v1 interface with the real model. The [800×600 chat](./screenshots/local-assistant-chat-800x600.png) capture records the preceding UI revision. Current seven-viewport browser fixture screenshots are kept separate under `output/`.
+
+
+## V1 behavior checks
+
+The `.2` runtime verified real Slow pacing at **2.969 tokens/sec**, live on/off
+changes, and cancellation during the pacing wait at **0.23 ms**. A native test
+completed **1,100 tokens** without a fixed output cap. A separate real in-app
+browser run completed **2,037 tokens** with thinking enabled and Slow reporting
+3 tokens/sec; see [its recorded UI observations](./local-assistant-evidence/v1-live.json).
+These are separate runs from the original throughput benchmark above.
+
+The browser suite checks seven viewport sizes through **3840×2160**, including
+fully populated prompt/decode windows, candidate rows and layer bars. It verifies
+that larger windows expose more data, every visible token fits, the composer has
+one focus boundary, and the expanded Snake board fills the available height.
+The shared Switch utility control is checked in every utility for native keyboard
+access and a full-size label/caret hit area. Token inspection uses a roving tab
+stop and arrow/Home/End keys, preserving focus as the live window rolls forward.
+Selections clear at turn and stage boundaries.

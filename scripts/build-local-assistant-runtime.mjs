@@ -111,7 +111,7 @@ async function manifest(directory, prefix = '') {
   return files;
 }
 await writeFile(path.join(output, 'provenance.json'), `${JSON.stringify({
-  version: '3.8.1-observatory.1',
+  version: '3.8.1-observatory.2',
   revisions,
   features: ['WebGPU', 'WASM64', 'JSPI', 'GPU residual RMS reduction', 'token-aligned sampler telemetry'],
   patches: await manifest(path.join(output, 'patches')),

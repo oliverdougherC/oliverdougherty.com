@@ -2727,6 +2727,8 @@ var Wllama = class {
     __publicField(this, "compat", null);
     __publicField(this, "proxy", null);
     __publicField(this, "lifecycleEpoch", 0);
+    __publicField(this, "slowMode", false);
+    __publicField(this, "wakeDecodeWait", null);
     __publicField(this, "config");
     __publicField(this, "pathConfig");
     __publicField(this, "useMultiThread", false);
@@ -3360,6 +3362,32 @@ var Wllama = class {
    *
    * Note: This function will NOT crash if model is not yet loaded
    */
+  /** Pace native decode pulls, not text playback. Applies to the active request. */
+  setSlowMode(slow) {
+    var _a;
+    this.slowMode = slow;
+    (_a = this.wakeDecodeWait) == null ? void 0 : _a.call(this);
+  }
+  paceDecode(started, signal) {
+    return __async(this, null, function* () {
+      const epoch = this.lifecycleEpoch;
+      while (this.slowMode && started > 0 && !(signal == null ? void 0 : signal.aborted) && epoch === this.lifecycleEpoch) {
+        const remaining = started + 1e3 / 3 - performance.now();
+        if (remaining <= 0) return;
+        yield new Promise((resolve) => {
+          const wake = () => {
+            clearTimeout(timer);
+            signal == null ? void 0 : signal.removeEventListener("abort", wake);
+            if (this.wakeDecodeWait === wake) this.wakeDecodeWait = null;
+            resolve();
+          };
+          const timer = setTimeout(wake, remaining);
+          this.wakeDecodeWait = wake;
+          signal == null ? void 0 : signal.addEventListener("abort", wake, { once: true });
+        });
+      }
+    });
+  }
   tokenize(_0) {
     return __async(this, arguments, function* (text, options = {}) {
       var _a, _b;
@@ -3381,7 +3409,9 @@ var Wllama = class {
   }
   exit() {
     return __async(this, null, function* () {
+      var _a;
       ++this.lifecycleEpoch;
+      (_a = this.wakeDecodeWait) == null ? void 0 : _a.call(this);
       const proxy = this.proxy;
       this.proxy = null;
       this.metadata = null;
@@ -3547,14 +3577,18 @@ var Wllama = class {
   }
   getResponse(options, isStream, reqId) {
     return __async(this, null, function* () {
-      var _a, _b;
+      var _a, _b, _c, _d, _e, _f;
       let finalResult = null;
       let completed = false;
+      let lastDecodeStarted = 0;
+      let generated = 0;
       try {
         while (true) {
-          if ((_a = options.abortSignal) == null ? void 0 : _a.aborted) {
+          yield this.paceDecode(lastDecodeStarted, options.abortSignal);
+          if (((_a = options.abortSignal) == null ? void 0 : _a.aborted) || !this.proxy) {
             throw new WllamaAbortError();
           }
+          const decodeStarted = performance.now();
           const result_chunk = yield this.proxy.wllamaAction(
             "get_result",
             {
@@ -3588,7 +3622,12 @@ var Wllama = class {
               jsonData = [jsonData];
             }
             for (const chunk of jsonData) {
-              (_b = options.onData) == null ? void 0 : _b.call(options, chunk);
+              const count = (_e = (_d = (_b = chunk.observatory) == null ? void 0 : _b.generated) != null ? _d : (_c = chunk.timings) == null ? void 0 : _c.predicted_n) != null ? _e : 0;
+              if (count > generated) {
+                generated = count;
+                lastDecodeStarted = decodeStarted;
+              }
+              (_f = options.onData) == null ? void 0 : _f.call(options, chunk);
               finalResult = chunk;
             }
           }

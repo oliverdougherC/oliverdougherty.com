@@ -416,7 +416,7 @@ async function assertWorkbenchShell(browser, baseUrl) {
     { id: 'audio-fourier', name: 'Fourier Reconstruction', number: '02' },
     { id: 'stress-test', name: 'Stress Test', number: '03' },
     { id: 'yahtzee-keiri', name: 'Yahtzee vs. Keiri', number: '04' },
-    { id: 'local-assistant', name: 'Local Assistant', number: '05' }
+    { id: 'local-assistant', name: 'LLM Rumen Cannula', number: '05' }
   ];
   for (const viewport of [{ width: 1280, height: 800 }, { width: 1440, height: 900 }]) {
     const page = await browser.newPage({ viewport });
@@ -491,6 +491,25 @@ async function assertWorkbenchShell(browser, baseUrl) {
         assert(state.focused === 'utilityTitle', `[${label}] ${tool.name} should focus its heading on entry.`);
         assert(state.activeCount === 1 && state.titleHidden && !state.workspaceHidden, `[${label}] ${tool.name} should be the only exposed workspace.`);
         assert(!state.overflow, `[${label}] ${tool.name} should not overflow horizontally.`);
+        await page.keyboard.press('Tab');
+        const switcher = await page.locator('#utilitySwitcher').evaluate(select => {
+          const wrapper = select.closest('.workbench-switcher');
+          const box = select.getBoundingClientRect();
+          const target = wrapper.getBoundingClientRect();
+          const outline = getComputedStyle(wrapper);
+          return {
+            label: select.getAttribute('aria-label'), text: wrapper.querySelector('.workbench-switcher-label')?.textContent.trim(),
+            focused: document.activeElement === select, visible: select.matches(':focus-visible'),
+            width: box.width, height: box.height,
+            fullTarget: Math.abs(box.x - target.x) < 1 && Math.abs(box.y - target.y) < 1 && Math.abs(box.width - target.width) < 1 && Math.abs(box.height - target.height) < 1,
+            leftHit: document.elementFromPoint(box.left + 4, box.top + box.height / 2) === select,
+            rightHit: document.elementFromPoint(box.right - 4, box.top + box.height / 2) === select,
+            outline: outline.outlineStyle !== 'none' && Number.parseFloat(outline.outlineWidth) >= 1
+          };
+        });
+        assert(switcher.label === 'Switch utility' && switcher.text === 'Switch utility', `[${label}] ${tool.name} should use the shared visible switcher label.`);
+        assert(switcher.focused && switcher.visible && switcher.outline, `[${label}] ${tool.name} switcher should be keyboard reachable with one visible focus ring.`);
+        assert(switcher.width >= 140 && switcher.width <= 160 && switcher.height >= 44 && switcher.fullTarget && switcher.leftHit && switcher.rightHit, `[${label}] ${tool.name} switcher label and caret must share one full-size native target.`);
       }
       await page.click('.nav-back-btn');
       assert(await page.locator('#utilitiesTitleView').isVisible(), `[${label}] collection control should return to the index.`);
@@ -819,7 +838,7 @@ async function assertControlPanelGeometry(page, utilityId, label) {
     };
     const required = [];
     const missing = [];
-    for (const selector of ['#utilityTitle', '#utilitySwitcher', '.nav-back-btn', ...requiredByTool[id], canvasByTool[id]]) {
+    for (const selector of ['#utilityTitle', '.workbench-switcher', '.nav-back-btn', ...requiredByTool[id], canvasByTool[id]]) {
       const elements = document.querySelectorAll(selector);
       if (elements.length === 0) missing.push(selector);
       for (const element of elements) required.push(describe(element));
@@ -2643,7 +2662,7 @@ async function main() {
       });
     }
 
-    await runUtilitySection(utilitySectionFailures, 'Local Assistant', async () => {
+    await runUtilitySection(utilitySectionFailures, 'LLM Rumen Cannula', async () => {
       await runLocalAssistantChecks(browser, baseUrl);
     });
 

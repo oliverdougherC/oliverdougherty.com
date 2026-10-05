@@ -1,0 +1,16 @@
+{
+  "date": "2026-10-04",
+  "source": "Real model run in the Codex in-app browser; values read from rendered UI",
+  "runtimeVersion": "3.8.1-observatory.2",
+  "model": "Qwen3.5-2B-Q4_K_M",
+  "prompt": "What is a token? Answer briefly.",
+  "thinking": true,
+  "slow": true,
+  "generatedTokens": 2037,
+  "contextTokens": 2055,
+  "contextCapacity": 65536,
+  "reportedAverageTokensPerSecond": 3,
+  "promptMilliseconds": 228.3,
+  "completion": "Normal end of generation; final observed token ID 248046. No 1,024-token cutoff and no manual stop.",
+  "notes": "The UI rounds timings. Separate precise pacing, Stop and 1,100-token integration checks are in the runtime verification.json. This records inference behavior; final presentation refinements followed."
+}

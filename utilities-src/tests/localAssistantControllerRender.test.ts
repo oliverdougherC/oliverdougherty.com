@@ -7,6 +7,7 @@ const controllers: LocalAssistantController[] = [];
 async function setup() {
   let update!: (content: string, reasoning: string, observation: Observation) => void;
   const runtime: Runtime = {
+    setSlowMode: vi.fn(),
     async load() { return { name: 'Test', context: 4096, layers: ['deltanet', 'attention'], backend: 'Test' }; },
     async generate(_messages, _thinking, signal, callback) { update = callback; await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true })); },
     async reset() {}, async dispose() {}
@@ -19,11 +20,63 @@ async function setup() {
   el<HTMLTextAreaElement>('[data-input]').value = 'Hello';
   el('[data-form]').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   await vi.advanceTimersByTimeAsync(0);
-  return { root, el, rawUpdate: (content: string, observation: Observation) => update(content, '', observation), update: async (content: string, reasoning = '', observation: Observation = {}) => { update(content, reasoning, observation); await vi.advanceTimersByTimeAsync(55); } };
+  return { root, el, runtime, rawUpdate: (content: string, observation: Observation) => update(content, '', observation), update: async (content: string, reasoning = '', observation: Observation = {}) => { update(content, reasoning, observation); await vi.advanceTimersByTimeAsync(55); } };
 }
 beforeEach(() => vi.useFakeTimers());
 afterEach(async () => { for (const controller of controllers.splice(0)) await controller.destroy(); document.getSelection()?.removeAllRanges(); document.body.replaceChildren(); vi.useRealTimers(); });
 describe('assistant streaming presentation', () => {
+  it('shows only the active token stage with real prompt progress', async () => {
+    const { el, update } = await setup();
+    await update('', '', { stage: 'prefill', promptTokens: [1, 2, 3, 4].map(id => ({ id, piece: `prompt${id}` })), promptProcessed: 2, promptTotal: 4 });
+    expect(el('[data-token-stage]').textContent).toBe('Prompt processing');
+    expect(el('[data-token-range]').textContent).toBe('2 / 4');
+    expect(el('[data-tokens]').querySelectorAll('.is-pending')).toHaveLength(2);
+    await update('Answer', '', { stage: 'decode', token: { id: 9, piece: 'Answer' }, generated: 1 });
+    expect(el('[data-token-stage]').textContent).toBe('Output tokens');
+    expect(el('[data-tokens]').querySelectorAll('button')).toHaveLength(1);
+    expect(el('[data-tokens] button').dataset.tokenId).toBe('9');
+  });
+  it('keeps Slow live and leaves actual reasoning collapsed with an active indicator', async () => {
+    const { el, runtime, update } = await setup();
+    const slow = el<HTMLInputElement>('[data-slow]');
+    expect(slow.disabled).toBe(false); slow.click();
+    expect(runtime.setSlowMode).toHaveBeenLastCalledWith(true);
+    await update('', 'Actual reasoning');
+    expect(el<HTMLDetailsElement>('details').open).toBe(false);
+    expect(el('details').classList.contains('is-thinking')).toBe(true);
+    el('[data-stop]').click();
+    expect(el('details').classList.contains('is-thinking')).toBe(false);
+  });
+  it('clears selected inspection when the active token stage changes', async () => {
+    const { el, update } = await setup();
+    await update('', '', { stage: 'prefill', promptTokens: [{ id: 1, piece: 'prompt' }], promptProcessed: 0, promptTotal: 1 });
+    el('[data-tokens] button').click();
+    expect(el('[data-token-inspection]').hidden).toBe(false);
+    await update('output', '', { stage: 'decode', token: { id: 2, piece: 'output' }, generated: 1 });
+    expect(el('[data-token-inspection]').hidden).toBe(true);
+  });
+  it('retains keyboard focus as a rolling token window evicts its oldest token', async () => {
+    const { el, rawUpdate } = await setup();
+    for (let i = 1; i <= 8; i++) rawUpdate(`t${i}`, { token: { id: i, piece: `t${i}` }, generated: i });
+    await vi.advanceTimersByTimeAsync(55);
+    el('[data-tokens] button').focus();
+    rawUpdate('t9', { token: { id: 9, piece: 't9' }, generated: 9 });
+    await vi.advanceTimersByTimeAsync(55);
+    expect((document.activeElement as HTMLElement).dataset.tokenId).toBe('2');
+    expect(el('[data-tokens]').querySelectorAll('[tabindex="0"]')).toHaveLength(1);
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    expect((document.activeElement as HTMLElement).dataset.tokenId).toBe('3');
+  });
+  it('uses the real RMS values for a shared-scale layer chart', async () => {
+    const { el, update } = await setup();
+    await update('answer', '', { pass: 4, layers: [{ layer: 0, rms: 0.2 }, { layer: 1, rms: 0.4 }] });
+    const first = el('[data-inspect-layer="0"] [data-layer-bar]');
+    const second = el('[data-inspect-layer="1"] [data-layer-bar]');
+    expect(first.dataset.rms).toBe('0.2'); expect(second.dataset.rms).toBe('0.4');
+    expect(first.style.transform).toBe('scaleY(0.5)'); expect(second.style.transform).toBe('scaleY(1)');
+    expect(el('[data-layer-pass]').textContent).toBe('Pass 4');
+  });
+
   it('keeps Cancel recoverable while stopping hidden-stage rendering', async () => {
     const runtime: Runtime = {
       load: vi.fn(async () => new Promise<never>(() => {})), generate: vi.fn(async () => {}),

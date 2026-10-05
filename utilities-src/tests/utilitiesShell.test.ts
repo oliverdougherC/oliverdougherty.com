@@ -8,7 +8,7 @@ const tools = [
   ['audio-fourier', 'Fourier Reconstruction'],
   ['stress-test', 'Stress Test'],
   ['yahtzee-keiri', 'Yahtzee vs. Keiri'],
-  ['local-assistant', 'Local Assistant']
+  ['local-assistant', 'LLM Rumen Cannula']
 ];
 const instances: JSDOM[] = [];
 
@@ -22,8 +22,8 @@ function setup(hash = '', beforeEval?: (window: JSDOM['window']) => void) {
     <main id="utilitiesUtilityView" hidden>
       <button class="nav-back-btn">Index</button>
       <span id="utilityNumber"></span><h1 id="utilityTitle" tabindex="-1"></h1>
-      <select id="utilitySwitcher">${tools.map(([id, title]) =>
-        `<option value="${id}">${title}</option>`).join('')}</select>
+      <label class="workbench-switcher"><span class="workbench-switcher-label" aria-hidden="true">Switch utility</span><select id="utilitySwitcher" aria-label="Switch utility">${tools.map(([id, title]) =>
+        `<option value="${id}">${title}</option>`).join('')}</select></label>
       ${tools.map(([id, title], index) => `<section class="utility-stage" data-utility-id="${id}"
         data-utility-title="${title}" data-utility-number="0${index + 1}" hidden>
         <div data-utility-root></div></section>`).join('')}
@@ -48,7 +48,24 @@ function setup(hash = '', beforeEval?: (window: JSDOM['window']) => void) {
 afterEach(() => instances.splice(0).forEach(dom => dom.window.close()));
 
 describe('utilities shell', () => {
-  it.each([['audio-fourier', 'Fourier Reconstruction', '02'], ['yahtzee-keiri', 'Yahtzee vs. Keiri', '04'], ['local-assistant', 'Local Assistant', '05']])('opens %s deep links and notifies the active controller', (id, title, number) => {
+  it('keeps the public switcher native with one accessible label and every established route', () => {
+    const markup = new JSDOM(readFileSync(new URL('../../pages/utilities/index.html', import.meta.url), 'utf8'));
+    instances.push(markup);
+    const { document } = markup.window;
+    const switcher = document.querySelector<HTMLSelectElement>('#utilitySwitcher')!;
+    expect(switcher.tagName).toBe('SELECT');
+    expect(switcher.getAttribute('aria-label')).toBe('Switch utility');
+    expect(switcher.labels).toHaveLength(1);
+    const label = switcher.labels![0];
+    expect(label.querySelector('.workbench-switcher-label')?.getAttribute('aria-hidden')).toBe('true');
+    expect(label.querySelectorAll('button, select, input, [tabindex]')).toHaveLength(1);
+    expect(Array.from(switcher.options, option => [option.value, option.textContent])).toEqual(tools.map(([id, title], index) => [id, `0${index + 1} // ${title}`]));
+    expect(document.querySelector('[data-utility="local-assistant"]')?.textContent).toContain('LLM Rumen Cannula');
+    expect(document.querySelector('#localAssistantApp')?.getAttribute('aria-label')).toBe('LLM Rumen Cannula');
+    expect(document.querySelector('[data-utility-id="local-assistant"]')?.getAttribute('data-utility-title')).toBe('LLM Rumen Cannula');
+  });
+
+  it.each([['audio-fourier', 'Fourier Reconstruction', '02'], ['yahtzee-keiri', 'Yahtzee vs. Keiri', '04'], ['local-assistant', 'LLM Rumen Cannula', '05']])('opens %s deep links and notifies the active controller', (id, title, number) => {
     const { window, query, events } = setup(`#${id}`);
     expect(query(`[data-utility-id="${id}"]`).classList.contains('is-active')).toBe(true);
     expect(query(`[data-utility-id="${id}"]`).hidden).toBe(false);

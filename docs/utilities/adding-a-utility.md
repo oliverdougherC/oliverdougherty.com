@@ -12,7 +12,7 @@ Do not introduce another visual theme or a tool-specific navigation system.
 - Use white surfaces, thin rules and the violet `#7050C0` accent. Keep the bold
   JetBrains Mono identity on the index; inside tools use compact Inter headings,
   labels and controls, reserving monospace for measurements and numerical readouts.
-- No scrolling inside utilities, including nested panels, except Local Assistant’s bounded chat transcript. The active page is a
+- No scrolling inside utilities, including nested panels, except LLM Rumen Cannula’s bounded chat transcript. The active page is a
   `100dvh` control panel with one compact header. Size the output with `minmax(0,1fr)`
   and adapt the control arrangement to the tool and viewport; do not conceal controls
   or metrics to fit. Verify actual bounds, not just `overflow: hidden`.

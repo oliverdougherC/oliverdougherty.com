@@ -26,7 +26,7 @@ describe('loading-screen Snake', () => {
   });
   afterEach(() => { game?.destroy(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
-  function key(value: string, target: HTMLElement = canvas): KeyboardEvent {
+  function key(value: string, target: HTMLElement = document.body): KeyboardEvent {
     const event = new KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true });
     target.dispatchEvent(event);
     return event;
@@ -41,6 +41,7 @@ describe('loading-screen Snake', () => {
     vi.advanceTimersByTime(120);
     expect(draw).toHaveBeenCalled();
     game.stop();
+    expect(key('ArrowUp').defaultPrevented).toBe(false);
     const count = draw.mock.calls.length;
     vi.advanceTimersByTime(5000);
     resize([], {} as ResizeObserver);
@@ -54,17 +55,26 @@ describe('loading-screen Snake', () => {
     expect(disconnect).toHaveBeenCalled();
   });
 
-  it('captures movement only on the focused game, never elsewhere on the page', () => {
+  it('captures movement globally only during play and leaves editable fields and navigation keys alone', () => {
     game = new SnakeGame(canvas);
     game.start();
     const input = document.querySelector('input')!;
     input.focus();
     expect(key('ArrowUp', input).defaultPrevented).toBe(false);
-    expect(key('ArrowUp').defaultPrevented).toBe(false);
-    canvas.focus();
+    const editor = document.createElement('div');
+    editor.contentEditable = 'true';
+    editor.setAttribute('contenteditable', 'true');
+    document.body.append(editor);
+    expect(key('W', editor).defaultPrevented).toBe(false);
     expect(key('ArrowUp').defaultPrevented).toBe(true);
     expect(key('W').defaultPrevented).toBe(true);
     expect(key('Tab').defaultPrevented).toBe(false);
+    expect(key('Escape').defaultPrevented).toBe(false);
+    expect(key(' ').defaultPrevented).toBe(false);
+    expect(key('Enter').defaultPrevented).toBe(false);
+    game.stop();
+    expect(key('ArrowUp').defaultPrevented).toBe(false);
+    expect(key('w').defaultPrevented).toBe(false);
   });
 
   it('rejects immediate reversal even when two directions arrive before a tick', () => {
@@ -79,17 +89,37 @@ describe('loading-screen Snake', () => {
     expect(draw).toHaveBeenCalledWith(7 * 16 + 1, 9 * 16 + 1, 14, 14);
   });
 
-  it('stops after death and restarts through the focused keyboard', () => {
+  it('stops after death and restarts only with Space or Enter from anywhere', () => {
     const score = vi.fn();
     game = new SnakeGame(canvas, score);
     game.start();
     vi.advanceTimersByTime(2000);
     expect(label).toHaveBeenCalledWith('Game over', expect.any(Number), expect.any(Number));
     expect(vi.getTimerCount()).toBe(0);
-    canvas.focus();
-    vi.advanceTimersByTime(0);
+    expect(key('ArrowUp').defaultPrevented).toBe(false);
+    expect(score).toHaveBeenCalledTimes(1);
     key('Enter');
     expect(score).toHaveBeenLastCalledWith(0);
+    expect(score).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(2000);
+    expect(key(' ').defaultPrevented).toBe(true);
+    expect(score).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(['Enter', ' '])('preserves %j activation on external controls after death', (restartKey) => {
+    document.body.innerHTML = '<div id="game"><canvas></canvas><button id="pause">Resume</button></div><button id="chat"><span>Enter chat</span></button><a href="#index">Index</a><select><option>Mode</option></select>';
+    canvas = document.querySelector('canvas')!;
+    const score = vi.fn();
+    game = new SnakeGame(canvas, score);
+    game.start();
+    vi.advanceTimersByTime(2000);
+    for (const control of document.querySelectorAll<HTMLElement>('#chat span, a, select')) {
+      expect(key(restartKey, control).defaultPrevented).toBe(false);
+      expect(score).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    }
+    expect(key(restartKey, document.querySelector<HTMLElement>('#pause')!).defaultPrevented).toBe(true);
     expect(score).toHaveBeenCalledTimes(2);
     expect(vi.getTimerCount()).toBe(1);
   });
@@ -110,7 +140,7 @@ describe('loading-screen Snake', () => {
     expect(score).toHaveBeenCalledTimes(2);
   });
 
-  it.each([{ width: 420, height: 90 }, { width: 180, height: 70 }])('keeps cells square on a $width × $height loading strip', ({ width, height }) => {
+  it.each([{ width: 420, height: 90 }, { width: 180, height: 70 }, { width: 620, height: 500 }, { width: 1000, height: 1800 }])('keeps cells square on a $width × $height board', ({ width, height }) => {
     vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ width, height } as DOMRect);
     vi.stubGlobal('devicePixelRatio', 2);
     game = new SnakeGame(canvas);
@@ -133,7 +163,7 @@ describe('loading-screen Snake', () => {
     expect(canvas.getContext('2d')?.font).toBe('24px system-ui');
   });
 
-  it('preserves progress on a fitting resize and announces a reset if shrinking cuts off the snake', () => {
+  it('preserves the whole body and score through expansions and narrow resizes', () => {
     let width = 420;
     vi.spyOn(canvas, 'getBoundingClientRect').mockImplementation(() => ({ width, height: 90 } as DOMRect));
     const score = vi.fn();
@@ -147,12 +177,56 @@ describe('loading-screen Snake', () => {
     expect(reset).not.toHaveBeenCalled();
     expect(score).toHaveBeenCalledTimes(1);
     width = 180;
+    draw.mockClear();
     resize([], {} as ResizeObserver);
-    expect(reset).toHaveBeenCalledOnce();
-    expect(reset.mock.calls[0][0].detail).toEqual({ reason: 'resize' });
-    expect(score).toHaveBeenCalledTimes(2);
+    expect(reset).not.toHaveBeenCalled();
+    expect(score).toHaveBeenCalledTimes(1);
+    expect(draw.mock.calls).toHaveLength(5);
+    for (const [x, y, cellWidth, cellHeight] of draw.mock.calls.slice(1)) {
+      expect(cellWidth).toBe(cellHeight);
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(x + cellWidth).toBeLessThanOrEqual(180);
+      expect(y + cellHeight).toBeLessThanOrEqual(90);
+    }
     expect(vi.getTimerCount()).toBe(1);
     vi.advanceTimersByTime(120);
     expect(label).not.toHaveBeenCalled();
+  });
+
+  it('scales a long earned snake intact when its body cannot fit the preferred narrow grid', () => {
+    let foodPlacement = 0;
+    // Repeatedly place food directly ahead of the snake along the same row.
+    vi.spyOn(Math, 'random').mockImplementation(() => 205.5 / (397 - foodPlacement++));
+    let width = 320;
+    vi.spyOn(canvas, 'getBoundingClientRect').mockImplementation(() => ({ width, height: 320 } as DOMRect));
+    const score = vi.fn();
+    game = new SnakeGame(canvas, score);
+    game.start();
+    vi.advanceTimersByTime(1200);
+    expect(score).toHaveBeenLastCalledWith(10);
+    const scoreUpdates = score.mock.calls.length;
+    width = 90;
+    draw.mockClear();
+    resize([], {} as ResizeObserver);
+    // One background, one food, all thirteen earned body segments.
+    expect(draw.mock.calls).toHaveLength(15);
+    expect(score).toHaveBeenCalledTimes(scoreUpdates);
+    const body = draw.mock.calls.slice(2);
+    for (const [x, y, cellWidth, cellHeight] of body) {
+      expect(cellWidth).toBe(cellHeight);
+      expect(cellWidth).toBeGreaterThan(0);
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x + cellWidth).toBeLessThanOrEqual(90);
+      expect(y + cellHeight).toBeLessThanOrEqual(320);
+    }
+    const gap = body[0][0] - body[1][0];
+    for (let i = 1; i < body.length; i++) {
+      expect(body[i - 1][0] - body[i][0]).toBeCloseTo(gap);
+      expect(body[i][1]).toBe(body[0][1]);
+    }
+    vi.advanceTimersByTime(120);
+    expect(label).not.toHaveBeenCalled();
+    expect(score).toHaveBeenLastCalledWith(10);
   });
 });

@@ -94,13 +94,15 @@ async function assertDownloadFailure(browser, baseUrl) {
 // The fixture intentionally delivers callbacks after abort to check stale work.
 // Layout observations below are explicitly synthetic test data, never GPU measurements.
 const RUNTIME_FIXTURE = `
-const fixture = globalThis.__localAssistantFixture = { loads: 0, disposals: 0, resets: 0, pending: [], generations: [] };
+const fixture = globalThis.__localAssistantFixture = { loads: 0, disposals: 0, resets: 0, pending: [], generations: [], slowCalls: [] };
 export function createAssistantRuntime() {
+  let slow = false;
   return {
+    setSlowMode(value) { slow = value; fixture.slowCalls.push(value); },
     load(signal, progress) {
       fixture.loads++;
       return new Promise(resolve => {
-        const finish = () => resolve({ name: 'UI lifecycle fixture', context: 2048, layers: Array.from({length: 24}, (_, i) => (i + 1) % 4 ? 'deltanet' : 'attention'), backend: 'TEST FIXTURE — no inference' });
+        const finish = () => resolve({ name: 'UI lifecycle fixture', context: 65536, layers: Array.from({length: 24}, (_, i) => (i + 1) % 4 ? 'deltanet' : 'attention'), backend: 'TEST FIXTURE — no inference' });
         fixture.pending.push({ finish, progress });
         signal.addEventListener('abort', () => { progress(999, 1000, 'STALE LOAD'); finish(); }, { once: true });
         progress(250, 1000, 'UI lifecycle fixture download');
@@ -109,9 +111,9 @@ export function createAssistantRuntime() {
     },
     generate(messages, thinking, signal, update) {
       return new Promise((resolve, reject) => {
-        fixture.generations.push({ update, finish: resolve, fail: reject });
+        fixture.generations.push({ update, finish: resolve, fail: reject, thinking, slow });
         signal.addEventListener('abort', () => { update('STALE ANSWER', '', {}); resolve(); }, { once: true });
-        update('Fixture response pending.', thinking ? 'Fixture reasoning.' : '', {});
+        update('', thinking ? 'Fixture reasoning.' : '', { stage: 'prefill', promptProcessed: 0, promptTotal: 1024 });
       });
     },
     async reset() { fixture.resets++; },
@@ -162,12 +164,21 @@ async function assertFixtureLifecycle(browser, baseUrl) {
   try {
     await page.goto(url(baseUrl), { waitUntil: 'domcontentloaded' });
     await phase(page, 'loading');
+    assert.equal(await page.locator('#utilityTitle').innerText(), 'LLM Rumen Cannula');
     assert.equal(await element(page, 'progress').evaluate(node => node.value / node.max), 0.25);
     await element(page, 'play').click();
-    assert.equal(await page.evaluate(() => document.activeElement?.hasAttribute('data-canvas')), true);
-    assert.equal(await element(page, 'canvas').evaluate(canvas => !canvas.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }))), true, 'Focused Snake consumes game key');
-    await element(page, 'cancel').focus();
-    assert.equal(await element(page, 'cancel').evaluate(button => !button.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }))), false, 'Snake does not capture keys outside canvas');
+    assert.equal(await element(page, 'welcome').evaluate(node => node.classList.contains('is-playing')), true, 'Play expands the welcome into game mode');
+    const keyConsumed = (locator, key) => locator.evaluate((node, value) => !node.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true })), key);
+    assert.equal(await keyConsumed(element(page, 'cancel'), 'ArrowUp'), true, 'Active Snake handles movement without requiring canvas focus');
+    assert.equal(await keyConsumed(element(page, 'cancel'), 'Tab'), false, 'Snake preserves Tab navigation');
+    assert.equal(await keyConsumed(page.locator('#utilitySwitcher'), 'ArrowDown'), false, 'Snake preserves native selector keys');
+    assert.equal(await keyConsumed(element(page, 'input'), 'ArrowLeft'), false, 'Snake preserves editable keys');
+    await element(page, 'play').click();
+    assert.match(await element(page, 'play').innerText(), /Resume/i);
+    assert.equal(await keyConsumed(element(page, 'cancel'), 'ArrowUp'), false, 'Pausing Snake releases global movement keys');
+    await element(page, 'play').click();
+    assert.match(await element(page, 'play').innerText(), /Pause/i);
+    assert.equal(await keyConsumed(element(page, 'cancel'), 'ArrowUp'), true, 'Resuming Snake restores global movement keys');
     await element(page, 'cancel').click();
     await phase(page, 'idle');
     assert.doesNotMatch(await element(page, 'load-status').innerText(), /STALE/);
@@ -184,7 +195,9 @@ async function assertFixtureLifecycle(browser, baseUrl) {
     await page.evaluate(() => globalThis.__localAssistantFixture.pending.at(-1).finish());
     await phase(page, 'ready');
     assert.equal(await element(page, 'welcome').isVisible(), true, 'Ready model does not force user out of Snake');
+    if (!/Pause/i.test(await element(page, 'play').innerText())) await element(page, 'play').click();
     await element(page, 'enter').click();
+    assert.equal(await keyConsumed(page.locator('#utilityTitle'), 'ArrowDown'), false, 'Entering chat releases Snake movement keys');
     assert.equal(await element(page, 'input').evaluate(input => input === document.activeElement), true, 'Enter chat focuses composer');
     await element(page, 'input').fill('A keyboard-only message');
     await element(page, 'input').press('Shift+Enter');
@@ -216,40 +229,100 @@ async function assertFixtureViewports(browser, baseUrl) {
   try {
     await page.goto(url(baseUrl), { waitUntil: 'domcontentloaded' });
     await phase(page, 'ready');
-    for (const [width, height] of [[1440, 900], [1280, 720], [1024, 600], [800, 600]]) {
+    for (const [width, height] of [[3840, 2160], [2560, 1440], [1920, 1080], [1440, 900], [1280, 720], [1024, 600], [800, 600]]) {
       await page.setViewportSize({ width, height });
       // WebKit applies dynamic viewport units on the next rendering update.
       await page.waitForFunction(() => Math.abs(document.body.getBoundingClientRect().height - innerHeight) < 2);
       await page.screenshot({ path: path.join(OUTPUT, `fixture-welcome-${browser.browserType().name()}-${width}x${height}.png`) });
       await assertFits(page, `Welcome ${width}x${height}`);
     }
+    await element(page, 'play').click();
+    for (const [width, height] of [[800, 600], [1440, 900], [3840, 2160]]) {
+      await page.setViewportSize({ width, height });
+      await page.waitForFunction(() => Math.abs(document.body.getBoundingClientRect().height - innerHeight) < 2);
+      await page.screenshot({ path: path.join(OUTPUT, `fixture-snake-${browser.browserType().name()}-${width}x${height}.png`) });
+      await assertFits(page, `Expanded Snake ${width}x${height}`);
+      const game = await page.locator(APP).evaluate(root => ({
+        board: root.querySelector('[data-canvas]').getBoundingClientRect().height,
+        workspace: root.querySelector('.la-workspace').getBoundingClientRect().height,
+        expanded: root.querySelector('[data-welcome]').classList.contains('is-playing')
+      }));
+      assert(game.expanded && game.board > game.workspace * 0.6, `Snake uses more than 60% of the workspace height at ${width}x${height}`);
+    }
     await element(page, 'enter').click();
+    await element(page, 'thinking').uncheck();
+    await element(page, 'slow').check();
     await element(page, 'input').fill('Render long Markdown and math fixture');
     await element(page, 'send').click();
     await phase(page, 'generating');
+    const captured = await page.evaluate(() => { const { thinking, slow } = globalThis.__localAssistantFixture.generations.at(-1); return { thinking, slow }; });
+    assert.deepEqual(captured, { thinking: false, slow: true }, 'Thinking and Slow choices reach the runtime independently');
+    assert.equal(await element(page, 'thinking').isDisabled(), true, 'Thinking is fixed for an active generation');
+    assert.equal(await element(page, 'slow').isDisabled(), false, 'Slow remains adjustable while inference is active');
+    await element(page, 'slow').uncheck();
+    assert.equal(await page.evaluate(() => globalThis.__localAssistantFixture.slowCalls.at(-1)), false, 'Live Slow change reaches the active runtime');
+    assert.equal(await page.evaluate(() => globalThis.__localAssistantFixture.generations.length), 1, 'Pacing change does not restart inference');
+    await page.evaluate(() => {
+      globalThis.__localAssistantFixture.generations.at(-1).update('', '', {
+        stage: 'prefill', promptProcessed: 256, promptTotal: 1024,
+        promptTokens: Array.from({ length: 1024 }, (_, id) => ({ id, piece: `prompt${id}` })),
+        layers: Array.from({ length: 24 }, (_, layer) => ({ layer, rms: 0.1 + layer / 12 })), pass: 1, layerBackend: 'TEST FIXTURE'
+      });
+    });
+    await page.waitForFunction(() => /prompt processing/i.test(document.querySelector('[data-token-stage]')?.textContent || ''));
+    await page.waitForFunction(() => /256/.test(document.querySelector('[data-token-range]')?.textContent || ''));
+    assert.match(await element(page, 'token-range').innerText(), /1[, ]?024/);
+    assert.equal(await page.locator(`${APP} [data-tokens]`).count(), 1, 'Prompt and output share one token panel');
+    assert.equal(await page.locator(`${APP} [data-prompt-tokens]`).count(), 0, 'No obsolete separate prompt panel remains');
+    await page.screenshot({ path: path.join(OUTPUT, `fixture-prefill-${browser.browserType().name()}-3840x2160.png`) });
     await page.evaluate(() => {
       const generation = globalThis.__localAssistantFixture.generations.at(-1);
-      generation.update('## Fixture answer\n\n**Bold** and $x^2$ with safe output.\n\n```js\nconst sample = "<script>alert(1)</script>";\n```\n\n' + 'Long transcript content. '.repeat(300), 'Fixture reasoning.', {
-        promptTokens: Array.from({ length: 8 }, (_, id) => ({ id, piece: `input${id}` })),
-        token: { id: 42, piece: 'fixture' }, generated: 1024, contextUsed: 65536, tokensPerSecond: 999.9, promptMs: 1234.5,
-        candidates: [{ id: 42, piece: 'fixture', probability: 0.6 }, { id: 43, piece: 'layout', probability: 0.3 }, { id: 44, piece: 'test', probability: 0.1 }],
-        layers: Array.from({ length: 24 }, (_, layer) => ({ layer, rms: 0.75 }))
+      const content = '## Fixture answer\n\n**Bold** and $x^2$ with safe output.\n\n```js\nconst sample = "<script>alert(1)</script>";\n```\n\n' + 'Long transcript content. '.repeat(2400);
+      for (let index = 0; index < 1024; index++) generation.update(content, '', {
+        stage: 'decode', token: { id: index + 5000, piece: `token${index}` }, generated: index + 1, contextUsed: 65536, tokensPerSecond: 999.9, promptMs: 1234.5,
+        candidates: [0.4, 0.2, 0.15, 0.1, 0.06, 0.04, 0.03, 0.02].map((probability, rank) => ({ id: index + 5000 + rank, piece: `candidate${rank}`, probability })),
+        layers: Array.from({ length: 24 }, (_, layer) => ({ layer, rms: 0.1 + layer / 12 })), pass: index + 2, layerBackend: 'TEST FIXTURE'
       });
       generation.finish();
     });
     await phase(page, 'ready');
-    await page.locator(`${APP} [data-tokens] button`).click();
+    await page.waitForFunction(() => /output tokens/i.test(document.querySelector('[data-token-stage]')?.textContent || ''));
+    assert.match(await element(page, 'token-range').innerText(), /1[, ]?024/);
+    await page.locator(`${APP} [data-tokens] button`).first().click();
     await page.locator(`${APP} [data-inspect-layer="23"]`).click();
+    assert.equal(await page.locator(`${APP} [data-layer-bar]`).count(), 24, 'Each model layer has a bar');
+    const bars = await page.locator(`${APP} [data-layer-bar]`).evaluateAll(nodes => nodes.map(node => ({ height: node.getBoundingClientRect().height, rms: Number(node.dataset.rms) })));
+    assert(bars.every((bar, index) => Math.abs(bar.rms - (0.1 + index / 12)) < 1e-9), 'Layer values preserve the actual supplied RMS observations');
+    assert(Math.max(...bars.map(bar => bar.height)) > Math.min(...bars.map(bar => bar.height)), 'Different RMS observations produce different visible bar heights');
+    const tokenCapacity = {};
     assert.equal(await page.locator(`${APP} [data-transcript] math`).count(), 1, 'Math renders');
     assert.equal(await page.locator(`${APP} [data-transcript] script`).count(), 0, 'Model source cannot create scripts');
-    for (const [width, height] of [[1440, 900], [1280, 720], [1024, 600], [800, 600]]) {
+    for (const [width, height] of [[3840, 2160], [2560, 1440], [1920, 1080], [1440, 900], [1280, 720], [1024, 600], [800, 600]]) {
       await page.setViewportSize({ width, height });
       // WebKit applies dynamic viewport units on the next rendering update.
       await page.waitForFunction(() => Math.abs(document.body.getBoundingClientRect().height - innerHeight) < 2);
       await page.screenshot({ path: path.join(OUTPUT, `fixture-chat-${browser.browserType().name()}-${width}x${height}.png`) });
       await assertFits(page, `Chat ${width}x${height}`);
+      await element(page, 'input').focus();
+      const composer = await page.locator(APP).evaluate(root => {
+        const input = root.querySelector('[data-input]');
+        const inputBox = input.getBoundingClientRect();
+        const send = root.querySelector('[data-send]').getBoundingClientRect();
+        const style = getComputedStyle(input);
+        const ring = style.outlineStyle === 'none' ? 0 : Math.max(0, Number.parseFloat(style.outlineWidth) + Number.parseFloat(style.outlineOffset));
+        const well = root.querySelector('[data-token-well]').getBoundingClientRect();
+        const tokens = [...root.querySelectorAll('[data-tokens] button')].map(node => node.getBoundingClientRect()).filter(box => box.width > 0 && box.height > 0);
+        return { innerOutline: style.outlineStyle, separate: inputBox.bottom + ring <= send.top || inputBox.right + ring <= send.left || inputBox.top - ring >= send.bottom || inputBox.left - ring >= send.right,
+          tokens: tokens.length, tokenFits: tokens.every(box => box.left >= well.left - 1 && box.right <= well.right + 1 && box.top >= well.top - 1 && box.bottom <= well.bottom + 1) };
+      });
+      assert.equal(composer.innerOutline, 'none', 'The dock has one focus boundary, not a second textarea outline');
+      assert(composer.separate, `Focused composer ring does not overlap Send at ${width}x${height}`);
+      assert(composer.tokenFits, `Every visible token fits its well without clipping at ${width}x${height}`);
+      tokenCapacity[width] = composer.tokens;
+      assert(composer.tokens > 0 && composer.tokens <= 1024, 'Rendered token count fits available history');
       assert.equal(await element(page, 'transcript').evaluate(node => node.scrollHeight > node.clientHeight), true, 'Long conversation scrolls inside transcript');
     }
+    assert(tokenCapacity[3840] > tokenCapacity[1440] && tokenCapacity[2560] >= tokenCapacity[1440], `Large observatory exposes more real history: ${JSON.stringify(tokenCapacity)}`);
     assert.equal(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), true);
     const moving = await page.locator(APP).evaluate(root => root.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running' && Number(animation.effect?.getTiming().duration) > 1).length);
     assert.equal(moving, 0, 'Reduced motion leaves no running decorative animation');
@@ -257,9 +330,11 @@ async function assertFixtureViewports(browser, baseUrl) {
     await element(page, 'latest').waitFor({ state: 'visible' });
     await element(page, 'latest').click();
     await page.waitForFunction(() => { const node = document.querySelector('[data-transcript]'); return node.scrollHeight - node.scrollTop - node.clientHeight < 48; });
+    await element(page, 'thinking').check();
     await element(page, 'input').fill('Exercise visible error recovery');
     await element(page, 'send').click();
     await phase(page, 'generating');
+    assert.equal(await page.evaluate(() => globalThis.__localAssistantFixture.generations.at(-1).thinking), true, 'Thinking can be enabled independently for the next turn');
     await page.evaluate(() => globalThis.__localAssistantFixture.generations.at(-1).fail(new Error('This is a deliberately long test error. Start a new chat or reload the model to continue.')));
     await phase(page, 'error');
     await page.waitForFunction(() => { const node = document.querySelector('[data-transcript]'); return node.scrollHeight - node.scrollTop - node.clientHeight < 48; });
