@@ -1,7 +1,7 @@
 # Lynx Reader
 
 `05 // Lynx Reader` is a browser-local, pasted-text RSVP experiment. Current main
-ends at `04 // Yahtzee vs. Keiri`, so it uses the next available number rather than
+ends at `04 // Keiri’s Domain`, so it uses the next available number rather than
 the tentative 07 in issue #92. Default target speed is **300 WPM** (100–1000,
 25 WPM increments). No imports, storage, reading claims, or external services.
 
@@ -105,8 +105,10 @@ Repeated initialization is ignored. Shared hash routing owns activation/history;
 switching tools preserves text, index and WPM, then returns paused. Page hiding
 and document visibility loss also pause. No session data leaves the page.
 
-The source has a visible label, controls use native semantics and visible focus,
-and Play exposes `aria-pressed`. Only playback-state changes use a live region;
+The source has a visible label, controls use native semantics, and Play exposes
+`aria-pressed`. The stage is a closed instrument: it draws no focus outlines and
+no selection boxes anywhere except editable text in the source textarea. Only
+playback-state changes use a live region;
 neither words nor progress are announced continuously. The displayed word has a
 single accessible label while its visual fragments are hidden from accessibility.
 Reduced motion requires no alternate animation because words change instantly.

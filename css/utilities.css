@@ -329,17 +329,20 @@ html[data-active-utility] .page-utilities { height: 100dvh; min-height: 0; displ
 @keyframes utility-stage-status-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .utility-stage-status::before { animation: none; } }
 
-/* Lynx Reader: a stationary focal character, with independently fitted fragments. */
-.utility-shell--lynx { border: 1px solid var(--workbench-rule); padding: clamp(16px, 3vw, 40px); overflow: clip; }
+/* Lynx Reader: a stationary focal character, with independently fitted fragments.
+   Instrument rule: this utility shows no focus outlines or selection boxes; the
+   source textarea keeps normal text selection because it is an editor. */
+.utility-shell--lynx { border: 1px solid var(--workbench-rule); padding: clamp(16px, 3vw, 40px); overflow: clip; -webkit-user-select: none; user-select: none; }
+.page-utilities .utility-shell--lynx :is(button, select, input, a, textarea, [tabindex]):focus-visible { outline: none; }
+.utility-shell--lynx ::selection { background: transparent; }
+.utility-shell--lynx textarea { width: 100%; min-height: 0; resize: none; padding: 20px; border: 1px solid var(--workbench-rule); border-radius: 0; background: #fff; color: var(--workbench-ink); font: 400 18px/1.7 var(--workbench-ui); -webkit-user-select: text; user-select: text; }
+.utility-shell--lynx textarea::selection { background: var(--workbench-accent); color: #fff; }
 .lynx-entry { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 12px; }
-.lynx-entry textarea { width: 100%; min-height: 0; resize: none; padding: 20px; border: 1px solid var(--workbench-rule); border-radius: 0; background: #fff; color: var(--workbench-ink); font: 400 18px/1.7 var(--workbench-ui); }
-.lynx-entry textarea:focus-visible { outline: 2px solid var(--workbench-accent); outline-offset: 3px; }
 .lynx-entry-actions { display: flex; justify-content: flex-end; }
 .lynx-entry-actions button { min-width: 120px; }
 .lynx-reader { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(100px, 1fr) auto; gap: 12px; }
 .lynx-topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 12px; color: var(--workbench-muted); }
 .lynx-display { min-width: 0; position: relative; display: grid; align-items: center; overflow: clip; }
-.lynx-display:focus-visible { outline: 2px solid var(--workbench-accent); outline-offset: -2px; }
 .lynx-guide { position: absolute; width: 100px; height: 110px; left: 50%; top: 50%; transform: translate(-50%, -50%); border-block: 1px solid var(--workbench-rule); }
 .lynx-guide::before, .lynx-guide::after { content: ''; position: absolute; left: 50%; width: 1px; height: 12px; background: var(--workbench-ink); }
 .lynx-guide::before { top: 0; }

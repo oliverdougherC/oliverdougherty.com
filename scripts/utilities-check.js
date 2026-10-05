@@ -416,7 +416,7 @@ async function assertWorkbenchShell(browser, baseUrl) {
     { id: 'image-transform', name: 'Image Transform', number: '01' },
     { id: 'audio-fourier', name: 'Fourier Reconstruction', number: '02' },
     { id: 'stress-test', name: 'Stress Test', number: '03' },
-    { id: 'yahtzee-keiri', name: 'Yahtzee vs. Keiri', number: '04' },
+    { id: 'yahtzee-keiri', name: 'Keiri’s Domain', number: '04' },
     { id: 'lynx-reader', name: 'Lynx Reader', number: '05' }
   ];
   for (const viewport of [{ width: 1280, height: 800 }, { width: 1440, height: 900 }]) {
@@ -2645,7 +2645,7 @@ async function main() {
     // release-check runs the focused game suite separately in every browser.
     // Direct utilities:browser-check invocations still include it by default.
     if (process.env.UTILITIES_SKIP_YAHTZEE !== '1') {
-      await runUtilitySection(utilitySectionFailures, 'Yahtzee vs. Keiri', async () => {
+      await runUtilitySection(utilitySectionFailures, 'Keiri’s Domain', async () => {
         await runYahtzeeChecks(browser, baseUrl);
       });
     }
