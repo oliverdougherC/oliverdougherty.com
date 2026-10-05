@@ -10,6 +10,7 @@ export interface GlueMsgError {
 export interface GlueMsgLoadReq {
     _name: "load_req";
     observatory?: boolean | undefined;
+    observatory_lens?: boolean | undefined;
     model_paths: string[];
     mmproj_path?: string | undefined;
     n_ctx_auto: boolean;

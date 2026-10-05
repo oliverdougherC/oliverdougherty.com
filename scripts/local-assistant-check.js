@@ -150,6 +150,11 @@ async function assertFits(page, label) {
       if (!rect.width || !rect.height || node.closest('[hidden]') || style.visibility === 'hidden' || style.clip !== 'auto' || style.clipPath === 'inset(50%)') continue;
       if (node.closest('[data-transcript]') && !node.hasAttribute('data-transcript')) continue;
       if (rect.left < -1 || rect.top < -1 || rect.right > innerWidth + 1 || rect.bottom > innerHeight + 1) failures.push(`${node.tagName}.${node.className}: outside viewport`);
+      const panel = node.closest('[data-attention-panel], [data-delta-panel], [data-next-panel]');
+      if (panel && panel !== node) {
+        const bounds = panel.getBoundingClientRect();
+        if (rect.left < bounds.left - 2 || rect.right > bounds.right + 2 || rect.top < bounds.top - 2 || rect.bottom > bounds.bottom + 2) failures.push(`${node.tagName}.${node.className}: clipped by observatory panel`);
+      }
       if (!node.hasAttribute('data-transcript') && ['auto', 'scroll'].includes(style.overflowY) && node.scrollHeight > node.clientHeight + 1) failures.push(`${node.tagName}.${node.className}: unintended vertical scroll`);
       if (['auto', 'scroll'].includes(style.overflowX) && node.scrollWidth > node.clientWidth + 1) failures.push(`${node.tagName}.${node.className}: unintended horizontal scroll`);
     }
@@ -223,13 +228,87 @@ async function assertFixtureLifecycle(browser, baseUrl) {
   } finally { await page.close(); }
 }
 
-async function assertFixtureViewports(browser, baseUrl) {
+async function assertAutoEntersChat(browser, baseUrl) {
   const page = await createPage(browser);
-  await installUiFixture(page);
+  await installUiFixture(page, true);
   try {
     await page.goto(url(baseUrl), { waitUntil: 'domcontentloaded' });
+    await phase(page, 'loading');
+    assert.equal(await element(page, 'enter').isVisible(), false, 'The Enter chat button stays hidden while downloading');
+    await page.evaluate(() => globalThis.__localAssistantFixture.pending.at(-1).finish());
     await phase(page, 'ready');
-    for (const [width, height] of [[3840, 2160], [2560, 1440], [1920, 1080], [1440, 900], [1280, 720], [1024, 600], [800, 600]]) {
+    assert.equal(await element(page, 'welcome').isVisible(), false, 'Ready without an open Snake game leaves the welcome screen');
+    assert.equal(await element(page, 'chat').isVisible(), true, 'Ready without an open Snake game shows the chat automatically');
+    assert.equal(await element(page, 'enter').isVisible(), false, 'Ready without an open Snake game never shows the Enter chat button');
+    assert.equal(await element(page, 'input').evaluate(input => input === document.activeElement), true, 'Automatic entry focuses the composer');
+    await element(page, 'input').fill('A message without pressing Enter chat');
+    await element(page, 'send').click();
+    await phase(page, 'generating');
+    await page.evaluate(() => globalThis.__localAssistantFixture.generations.at(-1).finish());
+    await phase(page, 'ready');
+    assert.equal(await element(page, 'chat').isVisible(), true, 'Chat remains entered after a completed turn');
+    noErrors(page);
+  } finally { await page.close(); }
+}
+
+async function assertObservatorySnapshot(page, index, layer = 0) {
+  const step = index + 2;
+  await page.waitForFunction(value => document.querySelector('[data-observatory-view]')?.dataset.selectedStep === String(value), step);
+  const reading = await page.locator(`${APP} [data-observatory-view]`).evaluate(host => ({
+    edges: [...host.querySelectorAll('[data-key-position]')].map(node => ({ position: Number(node.dataset.keyPosition), weight: Number(node.dataset.attentionWeight) })),
+    query: host.querySelector('[data-attention-plot] svg')?.getAttribute('aria-label'),
+    queryLabel: host.querySelector('.la-attention-query')?.textContent,
+    delta: host.querySelector('[data-delta-inspection]')?.textContent,
+    canvasDescription: host.querySelector('[data-delta-waterfall]')?.getAttribute('aria-description'),
+    checkpoints: [...host.querySelectorAll('[data-lens-checkpoint]')].map(node => Number(node.dataset.lensCheckpoint)),
+    points: [...host.querySelectorAll('[data-lens-token]')].map(node => ({ layer: Number(node.dataset.lensLayer), id: Number(node.dataset.lensToken), rank: Number(node.dataset.rank) })).sort((a, b) => a.layer - b.layer || a.id - b.id),
+    lensWordCount: host.querySelector('[data-lens-plot]').clientHeight < 72 ? 2 : 3,
+    lensLinks: [...host.querySelectorAll('[data-lens-path-token]')].map(node => Number(node.dataset.lensPathToken)).sort((a, b) => a - b),
+    sampled: [...host.querySelectorAll('[data-sampled="true"]')].map(node => Number(node.dataset.candidateId)),
+    range: host.querySelector('[data-history-step]')?.getAttribute('aria-valuetext')
+  }));
+  assert.deepEqual(reading.edges, [{ position: 3, weight: 0.41 + index % 5 * 0.01 }, { position: 47, weight: 0.19 }, { position: 1023 + index, weight: 0.07 }], 'Attention keeps absolute key positions and original sparse head-mean weights');
+  assert(reading.edges.reduce((sum, edge) => sum + edge.weight, 0) < 1, 'Sparse weights are not renormalized to the retained keys');
+  assert.match(reading.query, new RegExp(`context position ${1023 + index},`));
+  assert.equal(reading.queryLabel, `${index === 0 ? 'prompt1023' : `token${index - 1}`} · query ${1023 + index}`, 'Attention identifies the preceding query token, not the newly sampled token');
+  assert.match(reading.delta, new RegExp(`^L${layer + 1} · `));
+  assert(Math.abs(Number(reading.delta.split('·')[1].trim()) - (0.05 + layer / 100 + (index % 7) / 50)) < 0.00006, 'Selected layer shows its measured relative delta');
+  assert.match(reading.canvasDescription, new RegExp(`Step ${step}\\.`));
+  assert.deepEqual(reading.checkpoints.slice().sort((a, b) => a - b), [-1, 11, 19], 'Lens uses two measured checkpoints and a separately labelled Final column');
+  const expectedPoints = [
+    { layer: -1, id: 5000 + index, rank: 1 }, { layer: -1, id: 5001 + index, rank: 2 }, { layer: -1, id: 5002 + index, rank: 3 },
+    { layer: 11, id: 5000 + index, rank: 2 }, { layer: 11, id: 5001 + index, rank: 3 }, { layer: 11, id: 5002 + index, rank: 1 },
+    { layer: 19, id: 5000 + index, rank: 1 }, { layer: 19, id: 5001 + index, rank: 3 }, { layer: 19, id: 5002 + index, rank: 2 }
+  ].filter(point => point.rank <= reading.lensWordCount);
+  assert.deepEqual(reading.points, expectedPoints, 'Each checkpoint preserves its measured token ranks independently of final probabilities');
+  const expectedLinks = [[11, 19], [19, -1]].flatMap(([left, right]) => expectedPoints.filter(point => point.layer === left && expectedPoints.some(next => next.layer === right && next.id === point.id)).map(point => point.id)).sort((a, b) => a - b);
+  assert.deepEqual(reading.lensLinks, expectedLinks, 'Connections follow matching token IDs between adjacent measured checkpoints and Final');
+  assert.deepEqual(reading.sampled, [5000 + index], 'The selected sampled token is identified among final candidates');
+  assert.match(reading.range, new RegExp(`Step ${step}(?:,|$)`));
+}
+
+async function assertObservatoryCleared(page, label) {
+  await page.waitForFunction(() => document.querySelector('[data-observatory-view]')?.dataset.historyCount === '0');
+  const reading = await page.locator(`${APP} [data-observatory-view]`).evaluate(host => ({
+    selected: host.dataset.selectedStep, pinned: host.dataset.pinned,
+    states: ['attention', 'delta', 'next'].map(name => host.querySelector(`[data-${name}-panel]`).dataset.state),
+    edges: host.querySelectorAll('[data-key-position]').length,
+    lens: host.querySelectorAll('[data-lens-checkpoint]').length,
+    candidates: host.querySelectorAll('[data-candidate-id]').length,
+    steps: host.querySelector('[data-delta-waterfall]').dataset.steps,
+    disabled: host.querySelector('[data-history-step]').disabled,
+    live: host.querySelector('[data-observatory-live]').getAttribute('aria-pressed')
+  }));
+  assert.deepEqual(reading, { selected: '', pinned: 'false', states: ['waiting', 'waiting', 'waiting'], edges: 0, lens: 0, candidates: 0, steps: '', disabled: true, live: 'true' }, label);
+}
+
+async function assertFixtureViewports(browser, baseUrl) {
+  const page = await createPage(browser);
+  await installUiFixture(page, true);
+  try {
+    await page.goto(url(baseUrl), { waitUntil: 'domcontentloaded' });
+    await phase(page, 'loading');
+    for (const [width, height] of [[3840, 2160], [2560, 1440], [1920, 1200], [1600, 1200], [1920, 1080], [1440, 900], [1280, 720], [1024, 600], [800, 600]]) {
       await page.setViewportSize({ width, height });
       // WebKit applies dynamic viewport units on the next rendering update.
       await page.waitForFunction(() => Math.abs(document.body.getBoundingClientRect().height - innerHeight) < 2);
@@ -249,6 +328,10 @@ async function assertFixtureViewports(browser, baseUrl) {
       }));
       assert(game.expanded && game.board > game.workspace * 0.6, `Snake uses more than 60% of the workspace height at ${width}x${height}`);
     }
+    await page.evaluate(() => globalThis.__localAssistantFixture.pending.at(-1).finish());
+    await phase(page, 'ready');
+    assert.equal(await element(page, 'welcome').isVisible(), true, 'Model readiness during an active Snake game keeps the welcome screen');
+    assert.equal(await element(page, 'enter').isVisible(), true, 'The Enter chat button is offered while Snake is running');
     await element(page, 'enter').click();
     await element(page, 'thinking').uncheck();
     await element(page, 'slow').check();
@@ -266,43 +349,101 @@ async function assertFixtureViewports(browser, baseUrl) {
       globalThis.__localAssistantFixture.generations.at(-1).update('', '', {
         stage: 'prefill', promptProcessed: 256, promptTotal: 1024,
         promptTokens: Array.from({ length: 1024 }, (_, id) => ({ id, piece: `prompt${id}` })),
-        layers: Array.from({ length: 24 }, (_, layer) => ({ layer, rms: 0.1 + layer / 12 })), pass: 1, layerBackend: 'TEST FIXTURE'
+        pass: 1, contextUsed: 1024, layerBackend: 'TEST FIXTURE'
       });
     });
-    await page.waitForFunction(() => /prompt processing/i.test(document.querySelector('[data-token-stage]')?.textContent || ''));
-    await page.waitForFunction(() => /256/.test(document.querySelector('[data-token-range]')?.textContent || ''));
-    assert.match(await element(page, 'token-range').innerText(), /1[, ]?024/);
-    assert.equal(await page.locator(`${APP} [data-tokens]`).count(), 1, 'Prompt and output share one token panel');
-    assert.equal(await page.locator(`${APP} [data-prompt-tokens]`).count(), 0, 'No obsolete separate prompt panel remains');
+    await page.waitForFunction(() => /256/.test(document.querySelector('[data-observation-step]')?.textContent || ''));
+    await assertObservatoryCleared(page, 'Prompt processing does not invent observatory measurements');
+    assert.match(await element(page, 'observation-step').innerText(), /256.*1[, ]?024/);
+    assert.equal(await page.locator(`${APP} [data-tokens], ${APP} [data-layer-bar]`).count(), 0, 'Obsolete token grid and RMS bars are absent');
     await page.screenshot({ path: path.join(OUTPUT, `fixture-prefill-${browser.browserType().name()}-3840x2160.png`) });
     await page.evaluate(() => {
-      const generation = globalThis.__localAssistantFixture.generations.at(-1);
       const content = '## Fixture answer\n\n**Bold** and $x^2$ with safe output.\n\n```js\nconst sample = "<script>alert(1)</script>";\n```\n\n' + 'Long transcript content. '.repeat(2400);
-      for (let index = 0; index < 1024; index++) generation.update(content, '', {
-        stage: 'decode', token: { id: index + 5000, piece: `token${index}` }, generated: index + 1, contextUsed: 65536, tokensPerSecond: 999.9, promptMs: 1234.5,
-        candidates: [0.4, 0.2, 0.15, 0.1, 0.06, 0.04, 0.03, 0.02].map((probability, rank) => ({ id: index + 5000 + rank, piece: `candidate${rank}`, probability })),
-        layers: Array.from({ length: 24 }, (_, layer) => ({ layer, rms: 0.1 + layer / 12 })), pass: index + 2, layerBackend: 'TEST FIXTURE'
-      });
-      generation.finish();
+      // These values are synthetic browser-test fixtures, not model telemetry.
+      // Sparse weights deliberately sum to less than one: omitted keys retain mass.
+      globalThis.__localAssistantFixture.emitDecode = (index, measured = true) => {
+        const queryPosition = 1023 + index;
+        const candidates = [0.4, 0.2, 0.15, 0.1, 0.06, 0.04, 0.03, 0.02].map((probability, rank) => ({ id: index + 5000 + rank, piece: `token${index + rank}`, probability }));
+        globalThis.__localAssistantFixture.generations.at(-1).update(content, '', {
+          stage: 'decode', token: { id: index + 5000, piece: `token${index}` }, generated: index + 1, contextUsed: 1025 + index,
+          tokensPerSecond: 999.9, promptMs: 1234.5, candidates, pass: index + 2, layerBackend: 'TEST FIXTURE',
+          ...(measured ? {
+            attention: [3, 7, 11, 15, 19, 23].map(layer => {
+              const entries = [{ position: 3, weight: 0.41 + index % 5 * 0.01 }, { position: 47, weight: 0.19 }, { position: queryPosition, weight: 0.07 }];
+              return { layer, queryPosition, keyCount: queryPosition + 1, headCount: 16, entries, coverage: entries.reduce((sum, entry) => sum + entry.weight, 0) };
+            }),
+            layerChanges: Array.from({ length: 24 }, (_, layer) => ({ layer, relativeDelta: 0.05 + layer / 100 + (index % 7) / 50, inputRms: 1, deltaRms: 0.05 + layer / 100 + (index % 7) / 50 })),
+            lens: [11, 19].map(layer => ({ layer, candidates: (layer === 11 ? [2, 0, 1] : [0, 2, 1]).map((offset, rank) => ({ id: 5000 + index + offset, piece: `token${index + offset}`, probability: [0.5, 0.25, 0.1][rank] })) }))
+          } : {})
+        });
+      };
+      for (let index = 0; index < 1021; index++) globalThis.__localAssistantFixture.emitDecode(index);
     });
+    await assertObservatorySnapshot(page, 1020);
+    assert.equal(await element(page, 'observatory-view').getAttribute('data-history-count'), '256', 'Retained history is bounded to measured passes');
+    const attentionKey = page.locator(`${APP} [data-key-position]`).first();
+    await attentionKey.focus();
+    await attentionKey.press('Enter');
+    assert.equal(await element(page, 'observatory-view').getAttribute('data-pinned'), 'true', 'Attention links are keyboard accessible and pin the shared pass');
+    assert.equal(await attentionKey.evaluate(node => node === document.activeElement), true, 'Attention inspection retains keyboard focus');
+    await element(page, 'observatory-live').click();
+    const waterfall = element(page, 'delta-waterfall');
+    await waterfall.focus();
+    await waterfall.press('ArrowLeft');
+    await assertObservatorySnapshot(page, 1019);
+    assert.equal(await element(page, 'observatory-view').getAttribute('data-pinned'), 'true', 'Keyboard step selection pins all three views');
+    assert.equal(await waterfall.evaluate(node => node.matches(':focus-visible')), true, 'Waterfall keyboard inspection has visible focus');
+    await waterfall.press('ArrowDown');
+    await assertObservatorySnapshot(page, 1019, 1);
+    const pinnedWindow = await waterfall.getAttribute('data-steps');
+    await page.evaluate(() => globalThis.__localAssistantFixture.emitDecode(1021));
+    await page.waitForFunction(() => document.querySelector('[data-generated]')?.textContent.replace(/,/g, '') === '1022');
+    await assertObservatorySnapshot(page, 1019, 1);
+    assert.equal(await waterfall.getAttribute('data-steps'), pinnedWindow, 'A pinned historical window stays still while newer passes arrive');
+    await element(page, 'observatory-live').focus();
+    await element(page, 'observatory-live').press('Enter');
+    await assertObservatorySnapshot(page, 1021, 1);
+    assert.equal(await element(page, 'observatory-view').getAttribute('data-pinned'), 'false');
+    await waterfall.focus();
+    await waterfall.press('ArrowLeft');
+    await assertObservatorySnapshot(page, 1020, 1);
+    await waterfall.press('Escape');
+    await assertObservatorySnapshot(page, 1021, 1);
+    // Optional data is absent for one real-shaped pass, never borrowed from its predecessor.
+    await page.evaluate(() => globalThis.__localAssistantFixture.emitDecode(1022, false));
+    await page.waitForFunction(() => document.querySelector('[data-observatory-view]')?.dataset.selectedStep === '1024');
+    assert.equal(await element(page, 'attention-panel').getAttribute('data-state'), 'waiting');
+    assert.equal(await page.locator(`${APP} [data-key-position], ${APP} [data-lens-checkpoint]`).count(), 0, 'Missing attention/lens measurements do not reuse the prior pass');
+    assert.match(await element(page, 'delta-inspection').innerText(), /—/);
+    assert.match(await waterfall.getAttribute('aria-description'), /not measured/);
+    assert.equal(await page.locator(`${APP} [data-sampled="true"]`).getAttribute('data-candidate-id'), '6022', 'Final probabilities remain independent of unavailable intermediate readings');
+    await page.evaluate(() => { globalThis.__localAssistantFixture.emitDecode(1023); globalThis.__localAssistantFixture.generations.at(-1).finish(); });
     await phase(page, 'ready');
-    await page.waitForFunction(() => /output tokens/i.test(document.querySelector('[data-token-stage]')?.textContent || ''));
-    assert.match(await element(page, 'token-range').innerText(), /1[, ]?024/);
-    await page.locator(`${APP} [data-tokens] button`).first().click();
-    await page.locator(`${APP} [data-inspect-layer="23"]`).click();
-    assert.equal(await page.locator(`${APP} [data-layer-bar]`).count(), 24, 'Each model layer has a bar');
-    const bars = await page.locator(`${APP} [data-layer-bar]`).evaluateAll(nodes => nodes.map(node => ({ height: node.getBoundingClientRect().height, rms: Number(node.dataset.rms) })));
-    assert(bars.every((bar, index) => Math.abs(bar.rms - (0.1 + index / 12)) < 1e-9), 'Layer values preserve the actual supplied RMS observations');
-    assert(Math.max(...bars.map(bar => bar.height)) > Math.min(...bars.map(bar => bar.height)), 'Different RMS observations produce different visible bar heights');
-    const tokenCapacity = {};
+    await assertObservatorySnapshot(page, 1023, 1);
+    await page.locator(`${APP} [data-attention-layer="3"]`).focus();
+    await page.locator(`${APP} [data-attention-layer="3"]`).press('Enter');
+    assert.equal(await page.locator(`${APP} [data-attention-layer="3"]`).getAttribute('aria-pressed'), 'true', 'Attention layer selection is keyboard accessible');
+    await assertObservatorySnapshot(page, 1023, 1);
+    await element(page, 'history-step').focus();
+    await element(page, 'history-step').press('Home');
+    await assertObservatorySnapshot(page, 768, 1);
+    await element(page, 'history-step').press('End');
+    await assertObservatorySnapshot(page, 1023, 1);
+    await element(page, 'observatory-live').click();
+    const historyCapacity = {};
     assert.equal(await page.locator(`${APP} [data-transcript] math`).count(), 1, 'Math renders');
     assert.equal(await page.locator(`${APP} [data-transcript] script`).count(), 0, 'Model source cannot create scripts');
-    for (const [width, height] of [[3840, 2160], [2560, 1440], [1920, 1080], [1440, 900], [1280, 720], [1024, 600], [800, 600]]) {
+    for (const [width, height] of [[3840, 2160], [2560, 1440], [1920, 1200], [1600, 1200], [1920, 1080], [1440, 900], [1280, 720], [1024, 600], [800, 600]]) {
       await page.setViewportSize({ width, height });
       // WebKit applies dynamic viewport units on the next rendering update.
       await page.waitForFunction(() => Math.abs(document.body.getBoundingClientRect().height - innerHeight) < 2);
       await page.screenshot({ path: path.join(OUTPUT, `fixture-chat-${browser.browserType().name()}-${width}x${height}.png`) });
       await assertFits(page, `Chat ${width}x${height}`);
+      const diagramText = await page.locator(`${APP} [data-observatory-view] svg text`).evaluateAll(nodes => nodes.filter(node => node.textContent.trim()).map(node => {
+        const transform = node.getScreenCTM();
+        return { text: node.textContent, height: node.getBBox().height * Math.hypot(transform.c, transform.d) };
+      }));
+      assert(diagramText.length > 0 && diagramText.every(node => node.height >= 8.8), `Diagram glyphs remain readable at ${width}x${height}: ${JSON.stringify(diagramText.filter(node => node.height < 8.8))}`);
       await element(page, 'input').focus();
       const composer = await page.locator(APP).evaluate(root => {
         const input = root.querySelector('[data-input]');
@@ -310,19 +451,20 @@ async function assertFixtureViewports(browser, baseUrl) {
         const send = root.querySelector('[data-send]').getBoundingClientRect();
         const style = getComputedStyle(input);
         const ring = style.outlineStyle === 'none' ? 0 : Math.max(0, Number.parseFloat(style.outlineWidth) + Number.parseFloat(style.outlineOffset));
-        const well = root.querySelector('[data-token-well]').getBoundingClientRect();
-        const tokens = [...root.querySelectorAll('[data-tokens] button')].map(node => node.getBoundingClientRect()).filter(box => box.width > 0 && box.height > 0);
+        const waterfall = root.querySelector('[data-delta-waterfall]');
+        const lens = root.querySelector('[data-lens-plot]').getBoundingClientRect();
+        const candidates = root.querySelector('[data-candidates]').getBoundingClientRect();
         return { innerOutline: style.outlineStyle, separate: inputBox.bottom + ring <= send.top || inputBox.right + ring <= send.left || inputBox.top - ring >= send.bottom || inputBox.left - ring >= send.right,
-          tokens: tokens.length, tokenFits: tokens.every(box => box.left >= well.left - 1 && box.right <= well.right + 1 && box.top >= well.top - 1 && box.bottom <= well.bottom + 1) };
+          columns: waterfall.dataset.steps.split(',').filter(Boolean).length, lensAboveCandidates: lens.bottom <= candidates.top + 1 };
       });
       assert.equal(composer.innerOutline, 'none', 'The dock has one focus boundary, not a second textarea outline');
       assert(composer.separate, `Focused composer ring does not overlap Send at ${width}x${height}`);
-      assert(composer.tokenFits, `Every visible token fits its well without clipping at ${width}x${height}`);
-      tokenCapacity[width] = composer.tokens;
-      assert(composer.tokens > 0 && composer.tokens <= 1024, 'Rendered token count fits available history');
+      assert(composer.lensAboveCandidates, `Logit lens remains above final probabilities at ${width}x${height}`);
+      historyCapacity[width] = composer.columns;
+      assert(composer.columns > 0 && composer.columns <= 256, 'Waterfall width exposes a bounded window of measured passes');
       assert.equal(await element(page, 'transcript').evaluate(node => node.scrollHeight > node.clientHeight), true, 'Long conversation scrolls inside transcript');
     }
-    assert(tokenCapacity[3840] > tokenCapacity[1440] && tokenCapacity[2560] >= tokenCapacity[1440], `Large observatory exposes more real history: ${JSON.stringify(tokenCapacity)}`);
+    assert(historyCapacity[3840] > historyCapacity[1440] && historyCapacity[2560] >= historyCapacity[1440], `Large observatory exposes more measured history: ${JSON.stringify(historyCapacity)}`);
     assert.equal(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), true);
     const moving = await page.locator(APP).evaluate(root => root.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running' && Number(animation.effect?.getTiming().duration) > 1).length);
     assert.equal(moving, 0, 'Reduced motion leaves no running decorative animation');
@@ -335,6 +477,7 @@ async function assertFixtureViewports(browser, baseUrl) {
     await element(page, 'send').click();
     await phase(page, 'generating');
     assert.equal(await page.evaluate(() => globalThis.__localAssistantFixture.generations.at(-1).thinking), true, 'Thinking can be enabled independently for the next turn');
+    await assertObservatoryCleared(page, 'A new turn clears pinned history, attention, deltas, lens, and candidates');
     await page.evaluate(() => globalThis.__localAssistantFixture.generations.at(-1).fail(new Error('This is a deliberately long test error. Start a new chat or reload the model to continue.')));
     await phase(page, 'error');
     await page.waitForFunction(() => { const node = document.querySelector('[data-transcript]'); return node.scrollHeight - node.scrollTop - node.clientHeight < 48; });
@@ -347,6 +490,19 @@ async function assertFixtureViewports(browser, baseUrl) {
       return latest.bottom <= transcript.bottom && latest.bottom <= error.top;
     }), true, 'Latest stays inside the transcript and cannot cover error recovery');
     await assertFits(page, 'Error recovery 800x600');
+    await element(page, 'new').click();
+    await phase(page, 'ready');
+    await element(page, 'input').fill('Reset during an observed generation');
+    await element(page, 'send').click();
+    await phase(page, 'generating');
+    await page.evaluate(() => {
+      globalThis.__localAssistantFixture.generations.at(-1).update('', '', { stage: 'prefill', promptProcessed: 1024, promptTotal: 1024, pass: 1, contextUsed: 1024, promptTokens: Array.from({ length: 1024 }, (_, id) => ({ id, piece: `prompt${id}` })) });
+      globalThis.__localAssistantFixture.emitDecode(0);
+    });
+    await assertObservatorySnapshot(page, 0);
+    await element(page, 'new').click();
+    await phase(page, 'ready');
+    await assertObservatoryCleared(page, 'Reset during inference clears all linked views and ignores stale callbacks');
     noErrors(page);
   } finally { await page.close(); }
 }
@@ -437,6 +593,7 @@ async function runLocalAssistantChecks(browser, baseUrl) {
   await assertDownloadFailure(browser, baseUrl);
   console.log('Local Assistant: production download failure/retry passed.');
   await assertFixtureLifecycle(browser, baseUrl);
+  await assertAutoEntersChat(browser, baseUrl);
   console.log('Local Assistant: isolated fixture lifecycle checks passed.');
   await assertFixtureViewports(browser, baseUrl);
   console.log(`Local Assistant browser checks passed (${browser.browserType().name()}); lifecycle/layout fixture is not inference evidence.`);
@@ -456,6 +613,57 @@ async function serveModelFixture(file) {
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   return { url: `http://127.0.0.1:${server.address().port}/model.gguf`, close() { server.closeAllConnections(); server.close(); } };
+}
+
+async function assertRealObservatory(page, runName) {
+  await page.waitForFunction(() => Number(document.querySelector('[data-observatory-view]')?.dataset.historyCount) > 0);
+  const host = element(page, 'observatory-view');
+  const latestStep = Number(await host.getAttribute('data-selected-step'));
+  const historyCount = Number(await host.getAttribute('data-history-count'));
+  const layers = await page.locator(`${APP} [data-attention-layer]`).evaluateAll(nodes => nodes.map(node => Number(node.dataset.attentionLayer)));
+  assert.deepEqual(layers, [3, 7, 11, 15, 19, 23], 'Actual model exposes all six measured attention blocks');
+  const attention = [];
+  for (const layer of layers) {
+    await page.locator(`${APP} [data-attention-layer="${layer}"]`).click();
+    assert.equal(await element(page, 'attention-panel').getAttribute('data-state'), 'available', `Layer ${layer + 1} has actual attention measurements`);
+    const entries = await page.locator(`${APP} [data-key-position]`).evaluateAll(nodes => nodes.map(node => ({ position: Number(node.dataset.keyPosition), weight: Number(node.dataset.attentionWeight) })));
+    assert(entries.length > 0 && entries.every(entry => Number.isInteger(entry.position) && entry.position >= 0 && Number.isFinite(entry.weight) && entry.weight >= 0 && entry.weight <= 1.00001), `Layer ${layer + 1} renders finite measured attention weights`);
+    attention.push({ layer, entries });
+  }
+  assert.equal(await element(page, 'delta-panel').getAttribute('data-state'), 'available', 'Native layer-change measurements are available');
+  const waterfall = element(page, 'delta-waterfall');
+  assert.equal(await waterfall.getAttribute('data-layers'), '24', 'Native waterfall includes all 24 model layers');
+  await waterfall.focus();
+  for (let index = 0; index < 24; index++) await waterfall.press('ArrowUp');
+  const deltaRows = [];
+  for (let layer = 0; layer < 24; layer++) {
+    const label = await element(page, 'delta-inspection').innerText();
+    assert.match(label, new RegExp(`^L${layer + 1} · `));
+    const value = Number(label.split('·')[1].trim().replace(/,/g, ''));
+    assert(Number.isFinite(value) && value >= 0, `Layer ${layer + 1} exposes an actual relative-delta value`);
+    deltaRows.push({ layer, value });
+    if (layer < 23) await waterfall.press('ArrowDown');
+  }
+  const checkpoints = await page.locator(`${APP} [data-lens-checkpoint]`).evaluateAll(nodes => nodes.map(node => Number(node.dataset.lensCheckpoint)).filter(layer => layer >= 0).sort((a, b) => a - b));
+  assert.deepEqual(checkpoints, [11, 19], 'Both actual intermediate logit-lens checkpoints are present');
+  const lens = await page.locator(`${APP} [data-lens-token]`).evaluateAll(nodes => nodes.map(node => ({ layer: Number(node.dataset.lensLayer), id: Number(node.dataset.lensToken), rank: Number(node.dataset.rank) })));
+  for (const layer of checkpoints) assert(lens.some(point => point.layer === layer && Number.isInteger(point.id) && point.id >= 0 && Number.isInteger(point.rank) && point.rank > 0), `Checkpoint ${layer + 1} exposes real vocabulary ranks`);
+  assert.equal(await element(page, 'next-panel').getAttribute('data-state'), 'available', 'Native final probabilities are available');
+  assert(await page.locator(`${APP} [data-candidate-id]`).count() > 0, 'Native final candidate bars are populated');
+  assert(historyCount > 1, 'Actual response supplies multiple measured passes for history inspection');
+  await waterfall.press('ArrowLeft');
+  const pinnedStep = Number(await host.getAttribute('data-selected-step'));
+  assert(pinnedStep < latestStep && await host.getAttribute('data-pinned') === 'true', 'Keyboard history selection pins an earlier actual pass');
+  assert.match(await waterfall.getAttribute('aria-description'), new RegExp(`Step ${pinnedStep}\\.`));
+  assert.match(await element(page, 'history-step').getAttribute('aria-valuetext'), new RegExp(`Step ${pinnedStep}, pinned`));
+  assert.equal(await element(page, 'attention-panel').getAttribute('data-state'), 'available');
+  assert.equal(await element(page, 'next-panel').getAttribute('data-state'), 'available');
+  await page.screenshot({ path: path.join(OUTPUT, `${runName}-pinned.png`) });
+  await element(page, 'observatory-live').click();
+  assert.equal(await host.getAttribute('data-selected-step'), String(latestStep), 'Live restores the newest actual measured pass');
+  assert.equal(await host.getAttribute('data-pinned'), 'false');
+  await assertFits(page, 'Real model response and observatory 1440x900');
+  return { latestStep, pinnedStep, historyCount, attention, deltaRows, checkpoints, lens };
 }
 
 async function runRealModelCheck(browser, baseUrl) {
@@ -522,10 +730,12 @@ async function runRealModelCheck(browser, baseUrl) {
     await phase(page, 'generating');
     await page.waitForFunction(() => ['ready', 'error', 'unsupported'].includes(document.querySelector('#localAssistantApp')?.dataset.phase), null, { timeout });
     assert.equal(await page.locator(APP).getAttribute('data-phase'), 'ready', await element(page, 'load-status').innerText());
+    const generationWallMs = Date.now() - started;
     const answer = await page.locator(`${APP} .la-message--assistant .la-message-body`).last().innerText();
     assert(answer.trim().length > 10 && !answer.includes('No response generated'), 'Actual runtime generates an answer');
+    const measuredObservatory = await assertRealObservatory(page, runName);
     const report = { mode: 'real-runtime', modelFixture: Boolean(fixture), browser: browser.browserType().name(), loadWallMs,
-      progressMonotonic: monotonic, finalBytes: progress.at(-1)?.loaded, loadMetrics, answer, generationWallMs: Date.now() - started,
+      progressMonotonic: monotonic, finalBytes: progress.at(-1)?.loaded, loadMetrics, answer, generationWallMs, measuredObservatory,
       observatory: await page.locator(`${APP} .la-observatory`).innerText() };
     fs.writeFileSync(path.join(OUTPUT, `${runName}.json`), `${JSON.stringify(report, null, 2)}\n`);
     await page.screenshot({ path: path.join(OUTPUT, `${runName}-response.png`) });
@@ -557,6 +767,7 @@ async function main() {
     else if (process.argv.includes('--ui-fixture')) {
       fs.mkdirSync(OUTPUT, { recursive: true });
       await assertFixtureLifecycle(browser, baseUrl);
+      await assertAutoEntersChat(browser, baseUrl);
       await assertFixtureViewports(browser, baseUrl);
       console.log('Local Assistant UI fixture checks passed (no inference).');
     } else await runLocalAssistantChecks(browser, baseUrl);

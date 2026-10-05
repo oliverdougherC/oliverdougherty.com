@@ -37,7 +37,7 @@ try {
   const page = await browser.newPage();
   page.on('console', (message) => logs.push(message.text()));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
-  const result = await page.evaluate(async ({ benchmark, v1 }) => {
+  const result = await page.evaluate(async ({ benchmark, v1, v3, controlsOnly, unicode }) => {
     const adapter = await navigator.gpu?.requestAdapter();
     if (!adapter || adapter.info.isFallbackAdapter) throw new Error('A hardware WebGPU adapter is required');
     const gpu = { vendor: adapter.info.vendor, architecture: adapter.info.architecture, fallback: adapter.info.isFallbackAdapter };
@@ -65,8 +65,39 @@ try {
     const several = await generate(8, false);
     await runtime.resetConversation();
     const thinking = await generate(16, true);
+    const deep = {};
+    if (v3) {
+      for (const [name, prompt] of [['short', 'Hi'], ['france', 'What is the capital of France? Answer with just the city name.']]) {
+        await runtime.resetConversation();
+        const chunks = [];
+        await runtime.createChatCompletion({
+          messages: [{ role: 'user', content: prompt }], chat_template_kwargs: { enable_thinking: false },
+          temperature: 0.6, top_k: 20, top_p: 0.95, min_p: 0, max_tokens: 12,
+          logprobs: true, top_logprobs: 8, post_sampling_probs: true,
+          return_tokens: true, timings_per_token: true, return_progress: true,
+          stream: true, onData: (chunk) => chunks.push(chunk),
+        });
+        deep[name] = chunks;
+      }
+    }
+    let unicodeResult;
+    if (unicode) {
+      await runtime.resetConversation();
+      runtime.setSlowMode(true);
+      const tokens = await runtime.tokenize('👩🏽‍🚀');
+      const chunks = [];
+      await runtime.createChatCompletion({
+        messages: [{ role: 'user', content: 'Output only this exact character sequence, with no explanation: 👩🏽‍🚀' }],
+        chat_template_kwargs: { enable_thinking: false }, temperature: 0, max_tokens: 32,
+        logprobs: true, top_logprobs: 8, post_sampling_probs: true, return_tokens: true,
+        return_progress: true, timings_per_token: true, stream: true,
+        onData: (chunk) => chunks.push({ ...chunk, received: performance.now() }),
+      });
+      unicodeResult = { tokenizer: tokens, chunks };
+      runtime.setSlowMode(false);
+    }
     const controls = {};
-    if (v1) {
+    if (v1 || controlsOnly) {
       const untilStopped = async (target, slow, toggle = false, delayedStop = false) => {
         await runtime.resetConversation();
         runtime.setSlowMode(slow);
@@ -97,7 +128,7 @@ try {
       controls.slow = await untilStopped(8, true);
       controls.toggle = await untilStopped(8, true, true);
       controls.stop = await untilStopped(8, true, false, true);
-      controls.unlimited = await untilStopped(1100, false);
+      if (v1) controls.unlimited = await untilStopped(1100, false);
       runtime.setSlowMode(false);
     }
     await runtime.exit();
@@ -129,8 +160,8 @@ try {
         await measured.exit();
       }
     }
-    return { gpu, metadata: metadata.hparams, tokenization, one, several, thinking, cancelled, measurements, controls };
-  }, { benchmark: process.argv.includes('--benchmark'), v1: process.argv.includes('--v1') });
+    return { gpu, metadata: metadata.hparams, tokenization, one, several, thinking, cancelled, measurements, controls, deep, unicodeResult };
+  }, { benchmark: process.argv.includes('--benchmark'), v1: process.argv.includes('--v1'), v3: process.argv.includes('--v3'), controlsOnly: process.argv.includes('--controls'), unicode: process.argv.includes('--unicode') });
   assert(logs.some((line) => /offloaded (\d+)\/\1 layers to GPU/.test(line)), 'all layers must be offloaded');
   assert.equal(result.cancelled, 'cancelled', 'exit invalidates pending initialization');
   assert.deepEqual(result.tokenization.map(({ id }) => id), [9419, 11, 1814, 0]);
@@ -151,6 +182,48 @@ try {
   assert.deepEqual(first.layers, observations[0].layers, 'token statistics must not drift to a later queued pass');
   assert.equal(result.several.at(-1).timings.cache_n, 0, 'reset clears server prompt cache');
   assert(result.thinking.some((chunk) => chunk.choices.some(({ delta }) => delta.reasoning_content)), 'thinking uses the native chat template');
+  let deepSummary;
+  if (result.deep.short) {
+    const samples = {};
+    for (const [name, chunks] of Object.entries(result.deep)) {
+      const count = chunks[0].observatory.prompt_tokens.length;
+      const snapshots = chunks.filter((chunk) => chunk.observatory?.token).map((chunk) => chunk.observatory);
+      for (const sample of snapshots) {
+        assert.equal(sample.layers.length, 24);
+        assert.equal(sample.layer_changes.length, 24);
+        assert.equal(sample.attention.length, 6);
+        assert.equal(sample.lens.length, 2);
+        for (let i = 0; i < 24; i++) {
+          const change = sample.layer_changes[i], rms = sample.layers[i].rms;
+          assert(Number.isFinite(change.relative_delta) && change.relative_delta >= 0);
+          assert(Math.abs(change.relative_delta - change.delta_rms / Math.max(change.input_rms, 1e-12)) < 1e-4);
+          assert(change.delta_rms <= rms + change.input_rms + 1e-4, 'residual change obeys the norm triangle inequality');
+          assert(change.delta_rms + 1e-4 >= Math.abs(rms - change.input_rms));
+        }
+        for (const attention of sample.attention) {
+          assert.equal(attention.query_position, count + sample.generated - 2, 'attention belongs to the pass predicting this token');
+          assert.equal(attention.key_count, attention.query_position + 1);
+          assert.equal(attention.head_count, 8);
+          assert(attention.entries.length > 0 && attention.entries.length <= 16);
+          assert(attention.coverage > 0 && attention.coverage <= 1.001);
+          assert(Math.abs(attention.coverage - attention.entries.reduce((sum, entry) => sum + entry.weight, 0)) < 1e-6);
+          assert(attention.entries.every(({ position, weight }) => position >= 0 && position <= attention.query_position && weight > 0 && weight <= 1));
+          if (attention.key_count <= 16) assert(Math.abs(attention.coverage - 1) < 1e-4, 'all valid keys retain normalized mass');
+        }
+        assert.deepEqual(sample.lens.map(({ layer }) => layer), [11, 19]);
+        for (const lens of sample.lens) {
+          assert.equal(lens.candidates.length, 5);
+          assert(lens.candidates.every(({ id, probability }) => Number.isInteger(id) && id >= 0 && id < result.metadata.nVocab && probability > 0 && probability <= 1));
+          assert(lens.candidates.reduce((sum, candidate) => sum + candidate.probability, 0) <= 1.001);
+          assert(lens.candidates.every((candidate, i) => i === 0 || candidate.probability <= lens.candidates[i - 1].probability));
+        }
+      }
+      samples[name] = { promptTokens: count, output: chunks.flatMap(({ choices }) => choices.map(({ delta }) => delta.content || '')).join(''),
+        snapshots: snapshots.slice(0, 5).map(({ generated, token, lens, candidates, attention, layer_backend }) => ({ generated, token, lens, final: candidates, attention, layer_backend })) };
+    }
+    assert(/paris/i.test(samples.france.output));
+    deepSummary = { verified: true, packedReadbackBytes: 1136, samples };
+  }
   let controlSummary;
   if (result.controls.slow) {
     const { slow, toggle, stop, unlimited } = result.controls;
@@ -161,15 +234,30 @@ try {
     assert(toggle.tokens[6].time - toggle.tokens[5].time > 250, 'Slow can be enabled during a request');
     assert(stop.stopLatencyMs < 200, 'Stop interrupts the pacing wait');
     assert.equal(stop.tokens.length, 1, 'Stop does not drain a generated backlog');
-    assert.equal(unlimited.tokens.length, 1100, 'unlimited output passes the retired 1024-token limit');
-    assert.equal(unlimited.tokens.at(-1).generated, 1100);
+    if (unlimited) {
+      assert.equal(unlimited.tokens.length, 1100, 'unlimited output passes the retired 1024-token limit');
+      assert.equal(unlimited.tokens.at(-1).generated, 1100);
+    }
     assert.equal(slow.prompt.prompt_progress.processed, 0);
     assert(!slow.prompt.observatory.generated, 'prefill does not count as a generated token');
     controlSummary = { slowTokensPerSecond: tokensPerSecond, slowIntervalsMs: intervals,
       stopLatencyMs: stop.stopLatencyMs, tokensBeforeStop: stop.tokens.length,
-      unlimitedTokens: unlimited.tokens.length, liveToggle: true, earlyTokenization: true };
+      unlimitedTokens: unlimited?.tokens.length, liveToggle: true, earlyTokenization: true };
   }
-  console.log(JSON.stringify({ passed: true, browserVersion: browser.version(), gpu: result.gpu, layers: result.metadata.nLayer, observations: observations.length, reset: true, tokenAlignment: true, cancelledInitialization: true, controls: controlSummary, measurements: result.measurements }, null, 2));
+  let unicodeSummary;
+  if (result.unicodeResult) {
+    const { chunks, tokenizer } = result.unicodeResult;
+    assert(tokenizer.some(({ piece }) => piece.includes('�')), 'fixture includes byte-fragment tokenizer pieces');
+    const observed = chunks.filter((chunk) => chunk.observatory?.token);
+    const count = chunks.at(-1).timings.predicted_n;
+    assert.deepEqual(observed.map((chunk) => chunk.observatory.generated), Array.from({ length: count }, (_, i) => i + 1), 'every sampled byte fragment is observed');
+    const text = chunks.flatMap(({ choices }) => choices.map(({ delta }) => delta.content || '')).join('');
+    assert(text.includes('👩🏽‍🚀') && !text.includes('�'), 'normal text buffering preserves Unicode');
+    const intervals = observed.slice(1).map((chunk, i) => chunk.received - observed[i].received);
+    assert(intervals.every((interval) => interval > 250), 'Slow paces incomplete UTF-8 tokens too');
+    unicodeSummary = { output: text, generated: count, observed: observed.length, intervalsMs: intervals };
+  }
+  console.log(JSON.stringify({ passed: true, browserVersion: browser.version(), gpu: result.gpu, layers: result.metadata.nLayer, observations: observations.length, reset: true, tokenAlignment: true, cancelledInitialization: true, controls: controlSummary, deep: deepSummary, unicode: unicodeSummary, measurements: result.measurements }, null, 2));
 } finally {
   await browser?.close();
   await new Promise((resolve) => server.close(resolve));

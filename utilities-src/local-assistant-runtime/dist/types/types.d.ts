@@ -1,5 +1,6 @@
 export interface LoadModelParams {
     observatory?: boolean;
+    observatory_lens?: boolean;
     log_level?: LogLevel;
     seed?: number;
     n_ctx?: number;

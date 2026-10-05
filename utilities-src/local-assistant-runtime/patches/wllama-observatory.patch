@@ -1,16 +1,29 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4248078..e5b4c5c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -129,6 +129,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/common)
+ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/vendor)
+ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/tools/server)
+ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/tools/mtmd)
++include_directories(${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/src)
+ 
+ add_executable(wllama ${WLLAMA_SRC})
+ target_link_libraries(wllama PRIVATE ggml llama mtmd ${CMAKE_THREAD_LIBS_INIT})
 diff --git a/cpp/glue.hpp b/cpp/glue.hpp
-index 9b338ce..0833d0e 100644
+index 9b338ce..07b68f1 100644
 --- a/cpp/glue.hpp
 +++ b/cpp/glue.hpp
-@@ -496,6 +496,7 @@ struct glue_msg_error
+@@ -496,6 +496,8 @@ struct glue_msg_error
  struct glue_msg_load_req
  {
    GLUE_HANDLER("load_req")
 +  GLUE_FIELD_NULLABLE(bool, observatory)
++  GLUE_FIELD_NULLABLE(bool, observatory_lens)
    GLUE_FIELD(arr_str, model_paths)
    GLUE_FIELD_NULLABLE(str, mmproj_path)
    GLUE_FIELD(bool, n_ctx_auto)
-@@ -695,3 +696,27 @@ struct glue_msg_test_backend_ops_res
+@@ -695,3 +697,27 @@ struct glue_msg_test_backend_ops_res
    GLUE_FIELD(int, retcode)
    GLUE_FIELD(bool, success)
  };
@@ -39,16 +52,25 @@ index 9b338ce..0833d0e 100644
 +  GLUE_FIELD(bool, success)
 +};
 diff --git a/cpp/wllama-context.h b/cpp/wllama-context.h
-index a112f59..30fe5a1 100644
+index a112f59..c19074d 100644
 --- a/cpp/wllama-context.h
 +++ b/cpp/wllama-context.h
-@@ -267,6 +267,78 @@ struct wllama_context
+@@ -25,6 +25,7 @@
+ 
+ #include "ggml-cpu.h"
+ #include "ggml-backend.h"
++#include "llama-memory-hybrid.h"
+ 
+ #include "glue.hpp"
+ 
+@@ -267,6 +268,129 @@ struct wllama_context
    int next_req_id = 1;
    std::unique_ptr<const server_context_meta> meta;
  
 +  bool observatory_enabled = false;
++  bool observatory_lens_enabled = true;
++  json observatory_packet = json::object();
 +  json observatory_prompt_tokens = json::array();
-+  std::vector<float> observatory_rms;
 +  std::string observatory_backend;
 +  uint64_t observatory_pass = 0;
 +  uint64_t observatory_sent_pass = 0;
@@ -56,19 +78,69 @@ index a112f59..30fe5a1 100644
 +  static bool observe_layer_summary(ggml_tensor * tensor, bool ask, void * data)
 +  {
 +    if (std::string(ggml_get_name(tensor)) != "observatory_layer_mean_squares") return false;
-+    if (ask) return true;
 +    auto * self = static_cast<wllama_context *>(data);
-+    const auto count = ggml_nelements(tensor);
-+    if (tensor->type != GGML_TYPE_F32 || count < 1 || count > 256) return true;
++    if (!self->ctx || !self->vocab) return false; // native warmup has no conversation
++    if (ask) return true;
++    const int layers = llama_model_n_layer(self->model);
++    char interval_text[32] = {};
++    llama_model_meta_val_str(self->model, "qwen35.full_attention_interval", interval_text, sizeof(interval_text));
++    const int interval = atoi(interval_text);
++    GGML_ASSERT(interval > 0);
++    std::vector<int> attention_layers;
++    for (int i = 0; i < layers; ++i) if ((i + 1) % interval == 0) attention_layers.push_back(i);
++    const size_t expected = layers * 3 + attention_layers.size() * 32 + (self->observatory_lens_enabled ? 20 : 0);
++    GGML_ASSERT(tensor->type == GGML_TYPE_F32 && ggml_nelements(tensor) == (int64_t) expected);
++    std::vector<float> values(expected);
++    ggml_backend_tensor_get(tensor, values.data(), 0, expected * sizeof(float));
 +    const std::string backend = ggml_backend_buft_name(ggml_backend_buffer_get_type(tensor->buffer));
 +    if (self->observatory_backend != backend) {
 +      self->observatory_backend = backend;
-+      LOG_INF("observatory: reduced layer summaries in %s buffer (%lld bytes)\n", backend.c_str(), (long long) (count * sizeof(float)));
++      LOG_INF("observatory: reduced summaries in %s buffer (%lld bytes)\n", backend.c_str(), (long long) (expected * sizeof(float)));
 +    }
-+    self->observatory_rms.resize(count);
-+    ggml_backend_tensor_get(tensor, self->observatory_rms.data(), 0, count * sizeof(float));
-+    for (auto & value : self->observatory_rms) value = std::sqrt(std::max(0.0f, value));
-+    ++self->observatory_pass;
++    json packet = {{"layers", json::array()}, {"layer_changes", json::array()},
++                   {"attention", json::array()}, {"lens", json::array()},
++                   {"pass", ++self->observatory_pass}, {"layer_backend", backend}};
++    auto rms = [&](size_t index) { return std::sqrt(std::max(0.0f, values[index])); };
++    for (int i = 0; i < layers; ++i) {
++      const float input = rms(i * 3 + 1), delta = rms(i * 3 + 2);
++      packet["layers"].push_back({{"layer", i}, {"rms", rms(i * 3)}});
++      packet["layer_changes"].push_back({{"layer", i}, {"input_rms", input}, {"delta_rms", delta}, {"relative_delta", delta / std::max(input, 1e-12f)}});
++    }
++    auto * hybrid = dynamic_cast<llama_memory_hybrid *>(llama_get_memory(self->ctx));
++    GGML_ASSERT(hybrid != nullptr);
++    const auto & cells = hybrid->get_mem_attn()->get_cells(0);
++    const auto query = cells.seq_pos_max(0);
++    size_t offset = layers * 3;
++    for (int layer : attention_layers) {
++      json entries = json::array();
++      double coverage = 0;
++      for (int i = 0; i < 16; ++i) {
++        const int index = (int) values[offset + i];
++        const float weight = values[offset + 16 + i];
++        if (weight <= 0 || index < 0 || index >= (int) cells.size() || !cells.seq_has(index, 0)) continue;
++        const auto position = cells.pos_get(index);
++        GGML_ASSERT(position >= 0 && position <= query);
++        entries.push_back({{"position", position}, {"weight", weight}});
++        coverage += weight;
++      }
++      packet["attention"].push_back({{"layer", layer}, {"query_position", query},
++        {"key_count", cells.seq_pos_get(0).size()}, {"head_count", llama_model_n_head(self->model)},
++        {"entries", std::move(entries)}, {"coverage", coverage}});
++      offset += 32;
++    }
++    if (self->observatory_lens_enabled) {
++      for (int layer : {layers / 2 - 1, layers * 5 / 6 - 1}) {
++        json candidates = json::array();
++        for (int i = 0; i < 5; ++i) {
++          const llama_token id = (llama_token) values[offset + i];
++          GGML_ASSERT(id >= 0 && id < llama_vocab_n_tokens(self->vocab));
++          candidates.push_back({{"id", id}, {"piece", common_token_to_piece(self->vocab, id, true)}, {"probability", values[offset + 5 + i]}});
++        }
++        packet["lens"].push_back({{"layer", layer}, {"candidates", std::move(candidates)}});
++        offset += 10;
++      }
++    }
++    self->observatory_packet = std::move(packet);
 +    return true;
 +  }
 +
@@ -111,7 +183,7 @@ index a112f59..30fe5a1 100644
 +    }
 +    llama_memory_clear(llama_get_memory(ctx), true);
 +    observatory_prompt_tokens = json::array();
-+    observatory_rms.clear();
++    observatory_packet = json::object();
 +    observatory_pass = observatory_sent_pass = 0;
 +    glue_msg_observe_reset_res res;
 +    res.success.value = true;
@@ -121,36 +193,38 @@ index a112f59..30fe5a1 100644
    // the one inside ctx_server is private, so we keep our own copy
    server_decision_context decision;
    struct decision_request
-@@ -308,6 +380,12 @@ struct wllama_context
+@@ -308,6 +432,12 @@ struct wllama_context
  
      {
        const auto &prompt = body.at("prompt");
 +      if (observatory_enabled) {
 +        auto tokenized = tokenize_input_prompts(vocab, nullptr, prompt, true, true, mtmd_helper_init_opt_default());
 +        observatory_prompt_tokens = describe_tokens(tokenized.at(0).get_tokens());
-+        observatory_rms.clear();
++        observatory_packet = json::object();
 +        observatory_pass = observatory_sent_pass = 0;
 +      }
  
        // TODO: reduce some copies here in the future
        server_task task = server_task(SERVER_TASK_TYPE_COMPLETION);
-@@ -400,6 +478,15 @@ struct wllama_context
+@@ -400,6 +530,17 @@ struct wllama_context
      llama_log_set(common_log_default_callback, nullptr);
  
      assert(ctx == nullptr);
 +    observatory_enabled = req.observatory.not_null() && req.observatory.value;
 +    setenv("WLLAMA_OBSERVATORY", observatory_enabled ? "1" : "0", 1);
++    observatory_lens_enabled = !req.observatory_lens.not_null() || req.observatory_lens.value;
++    setenv("WLLAMA_OBSERVATORY_LENS", observatory_lens_enabled ? "1" : "0", 1);
 +    if (observatory_enabled) {
 +      params.cb_eval = observe_layer_summary;
 +      params.cb_eval_user_data = this;
 +      params.observatory_snapshot = [this]() {
-+        return std::make_pair(observatory_pass, observatory_rms);
++        return std::make_pair(observatory_pass, observatory_packet.dump_safe());
 +      };
 +    }
      std::vector<std::string> &model_paths = req.model_paths.arr;
      bool n_ctx_auto = req.n_ctx_auto.value;
  
-@@ -658,6 +745,8 @@ struct wllama_context
+@@ -658,6 +799,8 @@ struct wllama_context
      PARSE_REQ(glue_msg_completion_req);
      glue_msg_completion_res res;
  
@@ -159,7 +233,7 @@ index a112f59..30fe5a1 100644
      // prepare
      auto rd = std::make_unique<server_response_reader>(ctx_server.get_response_reader());
      std::vector<raw_buffer> input_files;
-@@ -853,6 +942,20 @@ struct wllama_context
+@@ -853,6 +996,20 @@ struct wllama_context
      }
      server_response_reader &rd = *it->second;
  
@@ -180,7 +254,7 @@ index a112f59..30fe5a1 100644
      run_loop();
      auto [result, is_error] = get_next_result(rd);
      // the task queue can be empty while the request is still streaming, keep polling until we get the stop result
-@@ -898,12 +1001,54 @@ struct wllama_context
+@@ -898,12 +1055,50 @@ struct wllama_context
        {
          // completion result
          data_json = result->to_json();
@@ -192,13 +266,9 @@ index a112f59..30fe5a1 100644
 +              observation["prompt_tokens"] = std::move(observatory_prompt_tokens);
 +              observatory_prompt_tokens = json::array();
 +            }
-+            if (partial->observatory_pass > observatory_sent_pass) {
-+              observation["layers"] = json::array();
-+              for (size_t i = 0; i < partial->observatory_rms.size(); ++i)
-+                observation["layers"].push_back({{"layer", i}, {"rms", partial->observatory_rms[i]}});
-+              observation["pass"] = partial->observatory_pass;
-+              observation["layer_backend"] = observatory_backend;
-+              observation["layer_statistic"] = "last-token residual RMS after each block";
++            if (partial->observatory_pass > observatory_sent_pass ||
++                (!partial->is_progress && partial->n_decoded > 0 && partial->observatory_pass > 0)) {
++              observation = json::parse(partial->observatory_json);
 +              observatory_sent_pass = partial->observatory_pass;
 +            }
 +            if (!partial->is_progress && partial->n_decoded > 0) {
@@ -250,7 +320,7 @@ index b499be1..2f83cb9 100644
      WLLAMA_ACTION(rerank)
      WLLAMA_ACTION(systemone)
 diff --git a/src/types/oai-compat.ts b/src/types/oai-compat.ts
-index 47bb89f..db42697 100644
+index 47bb89f..8b37af5 100644
 --- a/src/types/oai-compat.ts
 +++ b/src/types/oai-compat.ts
 @@ -128,6 +128,7 @@ export type ChatCompletionParams = {
@@ -261,11 +331,18 @@ index 47bb89f..db42697 100644
    return_tokens?: boolean;
    timings_per_token?: boolean;
    return_progress?: boolean;
-@@ -223,7 +224,20 @@ export interface ResultTimings {
+@@ -223,7 +224,27 @@ export interface ResultTimings {
  }
  
  /** Response when stream=true — one chunk per SSE event */
++export interface ObservatoryAttention {
++  layer: number; query_position: number; key_count: number; head_count: number;
++  entries: Array<{ position: number; weight: number }>; coverage: number;
++}
 +export interface ObservatoryObservation {
++  attention?: ObservatoryAttention[];
++  layer_changes?: Array<{ layer: number; input_rms: number; delta_rms: number; relative_delta: number }>;
++  lens?: Array<{ layer: number; candidates: Array<{ id: number; piece: string; probability: number }> }>;
 +  prompt_tokens?: Array<{ id: number; piece: string }>;
 +  token?: { id: number; piece: string };
 +  candidates?: Array<{ id: number; piece: string; probability: number }>;
@@ -283,13 +360,14 @@ index 47bb89f..db42697 100644
    object: 'chat.completion.chunk';
    created: number;
 diff --git a/src/types/types.ts b/src/types/types.ts
-index de08636..2b9b927 100644
+index de08636..2418a25 100644
 --- a/src/types/types.ts
 +++ b/src/types/types.ts
-@@ -1,5 +1,6 @@
+@@ -1,5 +1,7 @@
  // Note: snake_case is used to match llama.cpp's naming convention
  export interface LoadModelParams {
 +  observatory?: boolean;
++  observatory_lens?: boolean;
    log_level?: LogLevel;
    seed?: number;
    n_ctx?: number;
@@ -322,7 +400,7 @@ index fe45ec4..cdea4ca 100644
  
  /**
 diff --git a/src/wllama.ts b/src/wllama.ts
-index 6ecbb68..691ec35 100644
+index 6ecbb68..8b45e2d 100644
 --- a/src/wllama.ts
 +++ b/src/wllama.ts
 @@ -17,6 +17,8 @@ import CacheManager, { type DownloadOptions } from './cache-manager';
@@ -378,15 +456,16 @@ index 6ecbb68..691ec35 100644
      if (!startResult.success) {
        throw new WllamaError(
          `Error while calling start function, result = ${startResult}`
-@@ -522,6 +535,7 @@ export class Wllama {
+@@ -522,6 +535,8 @@ export class Wllama {
      this.logger().debug('Loading model...');
      const loadResult: GlueMsgLoadRes = await this.proxy.wllamaAction('load', {
        _name: 'load_req',
 +      observatory: params.observatory ?? false,
++      observatory_lens: params.observatory_lens ?? true,
        log_level: logLevel,
        // if async read is not supported, use mmap; refer to README-dev.md for more details
        use_mmap: !canUseAsyncFileRead(workerResources.compat),
-@@ -589,6 +603,7 @@ export class Wllama {
+@@ -589,6 +604,7 @@ export class Wllama {
        skip_chat_parsing: params.skip_chat_parsing,
        prefill_assistant: params.prefill_assistant,
      });
@@ -394,7 +473,7 @@ index 6ecbb68..691ec35 100644
      const loadedCtxInfo: LoadedContextInfo & GlueMsgLoadRes = {
        ...loadResult,
        metadata: {},
-@@ -915,9 +930,52 @@ export class Wllama {
+@@ -915,9 +931,52 @@ export class Wllama {
     *
     * Note: This function will NOT crash if model is not yet loaded
     */
@@ -448,7 +527,7 @@ index 6ecbb68..691ec35 100644
    }
  
    /**
-@@ -1101,12 +1159,18 @@ export class Wllama {
+@@ -1101,12 +1160,18 @@ export class Wllama {
    ) {
      let finalResult: any = null;
      let completed = false;
@@ -468,7 +547,7 @@ index 6ecbb68..691ec35 100644
          const result_chunk = await this.proxy.wllamaAction<GlueMsgGetResultRes>(
            'get_result',
            {
-@@ -1145,6 +1209,11 @@ export class Wllama {
+@@ -1145,6 +1210,11 @@ export class Wllama {
            }
  
            for (const chunk of jsonData) {

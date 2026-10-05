@@ -82,6 +82,11 @@ var GLUE_MESSAGE_PROTOTYPES = {
         "isNullable": true
       },
       {
+        "type": "bool",
+        "name": "observatory_lens",
+        "isNullable": true
+      },
+      {
         "type": "arr_str",
         "name": "model_paths",
         "isNullable": false
@@ -2979,7 +2984,7 @@ var Wllama = class {
    */
   loadModel(_0) {
     return __async(this, arguments, function* (ggufBlobsOrModel, params = {}) {
-      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
       const loadEpoch = this.lifecycleEpoch;
       const assertActive = () => {
         if (loadEpoch !== this.lifecycleEpoch) throw new Error("Runtime disposed during model load");
@@ -3037,12 +3042,13 @@ var Wllama = class {
       const loadResult = yield this.proxy.wllamaAction("load", {
         _name: "load_req",
         observatory: (_d = params.observatory) != null ? _d : false,
+        observatory_lens: (_e = params.observatory_lens) != null ? _e : true,
         log_level: logLevel,
         // if async read is not supported, use mmap; refer to README-dev.md for more details
         use_mmap: !canUseAsyncFileRead(workerResources.compat),
         use_mlock: false,
-        n_gpu_layers: (_e = params.n_gpu_layers) != null ? _e : 99999,
-        n_ctx: (_f = params.n_ctx) != null ? _f : 1024,
+        n_gpu_layers: (_f = params.n_gpu_layers) != null ? _f : 99999,
+        n_ctx: (_g = params.n_ctx) != null ? _g : 1024,
         n_threads: this.useMultiThread ? nbThreads : 1,
         n_ctx_auto: false,
         // not supported for now
@@ -3064,8 +3070,8 @@ var Wllama = class {
         cache_type_k: params.cache_type_k,
         cache_type_v: params.cache_type_v,
         // with unified KV, all sequences share one n_ctx cache, so each request can still use the full context
-        n_parallel: (_g = params.n_parallel) != null ? _g : 4,
-        kv_unified: (_h = params.kv_unified) != null ? _h : true,
+        n_parallel: (_h = params.n_parallel) != null ? _h : 4,
+        kv_unified: (_i = params.kv_unified) != null ? _i : true,
         flash_attn: params.flash_attn,
         swa_full: params.swa_full,
         chat_template: params.chat_template,
@@ -3081,8 +3087,8 @@ var Wllama = class {
         ctx_shift: params.ctx_shift,
         cache_idle_slots: params.cache_idle_slots,
         n_cache_reuse: params.n_cache_reuse,
-        lora_paths: (_i = params.lora_adapters) == null ? void 0 : _i.map((a) => a.path),
-        lora_scales: (_j = params.lora_adapters) == null ? void 0 : _j.map((a) => {
+        lora_paths: (_j = params.lora_adapters) == null ? void 0 : _j.map((a) => a.path),
+        lora_scales: (_k = params.lora_adapters) == null ? void 0 : _k.map((a) => {
           var _a2;
           return (_a2 = a.scale) != null ? _a2 : 1;
         }),
@@ -3132,7 +3138,7 @@ var Wllama = class {
       this.loadedContextInfo = loadedCtxInfo;
       this.eogTokens = new Set(loadedCtxInfo.list_tokens_eog);
       this.mediaMarker = loadedCtxInfo.media_marker;
-      this.chatTemplateKwargs = (_k = params.default_template_kwargs) != null ? _k : {};
+      this.chatTemplateKwargs = (_l = params.default_template_kwargs) != null ? _l : {};
       this.logger().debug({ loadedCtxInfo });
     });
   }

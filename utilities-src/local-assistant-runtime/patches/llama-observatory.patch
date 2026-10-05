@@ -1,5 +1,5 @@
 diff --git a/common/common.h b/common/common.h
-index 5700d20..6822fd3 100644
+index 5700d20..d9ba166 100644
 --- a/common/common.h
 +++ b/common/common.h
 @@ -492,6 +492,8 @@ struct common_params {
@@ -7,12 +7,90 @@ index 5700d20..6822fd3 100644
      ggml_backend_sched_eval_callback cb_eval = nullptr;
      void * cb_eval_user_data                 = nullptr;
 +    // Optional bounded snapshot, captured alongside the sampled token before queuing.
-+    std::function<std::pair<uint64_t, std::vector<float>>()> observatory_snapshot;
++    std::function<std::pair<uint64_t, std::string>()> observatory_snapshot;
  
      ggml_numa_strategy numa = GGML_NUMA_STRATEGY_DISABLED;
  
+diff --git a/src/llama-graph.cpp b/src/llama-graph.cpp
+index ae477c0..76b7020 100644
+--- a/src/llama-graph.cpp
++++ b/src/llama-graph.cpp
+@@ -19,6 +19,7 @@
+ #include <cassert>
+ #include <cmath>
+ #include <cstring>
++#include <cstdlib>
+ #include <numeric>
+ #include <sstream>
+ #include <string>
+@@ -1332,6 +1333,7 @@ void llm_graph_result::reset() {
+     t_embd_pooled = nullptr;
+     t_h_nextn     = nullptr;
+ 
++    observatory_attention.clear();
+     t_layer_inp.resize(LLAMA_MAX_LAYERS + 1);
+     std::fill(t_layer_inp.begin(), t_layer_inp.end(), nullptr);
+ 
+@@ -2648,6 +2650,27 @@ ggml_tensor * llm_graph_context::build_attn_mha(
+ 
+     ggml_tensor * cur;
+ 
++    const char * observe_env = std::getenv("WLLAMA_OBSERVATORY");
++    if (arch == LLM_ARCH_QWEN35 && observe_env && observe_env[0] == '1') {
++        // Recompute only the final query from the same runtime Q, cached K and
++        // mask. Keep FlashAttention unchanged for the actual model forward pass.
++        GGML_ASSERT(n_stream == 1 && kq_b == nullptr && sinks == nullptr);
++        auto * last_q = ggml_view_4d(ctx0, q, q->ne[0], 1, q->ne[2], 1,
++            q->nb[1], q->nb[2], q->nb[3], (q->ne[1] - 1) * q->nb[1]);
++        auto * last_mask = ggml_view_2d(ctx0, kq_mask, kq_mask->ne[0], 1,
++            kq_mask->nb[1], (q->ne[1] - 1) * kq_mask->nb[1]);
++        if (last_mask->type != GGML_TYPE_F32) last_mask = ggml_cast(ctx0, last_mask, GGML_TYPE_F32);
++        auto * scores = ggml_mul_mat(ctx0, k, last_q);
++        ggml_prec_set_acc(scores, GGML_PREC_F32);
++        auto * weights = ggml_soft_max_ext(ctx0, scores, last_mask, kq_scale, hparams.f_max_alibi_bias);
++        // [keys, 1, query-heads] -> [heads, keys] -> arithmetic head mean.
++        auto * heads = ggml_cont_2d(ctx0, weights, weights->ne[0], weights->ne[2]);
++        auto * mean = ggml_scale(ctx0, ggml_sum_rows(ctx0, ggml_cont(ctx0, ggml_transpose(ctx0, heads))), 1.0f / q->ne[2]);
++        auto * packed = llm_observatory_topk(ctx0, mean, 16);
++        res->observatory_attention.push_back(packed);
++        ggml_build_forward_expand(gf, packed);
++    }
++
+     const bool use_flash_attn = cparams.flash_attn && kq_b == nullptr;
+     if (use_flash_attn) {
+         GGML_ASSERT(kq_b == nullptr && "Flash attention does not support KQ bias yet");
+@@ -3955,3 +3978,10 @@ int32_t llama_relative_position_bucket(llama_pos x, llama_pos y, uint64_t n_buck
+ 
+     return relative_bucket;
+ }
++
++ggml_tensor * llm_observatory_topk(ggml_context * ctx, ggml_tensor * probabilities, int count) {
++    auto * flat = ggml_cont_1d(ctx, probabilities, ggml_nelements(probabilities));
++    auto * ids = ggml_top_k(ctx, flat, count);
++    auto * values = ggml_get_rows(ctx, ggml_reshape_2d(ctx, flat, 1, flat->ne[0]), ids);
++    return ggml_concat(ctx, ggml_cast(ctx, ids, GGML_TYPE_F32), ggml_cont_1d(ctx, values, count), 0);
++}
+diff --git a/src/llama-graph.h b/src/llama-graph.h
+index 3daa425..c5a1b36 100644
+--- a/src/llama-graph.h
++++ b/src/llama-graph.h
+@@ -941,6 +941,7 @@ public:
+     ggml_tensor * t_h_nextn     = nullptr; // [n_embd, n_outputs] hidden state before final output norm
+ 
+     std::vector<ggml_tensor *> t_layer_inp;
++    std::vector<ggml_tensor *> observatory_attention;
+ 
+     std::vector<ggml_tensor *> t_sampled;
+     std::vector<ggml_tensor *> t_sampled_probs;
+@@ -1393,3 +1394,6 @@ struct llm_graph_context {
+ 
+ // TODO: better name
+ int32_t llama_relative_position_bucket(llama_pos x, llama_pos y, uint64_t n_buckets, bool bidirectional);
++
++// GPU top-k reduction: exact integer IDs are representable in F32 for this vocabulary.
++ggml_tensor * llm_observatory_topk(ggml_context * ctx, ggml_tensor * probabilities, int count);
 diff --git a/src/models/qwen35.cpp b/src/models/qwen35.cpp
-index d50f067..f472a3d 100644
+index d50f067..a5b58fe 100644
 --- a/src/models/qwen35.cpp
 +++ b/src/models/qwen35.cpp
 @@ -1,5 +1,6 @@
@@ -22,7 +100,7 @@ index d50f067..f472a3d 100644
  
  void llama_model_qwen35::load_arch_hparams(llama_model_loader & ml) {
      ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS,       hparams.f_norm_rms_eps);
-@@ -155,6 +156,12 @@ llama_model_qwen35::graph::graph(const llama_model & model, const llm_graph_para
+@@ -155,6 +156,15 @@ llama_model_qwen35::graph::graph(const llama_model & model, const llm_graph_para
      ggml_tensor * inp_pos     = build_inp_pos();
      ggml_tensor * inp_out_ids = build_inp_out_ids();
  
@@ -31,11 +109,14 @@ index d50f067..f472a3d 100644
 +    const char * observatory_env = std::getenv("WLLAMA_OBSERVATORY");
 +    const bool observatory = observatory_env && observatory_env[0] == '1';
 +    ggml_tensor * layer_mean_squares = nullptr;
++    std::vector<ggml_tensor *> lens_summaries;
++    const char * lens_env = std::getenv("WLLAMA_OBSERVATORY_LENS");
++    const bool observe_lens = observatory && (!lens_env || lens_env[0] == '1');
 +
      // MTP/NextN layers are loaded as extra decoder blocks but not executed in the main pass.
      for (int il = 0; il < n_layer; ++il) {
          res->t_layer_inp[il] = inpL;
-@@ -202,6 +209,17 @@ llama_model_qwen35::graph::graph(const llama_model & model, const llm_graph_para
+@@ -202,6 +212,30 @@ llama_model_qwen35::graph::graph(const llama_model & model, const llm_graph_para
          cur = build_cvec(cur, il);
          cb(cur, "l_out", il);
  
@@ -43,9 +124,22 @@ index d50f067..f472a3d 100644
 +            GGML_ASSERT(cur->type == GGML_TYPE_F32 && ggml_is_contiguous(cur));
 +            const size_t last_offset = ggml_nbytes(cur) - cur->ne[0] * sizeof(float);
 +            auto * last = ggml_view_1d(ctx0, cur, cur->ne[0], last_offset);
-+            auto * ms = ggml_scale(ctx0, ggml_sum(ctx0, ggml_sqr(ctx0, last)), 1.0f / cur->ne[0]);
++            auto * before = ggml_view_1d(ctx0, inpL, inpL->ne[0], ggml_nbytes(inpL) - inpL->ne[0] * sizeof(float));
++            const float divisor = 1.0f / cur->ne[0];
++            auto * ms = ggml_scale(ctx0, ggml_sum(ctx0, ggml_sqr(ctx0, last)), divisor);
++            auto * input_ms = ggml_scale(ctx0, ggml_sum(ctx0, ggml_sqr(ctx0, before)), divisor);
++            auto * delta_ms = ggml_scale(ctx0, ggml_sum(ctx0, ggml_sqr(ctx0, ggml_sub(ctx0, last, before))), divisor);
++            auto * block = ggml_concat(ctx0, ggml_concat(ctx0, ms, input_ms, 0), delta_ms, 0);
 +            layer_mean_squares = layer_mean_squares
-+                ? ggml_concat(ctx0, layer_mean_squares, ms, 0) : ms;
++                ? ggml_concat(ctx0, layer_mean_squares, block, 0) : block;
++            if (observe_lens && (il == n_layer / 2 - 1 || il == n_layer * 5 / 6 - 1)) {
++                auto * normalized = build_norm(last, model.output_norm, nullptr, LLM_NORM_RMS, -1);
++                auto * logits = build_lora_mm(model.output, normalized, model.output_s);
++                auto * probabilities = ggml_soft_max(ctx0, logits);
++                auto * top = llm_observatory_topk(ctx0, probabilities, 5);
++                lens_summaries.push_back(top);
++                ggml_build_forward_expand(gf, top);
++            }
 +            // Schedule the reduction now so prior activations need not be retained.
 +            ggml_build_forward_expand(gf, layer_mean_squares);
 +        }
@@ -53,13 +147,16 @@ index d50f067..f472a3d 100644
          // Input for next layer
          inpL = cur;
      }
-@@ -236,6 +254,13 @@ llama_model_qwen35::graph::graph(const llama_model & model, const llm_graph_para
+@@ -236,6 +270,16 @@ llama_model_qwen35::graph::graph(const llama_model & model, const llm_graph_para
      res->t_logits = cur;
  
      ggml_build_forward_expand(gf, cur);
 +    if (layer_mean_squares) {
 +        // A final copy gives the scheduler exactly one observation/readback point.
-+        auto * summaries = ggml_cont(ctx0, layer_mean_squares);
++        auto * packed = layer_mean_squares;
++        for (auto * attention : res->observatory_attention) packed = ggml_concat(ctx0, packed, attention, 0);
++        for (auto * lens : lens_summaries) packed = ggml_concat(ctx0, packed, lens, 0);
++        auto * summaries = ggml_cont(ctx0, packed);
 +        ggml_set_name(summaries, "observatory_layer_mean_squares");
 +        ggml_set_output(summaries);
 +        ggml_build_forward_expand(gf, summaries);
@@ -68,23 +165,37 @@ index d50f067..f472a3d 100644
  
  std::pair<ggml_tensor *, ggml_tensor *> llama_model_qwen35::graph::build_qkvz(
 diff --git a/tools/server/server-context.cpp b/tools/server/server-context.cpp
-index 615b035..9f59cdf 100644
+index 615b035..95507a4 100644
 --- a/tools/server/server-context.cpp
 +++ b/tools/server/server-context.cpp
-@@ -2067,6 +2067,11 @@ private:
+@@ -1901,6 +1901,13 @@ private:
+         }
+ 
+         if (incomplete) {
++            // Preserve normal UTF-8 text buffering, but expose the actual sampled
++            // token and captured graph packet even before its character is whole.
++            if (slot.task->params.stream && params_base.observatory_snapshot) {
++                auto observation_only = result;
++                observation_only.text_to_send.clear();
++                send_partial_response(slot, observation_only, false);
++            }
+             slot.has_next_token = true;
+         }
+ 
+@@ -2067,6 +2074,11 @@ private:
  
      void send_partial_response(server_slot & slot, const completion_token_output & tkn, bool is_progress, bool is_begin = false) {
          auto res = std::make_unique<server_task_result_cmpl_partial>();
 +        if (!is_begin && params_base.observatory_snapshot) {
 +            auto snapshot = params_base.observatory_snapshot();
 +            res->observatory_pass = snapshot.first;
-+            res->observatory_rms = std::move(snapshot.second);
++            res->observatory_json = std::move(snapshot.second);
 +        }
  
          res->id    = slot.task->id;
          res->index = slot.task->index;
 diff --git a/tools/server/server-task.h b/tools/server/server-task.h
-index 8c5fa9a..cf9467a 100644
+index 8c5fa9a..5a8a49c 100644
 --- a/tools/server/server-task.h
 +++ b/tools/server/server-task.h
 @@ -420,6 +420,8 @@ struct server_task_result_cmpl_final : server_task_result {
@@ -92,7 +203,7 @@ index 8c5fa9a..cf9467a 100644
  
  struct server_task_result_cmpl_partial : server_task_result {
 +    uint64_t observatory_pass = 0;
-+    std::vector<float> observatory_rms;
++    std::string observatory_json;
      std::string  content;
      llama_tokens tokens;
  

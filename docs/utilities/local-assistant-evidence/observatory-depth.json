@@ -1,0 +1,381 @@
+{
+  "mode": "real-runtime",
+  "modelFixture": true,
+  "browser": "chromium",
+  "loadWallMs": 3231,
+  "progressMonotonic": true,
+  "finalBytes": 1280835840,
+  "answer": "The sky appears blue because sunlight scatters shorter wavelengths (like blue) more effectively than longer wavelengths when passing through Earth's atmosphere.",
+  "generationWallMs": 1045,
+  "measuredObservatory": {
+    "latestStep": 28,
+    "pinnedStep": 27,
+    "historyCount": 27,
+    "attention": [
+      {
+        "layer": 3,
+        "entries": [
+          {
+            "position": 0,
+            "weight": 0.034552209079265594
+          },
+          {
+            "position": 6,
+            "weight": 0.10953699052333832
+          },
+          {
+            "position": 16,
+            "weight": 0.03952886164188385
+          },
+          {
+            "position": 24,
+            "weight": 0.0712481290102005
+          },
+          {
+            "position": 28,
+            "weight": 0.06293699145317078
+          },
+          {
+            "position": 34,
+            "weight": 0.031199324876070023
+          },
+          {
+            "position": 40,
+            "weight": 0.0336131826043129
+          },
+          {
+            "position": 49,
+            "weight": 0.21371841430664062
+          }
+        ]
+      },
+      {
+        "layer": 7,
+        "entries": [
+          {
+            "position": 0,
+            "weight": 0.04173870012164116
+          },
+          {
+            "position": 9,
+            "weight": 0.05257296562194824
+          },
+          {
+            "position": 13,
+            "weight": 0.04082856327295303
+          },
+          {
+            "position": 14,
+            "weight": 0.0734512209892273
+          },
+          {
+            "position": 16,
+            "weight": 0.044924959540367126
+          },
+          {
+            "position": 19,
+            "weight": 0.11138036102056503
+          },
+          {
+            "position": 28,
+            "weight": 0.11882203817367554
+          },
+          {
+            "position": 49,
+            "weight": 0.196770578622818
+          }
+        ]
+      },
+      {
+        "layer": 11,
+        "entries": [
+          {
+            "position": 0,
+            "weight": 0.12253832817077637
+          },
+          {
+            "position": 6,
+            "weight": 0.10328944027423859
+          },
+          {
+            "position": 19,
+            "weight": 0.08454211801290512
+          },
+          {
+            "position": 23,
+            "weight": 0.06850042939186096
+          },
+          {
+            "position": 28,
+            "weight": 0.030092181637883186
+          },
+          {
+            "position": 29,
+            "weight": 0.03338119760155678
+          },
+          {
+            "position": 31,
+            "weight": 0.08154462277889252
+          },
+          {
+            "position": 49,
+            "weight": 0.11507955193519592
+          }
+        ]
+      },
+      {
+        "layer": 15,
+        "entries": [
+          {
+            "position": 0,
+            "weight": 0.08097786456346512
+          },
+          {
+            "position": 1,
+            "weight": 0.06938952207565308
+          },
+          {
+            "position": 17,
+            "weight": 0.08255605399608612
+          },
+          {
+            "position": 18,
+            "weight": 0.0627412497997284
+          },
+          {
+            "position": 20,
+            "weight": 0.17006808519363403
+          },
+          {
+            "position": 21,
+            "weight": 0.05584177374839783
+          },
+          {
+            "position": 22,
+            "weight": 0.05570521205663681
+          },
+          {
+            "position": 49,
+            "weight": 0.05626891553401947
+          }
+        ]
+      },
+      {
+        "layer": 19,
+        "entries": [
+          {
+            "position": 0,
+            "weight": 0.1344568431377411
+          },
+          {
+            "position": 1,
+            "weight": 0.07037807255983353
+          },
+          {
+            "position": 2,
+            "weight": 0.04362199455499649
+          },
+          {
+            "position": 17,
+            "weight": 0.07697663456201553
+          },
+          {
+            "position": 18,
+            "weight": 0.04272852838039398
+          },
+          {
+            "position": 20,
+            "weight": 0.2244938611984253
+          },
+          {
+            "position": 22,
+            "weight": 0.11316075176000595
+          },
+          {
+            "position": 23,
+            "weight": 0.03697022423148155
+          }
+        ]
+      },
+      {
+        "layer": 23,
+        "entries": [
+          {
+            "position": 1,
+            "weight": 0.08212961256504059
+          },
+          {
+            "position": 2,
+            "weight": 0.045299068093299866
+          },
+          {
+            "position": 15,
+            "weight": 0.052790895104408264
+          },
+          {
+            "position": 17,
+            "weight": 0.1985468864440918
+          },
+          {
+            "position": 18,
+            "weight": 0.03556251525878906
+          },
+          {
+            "position": 20,
+            "weight": 0.10605451464653015
+          },
+          {
+            "position": 21,
+            "weight": 0.07980355620384216
+          },
+          {
+            "position": 49,
+            "weight": 0.23465511202812195
+          }
+        ]
+      }
+    ],
+    "deltaRows": [
+      {
+        "layer": 0,
+        "value": 1.9211
+      },
+      {
+        "layer": 1,
+        "value": 0.561
+      },
+      {
+        "layer": 2,
+        "value": 0.8811
+      },
+      {
+        "layer": 3,
+        "value": 0.7012
+      },
+      {
+        "layer": 4,
+        "value": 0.6223
+      },
+      {
+        "layer": 5,
+        "value": 0.4898
+      },
+      {
+        "layer": 6,
+        "value": 0.407
+      },
+      {
+        "layer": 7,
+        "value": 0.398
+      },
+      {
+        "layer": 8,
+        "value": 0.5392
+      },
+      {
+        "layer": 9,
+        "value": 0.493
+      },
+      {
+        "layer": 10,
+        "value": 0.4519
+      },
+      {
+        "layer": 11,
+        "value": 0.5027
+      },
+      {
+        "layer": 12,
+        "value": 0.632
+      },
+      {
+        "layer": 13,
+        "value": 0.7218
+      },
+      {
+        "layer": 14,
+        "value": 0.773
+      },
+      {
+        "layer": 15,
+        "value": 0.6697
+      },
+      {
+        "layer": 16,
+        "value": 0.5993
+      },
+      {
+        "layer": 17,
+        "value": 0.5036
+      },
+      {
+        "layer": 18,
+        "value": 0.5723
+      },
+      {
+        "layer": 19,
+        "value": 0.3366
+      },
+      {
+        "layer": 20,
+        "value": 0.3852
+      },
+      {
+        "layer": 21,
+        "value": 0.4001
+      },
+      {
+        "layer": 22,
+        "value": 0.4426
+      },
+      {
+        "layer": 23,
+        "value": 0.8553
+      }
+    ],
+    "checkpoints": [
+      11,
+      19
+    ],
+    "lens": [
+      {
+        "layer": 11,
+        "id": 67820,
+        "rank": 1
+      },
+      {
+        "layer": 11,
+        "id": 138699,
+        "rank": 2
+      },
+      {
+        "layer": 11,
+        "id": 194545,
+        "rank": 3
+      },
+      {
+        "layer": 19,
+        "id": 248044,
+        "rank": 1
+      },
+      {
+        "layer": 19,
+        "id": 248046,
+        "rank": 2
+      },
+      {
+        "layer": 19,
+        "id": 248069,
+        "rank": 3
+      },
+      {
+        "layer": -1,
+        "id": 248046,
+        "rank": 1
+      }
+    ]
+  },
+  "observatory": "Qwen3.5 2B\nContext\n51 / 65,536\nAvg. tokens / s\n33.3\nGenerated\n27\nPrompt time\n215.7 ms\nStep 28 \u00b7 <|im_end|>\nLive\nContext attention\n8 heads \u00b7 L24\nL4\nL8\nL12\nL16\nL20\nL24\n. \u00b7 query 49\nuser\n1 \u00b7 8.2%\n\u21b5\n2 \u00b7 4.5%\n<|im_end\u2026\n15 \u00b7 5.3%\n<|im_sta\u2026\n17 \u00b7 19.9%\nassistant\n18 \u00b7 3.6%\n<think>\n20 \u00b7 10.6%\n\u21b5\u21b5\n21 \u00b7 8%\n.\n49 \u00b7 23.5%\n\nShown 83.5% \u00b7 retained 96.1% \u00b7 8/50 keys\n\nChange by layer\nLog intensity \u00b7 0\u20134.229\n1\n4\n8\n12\n16\n20\n24\n2\u201328\nL24 \u00b7 0.8553\nNext token\nWords across depth\nL12\n1\n[\u2026\n2\n\u5e94\u5f53\u4f9d\u7167\n3\niedi\nL20\n1\n<|endoftext|>\n2\n<|im_end|>\n3\n</think>\nFinal\n1\n#248046\n\u2713 #248046\n100%\n\nFinal \u00b7 post-sampling probabilities",
+  "runtimeVersion": "3.8.1-observatory.3",
+  "note": "Actual production runtime and hash-verified GGUF served locally for this integration check; not an upstream cold-download benchmark."
+}

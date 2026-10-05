@@ -179,7 +179,33 @@ export interface ResultTimings {
     predicted_per_second: number;
 }
 /** Response when stream=true — one chunk per SSE event */
+export interface ObservatoryAttention {
+    layer: number;
+    query_position: number;
+    key_count: number;
+    head_count: number;
+    entries: Array<{
+        position: number;
+        weight: number;
+    }>;
+    coverage: number;
+}
 export interface ObservatoryObservation {
+    attention?: ObservatoryAttention[];
+    layer_changes?: Array<{
+        layer: number;
+        input_rms: number;
+        delta_rms: number;
+        relative_delta: number;
+    }>;
+    lens?: Array<{
+        layer: number;
+        candidates: Array<{
+            id: number;
+            piece: string;
+            probability: number;
+        }>;
+    }>;
     prompt_tokens?: Array<{
         id: number;
         piece: string;

@@ -22,6 +22,8 @@ node utilities-src/local-assistant-runtime/verify.mjs
 node utilities-src/local-assistant-runtime/verify.mjs --benchmark
 # Verify live Slow/Stop controls and an uncapped 1,100-token generation.
 node utilities-src/local-assistant-runtime/verify.mjs --v1
+# Validate bounded attention/delta/lens telemetry, live controls, and UTF-8 tokens.
+node utilities-src/local-assistant-runtime/verify.mjs --v3 --controls --unicode
 ```
 
 The build requires Git, Node/npm, Python, CMake, Ninja, curl, and unzip. It downloads
@@ -56,6 +58,12 @@ Each relevant stream chunk includes `observatory`:
   candidates?: Array<{ id: number; piece: string; probability: number }>;
   probability_kind?: 'post-sampling' | 'model-softmax';
   layers?: Array<{ layer: number; rms: number }>;
+  layer_changes?: Array<{ layer: number; input_rms: number; delta_rms: number; relative_delta: number }>;
+  attention?: Array<{
+    layer: number; query_position: number; key_count: number; head_count: number;
+    entries: Array<{ position: number; weight: number }>; coverage: number;
+  }>;
+  lens?: Array<{ layer: number; candidates: Array<{ id: number; piece: string; probability: number }> }>;
   layer_backend?: string;
   generated?: number;
   context_used?: number;
@@ -78,23 +86,75 @@ predicted it; the newly sampled token has not yet been processed. The graph comp
 `sqrt(sum(x²) / n_embedding)`.
 SQR, SUM, SCALE, CONCAT, and CONT are supported WebGPU operations in this pinned
 backend. The reductions run immediately after their blocks so full activation
-buffers need not stay alive. One final vector is read back: **24 float32 values
-(96 bytes) per pass for 2B**. The CPU takes the square root of those reduced
-values. No full hidden-state tensor crosses the observation bridge.
+buffers need not stay alive. `layer_changes` additionally measures the RMS of
+the block input and the RMS of `output − input`; `relative_delta` divides the
+latter by input RMS (with a 1e-12 denominator floor). It measures the size of the
+residual update, not whether the layer improved the answer or caused a token.
+
+All summaries are concatenated into **284 float32 values (1,136 bytes) per pass
+for 2B**: 288 bytes for layer magnitudes, 768 bytes for attention, and 80 bytes
+for two lens checkpoints. The CPU takes square roots of reduced mean squares,
+resolves token pieces, and maps cache rows to logical positions. No full hidden
+state, attention matrix, or full vocabulary vector crosses the observation bridge.
 The native buffer type is exposed as `layer_backend`; the integration verifier
 requires it to be `WebGPU`.
 
-The server captures that small vector alongside the sampled token before queuing
+### Attention connections
+
+For each of the six full-attention blocks, an auxiliary GPU branch recomputes
+only the last query's dot products using the actual normalized/RoPE query,
+cached keys, attention scale, and causal mask. This preserves the original
+FlashAttention inference path. Softmax is taken over all keys for each query
+head; the eight query-head distributions are averaged arithmetically. The GPU
+then selects the largest sixteen entries. Their weights remain from the full
+normalized distribution; the subset is **not renormalized**. `coverage` is their
+sum, and `key_count` counts actual valid sequence keys.
+
+`query_position` and each returned `position` are zero-based logical sequence
+positions, resolved from the actual hybrid KV cache's cell metadata. Physical
+cache row indices are never assumed to equal token positions. For the token
+being sampled, the query is the preceding processed token. This is a recomputed
+attention distribution derived from runtime tensors; small numerical differences
+from a fused FlashAttention kernel are possible. It is not a causal-importance
+score, and it says nothing about the intervening DeltaNet blocks.
+
+### Intermediate logit lens
+
+Checkpoints follow blocks at one-half and five-sixths of model depth: zero-based
+layers **11 and 19** for 2B. Their last-token residual vectors are passed through
+the model's actual final RMS norm (including learned weights), then the actual
+output projection and scale. A full-vocabulary softmax is computed on GPU and
+only the five largest IDs/probabilities are retained. These are **raw logit-lens
+probabilities**, not the configured sampler distribution and not an assertion
+that an intermediate layer has already decided on a token.
+
+The untuned readout can be diffuse or unintuitive at earlier checkpoints. For
+the recorded France prompt, layer 11's leading probability was only 0.92%, over
+multilingual fragments; layer 19 assigned 38.37% to ` Paris`, 19.67% to `Paris`,
+and 9.02% to `巴黎`. The actual final sampler selected `Paris`. These are the
+measured outputs, not a curated or substituted progression.
+
+Lens capture is enabled by default on every observed pass. The internal load
+option `observatory_lens: false` can omit these two expensive projection branches
+for focused measurements; it does not silently reuse old lens values. The site
+keeps full capture enabled in both Fast and Slow modes.
+
+### Alignment and lifecycle
+
+The server captures the small packet alongside the sampled token before queuing
 the result. This prevents a later forward pass from replacing the displayed
-token's statistics. A token with no visible text delta still produces telemetry.
+token's statistics. Every sampled-token result includes its captured packet,
+even if a prefill-progress event previously exposed the same pass. A token with
+no visible text delta still produces telemetry, including incomplete UTF-8 byte
+fragments; native text buffering continues until a complete character exists.
 Prefill summaries refer to the final token of each reported microbatch, not every
 prompt token. `pass` counts graph evaluations, not generated tokens.
 
 `context_used` is prompt-token count plus sampled-token count. It is sequence
 accounting, not a measured byte count or a claim that the just-sampled token has
 already entered the KV cache. RMS is not attention, a recurrent-state measurement,
-or a measure of a neuron's importance. This prototype does not expose attention
-matrices or DeltaNet state tensors.
+or a measure of a neuron's importance. This prototype does not expose DeltaNet
+state tensors or a complete attention matrix.
 
 Token IDs are exact. Individual BPE pieces can end inside a UTF-8 character;
 display strings replace incomplete UTF-8 bytes rather than failing JSON encoding.
@@ -135,10 +195,15 @@ state buffers. These are runtime allocation reports, not an exact-VRAM estimate.
 The comparison used an ABBA load order, one 32-token warmup per load, and three
 128-token runs per load, resetting the context between runs. All twelve runs
 used the same prompt, seed, sampler, 2K context, and two WASM host threads. The
-observed path included per-layer RMS and top-eight sampler telemetry; the baseline
-disabled both. Mean decode throughput was **60.80 tokens/s observed versus 63.70
-tokens/s baseline**, a **4.55% throughput reduction**. The six-run ranges were
-60.44–61.21 and 63.43–64.18 tokens/s respectively. These workstation measurements are illustrative, not a universal
+observed .3 path included layer RMS/change, head-mean attention, both lens
+checkpoints, and top-eight sampler telemetry; the baseline disabled all
+observation branches and logprobs. Mean decode throughput was **38.49 tokens/s
+observed versus 62.04 tokens/s baseline**, a **37.97% throughput reduction**.
+The six-run ranges were 38.06–38.84 and 60.74–62.87 tokens/s respectively. This
+cost is substantial, especially the additional output projections, and is
+accepted for the educational observatory. Full telemetry remains enabled rather
+than displaying stale or fabricated intermediate values. Earlier .1/.2 results
+remain explicitly versioned in the verification record. These workstation measurements are illustrative, not a universal
 overhead guarantee. They do not cover discrete GPUs or the compatibility runtime.
 
 Qwen3.5-4B uses the same architecture path, and the reduction count follows the
