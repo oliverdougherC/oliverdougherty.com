@@ -152,3 +152,29 @@ it('updates word appearance without changing playback or position', () => {
   expect(el('play').getAttribute('aria-pressed')).toBe('true');
   expect(vi.getTimerCount()).toBe(1);
 });
+
+it.each(['button', 'select', 'a', 'input', 'summary', 'div'])('preserves shortcuts on an external %s control', tag => {
+  const external = document.createElement(tag);
+  if (tag === 'a') external.setAttribute('href', '#index');
+  if (tag === 'div') { external.setAttribute('role', 'button'); external.tabIndex = 0; }
+  document.body.append(external);
+  try {
+    click('read'); input('seek', '10');
+    for (const code of ['Space', 'ArrowLeft', 'ArrowRight']) expect(key(code, external).defaultPrevented).toBe(false);
+    expect(el('position').textContent).toBe('11 / 30');
+    expect(el('play').getAttribute('aria-pressed')).toBe('false');
+    expect(key('Space', document.body).defaultPrevented).toBe(true);
+    expect(el('play').getAttribute('aria-pressed')).toBe('true');
+  } finally { external.remove(); }
+});
+
+it('keeps reader shortcuts available when WebKit leaves focus on the noninteractive workbench main', () => {
+  const main = document.createElement('main');
+  main.tabIndex = -1;
+  document.body.append(main);
+  try {
+    click('read');
+    expect(key('Space', main).defaultPrevented).toBe(true);
+    expect(el('play').getAttribute('aria-pressed')).toBe('true');
+  } finally { main.remove(); }
+});

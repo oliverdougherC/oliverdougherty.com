@@ -48,7 +48,9 @@ Words therefore fill the instrument without reading as page titles, and no token
 readiness re-fit the current word. There are no movement transitions.
 
 The source textarea alone may scroll. The reader is a viewport-sized grid using
-the existing white surface, Inter controls, violet accent and thin rules.
+the existing white surface, Inter controls, violet accent and thin rules. Below
+600 px window height, tighter spacing, a flexible word stage, and hidden hint
+rows keep all controls—including Position—inside the visible shell.
 
 ## Cadence and target WPM
 
@@ -106,7 +108,9 @@ or next sentence and pause. Back skips the entire current sentence even from
 its middle. Paragraph starts count as sentence starts. At the edges, navigation
 clamps to the first/final word. These shortcuts remain active after dragging a
 slider or focusing any reader control; Enter activates focused buttons. Text
-editing and modified browser shortcuts remain native. Scroll up/down changes
+editing and modified browser shortcuts remain native. Interactive workbench
+controls outside the reader, including Index and Switch utility, also retain
+their native keyboard behavior. Scroll up/down changes
 target speed by +25/−25 WPM, bounded to 100–1000; small trackpad deltas accumulate
 before a change. Zoom gestures and predominantly horizontal scrolling are ignored.
 Wheel handling is inactive in the text editor or another utility. Seek is an
@@ -141,7 +145,10 @@ normalization, stale callbacks, live speed changes, exact seek/resume, completio
 keyboard focus regressions and deactivation. Browser coverage uses the shipped bundle:
 prefilled source with Read enabled, index and deep links, Read/play/pause/seek/
 speed/reset, switch/return, Back/Forward, large paste, reduced motion and reload.
-Font and size extremes are also checked through 2560×1440.
+Font and size extremes are also checked through 2560×1440, including short
+1280×500 and 1920×540 windows. Short-window checks also cover 800×500, actual
+pointer access to Position, clipping ancestors, and keyboard use of the actual
+Index button and utility switcher.
 All controls and word-fragment bounds are checked at **1440×900, 1280×720,
 1024×600 and 800×600**; measured ORP centers remain within 0.6 CSS px of the
 fixed anchor across the token fixture, short tokens fit with scale above 1 and

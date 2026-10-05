@@ -126,6 +126,7 @@ export class LynxReaderController {
   private key(event: KeyboardEvent) {
     if (!this.active || this.el('reader').hidden || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
     const target = event.target as HTMLElement;
+    if (!this.root.contains(target) && target.closest('button, a, input, select, textarea, summary, [tabindex]:not([tabindex="-1"]), [role], [contenteditable]')) return;
     if (target.closest('textarea, input:not([type="range"]), [contenteditable]:not([contenteditable="false"])')) return;
     if (!['Space', 'ArrowLeft', 'ArrowRight'].includes(event.code)) return;
     event.preventDefault();

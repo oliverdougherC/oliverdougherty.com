@@ -375,3 +375,10 @@ html[data-active-utility] .page-utilities { height: 100dvh; min-height: 0; displ
   .lynx-controls { gap: 8px; }
   .lynx-progress { padding-top: 10px; }
 }
+@media (max-height: 599px) {
+  .utility-shell--lynx { padding: 12px 20px; }
+  .lynx-reader { grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; }
+  .lynx-controls { gap: 6px; }
+  .lynx-hint { display: none; }
+  .lynx-progress { padding-top: 6px; }
+}
