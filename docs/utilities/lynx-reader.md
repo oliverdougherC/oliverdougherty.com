@@ -49,8 +49,8 @@ readiness re-fit the current word. There are no movement transitions.
 
 The source textarea alone may scroll. The reader is a viewport-sized grid using
 the existing white surface, Inter controls, violet accent and thin rules. Below
-600 px window height, tighter spacing, a flexible word stage, and hidden hint
-rows keep all controls—including Position—inside the visible shell.
+600 px window height, tighter spacing and a flexible word stage keep all
+controls—including Position—inside the visible shell.
 
 ## Cadence and target WPM
 
@@ -132,9 +132,10 @@ The source has a visible label, controls use native semantics, and Play exposes
 `aria-pressed`. The stage is a closed instrument: it draws no focus outlines and
 no selection boxes anywhere except editable text in the source textarea. Keyboard
 focus is visible through existing surface/border colors; primary controls and
-range accents darken while preserving text contrast. Only
-playback-state changes use a live region;
-neither words nor progress are announced continuously. The displayed word has a
+range accents darken while preserving text contrast. The topline shows no
+visible status text; playback state reaches assistive technology through a
+screen-reader-only `role="status"` live region: only playback-state changes are
+announced; neither words nor progress are announced continuously. The displayed word has a
 single accessible label while its visual fragments are hidden from accessibility.
 Reduced motion requires no alternate animation because words change instantly.
 
