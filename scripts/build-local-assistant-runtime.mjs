@@ -51,7 +51,7 @@ function applyPatch(directory, name) {
 }
 
 function emrun(command, args) {
-  return run('bash', ['-c', 'source "$1/emsdk_env.sh" >/dev/null 2>&1; shift; exec "$@"', '--', sdk, command, ...args], source);
+  return run('bash', [path.join(root, 'scripts/lib/run-emscripten.sh'), sdk, command, ...args], source);
 }
 
 await mkdir(scratch, { recursive: true });
