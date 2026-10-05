@@ -461,24 +461,50 @@ async function assertViewports(browser, baseUrl) {
       if (left.points < right.points) assert(left.alpha < right.alpha, 'Higher absolute scores have stronger preview shading');
       if (left.points === right.points) assert.equal(left.alpha, right.alpha, 'Equal scores share the same preview shading');
     }
-    for (const [width, height] of [[1440, 900], [1280, 720], [1024, 600], [800, 600]]) {
+    const viewportLayouts = new Map();
+    for (const [width, height] of [[1440, 900], [1920, 1080], [2560, 1440], [3840, 2160], [2560, 600], [1280, 720], [1024, 600], [800, 600]]) {
       await page.setViewportSize({ width, height });
       await assertFits(page, `${width}x${height} human turn`);
       const layout = await page.locator(APP).evaluate(root => {
         const dice = root.querySelector('.yahtzee-dice').getBoundingClientRect();
         const card = root.querySelector('.yahtzee-scorecard').getBoundingClientRect();
-        return { diceBottom: dice.bottom, cardTop: card.top, diceCenter: (dice.left + dice.right) / 2, cardCenter: (card.left + card.right) / 2 };
+        const category = root.querySelector('.yahtzee-category');
+        const row = category.parentElement.getBoundingClientRect();
+        return {
+          diceBottom: dice.bottom, cardTop: card.top,
+          diceCenter: (dice.left + dice.right) / 2, cardCenter: (card.left + card.right) / 2,
+          cardWidth: card.width, rowHeight: row.height,
+          categoryHeight: category.getBoundingClientRect().height,
+          categoryFont: parseFloat(getComputedStyle(category).fontSize),
+          scoreFont: parseFloat(getComputedStyle(root.querySelector('[data-score]')).fontSize),
+          recordFont: parseFloat(getComputedStyle(root.querySelector('[data-record]')).fontSize),
+          dieSize: root.querySelector('[data-die]').getBoundingClientRect().width,
+          pipSize: root.querySelector('.yahtzee-pip').getBoundingClientRect().width,
+          buttonHeight: root.querySelector('[data-roll]').getBoundingClientRect().height,
+          buttonFont: parseFloat(getComputedStyle(root.querySelector('[data-roll]')).fontSize)
+        };
       });
+      viewportLayouts.set(`${width}x${height}`, layout);
+      assert(layout.categoryHeight <= layout.rowHeight + 1, `${width}x${height}: category labels fit their score rows`);
+      if (width >= 1920 && height >= 1080) assert(layout.cardWidth > width * .75, `${width}x${height}: the game uses the available screen width`);
       assert(layout.diceBottom <= layout.cardTop + 1, `${width}x${height}: dice sit above the shared scorecard`);
       assert(Math.abs(layout.diceCenter - layout.cardCenter) < 2, `${width}x${height}: dice and scorecard share a center`);
       await page.screenshot({ path: path.join(OUTPUT, `${browser.browserType().name()}-${width}x${height}.png`) });
     }
+    const baseline = viewportLayouts.get('1280x720');
+    for (const [viewport, factor] of [['1920x1080', 1.25], ['2560x1440', 1.7], ['3840x2160', 2.5]]) {
+      const large = viewportLayouts.get(viewport);
+      for (const metric of ['cardWidth', 'rowHeight', 'categoryFont', 'scoreFont', 'recordFont', 'dieSize', 'pipSize', 'buttonHeight', 'buttonFont']) {
+        assert(large[metric] >= baseline[metric] * factor, `${viewport}: ${metric} grows with the available space`);
+      }
+    }
+    assert.equal(viewportLayouts.get('2560x600').dieSize, viewportLayouts.get('800x600').dieSize, 'Wide, short windows retain compact dice to keep all thirteen score rows visible');
     await scoreFirst(page);
     await page.waitForFunction(() => JSON.parse(window.render_game_to_text()).botFrame !== null);
     await assertFits(page, '800x600 bot turn');
     await waitForSaved(page, 'human', 1);
   } finally { await page.close(); }
-  console.log('Yahtzee: all visible child bounds and screenshots passed at four required viewports.');
+  console.log('Yahtzee: visible child bounds, screenshots, and proportional scaling passed at eight required viewports.');
 }
 
 async function assertWarmCache() {

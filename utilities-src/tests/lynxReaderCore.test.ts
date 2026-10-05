@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { normalizedDwells, parseText, ReaderScheduler, splitOrp, timingWeight } from '../src/lynxReaderCore';
+import { normalizedDwells, parseText, ReaderScheduler, sentenceTarget, splitOrp, timingWeight } from '../src/lynxReaderCore';
 
 afterEach(() => vi.useRealTimers());
 
@@ -91,4 +91,46 @@ describe('Lynx scheduler invalidation', () => {
     expect(advance).toHaveBeenCalledTimes(1);
     spy.mockRestore();
   });
+});
+
+describe('sentence navigation', () => {
+  const units = parseText('Dr. Jones walks. “Really?” Yes, he walks.\n\nNext paragraph here');
+  it.each([[0, -1, 0], [1, -1, 0], [2, 1, 3], [3, 1, 4], [5, -1, 3], [6, -1, 3], [7, -1, 4], [8, -1, 4], [6, 1, 7], [8, 1, 9]])(
+    'moves from %i in direction %i to %i', (index, direction, target) => {
+      expect(sentenceTarget(units, index, direction as -1 | 1)).toBe(target);
+    });
+  it('clamps unpunctuated text and one-word sources', () => {
+    expect(sentenceTarget(parseText('one two three'), 1, -1)).toBe(0);
+    expect(sentenceTarget(parseText('one two three'), 1, 1)).toBe(2);
+    expect(sentenceTarget(parseText('Only.'), 0, 1)).toBe(0);
+    expect(sentenceTarget([], 0, -1)).toBe(0);
+  });
+});
+
+it('independently adjusts clause and sentence pauses while retaining target throughput', () => {
+  const units = parseText('one, two. three four');
+  const noPauses = normalizedDwells(units, 300, { clause: 0, sentence: 0 });
+  noPauses.forEach(dwell => expect(dwell).toBeCloseTo(200));
+  for (const pauses of [{ clause: 2, sentence: 0 }, { clause: 0, sentence: 2 }, { clause: 2, sentence: 2 }]) {
+    const dwells = normalizedDwells(units, 300, pauses);
+    expect(dwells[0] / dwells[2]).toBeCloseTo(1 + pauses.clause);
+    expect(dwells[1] / dwells[2]).toBeCloseTo(1 + pauses.sentence);
+    expect(dwells.reduce((sum, dwell) => sum + dwell, 0)).toBeCloseTo(800);
+  }
+});
+
+it('adjusts punctuation at paragraph endings while retaining the additional paragraph pause', () => {
+  const units = parseText('one.\n\ntwo,\n\nthree\n\nfour');
+  const defaults = normalizedDwells(units, 300);
+  expect(defaults[0]).toBeCloseTo(defaults[1]);
+  expect(defaults[1]).toBeCloseTo(defaults[2]);
+  const off = normalizedDwells(units, 300, { clause: 0, sentence: 0 });
+  const long = normalizedDwells(units, 300, { clause: 2, sentence: 2 });
+  expect(off[0] / off[3]).toBeCloseTo(1.6);
+  expect(off[1] / off[3]).toBeCloseTo(2.03);
+  expect(off[2] / off[3]).toBeCloseTo(2.25);
+  expect(long[0] / long[3]).toBeCloseTo(3.6);
+  expect(long[1] / long[3]).toBeCloseTo(4.03);
+  expect(long[2] / long[3]).toBeCloseTo(2.25);
+  expect(long.reduce((sum, dwell) => sum + dwell, 0)).toBeCloseTo(800);
 });

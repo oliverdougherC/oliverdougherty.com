@@ -6,6 +6,7 @@ export interface ReadingUnit {
   after: string;
   length: number;
   boundary: 'none' | 'clause' | 'sentence' | 'paragraph';
+  punctuation: 'none' | 'clause' | 'sentence';
   weight: number;
 }
 
@@ -62,17 +63,39 @@ export function parseText(source: string): ReadingUnit[] {
     let boundary: ReadingUnit['boundary'] = 'none';
     if (/[,;:，；：]$/u.test(bare)) boundary = 'clause';
     if (/[!?…。！？]$/u.test(bare) || (/\.$/u.test(bare) && !abbreviations.test(bare) && !/^(?:\p{L}\.)+$/u.test(bare))) boundary = 'sentence';
+    const punctuation = boundary;
     if (/\n[\t \f]*\n/u.test(gap)) boundary = 'paragraph';
     const orp = splitOrp(text);
-    return { text, ...orp, boundary, weight: timingWeight(text, orp.length, boundary) };
+    return { text, ...orp, boundary, punctuation, weight: timingWeight(text, orp.length, boundary) };
   });
 }
 
-export function normalizedDwells(units: ReadingUnit[], wpm: number): number[] {
+export interface ReaderPauses { clause: number; sentence: number }
+export const DEFAULT_PAUSES: ReaderPauses = { clause: 0.22, sentence: 0.65 };
+
+/** Skip the current sentence entirely in either direction. Paragraphs also start a sentence. */
+export function sentenceTarget(units: ReadingUnit[], index: number, direction: -1 | 1): number {
+  const endsSentence = (i: number) => units[i].boundary === 'sentence' || units[i].boundary === 'paragraph';
+  if (direction === 1) {
+    for (let i = index; i < units.length - 1; i++) if (endsSentence(i)) return i + 1;
+    return Math.max(0, units.length - 1);
+  }
+  let start = index;
+  while (start > 0 && !endsSentence(start - 1)) start--;
+  if (start > 0) start--;
+  while (start > 0 && !endsSentence(start - 1)) start--;
+  return start;
+}
+
+export function normalizedDwells(units: ReadingUnit[], wpm: number, pauses: ReaderPauses = DEFAULT_PAUSES): number[] {
   if (!units.length) return [];
-  const mean = units.reduce((sum, unit) => sum + unit.weight, 0) / units.length;
+  // Keep punctuation adjustable at paragraph endings too. The extra paragraph
+  // time remains, and default settings preserve the original cadence exactly.
+  const weights = units.map(unit => unit.weight + (unit.punctuation === 'clause' || unit.punctuation === 'sentence'
+    ? pauses[unit.punctuation] - DEFAULT_PAUSES[unit.punctuation] : 0));
+  const mean = weights.reduce((sum, weight) => sum + weight, 0) / units.length;
   const base = 60000 / Math.max(100, Math.min(1000, Number.isFinite(wpm) ? wpm : 300));
-  return units.map(unit => base * unit.weight / mean);
+  return weights.map(weight => base * weight / mean);
 }
 
 /** One cancellable advance; even a callback already queued cannot mutate a new session. */

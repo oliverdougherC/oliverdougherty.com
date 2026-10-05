@@ -1,4 +1,4 @@
-import { normalizedDwells, parseText, ReaderScheduler, type ReadingUnit } from './lynxReaderCore';
+import { DEFAULT_PAUSES, normalizedDwells, parseText, ReaderScheduler, sentenceTarget, type ReadingUnit } from './lynxReaderCore';
 
 const DEFAULT_TEXT = `Our refusal to leave the world as we found it does not always produce cathedrals, symphonies, or footprints on the moon. Usually it produces something so small that history doesn't even notice.
 
@@ -13,6 +13,9 @@ export class LynxReaderController {
   private dwells: number[] = [];
   private index = 0;
   private wpm = 300;
+  private pauses = { ...DEFAULT_PAUSES };
+  private wordSize = 88;
+  private wheelDelta = 0;
   private playing = false;
   private finished = false;
   private initialized = false;
@@ -48,7 +51,15 @@ export class LynxReaderController {
         </div>
         <div class="lynx-controls">
           <label class="lynx-speed" for="lynxWpm"><span class="control-label">Target WPM</span><output data-lynx-speed for="lynxWpm">300</output><input id="lynxWpm" data-lynx-wpm type="range" min="100" max="1000" step="25" value="300"></label>
-          <div class="lynx-transport"><button class="btn-secondary-minimal" data-lynx-back aria-label="Back 10 words">← 10</button><button class="btn-primary-minimal" data-lynx-play aria-pressed="false" aria-keyshortcuts="Space">Play</button><button class="btn-secondary-minimal" data-lynx-forward aria-label="Forward 10 words">10 →</button><button class="btn-secondary-minimal" data-lynx-reset>Reset</button></div>
+          <div class="lynx-transport"><button class="btn-secondary-minimal" data-lynx-back aria-label="Previous sentence">← Sentence</button><button class="btn-primary-minimal" data-lynx-play aria-pressed="false" aria-keyshortcuts="Space">Play</button><button class="btn-secondary-minimal" data-lynx-forward aria-label="Next sentence">Sentence →</button><button class="btn-secondary-minimal" data-lynx-reset>Reset</button></div>
+          <div class="lynx-preferences">
+            <label for="lynxComma"><span class="control-label">Comma pause <output data-lynx-comma-value for="lynxComma">+22%</output></span><input id="lynxComma" data-lynx-comma type="range" min="0" max="200" step="1" value="22" aria-describedby="lynxPauseHelp"></label>
+            <label for="lynxPeriod"><span class="control-label">Sentence pause <output data-lynx-period-value for="lynxPeriod">+65%</output></span><input id="lynxPeriod" data-lynx-period type="range" min="0" max="200" step="1" value="65" aria-describedby="lynxPauseHelp"></label>
+            <label for="lynxFont"><span class="control-label">Word font</span><select id="lynxFont" data-lynx-font class="control-select-minimal"><option value="sans">Sans serif</option><option value="serif">Serif</option><option value="mono">Monospace</option></select></label>
+            <label for="lynxSize"><span class="control-label">Word size <output data-lynx-size-value for="lynxSize">88 px</output></span><input id="lynxSize" data-lynx-size type="range" min="32" max="144" step="4" value="88"></label>
+          </div>
+          <p class="lynx-hint" id="lynxPauseHelp">Adjust pauses at commas and sentence endings. Target WPM includes pauses.</p>
+          <p class="lynx-hint">Space: play / pause · ← / →: sentence · Scroll ↑ / ↓: faster / slower</p>
           <div class="lynx-progress"><label class="control-label" for="lynxPosition">Position</label><span data-lynx-position></span><input id="lynxPosition" data-lynx-seek type="range" min="0" max="0" value="0" step="1" aria-label="Reading position"></div>
         </div>
       </div>`;
@@ -57,8 +68,8 @@ export class LynxReaderController {
     on(this.el('source'), 'input', () => { this.el<HTMLButtonElement>('read').disabled = !this.el<HTMLTextAreaElement>('source').value.trim(); });
     on(this.el('read'), 'click', () => this.read());
     on(this.el('play'), 'click', () => this.toggle());
-    on(this.el('back'), 'click', () => this.seek(this.index - 10));
-    on(this.el('forward'), 'click', () => this.seek(this.index + 10));
+    on(this.el('back'), 'click', () => this.jumpSentence(-1));
+    on(this.el('forward'), 'click', () => this.jumpSentence(1));
     on(this.el('reset'), 'click', () => this.seek(0));
     on(this.el('edit'), 'click', () => {
       this.pause();
@@ -68,13 +79,25 @@ export class LynxReaderController {
     });
     on(this.el('seek'), 'pointerdown', () => this.pause());
     on(this.el('seek'), 'input', () => this.seek(Number(this.el<HTMLInputElement>('seek').value)));
-    on(this.el('wpm'), 'input', () => {
-      if (this.playing) this.remaining = Math.max(0, this.remaining - (performance.now() - this.startedAt) / this.dwells[this.index]);
-      this.wpm = Number(this.el<HTMLInputElement>('wpm').value);
-      this.dwells = normalizedDwells(this.units, this.wpm);
-      this.el('speed').textContent = String(this.wpm);
-      if (this.playing) this.schedule();
+    on(this.el('wpm'), 'input', () => this.changeWpm(Number(this.el<HTMLInputElement>('wpm').value)));
+    for (const [name, boundary] of [['comma', 'clause'], ['period', 'sentence']] as const) {
+      on(this.el(name), 'input', () => {
+        this.updateTiming(() => { this.pauses[boundary] = Number(this.el<HTMLInputElement>(name).value) / 100; });
+        this.el(`${name}-value`).textContent = `+${Math.round(this.pauses[boundary] * 100)}%`;
+      });
+    }
+    on(this.el('font'), 'change', () => {
+      const fonts: Record<string, string> = { sans: 'var(--workbench-ui)', serif: 'Georgia, serif', mono: "'JetBrains Mono', monospace" };
+      this.el('word').style.fontFamily = fonts[this.el<HTMLSelectElement>('font').value];
+      this.fitWord();
     });
+    on(this.el('size'), 'input', () => {
+      this.wordSize = Number(this.el<HTMLInputElement>('size').value);
+      this.el('size-value').textContent = `${this.wordSize} px`;
+      this.root.style.setProperty('--lynx-word-size', `${this.wordSize}px`);
+      this.fitWord();
+    });
+    document.addEventListener('wheel', event => this.wheel(event), { passive: false, signal: this.events.signal });
     on(document, 'keydown', event => this.key(event as KeyboardEvent));
     on(this.root, 'utility-deactivate', () => { this.active = false; this.pause(); });
     on(this.root, 'utility-activate', () => { this.active = true; this.fitWord(); });
@@ -93,7 +116,7 @@ export class LynxReaderController {
       this.el('source').focus();
       return;
     }
-    this.dwells = normalizedDwells(this.units, this.wpm);
+    this.dwells = normalizedDwells(this.units, this.wpm, this.pauses);
     this.el('entry').hidden = true;
     this.el('reader').hidden = false;
     this.seek(0);
@@ -103,14 +126,41 @@ export class LynxReaderController {
   private key(event: KeyboardEvent) {
     if (!this.active || this.el('reader').hidden || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
     const target = event.target as HTMLElement;
-    if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
-    // Native controls retain Space activation; the reading stage owns the shortcut.
-    if (target.closest('button, a') && event.code === 'Space') return;
+    if (!this.root.contains(target) && target.closest('button, a, input, select, textarea, summary, [tabindex]:not([tabindex="-1"]), [role], [contenteditable]')) return;
+    if (target.closest('textarea, input:not([type="range"]), [contenteditable]:not([contenteditable="false"])')) return;
     if (!['Space', 'ArrowLeft', 'ArrowRight'].includes(event.code)) return;
     event.preventDefault();
     if (event.repeat) return;
     if (event.code === 'Space') this.toggle();
-    else this.seek(this.index + (event.code === 'ArrowLeft' ? -10 : 10));
+    else this.jumpSentence(event.code === 'ArrowLeft' ? -1 : 1);
+  }
+
+  private jumpSentence(direction: -1 | 1) {
+    this.seek(sentenceTarget(this.units, this.index, direction));
+  }
+
+  private updateTiming(update: () => void) {
+    if (this.playing) this.remaining = Math.max(0, this.remaining - (performance.now() - this.startedAt) / this.dwells[this.index]);
+    update();
+    this.dwells = normalizedDwells(this.units, this.wpm, this.pauses);
+    if (this.playing) this.schedule();
+  }
+
+  private changeWpm(value: number) {
+    this.updateTiming(() => { this.wpm = Math.max(100, Math.min(1000, value)); });
+    this.el<HTMLInputElement>('wpm').value = String(this.wpm);
+    this.el('speed').textContent = String(this.wpm);
+  }
+
+  private wheel(event: WheelEvent) {
+    if (!this.active || this.el('reader').hidden || event.defaultPrevented || event.ctrlKey || event.metaKey || Math.abs(event.deltaX) > Math.abs(event.deltaY) || !event.deltaY) return;
+    event.preventDefault();
+    const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? this.root.clientHeight : 1);
+    if (Math.sign(delta) !== Math.sign(this.wheelDelta)) this.wheelDelta = 0;
+    this.wheelDelta += delta;
+    if (Math.abs(this.wheelDelta) < 40) return;
+    this.changeWpm(this.wpm + (this.wheelDelta < 0 ? 25 : -25));
+    this.wheelDelta = 0;
   }
 
   private toggle() {
@@ -183,11 +233,11 @@ export class LynxReaderController {
     const halfWidth = display.clientWidth / 2 - 24;
     const extent = Math.max(this.el('before').offsetWidth, this.el('after').offsetWidth) + this.el('letter').offsetWidth / 2;
     // Fit is bidirectional: long tokens shrink, short tokens grow up to the
-    // 88px guide-framed focal line or the reading-stage height, whichever
+    // chosen word size or the reading-stage height, whichever
     // binds first, so no word reads as a page title.
     const widthScale = Math.max(0, halfWidth) / Math.max(1, extent);
     const heightScale = Math.max(0, display.clientHeight - 16) / (1.3 * baseFont);
-    focus.style.setProperty('--lynx-scale', String(Math.min(88 / baseFont, heightScale, widthScale)));
+    focus.style.setProperty('--lynx-scale', String(Math.min(this.wordSize / baseFont, heightScale, widthScale)));
   }
 
   destroy() {
