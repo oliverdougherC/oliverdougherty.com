@@ -330,10 +330,12 @@ html[data-active-utility] .page-utilities { height: 100dvh; min-height: 0; displ
 @media (prefers-reduced-motion: reduce) { .utility-stage-status::before { animation: none; } }
 
 /* Lynx Reader: a stationary focal character, with independently fitted fragments.
-   Instrument rule: this utility shows no focus outlines or selection boxes; the
-   source textarea keeps normal text selection because it is an editor. */
+   Keyboard focus changes the existing surface/border, without focus outlines
+   or selection boxes. The source editor retains normal text selection. */
 .utility-shell--lynx { border: 1px solid var(--workbench-rule); padding: clamp(16px, 3vw, 40px); overflow: clip; -webkit-user-select: none; user-select: none; }
-.page-utilities .utility-shell--lynx :is(button, select, input, a, textarea, [tabindex]):focus-visible { outline: none; }
+.page-utilities .utility-shell--lynx :is(button, select, input, a, textarea, [tabindex]):focus-visible { outline: none; background-color: #eee8f7; border-color: var(--workbench-accent); color: var(--workbench-ink); }
+.page-utilities .utility-shell--lynx .btn-primary-minimal:focus-visible { background-color: #452274; }
+.page-utilities .utility-shell--lynx input[type="range"]:focus-visible { accent-color: #452274; }
 .utility-shell--lynx ::selection { background: transparent; }
 .utility-shell--lynx textarea { width: 100%; min-height: 0; resize: none; padding: 20px; border: 1px solid var(--workbench-rule); border-radius: 0; background: #fff; color: var(--workbench-ink); font: 400 18px/1.7 var(--workbench-ui); -webkit-user-select: text; user-select: text; }
 .utility-shell--lynx textarea::selection { background: var(--workbench-accent); color: #fff; }

@@ -42,6 +42,22 @@ describe('Lynx adaptive timing', () => {
     expect(timingWeight('123456', 6, 'none')).toBeGreaterThan(timingWeight('abcdef', 6, 'none'));
     expect(timingWeight('abc123', 6, 'none')).toBeGreaterThan(timingWeight('abcdef', 6, 'none'));
   });
+  it.each([
+    ['a1', true], ['1a', true], ['π9', true], ['𐐀9', true], ['é٣', false],
+    ['abc 12', false], ['abc\n12', false], ['a1 2', true], ['12345', true],
+    ['1234-5678', false], ['http://', true], ['https://', true], ['www.', true], ['HTTP://', false]
+  ])('preserves density classification for %j', (text, dense) => {
+    expect(timingWeight(text, 4, 'none')).toBe(dense ? 1.2 : 1);
+  });
+  it('parses a 50,000-character alphabetic token without rescanning its suffixes', () => {
+    const text = 'a'.repeat(50000);
+    const started = performance.now();
+    const units = parseText(text);
+    expect(units).toHaveLength(1);
+    expect(units[0]).toMatchObject({ text, length: 50000, before: 'aaaa', focus: 'a', weight: 1.65 });
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(timingWeight(`${text}9`, text.length + 1, 'none')).toBeCloseTo(1.85);
+  });
   it('orders semantic pauses without stacking paragraph and sentence pauses', () => {
     const weights = ['none', 'clause', 'sentence', 'paragraph'].map(boundary => timingWeight('word', 4, boundary as 'none'));
     expect(weights).toEqual([1, 1.22, 1.65, 2.25]);

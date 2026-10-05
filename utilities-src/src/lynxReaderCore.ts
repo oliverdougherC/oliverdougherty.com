@@ -22,9 +22,30 @@ export function splitOrp(text: string) {
   return { before: chars.slice(0, index).join(''), focus: chars[index] || '', after: chars.slice(index + 1).join(''), length };
 }
 
+function hasDenseContent(text: string): boolean {
+  if (text.includes('http://') || text.includes('https://') || text.includes('www.')) return true;
+  let hasLetter = false;
+  let hasDigit = false;
+  let digitRun = 0;
+  // A mixed alphanumeric segment must not cross whitespace. Scan each code
+  // point once; unanchored lookaheads retry the remaining suffix quadratically.
+  for (const char of text) {
+    const digit = char >= '0' && char <= '9';
+    digitRun = digit ? digitRun + 1 : 0;
+    if (digitRun >= 5) return true;
+    if (/\s/u.test(char)) { hasLetter = false; hasDigit = false; }
+    else {
+      hasDigit ||= digit;
+      hasLetter ||= /\p{L}/u.test(char);
+      if (hasLetter && hasDigit) return true;
+    }
+  }
+  return false;
+}
+
 export function timingWeight(text: string, length: number, boundary: ReadingUnit['boundary']) {
   const longWord = 0.65 * (1 - Math.exp(-Math.max(0, length - 5) / 14));
-  const dense = /\d{5}|(?=\S*\p{L})(?=\S*\d)|https?:\/\/|www\./u.test(text) ? 0.2 : 0;
+  const dense = hasDenseContent(text) ? 0.2 : 0;
   const pause = { none: 0, clause: 0.22, sentence: 0.65, paragraph: 1.25 }[boundary];
   return 1 + longWord + dense + pause;
 }

@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { chromium } = require('playwright');
+const { chromium, webkit } = require('playwright');
 const { startLocalStaticServer, waitForServer } = require('./lib/playwright-static');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -31,12 +31,61 @@ async function fits(page) {
   assert.deepEqual(problems, []);
 }
 
+async function keyboardFocusChecks(page, browserName) {
+  // macOS WebKit's native Option-Tab reaches controls that plain Tab skips.
+  // https://support.apple.com/guide/safari/cpsh003/mac
+  const tabKey = browserName === 'webkit' && process.platform === 'darwin' ? 'Alt+Tab' : 'Tab';
+  const baseline = await page.evaluate(() => {
+    document.activeElement?.blur();
+    return [...document.querySelectorAll('#lynxReaderApp :is(button, select, input, a, textarea, [tabindex])')]
+      .filter(node => !node.disabled && node.tabIndex >= 0 && node.getClientRects().length && !node.closest('[hidden]'))
+      .map(node => {
+        const selector = `[${[...node.attributes].find(attribute => attribute.name.startsWith('data-lynx-')).name}]`;
+        const style = getComputedStyle(node);
+        return { selector, background: style.backgroundColor, border: style.borderTopColor, borderWidth: parseFloat(style.borderTopWidth), accent: style.accentColor };
+      });
+  });
+  for (const control of baseline) {
+    const name = control.selector.replace(/[\[\]]/g, '');
+    await page.locator(control.selector).screenshot({ path: path.join(OUTPUT, `${browserName}-${name}-before.png`) });
+  }
+  const remaining = new Map(baseline.map(value => [value.selector, value]));
+  const checked = [];
+  for (let step = 0; remaining.size && step < 80; step++) {
+    await page.keyboard.press(tabKey);
+    const focused = await page.evaluate(() => {
+      const node = document.activeElement;
+      if (!node?.closest('#lynxReaderApp')) return null;
+      const attribute = [...node.attributes].find(value => value.name.startsWith('data-lynx-'));
+      if (!attribute) return null;
+      const style = getComputedStyle(node);
+      return { selector: `[${attribute.name}]`, visible: node.matches(':focus-visible'), background: style.backgroundColor, border: style.borderTopColor, borderWidth: parseFloat(style.borderTopWidth), accent: style.accentColor, outline: style.outlineStyle };
+    });
+    if (!focused || !remaining.has(focused.selector)) continue;
+    const before = remaining.get(focused.selector);
+    assert.equal(focused.visible, true, `${focused.selector} receives keyboard-visible focus via ${tabKey}`);
+    assert.equal(focused.outline, 'none', `${focused.selector} preserves the no-outline design`);
+    assert.ok(focused.background !== before.background || focused.borderWidth > 0 && focused.border !== before.border || focused.accent !== before.accent,
+      `${focused.selector} must visibly change its surface, existing border or native accent on keyboard focus`);
+    const name = focused.selector.replace(/[\[\]]/g, '');
+    await page.locator(focused.selector).screenshot({ path: path.join(OUTPUT, `${browserName}-${name}-focused.png`) });
+    checked.push({ selector: focused.selector, key: tabKey, before, focused });
+    remaining.delete(focused.selector);
+  }
+  assert.deepEqual([...remaining.keys()], [], `Actual ${tabKey} traversal reaches every visible Lynx control`);
+  return checked;
+}
+
 async function runLynxChecks(browser, baseUrl) {
   fs.mkdirSync(OUTPUT, { recursive: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
+  const browserName = browser.browserType().name();
+  const prefix = browserName === 'chromium' ? '' : `${browserName}-`;
   const measurements = [];
+  const focusChecks = [];
+  const largeReads = [];
   try {
     await page.goto(`${baseUrl}/pages/utilities/index.html`, { waitUntil: 'networkidle' });
     assert.equal(await page.evaluate(() => performance.getEntriesByType('resource').some(r => /lynxReaderController/.test(r.name))), false, 'Reader should load lazily');
@@ -44,12 +93,15 @@ async function runLynxChecks(browser, baseUrl) {
     await page.locator(q('source')).waitFor();
     assert.equal(await page.locator(q('read')).isDisabled(), false);
     assert.match(await page.locator(q('source')).inputValue(), /^Our refusal to leave the world/);
+    focusChecks.push(...await keyboardFocusChecks(page, browserName));
     await page.locator(q('source')).fill(prose);
     await page.locator(q('source')).press('Space');
     assert.equal(await page.locator(q('entry')).isVisible(), true);
     await page.locator(q('read')).click();
     assert.equal(await page.locator(q('word')).getAttribute('aria-label'), 'Dr.');
     assert.equal(await page.locator(q('play')).getAttribute('aria-pressed'), 'false');
+    focusChecks.push(...await keyboardFocusChecks(page, browserName));
+    await page.locator(q('display')).focus();
     await page.keyboard.press('Space');
     await page.waitForFunction(() => Number(document.querySelector('[data-lynx-seek]').value) > 0);
     await page.keyboard.press('Space');
@@ -83,13 +135,37 @@ async function runLynxChecks(browser, baseUrl) {
     await page.locator(q('edit')).click();
     assert.match(await page.locator(q('source')).inputValue(), /Dr\. Rivera/);
 
+    await page.locator(q('source')).fill('a'.repeat(50000));
+    const longTokenStarted = Date.now();
+    await page.locator(q('read')).click({ timeout: 10000 });
+    await page.locator(q('reader')).waitFor();
+    const longTokenReadMs = Date.now() - longTokenStarted;
+    assert.equal((await page.locator(q('word')).getAttribute('aria-label')).length, 50000);
+    assert.equal(await page.locator(q('seek')).getAttribute('max'), '0');
+    assert.ok(longTokenReadMs < 3000, `50k alphabetic token Read took ${longTokenReadMs}ms`);
+    await fits(page);
+    await page.locator(q('edit')).click();
+
     // Geometry, grapheme anchor and long-token fit in both views, including live resize.
     const sample = 'a “understanding,” 123456789 café cafe\u0301 👩🏽‍💻 日本語 ' + 'extraordinarily'.repeat(20);
     for (const [width, height] of [[1440, 900], [1280, 720], [1024, 600], [800, 600]]) {
       await page.setViewportSize({ width, height });
-      await page.locator(q('source')).fill(prose.repeat(1000));
+      const largeProse = Array(1000).fill(prose).join('\n\n');
+      await page.locator(q('source')).fill(largeProse);
       await fits(page);
-      await page.screenshot({ path: path.join(OUTPUT, `entry-${width}x${height}.png`) });
+      await page.screenshot({ path: path.join(OUTPUT, `${prefix}entry-${width}x${height}.png`) });
+      const readStarted = Date.now();
+      await page.locator(q('read')).click({ timeout: 10000 });
+      await page.locator(q('reader')).waitFor();
+      const readMs = Date.now() - readStarted;
+      const wordCount = prose.match(/\S+/gu).length * 1000;
+      assert.equal(Number(await page.locator(q('seek')).getAttribute('max')) + 1, wordCount, 'Read parses the entire large prose fixture');
+      assert.ok(readMs < 10000, `Large prose Read blocked for ${readMs}ms`);
+      await seek(page, wordCount - 1);
+      assert.equal(await page.locator(q('word')).getAttribute('aria-label'), 'now.');
+      await fits(page);
+      largeReads.push({ width, height, characters: largeProse.length, words: wordCount, readMs });
+      await page.locator(q('edit')).click();
       await page.locator(q('source')).fill(sample);
       await page.locator(q('read')).click();
       await page.evaluate(() => document.fonts.ready);
@@ -114,7 +190,7 @@ async function runLynxChecks(browser, baseUrl) {
       assert.match(await page.locator(q('position')).textContent(), /^8 /);
       await page.keyboard.press('ArrowLeft');
       assert.match(await page.locator(q('position')).textContent(), /^1 /);
-      await page.screenshot({ path: path.join(OUTPUT, `reader-${width}x${height}.png`) });
+      await page.screenshot({ path: path.join(OUTPUT, `${prefix}reader-${width}x${height}.png`) });
       await page.locator(q('edit')).click();
     }
 
@@ -150,20 +226,26 @@ async function runLynxChecks(browser, baseUrl) {
     await page.locator('.nav-back-btn').click();
     assert.equal(await page.locator('#utilitiesTitleView').isVisible(), true);
     assert.deepEqual(errors, []);
-    fs.writeFileSync(path.join(OUTPUT, 'measurements.json'), JSON.stringify(measurements, null, 2) + '\n');
-    console.log('Lynx Reader browser checks passed:', JSON.stringify(measurements));
+    fs.writeFileSync(path.join(OUTPUT, `${prefix}keyboard-focus.json`), JSON.stringify(focusChecks, null, 2) + '\n');
+    fs.writeFileSync(path.join(OUTPUT, `${prefix}large-reads.json`), JSON.stringify(largeReads, null, 2) + '\n');
+    fs.writeFileSync(path.join(OUTPUT, `${prefix}measurements.json`), JSON.stringify(measurements, null, 2) + '\n');
+    fs.writeFileSync(path.join(OUTPUT, `${prefix}long-token.json`), JSON.stringify({ characters: 50000, readMs: longTokenReadMs }, null, 2) + '\n');
+    console.log(`Lynx Reader browser checks passed (${browserName}):`, JSON.stringify({ longTokenReadMs, largeReads, measurements }));
   } finally { await page.close(); }
 }
 
 module.exports = { runLynxChecks };
 if (require.main === module) {
   (async () => {
-    const server = await startLocalStaticServer({ cwd: ROOT, url: 'http://127.0.0.1:4189' });
+    const server = await startLocalStaticServer({ cwd: ROOT, url: process.env.LYNX_READER_CHECK_URL || 'http://127.0.0.1:4189' });
     const baseUrl = server.url;
     let browser;
     try {
       await waitForServer(baseUrl);
-      browser = await chromium.launch({ headless: true });
+      const browserName = process.env.LYNX_READER_BROWSER || 'chromium';
+      const browserType = { chromium, webkit }[browserName];
+      assert.ok(browserType, `Unsupported Lynx test browser: ${browserName}`);
+      browser = await browserType.launch({ headless: true });
       await runLynxChecks(browser, baseUrl);
     } finally { await browser?.close(); server.kill('SIGTERM'); }
   })().catch(error => { console.error(error); process.exitCode = 1; });

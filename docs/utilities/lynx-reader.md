@@ -1,8 +1,7 @@
 # Lynx Reader
 
-`05 // Lynx Reader` is a browser-local, pasted-text RSVP experiment. Current main
-ends at `04 // Keiri’s Domain`, so it uses the next available number rather than
-the tentative 07 in issue #92. Default target speed is **300 WPM** (100–1000,
+`05 // Lynx Reader` is a browser-local, pasted-text RSVP experiment. It follows
+`04 // Keiri’s Domain`; LLM Rumen Cannula occupies number 06 in the combined release. Default target speed is **300 WPM** (100–1000,
 25 WPM increments). No imports, storage, reading claims, or external services.
 
 ## Source and parsing
@@ -16,6 +15,8 @@ apostrophes, hyphens, decimals, URLs and Unicode. CRLF/CR normalize to LF; singl
 line wraps and tabs are ordinary separators. Two newlines, including intervening
 spaces/tabs, mark a paragraph. Extra blank lines do not stack pauses. Nonprinting
 controls and bidi overrides are removed; combining marks and emoji joiners remain.
+Density detection uses a single Unicode-aware scan with bounded state rather than
+unanchored lookaheads, so digit-free long tokens do not trigger quadratic suffix scans.
 Pasted content is assigned with `textContent`, never interpreted as HTML. The
 source opens prefilled with a fixed passage so Read works without any input.
 Trailing closing quotes/brackets are ignored for boundary classification. Commas,
@@ -109,7 +110,9 @@ and document visibility loss also pause. No session data leaves the page.
 
 The source has a visible label, controls use native semantics, and Play exposes
 `aria-pressed`. The stage is a closed instrument: it draws no focus outlines and
-no selection boxes anywhere except editable text in the source textarea. Only
+no selection boxes anywhere except editable text in the source textarea. Keyboard
+focus is visible through existing surface/border colors; primary controls and
+range accents darken while preserving text contrast. Only
 playback-state changes use a live region;
 neither words nor progress are announced continuously. The displayed word has a
 single accessible label while its visual fragments are hidden from accessibility.
@@ -130,3 +133,12 @@ the 400-character token below 1 at every size.
 Run `npm run utilities:check`, `npm run utilities:build`,
 `npm run utilities:browser-check`, and `npm run quality`.
 For focused browser iteration: `node scripts/lynx-reader-check.js`.
+
+Review regressions actually press Read on a 50,000-character alphabetic token
+and on 59,000 words (360,998 characters) of prose at all four viewport sizes.
+The local Chromium/WebKit runs measured 27 ms for the long token and 124–217 ms
+for the prose. These are workstation measurements, not hardware-independent
+performance guarantees. Native keyboard traversal checks every editor/reader
+control and compares its visible styling before and after focus, with paired
+screenshots. macOS WebKit uses Option+Tab for native full-control traversal;
+other tested platforms use Tab. No system keyboard preference is modified.
