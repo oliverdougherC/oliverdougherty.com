@@ -332,3 +332,42 @@ html[data-active-utility] .page-utilities { height: 100dvh; min-height: 0; displ
 .utility-stage-status button { padding: 8px 14px; border: 1px solid var(--workbench-accent); background: var(--workbench-accent); color: #fff; font: 500 12px/1.4 var(--workbench-ui); cursor: pointer; }
 @keyframes utility-stage-status-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .utility-stage-status::before { animation: none; } }
+
+/* Lynx Reader: a stationary focal character, with independently fitted fragments.
+   Keyboard focus changes the existing surface/border, without focus outlines
+   or selection boxes. The source editor retains normal text selection. */
+.utility-shell--lynx { border: 1px solid var(--workbench-rule); padding: clamp(16px, 3vw, 40px); overflow: clip; -webkit-user-select: none; user-select: none; }
+.page-utilities .utility-shell--lynx :is(button, select, input, a, textarea, [tabindex]):focus-visible { outline: none; background-color: #eee8f7; border-color: var(--workbench-accent); color: var(--workbench-ink); }
+.page-utilities .utility-shell--lynx .btn-primary-minimal:focus-visible { background-color: #452274; }
+.page-utilities .utility-shell--lynx input[type="range"]:focus-visible { accent-color: #452274; }
+.utility-shell--lynx ::selection { background: transparent; }
+.utility-shell--lynx textarea { width: 100%; min-height: 0; resize: none; padding: 20px; border: 1px solid var(--workbench-rule); border-radius: 0; background: #fff; color: var(--workbench-ink); font: 400 18px/1.7 var(--workbench-ui); -webkit-user-select: text; user-select: text; }
+.utility-shell--lynx textarea::selection { background: var(--workbench-accent); color: #fff; }
+.lynx-entry { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 12px; }
+.lynx-entry-actions { display: flex; justify-content: flex-end; }
+.lynx-entry-actions button { min-width: 120px; }
+.lynx-reader { height: 100%; min-height: 0; display: grid; grid-template-rows: auto minmax(100px, 1fr) auto; gap: 12px; }
+.lynx-topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 12px; color: var(--workbench-muted); }
+.lynx-display { min-width: 0; position: relative; display: grid; align-items: center; overflow: clip; }
+.lynx-guide { position: absolute; width: 100px; height: 110px; left: 50%; top: 50%; transform: translate(-50%, -50%); border-block: 1px solid var(--workbench-rule); }
+.lynx-guide::before, .lynx-guide::after { content: ''; position: absolute; left: 50%; width: 1px; height: 12px; background: var(--workbench-ink); }
+.lynx-guide::before { top: 0; }
+.lynx-guide::after { bottom: 0; }
+.lynx-word { position: relative; height: 1.3em; font: 500 clamp(36px, 4vw, 64px)/1.3 var(--workbench-ui); font-kerning: none; font-variant-ligatures: none; }
+.lynx-focus { position: absolute; left: 50%; color: var(--workbench-accent); transform: translateX(-50%) scale(var(--lynx-scale, 1)); transform-origin: center; white-space: pre; }
+.lynx-before, .lynx-after { position: absolute; top: 0; color: var(--workbench-ink); }
+.lynx-before { right: 100%; }
+.lynx-after { left: 100%; }
+.lynx-controls { width: min(100%, 640px); justify-self: center; display: grid; gap: 22px; }
+.lynx-speed { display: grid; grid-template-columns: 1fr auto; align-items: baseline; column-gap: 16px; }
+.lynx-speed output { font: 400 24px/1.2 'JetBrains Mono', monospace; }
+.lynx-controls input[type="range"] { grid-column: 1 / -1; width: 100%; margin: 8px 0; accent-color: var(--workbench-accent); cursor: pointer; }
+.lynx-transport { display: flex; justify-content: center; gap: 10px; }
+.lynx-transport [data-lynx-play] { min-width: 100px; }
+.lynx-progress { display: grid; grid-template-columns: 1fr auto; border-top: 1px solid var(--workbench-rule); padding-top: 16px; }
+.lynx-progress span { font: 400 12px/1.3 'JetBrains Mono', monospace; }
+@media (max-height: 720px) {
+  .utility-shell--lynx { padding: 16px 24px; }
+  .lynx-controls { gap: 12px; }
+  .lynx-progress { padding-top: 10px; }
+}

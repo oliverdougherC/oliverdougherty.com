@@ -7,7 +7,8 @@ const tools = [
   ['image-transform', 'Image Transform', '01'],
   ['audio-fourier', 'Fourier Reconstruction', '02'],
   ['stress-test', 'Stress Test', '03'],
-  ['yahtzee-keiri', 'Yahtzee vs. Keiri', '04'],
+  ['yahtzee-keiri', 'Keiri’s Domain', '04'],
+  ['lynx-reader', 'Lynx Reader', '05'],
   ['local-assistant', 'LLM Rumen Cannula', '06']
 ];
 const instances: JSDOM[] = [];
@@ -65,7 +66,7 @@ describe('utilities shell', () => {
     expect(document.querySelector('[data-utility-id="local-assistant"]')?.getAttribute('data-utility-title')).toBe('LLM Rumen Cannula');
   });
 
-  it.each([['audio-fourier', 'Fourier Reconstruction', '02'], ['yahtzee-keiri', 'Yahtzee vs. Keiri', '04'], ['local-assistant', 'LLM Rumen Cannula', '06']])('opens %s deep links and notifies the active controller', (id, title, number) => {
+  it.each([['audio-fourier', 'Fourier Reconstruction', '02'], ['yahtzee-keiri', 'Keiri’s Domain', '04'], ['lynx-reader', 'Lynx Reader', '05'], ['local-assistant', 'LLM Rumen Cannula', '06']])('opens %s deep links and notifies the active controller', (id, title, number) => {
     const { window, query, events } = setup(`#${id}`);
     expect(query(`[data-utility-id="${id}"]`).classList.contains('is-active')).toBe(true);
     expect(query(`[data-utility-id="${id}"]`).hidden).toBe(false);
