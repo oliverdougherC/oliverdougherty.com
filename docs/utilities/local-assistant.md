@@ -1,7 +1,7 @@
 # LLM Rumen Cannula
 
 Issue [#90](https://github.com/oliverdougherC/oliverdougherty.com/issues/90) adds
-`05 // LLM Rumen Cannula` as a new implementation. The retired assistant is not reused.
+`06 // LLM Rumen Cannula` as a new implementation. The retired assistant is not reused.
 The conversation is the input/output surface for a Qwen3.5 model observatory.
 
 ## Model provenance
@@ -23,9 +23,9 @@ The downloaded file was independently hashed during development. The browser
 checks the transfer length and GGUF header; it does not allocate another 1.28 GB
 buffer just to run WebCrypto SHA-256. The immutable upstream URL is the prototype's
 asset source. **Weights currently download from Hugging Face, not this site's own
-hosting.** Moving the exact verified bytes onto a site-controlled large-file host
-requires an asset-hosting decision before production release; do not commit model
-weights to Git. The GGUF identifies the base model but does not identify its exact
+hosting.** The public utility uses this reviewed, immutable source. Moving the exact verified
+bytes onto a site-controlled large-file host can be handled separately; do not
+commit model weights to Git. The GGUF identifies the base model but does not identify its exact
 conversion input commit. The configuration revision above is the inspected
 upstream snapshot, not a claim about an undocumented conversion commit.
 
@@ -184,7 +184,7 @@ The dedicated browser harness distinguishes mocked UI/lifecycle checks from real
 inference. See [browser validation](./local-assistant-validation.md) and [runtime verification](../../utilities-src/local-assistant-runtime/README.md) for measured hardware,
 transfer, memory, context and observability-overhead results. Do not infer hardware
 or browser coverage from fixture tests. In particular, a discrete-GPU result must
-come from an actual discrete GPU. No merge or deployment is part of this prototype.
+come from an actual discrete GPU. Public releases use the main-branch CI gate and GitHub Pages deployment.
 
 ## Prototype assessment
 
