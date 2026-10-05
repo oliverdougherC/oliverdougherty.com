@@ -45,6 +45,27 @@ describe('Yahtzee controller lifecycle', () => {
     expect(root.dataset.turn).toBe('human');
     expect(root.querySelector('[data-keiri-score="0"]')!.textContent).toBe('15');
   });
+  it.each([false, true])('retains interactive text nodes across background load failure (rolled: %s)', async rolled => {
+    const table = deferred<void>();
+    const { root, click } = setup({ load: () => table.promise });
+    await flush();
+    if (rolled) { click('[data-roll]'); click('[data-die="0"]'); }
+    const selectors = ['[data-roll]', '[data-reset]', '[data-score="0"]', ...(rolled ? ['[data-die="0"] .yahtzee-held'] : [])];
+    const labels = selectors.map(selector => {
+      const element = root.querySelector(selector)!;
+      return { element, child: element.firstChild, text: element.textContent };
+    });
+
+    table.reject(new Error('Exact table unavailable'));
+    await flush();
+
+    expect(root.dataset.engineState).toBe('failed');
+    for (const { element, child, text } of labels) {
+      expect(element.textContent).toBe(text);
+      // WebKit cancels a pressed control's click when its text node is replaced.
+      expect(element.firstChild).toBe(child);
+    }
+  });
   it('ignores a decision completing after deactivation and resumes only one canonical turn', async () => {
     const decision = deferred<{ kind: 'score'; category: number }>();
     const { root, exact, click } = setup({ decide: () => decision.promise });
