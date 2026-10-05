@@ -1,0 +1,828 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4248078..e5b4c5c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -129,6 +129,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/common)
+ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/vendor)
+ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/tools/server)
+ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/tools/mtmd)
++include_directories(${CMAKE_CURRENT_SOURCE_DIR}/llama.cpp/src)
+ 
+ add_executable(wllama ${WLLAMA_SRC})
+ target_link_libraries(wllama PRIVATE ggml llama mtmd ${CMAKE_THREAD_LIBS_INIT})
+diff --git a/cpp/glue.hpp b/cpp/glue.hpp
+index 9b338ce..07b68f1 100644
+--- a/cpp/glue.hpp
++++ b/cpp/glue.hpp
+@@ -496,6 +496,8 @@ struct glue_msg_error
+ struct glue_msg_load_req
+ {
+   GLUE_HANDLER("load_req")
++  GLUE_FIELD_NULLABLE(bool, observatory)
++  GLUE_FIELD_NULLABLE(bool, observatory_lens)
+   GLUE_FIELD(arr_str, model_paths)
+   GLUE_FIELD_NULLABLE(str, mmproj_path)
+   GLUE_FIELD(bool, n_ctx_auto)
+@@ -695,3 +697,27 @@ struct glue_msg_test_backend_ops_res
+   GLUE_FIELD(int, retcode)
+   GLUE_FIELD(bool, success)
+ };
++
++// Local Assistant extensions. Keep tokenization and reset inside the same worker.
++struct glue_msg_observe_tokenize_req
++{
++  GLUE_HANDLER("obst_req")
++  GLUE_FIELD(str, text)
++  GLUE_FIELD(bool, add_special)
++  GLUE_FIELD(bool, parse_special)
++};
++struct glue_msg_observe_tokenize_res
++{
++  GLUE_HANDLER("obst_res")
++  GLUE_FIELD(arr_int, ids)
++  GLUE_FIELD(arr_str, pieces)
++};
++struct glue_msg_observe_reset_req
++{
++  GLUE_HANDLER("obsr_req")
++};
++struct glue_msg_observe_reset_res
++{
++  GLUE_HANDLER("obsr_res")
++  GLUE_FIELD(bool, success)
++};
+diff --git a/cpp/wllama-context.h b/cpp/wllama-context.h
+index a112f59..1278f77 100644
+--- a/cpp/wllama-context.h
++++ b/cpp/wllama-context.h
+@@ -25,6 +25,7 @@
+ 
+ #include "ggml-cpu.h"
+ #include "ggml-backend.h"
++#include "llama-memory-hybrid.h"
+ 
+ #include "glue.hpp"
+ 
+@@ -267,6 +268,129 @@ struct wllama_context
+   int next_req_id = 1;
+   std::unique_ptr<const server_context_meta> meta;
+ 
++  bool observatory_enabled = false;
++  bool observatory_lens_enabled = true;
++  json observatory_packet = json::object();
++  json observatory_prompt_tokens = json::array();
++  std::string observatory_backend;
++  uint64_t observatory_pass = 0;
++  uint64_t observatory_sent_pass = 0;
++
++  static bool observe_layer_summary(ggml_tensor * tensor, bool ask, void * data)
++  {
++    if (std::string(ggml_get_name(tensor)) != "observatory_layer_mean_squares") return false;
++    auto * self = static_cast<wllama_context *>(data);
++    if (!self->ctx || !self->vocab) return false; // native warmup has no conversation
++    if (ask) return true;
++    const int layers = llama_model_n_layer(self->model);
++    char interval_text[32] = {};
++    llama_model_meta_val_str(self->model, "qwen35.full_attention_interval", interval_text, sizeof(interval_text));
++    const int interval = atoi(interval_text);
++    GGML_ASSERT(interval > 0);
++    std::vector<int> attention_layers;
++    for (int i = 0; i < layers; ++i) if ((i + 1) % interval == 0) attention_layers.push_back(i);
++    const size_t expected = layers * 3 + attention_layers.size() * 32 + (self->observatory_lens_enabled ? 20 : 0);
++    GGML_ASSERT(tensor->type == GGML_TYPE_F32 && ggml_nelements(tensor) == (int64_t) expected);
++    std::vector<float> values(expected);
++    ggml_backend_tensor_get(tensor, values.data(), 0, expected * sizeof(float));
++    const std::string backend = ggml_backend_buft_name(ggml_backend_buffer_get_type(tensor->buffer));
++    if (self->observatory_backend != backend) {
++      self->observatory_backend = backend;
++      LOG_INF("observatory: reduced summaries in %s buffer (%lld bytes)\n", backend.c_str(), (long long) (expected * sizeof(float)));
++    }
++    json packet = {{"layers", json::array()}, {"layer_changes", json::array()},
++                   {"attention", json::array()}, {"lens", json::array()},
++                   {"pass", ++self->observatory_pass}, {"layer_backend", backend}};
++    auto rms = [&](size_t index) { return std::sqrt(std::max(0.0f, values[index])); };
++    for (int i = 0; i < layers; ++i) {
++      const float input = rms(i * 3 + 1), delta = rms(i * 3 + 2);
++      packet["layers"].push_back({{"layer", i}, {"rms", rms(i * 3)}});
++      packet["layer_changes"].push_back({{"layer", i}, {"input_rms", input}, {"delta_rms", delta}, {"relative_delta", delta / std::max(input, 1e-12f)}});
++    }
++    auto * hybrid = dynamic_cast<llama_memory_hybrid *>(llama_get_memory(self->ctx));
++    GGML_ASSERT(hybrid != nullptr);
++    const auto & cells = hybrid->get_mem_attn()->get_cells(0);
++    const auto query = cells.seq_pos_max(0);
++    size_t offset = layers * 3;
++    for (int layer : attention_layers) {
++      json entries = json::array();
++      double coverage = 0;
++      for (int i = 0; i < 16; ++i) {
++        const int index = (int) values[offset + i];
++        const float weight = values[offset + 16 + i];
++        if (weight <= 0 || index < 0 || index >= (int) cells.size() || !cells.seq_has(index, 0)) continue;
++        const auto position = cells.pos_get(index);
++        GGML_ASSERT(position >= 0 && position <= query);
++        entries.push_back({{"position", position}, {"weight", weight}});
++        coverage += weight;
++      }
++      packet["attention"].push_back({{"layer", layer}, {"query_position", query},
++        {"key_count", cells.seq_pos_get(0).size()}, {"head_count", llama_model_n_head(self->model)},
++        {"entries", std::move(entries)}, {"coverage", coverage}});
++      offset += 32;
++    }
++    if (self->observatory_lens_enabled) {
++      for (int layer : {layers / 2 - 1, layers * 5 / 6 - 1}) {
++        json candidates = json::array();
++        for (int i = 0; i < 5; ++i) {
++          const llama_token id = (llama_token) values[offset + i];
++          GGML_ASSERT(id >= 0 && id < llama_vocab_n_tokens(self->vocab));
++          candidates.push_back({{"id", id}, {"piece", common_token_to_piece(self->vocab, id, true)}, {"probability", values[offset + 5 + i]}});
++        }
++        packet["lens"].push_back({{"layer", layer}, {"candidates", std::move(candidates)}});
++        offset += 10;
++      }
++    }
++    self->observatory_packet = std::move(packet);
++    return true;
++  }
++
++  json describe_tokens(const std::vector<llama_token> & tokens)
++  {
++    json output = json::array();
++    for (auto id : tokens) output.push_back({{"id", id}, {"piece", common_token_to_piece(vocab, id, true)}});
++    return output;
++  }
++
++  glue_msg_observe_tokenize_res action_observe_tokenize(const char * req_raw)
++  {
++    PARSE_REQ(glue_msg_observe_tokenize_req);
++    if (!vocab) throw app_exception("Model not loaded");
++    glue_msg_observe_tokenize_res res;
++    res.ids.arr = common_tokenize(vocab, req.text.value, req.add_special.value, req.parse_special.value);
++    for (auto id : res.ids.arr) res.pieces.arr.push_back(common_token_to_piece(vocab, id, true));
++    return res;
++  }
++
++  glue_msg_observe_reset_res action_observe_reset(const char * req_raw)
++  {
++    PARSE_REQ(glue_msg_observe_reset_req);
++    if (!ctx) throw app_exception("Model not loaded");
++    readers.clear(); // destructors enqueue cancellation before the slot erases
++    run_loop();
++    auto rd = ctx_server.get_response_reader();
++    std::vector<server_task> tasks;
++    for (int i = 0; i < params.n_parallel; ++i) {
++      server_task task(SERVER_TASK_TYPE_SLOT_ERASE);
++      task.id = rd.get_new_id();
++      task.slot_action.id_slot = i;
++      tasks.push_back(std::move(task));
++    }
++    rd.post_tasks(std::move(tasks));
++    while (rd.has_next()) {
++      run_loop();
++      auto result = rd.next(should_stop);
++      if (result && result->is_error()) throw app_exception("Could not reset model context");
++    }
++    llama_memory_clear(llama_get_memory(ctx), true);
++    observatory_prompt_tokens = json::array();
++    observatory_packet = json::object();
++    observatory_pass = observatory_sent_pass = 0;
++    glue_msg_observe_reset_res res;
++    res.success.value = true;
++    return res;
++  }
++
+   // the one inside ctx_server is private, so we keep our own copy
+   server_decision_context decision;
+   struct decision_request
+@@ -308,6 +432,12 @@ struct wllama_context
+ 
+     {
+       const auto &prompt = body.at("prompt");
++      if (observatory_enabled) {
++        auto tokenized = tokenize_input_prompts(vocab, nullptr, prompt, true, true, mtmd_helper_init_opt_default());
++        observatory_prompt_tokens = describe_tokens(tokenized.at(0).get_tokens());
++        observatory_packet = json::object();
++        observatory_pass = observatory_sent_pass = 0;
++      }
+ 
+       // TODO: reduce some copies here in the future
+       server_task task = server_task(SERVER_TASK_TYPE_COMPLETION);
+@@ -400,6 +530,17 @@ struct wllama_context
+     llama_log_set(common_log_default_callback, nullptr);
+ 
+     assert(ctx == nullptr);
++    observatory_enabled = req.observatory.not_null() && req.observatory.value;
++    setenv("WLLAMA_OBSERVATORY", observatory_enabled ? "1" : "0", 1);
++    observatory_lens_enabled = !req.observatory_lens.not_null() || req.observatory_lens.value;
++    setenv("WLLAMA_OBSERVATORY_LENS", observatory_lens_enabled ? "1" : "0", 1);
++    if (observatory_enabled) {
++      params.cb_eval = observe_layer_summary;
++      params.cb_eval_user_data = this;
++      params.observatory_snapshot = [this]() {
++        return std::make_pair(observatory_pass, observatory_packet.dump_safe());
++      };
++    }
+     std::vector<std::string> &model_paths = req.model_paths.arr;
+     bool n_ctx_auto = req.n_ctx_auto.value;
+ 
+@@ -630,7 +771,7 @@ struct wllama_context
+ 
+     glue_msg_load_res res;
+     res.success.value = true;
+-    res.n_ctx.value = params.n_ctx;
++    res.n_ctx.value = llama_n_ctx(ctx);
+     res.n_batch.value = llama_n_batch(ctx);
+     res.n_ubatch.value = llama_n_ubatch(ctx);
+     res.n_vocab.value = n_vocab;
+@@ -658,6 +799,8 @@ struct wllama_context
+     PARSE_REQ(glue_msg_completion_req);
+     glue_msg_completion_res res;
+ 
++    // This observatory binds each graph pass to one conversation/slot.
++    if (observatory_enabled && !readers.empty()) throw app_exception("Observatory supports one active request");
+     // prepare
+     auto rd = std::make_unique<server_response_reader>(ctx_server.get_response_reader());
+     std::vector<raw_buffer> input_files;
+@@ -853,6 +996,20 @@ struct wllama_context
+     }
+     server_response_reader &rd = *it->second;
+ 
++    // Return exact templated tokens before the first graph/prefill runs.
++    if (observatory_enabled && !observatory_prompt_tokens.empty()) {
++      const size_t total = observatory_prompt_tokens.size();
++      json data = {{"choices", json::array()},
++                   {"prompt_progress", {{"total", total}, {"processed", 0}, {"cache", 0}, {"time_ms", 0}}},
++                   {"observatory", {{"prompt_tokens", std::move(observatory_prompt_tokens)}}}};
++      observatory_prompt_tokens = json::array();
++      res.success.value = true;
++      res.has_more.value = true;
++      res.is_error.value = false;
++      res.data_json.value = data.dump_safe();
++      return res;
++    }
++
+     run_loop();
+     auto [result, is_error] = get_next_result(rd);
+     // the task queue can be empty while the request is still streaming, keep polling until we get the stop result
+@@ -898,12 +1055,62 @@ struct wllama_context
+       {
+         // completion result
+         data_json = result->to_json();
++        if (observatory_enabled) {
++          auto * partial = dynamic_cast<server_task_result_cmpl_partial *>(result.get());
++          if (partial && !partial->is_begin) {
++            json observation = json::object();
++            if (!observatory_prompt_tokens.empty()) {
++              observation["prompt_tokens"] = std::move(observatory_prompt_tokens);
++              observatory_prompt_tokens = json::array();
++            }
++            if (partial->observatory_pass > observatory_sent_pass ||
++                (!partial->is_progress && partial->n_decoded > 0 && partial->observatory_pass > 0)) {
++              observation = json::parse(partial->observatory_json);
++              observatory_sent_pass = partial->observatory_pass;
++            }
++            if (!partial->is_progress && partial->n_decoded > 0) {
++              const auto & token = partial->prob_output;
++              if (!partial->tokens.empty()) {
++                const auto id = partial->tokens.back();
++                observation["token"] = {{"id", id}, {"piece", common_token_to_piece(vocab, id, true)}};
++              }
++              observation["candidates"] = json::array();
++              // Keep top eight plus the actual choice, even when a top-k=20
++              // sampler selected outside the displayed prefix. result.prob is
++              // independently populated from the entire native distribution.
++              std::vector<completion_token_output::prob_info> candidates;
++              const size_t display_count = std::min<size_t>(8, token.probs.size());
++              candidates.insert(candidates.end(), token.probs.begin(), token.probs.begin() + display_count);
++              if (!token.probs.empty() && std::none_of(candidates.begin(), candidates.end(),
++                  [&](const auto & candidate) { return candidate.tok == token.tok; })) {
++                candidates.push_back({token.tok, common_token_to_piece(vocab, token.tok, true), token.prob});
++              }
++              std::stable_sort(candidates.begin(), candidates.end(),
++                  [](const auto & a, const auto & b) { return a.prob > b.prob; });
++              for (const auto & candidate : candidates)
++                observation["candidates"].push_back({{"id", candidate.tok}, {"piece", candidate.txt}, {"probability", candidate.prob}});
++              observation["probability_kind"] = partial->post_sampling_probs ? "post-sampling" : "model-softmax";
++              observation["generated"] = partial->n_decoded;
++              observation["context_used"] = partial->n_prompt_tokens + partial->n_decoded;
++            }
++            if (!observation.empty()) {
++              // Special/reasoning tokens can produce no visible text delta.
++              // Still emit their real telemetry, exactly once per native result.
++              if (data_json.is_null() || (data_json.is_array() && data_json.empty()))
++                data_json = json::array({json{{"choices", json::array()}}});
++              auto & target = data_json.is_array() ? data_json.back() : data_json;
++              target["observatory"] = std::move(observation);
++            }
++          }
++        }
+       }
+     }
+ 
+     res.success.value = true;
+     res.has_more.value = has_more;
+-    res.data_json.value = result ? data_json.dump() : "";
++    // A tokenizer piece can end inside a UTF-8 character. Preserve its ID and
++    // replace incomplete display bytes, as TextDecoder does in the JS bridge.
++    res.data_json.value = result ? data_json.dump_safe() : "";
+     res.is_error.value = is_error;
+ 
+     if (!has_more)
+diff --git a/cpp/wllama.cpp b/cpp/wllama.cpp
+index b499be1..2f83cb9 100644
+--- a/cpp/wllama.cpp
++++ b/cpp/wllama.cpp
+@@ -111,6 +111,8 @@ extern "C" const char *wllama_action(const char *name, const char *req_raw)
+ 
+     WLLAMA_ACTION(load)
+     WLLAMA_ACTION(completion)
++    WLLAMA_ACTION(observe_tokenize)
++    WLLAMA_ACTION(observe_reset)
+     WLLAMA_ACTION(embedding)
+     WLLAMA_ACTION(rerank)
+     WLLAMA_ACTION(systemone)
+diff --git a/src/index.ts b/src/index.ts
+index 44b1a15..04b62b0 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -6,3 +6,6 @@ export * from './types/types';
+ export * from './types/oai-compat';
+ export { CacheManager } from './cache-manager';
+ export { isValidGgufFile } from './utils';
++
++// Expose the real transport for diagnostics and native-bridge regression tests.
++export { ProxyToWorker as NativeWorkerBridge } from './worker';
+diff --git a/src/types/oai-compat.ts b/src/types/oai-compat.ts
+index 47bb89f..8b37af5 100644
+--- a/src/types/oai-compat.ts
++++ b/src/types/oai-compat.ts
+@@ -128,6 +128,7 @@ export type ChatCompletionParams = {
+   // llama-server-specific
+   chat_template_kwargs?: Record<string, any>;
+   cache_prompt?: boolean;
++  post_sampling_probs?: boolean;
+   return_tokens?: boolean;
+   timings_per_token?: boolean;
+   return_progress?: boolean;
+@@ -223,7 +224,27 @@ export interface ResultTimings {
+ }
+ 
+ /** Response when stream=true — one chunk per SSE event */
++export interface ObservatoryAttention {
++  layer: number; query_position: number; key_count: number; head_count: number;
++  entries: Array<{ position: number; weight: number }>; coverage: number;
++}
++export interface ObservatoryObservation {
++  attention?: ObservatoryAttention[];
++  layer_changes?: Array<{ layer: number; input_rms: number; delta_rms: number; relative_delta: number }>;
++  lens?: Array<{ layer: number; candidates: Array<{ id: number; piece: string; probability: number }> }>;
++  prompt_tokens?: Array<{ id: number; piece: string }>;
++  token?: { id: number; piece: string };
++  candidates?: Array<{ id: number; piece: string; probability: number }>;
++  layers?: Array<{ layer: number; rms: number }>;
++  probability_kind?: 'post-sampling' | 'model-softmax';
++  generated?: number;
++  context_used?: number;
++  pass?: number;
++  layer_statistic?: string;
++  layer_backend?: string;
++}
+ export interface ChatCompletionChunk {
++  observatory?: ObservatoryObservation;
+   id: string;
+   object: 'chat.completion.chunk';
+   created: number;
+diff --git a/src/types/types.ts b/src/types/types.ts
+index de08636..2418a25 100644
+--- a/src/types/types.ts
++++ b/src/types/types.ts
+@@ -1,5 +1,7 @@
+ // Note: snake_case is used to match llama.cpp's naming convention
+ export interface LoadModelParams {
++  observatory?: boolean;
++  observatory_lens?: boolean;
+   log_level?: LogLevel;
+   seed?: number;
+   n_ctx?: number;
+diff --git a/src/utils.ts b/src/utils.ts
+index fe45ec4..6594caa 100644
+--- a/src/utils.ts
++++ b/src/utils.ts
+@@ -341,13 +341,27 @@ export const isSafariMobile = (): boolean => {
+ /**
+  * Create a worker from a string
+  */
++const workerObjectURLs = new WeakMap<Worker, string>();
++export const terminateWorker = (worker: Worker): void => {
++  worker.terminate();
++  const url = workerObjectURLs.get(worker);
++  if (url) URL.revokeObjectURL(url);
++  workerObjectURLs.delete(worker);
++};
+ export const createWorker = (workerCode: string | Blob): Worker => {
+   const workerURL = URL.createObjectURL(
+     isString(workerCode)
+       ? new Blob([workerCode], { type: 'text/javascript' })
+       : (workerCode as Blob)
+   );
+-  return new Worker(workerURL, { type: 'module' });
++  try {
++    const worker = new Worker(workerURL, { type: 'module' });
++    workerObjectURLs.set(worker, workerURL);
++    return worker;
++  } catch (error) {
++    URL.revokeObjectURL(workerURL);
++    throw error;
++  }
+ };
+ 
+ /**
+diff --git a/src/wllama.ts b/src/wllama.ts
+index 6ecbb68..4d86085 100644
+--- a/src/wllama.ts
++++ b/src/wllama.ts
+@@ -17,6 +17,8 @@ import CacheManager, { type DownloadOptions } from './cache-manager';
+ import { ModelManager, Model, type ModelSource } from './model-manager';
+ import type {
+   GlueMsgCancelRes,
++  GlueMsgObserveTokenizeRes,
++  GlueMsgObserveResetRes,
+   GlueMsgCompletionRes,
+   GlueMsgEmbeddingRes,
+   GlueMsgRerankRes,
+@@ -175,6 +177,9 @@ export class Wllama {
+   private compat: WllamaCompat | null = null;
+ 
+   private proxy: ProxyToWorker = null as any;
++  private lifecycleEpoch = 0;
++  private slowMode = false;
++  private wakeDecodeWait: (() => void) | null = null;
+   private config: WllamaConfig;
+   private pathConfig: AssetsPathConfig;
+   private useMultiThread: boolean = false;
+@@ -462,6 +467,10 @@ export class Wllama {
+     ggufBlobsOrModel: Blob[] | Model,
+     params: LoadModelParams = {}
+   ): Promise<void> {
++    const loadEpoch = this.lifecycleEpoch;
++    const assertActive = () => {
++      if (loadEpoch !== this.lifecycleEpoch) throw new Error('Runtime disposed during model load');
++    };
+     const blobs: Blob[] =
+       ggufBlobsOrModel instanceof Model
+         ? await ggufBlobsOrModel.open()
+@@ -484,6 +493,7 @@ export class Wllama {
+     }
+     // detect if we can use multi-thread and webgpu
+     const supportMultiThread = await isSupportMultiThread();
++    assertActive();
+     const hwConccurency = Math.floor((navigator.hardwareConcurrency || 1) / 2);
+     const nbThreads = params.n_threads ?? hwConccurency;
+     this.nbThreads = nbThreads;
+@@ -507,11 +517,14 @@ export class Wllama {
+     }
+ 
+     const modelFiles = await prepareBlobs(blobs);
++    assertActive();
+     await this.proxy.moduleInit(modelFiles.all);
++    assertActive();
+ 
+     // run it
+     this.logger().debug('Calling wllamaStart...');
+     const startResult: any = await this.proxy.wllamaStart();
++    assertActive();
+     if (!startResult.success) {
+       throw new WllamaError(
+         `Error while calling start function, result = ${startResult}`
+@@ -522,6 +535,8 @@ export class Wllama {
+     this.logger().debug('Loading model...');
+     const loadResult: GlueMsgLoadRes = await this.proxy.wllamaAction('load', {
+       _name: 'load_req',
++      observatory: params.observatory ?? false,
++      observatory_lens: params.observatory_lens ?? true,
+       log_level: logLevel,
+       // if async read is not supported, use mmap; refer to README-dev.md for more details
+       use_mmap: !canUseAsyncFileRead(workerResources.compat),
+@@ -589,6 +604,7 @@ export class Wllama {
+       skip_chat_parsing: params.skip_chat_parsing,
+       prefill_assistant: params.prefill_assistant,
+     });
++    assertActive();
+     const loadedCtxInfo: LoadedContextInfo & GlueMsgLoadRes = {
+       ...loadResult,
+       metadata: {},
+@@ -915,9 +931,52 @@ export class Wllama {
+    *
+    * Note: This function will NOT crash if model is not yet loaded
+    */
++  /** Pace native decode pulls, not text playback. Applies to the active request. */
++  setSlowMode(slow: boolean): void {
++    this.slowMode = slow;
++    this.wakeDecodeWait?.();
++  }
++
++  private async paceDecode(started: number, signal?: AbortSignal): Promise<void> {
++    const epoch = this.lifecycleEpoch;
++    while (this.slowMode && started > 0 && !signal?.aborted && epoch === this.lifecycleEpoch) {
++      const remaining = started + 1000 / 3 - performance.now();
++      if (remaining <= 0) return;
++      await new Promise<void>((resolve) => {
++        const wake = () => {
++          clearTimeout(timer);
++          signal?.removeEventListener('abort', wake);
++          if (this.wakeDecodeWait === wake) this.wakeDecodeWait = null;
++          resolve();
++        };
++        const timer = setTimeout(wake, remaining);
++        this.wakeDecodeWait = wake;
++        signal?.addEventListener('abort', wake, { once: true });
++      });
++    }
++  }
++
++  async tokenize(text: string, options: { addSpecial?: boolean; parseSpecial?: boolean } = {}): Promise<{id: number; piece: string}[]> {
++    this.checkModelLoaded();
++    const result = await this.proxy.wllamaAction<GlueMsgObserveTokenizeRes>('observe_tokenize', {
++      _name: 'obst_req', text, add_special: options.addSpecial ?? false, parse_special: options.parseSpecial ?? true,
++    });
++    return result.ids.map((id, i) => ({ id, piece: result.pieces[i] }));
++  }
++
++  async resetConversation(): Promise<void> {
++    this.checkModelLoaded();
++    await this.proxy.wllamaAction<GlueMsgObserveResetRes>('observe_reset', { _name: 'obsr_req' });
++  }
++
+   async exit(): Promise<void> {
+-    await this.proxy?.wllamaExit();
++    ++this.lifecycleEpoch;
++    this.wakeDecodeWait?.();
++    const proxy = this.proxy;
+     this.proxy = null as any;
++    this.metadata = null as any;
++    this.loadedContextInfo = null as any;
++    await proxy?.wllamaExit();
+   }
+ 
+   /**
+@@ -1048,6 +1107,7 @@ export class Wllama {
+ 
+   // release the slot occupied by the request; cancelling an already-finished request is a no-op
+   private async cancelRequest(reqId: number): Promise<void> {
++    if (!this.proxy || this.proxy.isTerminated()) return;
+     try {
+       await this.proxy.wllamaAction<GlueMsgCancelRes>('cancel', {
+         _name: 'cncl_req',
+@@ -1101,12 +1161,18 @@ export class Wllama {
+   ) {
+     let finalResult: any = null;
+     let completed = false;
++    let lastDecodeStarted = 0;
++    let generated = 0;
+ 
+     try {
+       while (true) {
+-        if (options.abortSignal?.aborted) {
++        // The worker advances the native inference loop only when get_result is
++        // requested. Backpressure here prevents an unbounded generated backlog.
++        await this.paceDecode(lastDecodeStarted, options.abortSignal);
++        if (options.abortSignal?.aborted || !this.proxy) {
+           throw new WllamaAbortError();
+         }
++        const decodeStarted = performance.now();
+         const result_chunk = await this.proxy.wllamaAction<GlueMsgGetResultRes>(
+           'get_result',
+           {
+@@ -1145,6 +1211,11 @@ export class Wllama {
+           }
+ 
+           for (const chunk of jsonData) {
++            const count = chunk.observatory?.generated ?? chunk.timings?.predicted_n ?? 0;
++            if (count > generated) {
++              generated = count;
++              lastDecodeStarted = decodeStarted;
++            }
+             options.onData?.(chunk);
+             finalResult = chunk;
+           }
+diff --git a/src/worker.ts b/src/worker.ts
+index 3cdc7c9..a1a5e7b 100644
+--- a/src/worker.ts
++++ b/src/worker.ts
+@@ -17,6 +17,7 @@ import { Debug } from './debug';
+ import {
+   canUseAsyncFileRead,
+   createWorker,
++  terminateWorker,
+   isSafariMobile,
+   isString,
+ } from './utils';
+@@ -95,6 +96,8 @@ export class ProxyToWorker {
+   taskId: number = 1;
+   resultQueue: Task[] = [];
+   busy = false; // is the work loop is running?
++  disposed = false;
++  private terminalError: WllamaRuntimeError | null = null;
+   worker?: Worker | undefined;
+   multiThread: boolean;
+   nbThread: number;
+@@ -115,6 +118,10 @@ export class ProxyToWorker {
+     this.useAsyncFile = canUseAsyncFileRead(resources.compat);
+   }
+ 
++  isTerminated(): boolean {
++    return this.disposed || this.terminalError !== null;
++  }
++
+   async getModuleCode(): Promise<string> {
+     if (!this.resources.jsPath) {
+       if (this.resources.compat) {
+@@ -139,7 +146,16 @@ export class ProxyToWorker {
+   }
+ 
+   async moduleInit(ggufFiles: { name: string; blob: Blob }[]): Promise<void> {
+-    let moduleCode = JSPI_STUB + (await this.getModuleCode());
++    if (this.terminalError) throw this.terminalError;
++    let moduleCode: string;
++    try {
++      moduleCode = JSPI_STUB + (await this.getModuleCode());
++    } catch (error) {
++      this.abort(`Runtime initialization failed: ${error}`, (error as Error).stack || '');
++      throw this.terminalError;
++    }
++    if (this.terminalError) throw this.terminalError;
++    if (this.disposed) throw new Error('Runtime disposed during initialization');
+     if (this.resources.noWebGPU) {
+       // make requestAdapter() resolve to null so ggml-webgpu skips device registration
+       moduleCode =
+@@ -159,9 +175,20 @@ export class ProxyToWorker {
+       `function wModuleInit() { ${mainModuleCode}; return Module; }`,
+       LLAMA_CPP_WORKER_CODE,
+     ].join(';\n\n');
+-    this.worker = createWorker(completeCode);
++    try {
++      this.worker = createWorker(completeCode);
++    } catch (error) {
++      this.abort(`Inference worker could not start: ${error}`, (error as Error).stack || '');
++      throw this.terminalError;
++    }
+     this.worker.onmessage = this.onRecvMsg.bind(this);
+-    this.worker.onerror = this.logger.error;
++    this.worker.onerror = (event) => {
++      this.abort(event.message || 'Inference worker failed', '');
++      this.logger.error(event);
++    };
++    this.worker.onmessageerror = () => {
++      this.abort('Inference worker message could not be decoded', '');
++    };
+ 
+     const res = await this.pushTask({
+       verb: 'module.init',
+@@ -225,17 +252,8 @@ export class ProxyToWorker {
+   }
+ 
+   async wllamaExit(): Promise<void> {
+-    if (this.worker) {
+-      // we don't actually need to send exit
+-      // terminating the worker is faster and resources will be cleaned up by the browser
+-      // const result = await this.pushTask({
+-      //   verb: 'wllama.exit',
+-      //   args: [],
+-      //   callbackId: this.taskId++,
+-      // });
+-      // this.parseResult(result); // only check for exceptions
+-      this.worker.terminate();
+-    }
++    this.disposed = true;
++    this.abort('Runtime disposed', '');
+   }
+ 
+   async wllamaDebug(): Promise<any> {
+@@ -301,15 +319,14 @@ export class ProxyToWorker {
+       }
+       const chunk = blob.slice(offset, offset + size);
+       const buffer = await chunk.arrayBuffer();
++      if (this.isTerminated()) return;
+       this.worker!!.postMessage(
+         { verb: 'fs.read_res', args: [buffer] },
+         { transfer: [buffer] }
+       );
+     } catch (err) {
+-      this.logger.error('fileReadResponse failed, terminating worker:', err);
+-      this.worker?.terminate();
+-      this.worker = undefined;
+       this.abort(`File read failed: ${err}`, (err as Error).stack || '');
++      this.logger.error('fileReadResponse failed, terminating worker:', err);
+     }
+   }
+ 
+@@ -331,6 +348,8 @@ export class ProxyToWorker {
+    * Push a new task to taskQueue
+    */
+   private pushTask(param: TaskParam, buffers?: ArrayBuffer[]) {
++    if (this.terminalError) return Promise.reject(this.terminalError);
++    if (this.disposed) return Promise.reject(new Error('Runtime disposed'));
+     return new Promise<any>((resolve, reject) => {
+       this.taskQueue.push({ resolve, reject, param, buffers });
+       this.runTaskLoop();
+@@ -341,32 +360,28 @@ export class ProxyToWorker {
+    * Main loop for processing tasks
+    */
+   private async runTaskLoop() {
+-    if (this.busy) {
+-      return; // another loop is already running
+-    }
++    if (this.busy) return;
+     this.busy = true;
+-    while (true) {
+-      const task = this.taskQueue.shift();
+-      if (!task) break; // no more tasks
+-      this.resultQueue.push(task);
+-      // TODO @ngxson : Safari mobile doesn't support transferable ArrayBuffer
+-      this.worker!!.postMessage(
+-        task.param,
+-        isSafariMobile()
+-          ? undefined
+-          : {
+-              transfer: task.buffers ?? [],
+-            }
+-      );
++    try {
++      while (!this.isTerminated()) {
++        const task = this.taskQueue.shift();
++        if (!task) break;
++        this.resultQueue.push(task);
++        if (!this.worker) throw new Error('Inference worker is unavailable');
++        this.worker.postMessage(task.param, isSafariMobile() ? undefined : { transfer: task.buffers ?? [] });
++      }
++    } catch (error) {
++      this.abort(`Inference worker communication failed: ${error}`, (error as Error).stack || '');
++    } finally {
++      this.busy = false;
+     }
+-    this.busy = false;
+   }
+ 
+   /**
+    * Handle messages from worker
+    */
+   private onRecvMsg(e: MessageEvent<any>) {
+-    if (!e.data) return; // ignore
++    if (this.isTerminated() || !e.data) return; // ignore late messages after failure/exit
+     const { verb, args } = e.data;
+     const isCompatBuild = this.resources.compat;
+     if (verb && verb.startsWith('console.')) {
+@@ -388,22 +403,20 @@ export class ProxyToWorker {
+       if (originalErr) {
+         this.logger.error(originalErr);
+       }
+-      (async () => {
+-        let stack = '';
+-        let newMsg = message.replace(
+-          'Build with -sASSERTIONS for more info.',
+-          ''
+-        );
+-        if (signalType === 'abort') {
+-          newMsg = `(ABORT) ${newMsg}`;
+-          stack = rawStack.replace(/\|/g, '\n');
+-        } else if (signalType === 'exception') {
+-          stack = rawStack;
+-        }
+-        const decoded = await Debug.decodeStackTrace(stack, isCompatBuild);
++      let stack = '';
++      let newMsg = message.replace('Build with -sASSERTIONS for more info.', '');
++      if (signalType === 'abort') {
++        newMsg = `(ABORT) ${newMsg}`;
++        stack = rawStack.replace(/\|/g, '\n');
++      } else if (signalType === 'exception') {
++        stack = rawStack;
++      }
++      // Failure is terminal immediately. Source-map retrieval is only optional
++      // diagnostics and must never hold a rejected inference/cancellation open.
++      this.abort(newMsg, stack);
++      void Debug.decodeStackTrace(stack, isCompatBuild).then((decoded) => {
+         this.logger.error(`Stack trace (${signalType}):\n` + decoded);
+-        this.abort(newMsg, decoded);
+-      })();
++      }).catch(() => {});
+       return;
+     }
+ 
+@@ -433,10 +446,17 @@ export class ProxyToWorker {
+   }
+ 
+   private abort(text: string, stack: string) {
+-    const error = new WllamaRuntimeError(
++    const error = this.terminalError ?? new WllamaRuntimeError(
+       text.length == 0 ? '(unknown error)' : text,
+       stack
+     );
++    // Set sticky terminal state before rejecting anything: getResponse's finally
++    // can immediately attempt cancellation as those rejection handlers resume.
++    this.terminalError = error;
++    this.fileBlobs.clear();
++    const worker = this.worker;
++    this.worker = undefined;
++    if (worker) terminateWorker(worker);
+     while (this.resultQueue.length > 0) {
+       const waitingTask = this.resultQueue.pop();
+       if (!waitingTask) break;

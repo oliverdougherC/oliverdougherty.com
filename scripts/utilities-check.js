@@ -8,6 +8,7 @@ const sharp = require('sharp');
 const { runLynxChecks } = require('./lynx-reader-check');
 const { assertIndexArrow } = require('./lib/index-arrow-check');
 const { runYahtzeeChecks } = require('./yahtzee-check');
+const { runLocalAssistantChecks } = require('./local-assistant-check');
 const {
   startLocalStaticServer,
   waitForServer
@@ -385,15 +386,15 @@ async function assertPublicUtilityRoutes(browser, baseUrl) {
     const visibleRoutes = await page.locator('.utilities-buttons [data-utility]:visible')
       .evaluateAll((entries) => entries.map((entry) => entry.dataset.utility));
     assert(
-      JSON.stringify(visibleRoutes) === JSON.stringify(['image-transform', 'audio-fourier', 'stress-test', 'yahtzee-keiri', 'lynx-reader']),
-      'Utilities should offer exactly the five public routes.'
+      JSON.stringify(visibleRoutes) === JSON.stringify(['image-transform', 'audio-fourier', 'stress-test', 'yahtzee-keiri', 'lynx-reader', 'local-assistant']),
+      'Utilities should offer exactly the six public routes.'
     );
 
-    for (const utilityId of ['local-assistant', 'virtual-machine', 'unknown-tool', '%E0%A4%A']) {
+    for (const utilityId of ['virtual-machine', 'unknown-tool', '%E0%A4%A']) {
       await page.goto(`${baseUrl}/pages/utilities/index.html#${utilityId}`, { waitUntil: 'networkidle' });
       const state = await page.evaluate(() => ({
-        retiredLaunchers: document.querySelectorAll('.utilities-buttons [data-utility="local-assistant"], .utilities-buttons [data-utility="virtual-machine"]').length,
-        assistantPresent: Boolean(document.querySelector('[data-utility-id="local-assistant"], #localLlmUtilityApp')),
+        retiredLaunchers: document.querySelectorAll('.utilities-buttons [data-utility="virtual-machine"]').length,
+        assistantPresent: Boolean(document.querySelector('#localLlmUtilityApp')),
         vmRetained: Boolean(document.querySelector('[data-utility-id="virtual-machine"] #retroVmApp')),
         vmHidden: document.querySelector('[data-utility-id="virtual-machine"]')?.hidden === true,
         activeStageCount: document.querySelectorAll('.utility-stage.is-active').length,
@@ -401,7 +402,7 @@ async function assertPublicUtilityRoutes(browser, baseUrl) {
         workspaceHidden: document.getElementById('utilitiesUtilityView')?.hidden === true
       }));
       assert(state.retiredLaunchers === 0, 'Retired tools should not retain launchers.');
-      assert(!state.assistantPresent, 'Local Assistant markup should be removed.');
+      assert(!state.assistantPresent, 'Retired Local Assistant markup should stay removed.');
       assert(state.vmRetained && state.vmHidden, 'VM implementation should remain hidden for future work.');
       assert(state.titleVisible && state.workspaceHidden && state.activeStageCount === 0, `${utilityId} deep links should stay on the index.`);
     }
@@ -417,10 +418,12 @@ async function assertWorkbenchShell(browser, baseUrl) {
     { id: 'audio-fourier', name: 'Fourier Reconstruction', number: '02' },
     { id: 'stress-test', name: 'Stress Test', number: '03' },
     { id: 'yahtzee-keiri', name: 'Keiri’s Domain', number: '04' },
-    { id: 'lynx-reader', name: 'Lynx Reader', number: '05' }
+    { id: 'lynx-reader', name: 'Lynx Reader', number: '05' },
+    { id: 'local-assistant', name: 'LLM Rumen Cannula', number: '06' }
   ];
   for (const viewport of [{ width: 1280, height: 800 }, { width: 1440, height: 900 }]) {
     const page = await browser.newPage({ viewport });
+    await page.addInitScript(() => Object.defineProperty(navigator, 'gpu', { value: undefined, configurable: true }));
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
     const label = `${viewport.width}x${viewport.height}`;
@@ -491,6 +494,25 @@ async function assertWorkbenchShell(browser, baseUrl) {
         assert(state.focused === 'utilityTitle', `[${label}] ${tool.name} should focus its heading on entry.`);
         assert(state.activeCount === 1 && state.titleHidden && !state.workspaceHidden, `[${label}] ${tool.name} should be the only exposed workspace.`);
         assert(!state.overflow, `[${label}] ${tool.name} should not overflow horizontally.`);
+        await page.keyboard.press('Tab');
+        const switcher = await page.locator('#utilitySwitcher').evaluate(select => {
+          const wrapper = select.closest('.workbench-switcher');
+          const box = select.getBoundingClientRect();
+          const target = wrapper.getBoundingClientRect();
+          const outline = getComputedStyle(wrapper);
+          return {
+            label: select.getAttribute('aria-label'), text: wrapper.querySelector('.workbench-switcher-label')?.textContent.trim(),
+            focused: document.activeElement === select, visible: select.matches(':focus-visible'),
+            width: box.width, height: box.height,
+            fullTarget: Math.abs(box.x - target.x) < 1 && Math.abs(box.y - target.y) < 1 && Math.abs(box.width - target.width) < 1 && Math.abs(box.height - target.height) < 1,
+            leftHit: document.elementFromPoint(box.left + 4, box.top + box.height / 2) === select,
+            rightHit: document.elementFromPoint(box.right - 4, box.top + box.height / 2) === select,
+            outline: outline.outlineStyle !== 'none' && Number.parseFloat(outline.outlineWidth) >= 1
+          };
+        });
+        assert(switcher.label === 'Switch utility' && switcher.text === 'Switch utility', `[${label}] ${tool.name} should use the shared visible switcher label.`);
+        assert(switcher.focused && switcher.visible && switcher.outline, `[${label}] ${tool.name} switcher should be keyboard reachable with one visible focus ring.`);
+        assert(switcher.width >= 140 && switcher.width <= 160 && switcher.height >= 44 && switcher.fullTarget && switcher.leftHit && switcher.rightHit, `[${label}] ${tool.name} switcher label and caret must share one full-size native target.`);
       }
       await page.click('.nav-back-btn');
       assert(await page.locator('#utilitiesTitleView').isVisible(), `[${label}] collection control should return to the index.`);
@@ -819,7 +841,7 @@ async function assertControlPanelGeometry(page, utilityId, label) {
     };
     const required = [];
     const missing = [];
-    for (const selector of ['#utilityTitle', '#utilitySwitcher', '.nav-back-btn', ...requiredByTool[id], canvasByTool[id]]) {
+    for (const selector of ['#utilityTitle', '.workbench-switcher', '.nav-back-btn', ...requiredByTool[id], canvasByTool[id]]) {
       const elements = document.querySelectorAll(selector);
       if (elements.length === 0) missing.push(selector);
       for (const element of elements) required.push(describe(element));
@@ -2649,6 +2671,10 @@ async function main() {
         await runYahtzeeChecks(browser, baseUrl);
       });
     }
+
+    await runUtilitySection(utilitySectionFailures, 'LLM Rumen Cannula', async () => {
+      await runLocalAssistantChecks(browser, baseUrl);
+    });
 
     await runUtilitySection(utilitySectionFailures, 'Reduced Motion', async () => {
       const reducedMotionPage = await browser.newPage({

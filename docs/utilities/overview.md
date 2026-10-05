@@ -1,9 +1,9 @@
 # Utilities Documentation
 
 The utilities page (`/pages/utilities/`) is a desktop-only curiosity-driven workbench.
-Its numbered, name-only index opens five tools: Image Transform, Fourier Reconstruction,
-Stress Test, Keiri’s Domain, and Lynx Reader. They run client-side. Virtual Machine remains preserved but hidden;
-the old Local Assistant implementation has been removed.
+Its numbered, name-only index opens six tools: Image Transform, Fourier Reconstruction,
+Stress Test, Keiri’s Domain, Lynx Reader (05), and LLM Rumen Cannula (06). They run client-side. Virtual Machine remains preserved but hidden;
+LLM Rumen Cannula is a new WebGPU model observatory, independent of its retired predecessor.
 
 White space, black JetBrains Mono typography, thin rules, and violet `#7050C0` controls
 connect the workbench to the rest of the site. There are no introductory descriptions,
@@ -29,6 +29,7 @@ explore. Each tool has room for its own output and control arrangement.
 | **Stress Test** | CPU and GPU stress benchmark using Web Workers and WebGPU/WebGL compute shaders | `stressTestController.ts`, `stressTestCore.ts`, `stressTestGpu.ts`, `stressTest.worker.ts` |
 | **Keiri’s Domain** | Browser-local head-to-head Yahtzee with the real Rust exact-table agent, shared dice, and a persistent rivalry record | `yahtzeeController.ts`, `yahtzeeCore.ts`, `keiriEngine.ts`, `utilities-src/keiri/` |
 | **Lynx Reader** | Pasted-text RSVP with a fixed recognition point, adaptive normalized cadence, and keyboard playback/seek | `lynxReaderCore.ts`, `lynxReaderController.ts` |
+| **LLM Rumen Cannula** | Ephemeral Qwen3.5-2B WebGPU chat and instrumented model observatory | `localAssistantController.ts`, `local-assistant/`, `local-assistant-runtime/` |
 
 ## Shared infrastructure
 
@@ -48,3 +49,4 @@ See [Adding a utility](./adding-a-utility.md) for the shared workspace contract 
 - [Keiri’s Domain](./yahtzee-keiri.md)
 - [Lynx Reader](./lynx-reader.md)
 - [Keiri engine integration](./keiri-engine.md)
+- [LLM Rumen Cannula](./local-assistant.md)
