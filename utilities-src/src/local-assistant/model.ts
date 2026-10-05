@@ -13,7 +13,6 @@ export const MODEL = Object.freeze({
 });
 export const MODEL_URL = `https://huggingface.co/${MODEL.source}/resolve/${MODEL.revision}/${MODEL.file}`;
 export const CONTEXT_TIERS = [65536, 32768, 16384, 8192, 4096, 2048] as const;
-export const MAX_GENERATED_TOKENS = 1024;
 export const SAMPLING = Object.freeze({ temperature: 0.6, top_k: 20, top_p: 0.95, min_p: 0, penalty_repeat: 1 });
 
 /** Adapter limits are allocation hints, never a measurement of available VRAM. */

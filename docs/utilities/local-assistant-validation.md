@@ -1,4 +1,4 @@
-# Local Assistant browser validation
+# LLM Rumen Cannula browser validation
 
 Build the utility bundle first, then run:
 
@@ -16,7 +16,9 @@ The cache probe bundles the production `downloadModel` function and serves an ei
 
 The default checks exercise the shipped unsupported-browser and HTTP 503/retry paths without downloading weights. The failed-download case supplies a minimal test-only GPU adapter and JSPI presence shim to reach the HTTP failure; it never allocates a model. Loading cancellation, stale callbacks, navigation, keyboard handling, conversation reset, Markdown/MathML, responsive containment, and reduced-motion layout run against a clearly isolated runtime fixture. The fixture replaces only the controller bundle's runtime import through an esbuild plugin and a Playwright response interception. Production controller, session, Snake, and rendering code run unchanged. The viewport fixture supplies **fixed synthetic observations only to test populated layout**, clearly separate from real-run evidence. It is **not evidence of model inference, WebGPU execution, quality, or speed**.
 
-Screenshots cover the ready welcome and long conversation at 1440×900, 1280×720, 1024×600, and 800×600. The page and panels must remain within the viewport; only the transcript is intended to scroll. Keyboard checks cover Snake focus isolation, Enter to send, and Shift+Enter for a newline. Back/Forward and tool switching exercise load cancellation and ready-model reuse.
+Screenshots cover the ready welcome and fully populated long conversation at 3840×2160, 2560×1440, 1920×1080, 1440×900, 1280×720, 1024×600, and 800×600. The page and panels must remain within the viewport; only the transcript is intended to scroll. A staged synthetic observation first shows 256 of 1,024 prompt tokens processed, then delivers 1,024 distinct output tokens. The single token panel must switch from prompt processing to output, expose the true total/range, and display more history at larger sizes. Nonuniform synthetic layer RMS values must produce different vertical bar heights. These fixture values exist solely inside the intercepted test runtime and never represent production measurements.
+
+Thinking and Slow are tested independently: both choices reach the runtime, Thinking is fixed for the current generation, and Slow can change live without restarting inference. Focused composer bounds must keep the input's focus ring clear of Send. Expanded Snake is checked at 800×600, 1440×900, and 3840×2160, where the board must occupy more than 60% of the workspace height. Keyboard checks verify global movement while playing, release on pause or entering chat, and preservation of Tab, selector, and editable keys. Enter sends and Shift+Enter inserts a newline. Back/Forward and tool switching exercise load cancellation and ready-model reuse.
 
 ## Opt-in real model run
 
@@ -39,4 +41,4 @@ The real run loads the unmodified production runtime, disables thinking for a sh
 
 ## Validation recorded for this change
 
-Chromium passed the complete cache, unsupported-browser, HTTP failure/retry, lifecycle, and four-viewport fixture suite. WebKit passed the transport/cache checks using its disposable persistent cache profile and the lifecycle/layout fixture suite; viewport checks wait for dynamic viewport units to settle after resizing. Firefox could not launch on this macOS host: ordinary headless, sandbox-disabled diagnostic, and headed attempts failed before opening an application page with sandbox-helper permission and graphics/IPC errors. Firefox results are unverified, not a pass. The same command remains available on a working Firefox installation. Real GPU/model evidence is recorded separately in the real-run reports.
+The original four-viewport baseline passed in Chromium and WebKit, including transport/cache, unsupported-browser, HTTP failure/retry, and lifecycle checks. The expanded final assertions described above must be rerun against the final UI build; viewport checks wait for dynamic viewport units to settle after resizing. Firefox could not launch on this macOS host: ordinary headless, sandbox-disabled diagnostic, and headed attempts failed before opening an application page with sandbox-helper permission and graphics/IPC errors. Firefox results are unverified, not a pass. The same command remains available on a working Firefox installation. Real GPU/model evidence is recorded separately in the real-run reports.

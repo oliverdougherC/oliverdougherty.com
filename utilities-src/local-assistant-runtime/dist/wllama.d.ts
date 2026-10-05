@@ -145,6 +145,8 @@ export declare class Wllama {
     private compat;
     private proxy;
     private lifecycleEpoch;
+    private slowMode;
+    private wakeDecodeWait;
     private config;
     private pathConfig;
     private useMultiThread;
@@ -378,6 +380,9 @@ export declare class Wllama {
      *
      * Note: This function will NOT crash if model is not yet loaded
      */
+    /** Pace native decode pulls, not text playback. Applies to the active request. */
+    setSlowMode(slow: boolean): void;
+    private paceDecode;
     tokenize(text: string, options?: {
         addSpecial?: boolean;
         parseSpecial?: boolean;

@@ -208,5 +208,39 @@
     "tokenAlignment": true,
     "reset": true,
     "cancelledInitialization": true
+  },
+  "benchmarkRuntimeVersion": "3.8.1-observatory.1",
+  "v1": {
+    "runtimeVersion": "3.8.1-observatory.2",
+    "passed": true,
+    "browserVersion": "154.0.8037.93",
+    "gpu": {
+      "vendor": "apple",
+      "architecture": "metal-3",
+      "fallback": false
+    },
+    "layers": 24,
+    "observations": 8,
+    "reset": true,
+    "tokenAlignment": true,
+    "cancelledInitialization": true,
+    "controls": {
+      "slowTokensPerSecond": 2.969303761916794,
+      "slowIntervalsMs": [
+        341.36500000953674,
+        341.53500002622604,
+        341.27999997138977,
+        333.44999998807907,
+        333.45500004291534,
+        333.65499997138977,
+        332.71499997377396
+      ],
+      "stopLatencyMs": 0.22999995946884155,
+      "tokensBeforeStop": 1,
+      "unlimitedTokens": 1100,
+      "liveToggle": true,
+      "earlyTokenization": true
+    },
+    "measurements": []
   }
 }

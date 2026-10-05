@@ -1,5 +1,5 @@
 import type { Wllama as NativeRuntime } from '../../local-assistant-runtime/dist/index.js';
-import { allocateContext, architecture, contextTiers, MAX_GENERATED_TOKENS, MODEL, MODEL_URL, SAMPLING } from './model';
+import { allocateContext, architecture, contextTiers, MODEL, MODEL_URL, SAMPLING } from './model';
 import { downloadModel } from './download';
 import type { AssistantMessage, ModelInfo, Observation, Runtime } from './types';
 
@@ -8,9 +8,10 @@ interface Gpu { requestAdapter(options: { powerPreference: string }): Promise<Ad
 interface NativeChunk {
   choices: Array<{ delta: { content?: string | null; reasoning_content?: string | null }; finish_reason?: string }>;
   timings?: { prompt_ms: number; predicted_per_second: number; predicted_n: number };
+  prompt_progress?: { total: number; processed: number; cache: number; time_ms: number };
   observatory?: {
     layers?: Observation['layers']; prompt_tokens?: Observation['promptTokens']; token?: Observation['token'];
-    candidates?: Observation['candidates']; generated?: number; context_used?: number;
+    candidates?: Observation['candidates']; generated?: number; context_used?: number; pass?: number; layer_backend?: string;
   };
 }
 /** Generation owns one slot; all model work executes in wllama's dedicated worker. */
@@ -19,6 +20,7 @@ export class AssistantRuntime implements Runtime {
   private loadingEngine: NativeRuntime | null = null;
   private info: ModelInfo | null = null;
   private disposed = false;
+  private slow = false;
 
   async load(signal: AbortSignal, progress: (loaded: number, total: number | null, phase: string) => void): Promise<ModelInfo> {
     const gpu = (navigator as Navigator & { gpu?: Gpu }).gpu;
@@ -70,6 +72,7 @@ export class AssistantRuntime implements Runtime {
         if (!offloaded) throw new Error('The runtime could not confirm GPU execution. This experiment does not use a CPU fallback.');
       }, runtime => this.release(runtime), signal);
       this.engine = loaded.runtime;
+      this.engine.setSlowMode(this.slow);
       if (this.disposed) { await this.dispose(); throw new DOMException('Cancelled', 'AbortError'); }
       const metadata = this.engine.getModelMetadata();
       this.info = { name: MODEL.name, context: loaded.context,
@@ -92,21 +95,19 @@ export class AssistantRuntime implements Runtime {
     let content = '', reasoning = '';
     let lastTokenIds: number[] = [];
     let looping = false;
-    let reachedLimit = false;
     const abort = new AbortController();
     const onAbort = () => abort.abort();
     signal.addEventListener('abort', onAbort, { once: true });
     try {
       const options = {
         messages: messages.map(({ role, content: text }) => ({ role, content: text })),
-        stream: true as const, abortSignal: abort.signal, max_tokens: MAX_GENERATED_TOKENS,
+        stream: true as const, abortSignal: abort.signal, max_tokens: -1,
         ...SAMPLING, chat_template_kwargs: { enable_thinking: thinking },
         cache_prompt: false, return_tokens: true, logprobs: true, top_logprobs: 8,
         post_sampling_probs: true, timings_per_token: true, return_progress: true,
         onData: (chunk: NativeChunk) => {
           if (signal.aborted || this.disposed) return;
           const choice = chunk.choices[0];
-          if (choice?.finish_reason === 'length') reachedLimit = true;
           content += choice?.delta?.content ?? '';
           reasoning += choice?.delta?.reasoning_content ?? '';
           const event = chunk.observatory;
@@ -116,18 +117,31 @@ export class AssistantRuntime implements Runtime {
           if (event?.token) observation.token = event.token;
           if (event?.candidates) observation.candidates = event.candidates;
           if (event?.context_used !== undefined) observation.contextUsed = event.context_used;
-          if (event?.generated !== undefined) observation.generated = event.generated;
+          if (event?.pass !== undefined) observation.pass = event.pass;
+          if (event?.layer_backend) observation.layerBackend = event.layer_backend;
+          if (chunk.prompt_progress) {
+            const progress = chunk.prompt_progress;
+            observation.stage = 'prefill';
+            observation.promptProcessed = progress.processed;
+            observation.promptTotal = progress.total;
+            observation.promptMs = progress.time_ms;
+            observation.contextUsed = progress.processed;
+          }
+          if (event?.token && event.generated !== undefined) {
+            observation.stage = 'decode';
+            observation.generated = event.generated;
+          }
           if (chunk.timings) {
             observation.promptMs = chunk.timings.prompt_ms;
-            observation.tokensPerSecond = chunk.timings.predicted_per_second;
-            observation.generated = chunk.timings.predicted_n;
+            if (chunk.timings.predicted_per_second > 0) observation.tokensPerSecond = chunk.timings.predicted_per_second;
+            // Native begin/progress events must not invent a generated token.
+            if (choice?.finish_reason && chunk.timings.predicted_n > 0) observation.generated = chunk.timings.predicted_n;
           }
           update(content, reasoning, observation);
           if (event?.token) {
             lastTokenIds.push(event.token.id);
-            lastTokenIds = lastTokenIds.slice(-96);
-            // Stop only an exact 16-token cycle repeated six times; never rewrite output.
-            if (lastTokenIds.length === 96 && lastTokenIds.every((id, i) => id === lastTokenIds[i % 16])) {
+            lastTokenIds = lastTokenIds.slice(-192);
+            if (isRepeatingTokenLoop(lastTokenIds)) {
               looping = true;
               abort.abort();
             }
@@ -135,11 +149,18 @@ export class AssistantRuntime implements Runtime {
         },
       };
       await engine.createChatCompletion(options);
-      if (reachedLimit) throw new Error('The response reached its 1,024-token limit. Try a shorter question or turn Thinking off.');
     } catch (error) {
-      if (looping) throw new Error('Stopped an exact repeating token loop. Start a new chat or try a shorter prompt.');
+      if (looping) throw new Error('Stopped a repeating token loop. Start a new chat or try a different prompt.');
+      if (/context (?:is )?full|context.*exceed|exceed.*context|n_ctx.*(?:exceed|full)/i.test(String(error))) {
+        throw new Error('The context is full. Start a new chat to continue.');
+      }
       throw error;
     } finally { signal.removeEventListener('abort', onAbort); }
+  }
+
+  setSlowMode(slow: boolean): void {
+    this.slow = slow;
+    this.engine?.setSlowMode(slow);
   }
 
   async reset(): Promise<void> { await this.engine?.resetConversation(); }
@@ -157,3 +178,18 @@ export class AssistantRuntime implements Runtime {
   }
 }
 export const createAssistantRuntime = (): Runtime => new AssistantRuntime();
+
+/** Conservative exact suffix cycles of several lengths, with bounded memory/work. */
+export function isRepeatingTokenLoop(tokens: readonly number[]): boolean {
+  for (let period = 1; period <= 32; period++) {
+    const count = Math.max(32, period * 6);
+    if (tokens.length < count) continue;
+    const start = tokens.length - count;
+    let matches = true;
+    for (let i = start + period; i < tokens.length; i++) {
+      if (tokens[i] !== tokens[i - period]) { matches = false; break; }
+    }
+    if (matches) return true;
+  }
+  return false;
+}

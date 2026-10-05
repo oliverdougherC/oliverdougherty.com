@@ -1619,7 +1619,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const lazy: { label: string; load: () => Promise<(() => void) | null> } | null =
       utilityId === 'local-assistant'
         ? {
-            label: 'Local Assistant',
+            label: 'LLM Rumen Cannula',
             load: async () => {
               const root = document.getElementById('localAssistantApp');
               if (!root) return null;

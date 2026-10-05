@@ -37,7 +37,7 @@ try {
   const page = await browser.newPage();
   page.on('console', (message) => logs.push(message.text()));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
-  const result = await page.evaluate(async (benchmark) => {
+  const result = await page.evaluate(async ({ benchmark, v1 }) => {
     const adapter = await navigator.gpu?.requestAdapter();
     if (!adapter || adapter.info.isFallbackAdapter) throw new Error('A hardware WebGPU adapter is required');
     const gpu = { vendor: adapter.info.vendor, architecture: adapter.info.architecture, fallback: adapter.info.isFallbackAdapter };
@@ -65,6 +65,41 @@ try {
     const several = await generate(8, false);
     await runtime.resetConversation();
     const thinking = await generate(16, true);
+    const controls = {};
+    if (v1) {
+      const untilStopped = async (target, slow, toggle = false, delayedStop = false) => {
+        await runtime.resetConversation();
+        runtime.setSlowMode(slow);
+        const abort = new AbortController();
+        const tokens = [];
+        let stoppedAt = 0;
+        let prompt;
+        try {
+          await runtime.createChatCompletion({
+            messages: [{ role: 'user', content: 'Explain how rain forms in detail, step by step, for a curious student.' }],
+            chat_template_kwargs: { enable_thinking: true }, temperature: 0.6,
+            top_k: 20, top_p: 0.95, min_p: 0, max_tokens: -1, ignore_eos: true,
+            logprobs: true, top_logprobs: 8, post_sampling_probs: true,
+            return_tokens: true, timings_per_token: true, return_progress: true,
+            abortSignal: abort.signal, stream: true, onData: (chunk) => {
+              if (chunk.prompt_progress && !prompt) prompt = chunk;
+              if (!chunk.observatory?.token) return;
+              tokens.push({ time: performance.now(), generated: chunk.observatory.generated, pass: chunk.observatory.pass });
+              if (toggle && tokens.length === 3) runtime.setSlowMode(false);
+              if (toggle && tokens.length === 6) runtime.setSlowMode(true);
+              if (delayedStop && tokens.length === 1) setTimeout(() => { stoppedAt = performance.now(); abort.abort(); }, 50);
+              if (tokens.length === target) { stoppedAt = performance.now(); abort.abort(); }
+            },
+          });
+        } catch (error) { if (!abort.signal.aborted) throw error; }
+        return { tokens, prompt, stopLatencyMs: performance.now() - stoppedAt };
+      };
+      controls.slow = await untilStopped(8, true);
+      controls.toggle = await untilStopped(8, true, true);
+      controls.stop = await untilStopped(8, true, false, true);
+      controls.unlimited = await untilStopped(1100, false);
+      runtime.setSlowMode(false);
+    }
     await runtime.exit();
     // Exit before the capability/worker initialization await resolves.
     const interrupted = new Wllama({ default: '/wllama.wasm' });
@@ -94,14 +129,15 @@ try {
         await measured.exit();
       }
     }
-    return { gpu, metadata: metadata.hparams, tokenization, one, several, thinking, cancelled, measurements };
-  }, process.argv.includes('--benchmark'));
+    return { gpu, metadata: metadata.hparams, tokenization, one, several, thinking, cancelled, measurements, controls };
+  }, { benchmark: process.argv.includes('--benchmark'), v1: process.argv.includes('--v1') });
   assert(logs.some((line) => /offloaded (\d+)\/\1 layers to GPU/.test(line)), 'all layers must be offloaded');
   assert.equal(result.cancelled, 'cancelled', 'exit invalidates pending initialization');
   assert.deepEqual(result.tokenization.map(({ id }) => id), [9419, 11, 1814, 0]);
-  const observations = result.several.filter((chunk) => chunk.observatory).map((chunk) => chunk.observatory);
+  const observations = result.several.filter((chunk) => chunk.observatory?.token).map((chunk) => chunk.observatory);
   assert(observations.length > 1);
-  assert(observations[0].prompt_tokens.some(({ piece }) => piece === '<|im_start|>'));
+  assert(result.several[0].observatory.prompt_tokens.some(({ piece }) => piece === '<|im_start|>'));
+  assert.equal(result.several[0].prompt_progress.processed, 0, 'tokenization arrives before prefill');
   for (const observation of observations) {
     assert.equal(observation.layer_backend, 'WebGPU', 'reduced statistics stay on the GPU until the small readback');
     assert.equal(observation.layers.length, result.metadata.nLayer);
@@ -110,12 +146,30 @@ try {
     assert(Number.isInteger(observation.token.id));
     assert(observation.candidates.every(({ probability }) => probability >= 0 && probability <= 1));
   }
-  const first = result.one.find((chunk) => chunk.observatory).observatory;
+  const first = result.one.find((chunk) => chunk.observatory?.token).observatory;
   assert.deepEqual(first.token, observations[0].token);
   assert.deepEqual(first.layers, observations[0].layers, 'token statistics must not drift to a later queued pass');
   assert.equal(result.several.at(-1).timings.cache_n, 0, 'reset clears server prompt cache');
   assert(result.thinking.some((chunk) => chunk.choices.some(({ delta }) => delta.reasoning_content)), 'thinking uses the native chat template');
-  console.log(JSON.stringify({ passed: true, browserVersion: browser.version(), gpu: result.gpu, layers: result.metadata.nLayer, observations: observations.length, reset: true, tokenAlignment: true, cancelledInitialization: true, measurements: result.measurements }, null, 2));
+  let controlSummary;
+  if (result.controls.slow) {
+    const { slow, toggle, stop, unlimited } = result.controls;
+    const intervals = slow.tokens.slice(1).map((token, i) => token.time - slow.tokens[i].time);
+    const tokensPerSecond = 1000 * intervals.length / intervals.reduce((a, b) => a + b, 0);
+    assert(tokensPerSecond > 2.5 && tokensPerSecond < 3.4, 'Slow paces the actual inference pull loop near 3 tokens/sec');
+    assert(toggle.tokens[3].time - toggle.tokens[2].time < 220, 'Slow can be disabled during a request');
+    assert(toggle.tokens[6].time - toggle.tokens[5].time > 250, 'Slow can be enabled during a request');
+    assert(stop.stopLatencyMs < 200, 'Stop interrupts the pacing wait');
+    assert.equal(stop.tokens.length, 1, 'Stop does not drain a generated backlog');
+    assert.equal(unlimited.tokens.length, 1100, 'unlimited output passes the retired 1024-token limit');
+    assert.equal(unlimited.tokens.at(-1).generated, 1100);
+    assert.equal(slow.prompt.prompt_progress.processed, 0);
+    assert(!slow.prompt.observatory.generated, 'prefill does not count as a generated token');
+    controlSummary = { slowTokensPerSecond: tokensPerSecond, slowIntervalsMs: intervals,
+      stopLatencyMs: stop.stopLatencyMs, tokensBeforeStop: stop.tokens.length,
+      unlimitedTokens: unlimited.tokens.length, liveToggle: true, earlyTokenization: true };
+  }
+  console.log(JSON.stringify({ passed: true, browserVersion: browser.version(), gpu: result.gpu, layers: result.metadata.nLayer, observations: observations.length, reset: true, tokenAlignment: true, cancelledInitialization: true, controls: controlSummary, measurements: result.measurements }, null, 2));
 } finally {
   await browser?.close();
   await new Promise((resolve) => server.close(resolve));

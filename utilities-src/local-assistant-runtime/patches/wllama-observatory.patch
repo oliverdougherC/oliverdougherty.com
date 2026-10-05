@@ -39,7 +39,7 @@ index 9b338ce..0833d0e 100644
 +  GLUE_FIELD(bool, success)
 +};
 diff --git a/cpp/wllama-context.h b/cpp/wllama-context.h
-index a112f59..3a2626e 100644
+index a112f59..30fe5a1 100644
 --- a/cpp/wllama-context.h
 +++ b/cpp/wllama-context.h
 @@ -267,6 +267,78 @@ struct wllama_context
@@ -159,7 +159,28 @@ index a112f59..3a2626e 100644
      // prepare
      auto rd = std::make_unique<server_response_reader>(ctx_server.get_response_reader());
      std::vector<raw_buffer> input_files;
-@@ -898,12 +987,54 @@ struct wllama_context
+@@ -853,6 +942,20 @@ struct wllama_context
+     }
+     server_response_reader &rd = *it->second;
+ 
++    // Return exact templated tokens before the first graph/prefill runs.
++    if (observatory_enabled && !observatory_prompt_tokens.empty()) {
++      const size_t total = observatory_prompt_tokens.size();
++      json data = {{"choices", json::array()},
++                   {"prompt_progress", {{"total", total}, {"processed", 0}, {"cache", 0}, {"time_ms", 0}}},
++                   {"observatory", {{"prompt_tokens", std::move(observatory_prompt_tokens)}}}};
++      observatory_prompt_tokens = json::array();
++      res.success.value = true;
++      res.has_more.value = true;
++      res.is_error.value = false;
++      res.data_json.value = data.dump_safe();
++      return res;
++    }
++
+     run_loop();
+     auto [result, is_error] = get_next_result(rd);
+     // the task queue can be empty while the request is still streaming, keep polling until we get the stop result
+@@ -898,12 +1001,54 @@ struct wllama_context
        {
          // completion result
          data_json = result->to_json();
@@ -301,7 +322,7 @@ index fe45ec4..cdea4ca 100644
  
  /**
 diff --git a/src/wllama.ts b/src/wllama.ts
-index 6ecbb68..c838c45 100644
+index 6ecbb68..691ec35 100644
 --- a/src/wllama.ts
 +++ b/src/wllama.ts
 @@ -17,6 +17,8 @@ import CacheManager, { type DownloadOptions } from './cache-manager';
@@ -313,15 +334,17 @@ index 6ecbb68..c838c45 100644
    GlueMsgCompletionRes,
    GlueMsgEmbeddingRes,
    GlueMsgRerankRes,
-@@ -175,6 +177,7 @@ export class Wllama {
+@@ -175,6 +177,9 @@ export class Wllama {
    private compat: WllamaCompat | null = null;
  
    private proxy: ProxyToWorker = null as any;
 +  private lifecycleEpoch = 0;
++  private slowMode = false;
++  private wakeDecodeWait: (() => void) | null = null;
    private config: WllamaConfig;
    private pathConfig: AssetsPathConfig;
    private useMultiThread: boolean = false;
-@@ -462,6 +465,10 @@ export class Wllama {
+@@ -462,6 +467,10 @@ export class Wllama {
      ggufBlobsOrModel: Blob[] | Model,
      params: LoadModelParams = {}
    ): Promise<void> {
@@ -332,7 +355,7 @@ index 6ecbb68..c838c45 100644
      const blobs: Blob[] =
        ggufBlobsOrModel instanceof Model
          ? await ggufBlobsOrModel.open()
-@@ -484,6 +491,7 @@ export class Wllama {
+@@ -484,6 +493,7 @@ export class Wllama {
      }
      // detect if we can use multi-thread and webgpu
      const supportMultiThread = await isSupportMultiThread();
@@ -340,7 +363,7 @@ index 6ecbb68..c838c45 100644
      const hwConccurency = Math.floor((navigator.hardwareConcurrency || 1) / 2);
      const nbThreads = params.n_threads ?? hwConccurency;
      this.nbThreads = nbThreads;
-@@ -507,11 +515,14 @@ export class Wllama {
+@@ -507,11 +517,14 @@ export class Wllama {
      }
  
      const modelFiles = await prepareBlobs(blobs);
@@ -355,7 +378,7 @@ index 6ecbb68..c838c45 100644
      if (!startResult.success) {
        throw new WllamaError(
          `Error while calling start function, result = ${startResult}`
-@@ -522,6 +533,7 @@ export class Wllama {
+@@ -522,6 +535,7 @@ export class Wllama {
      this.logger().debug('Loading model...');
      const loadResult: GlueMsgLoadRes = await this.proxy.wllamaAction('load', {
        _name: 'load_req',
@@ -363,7 +386,7 @@ index 6ecbb68..c838c45 100644
        log_level: logLevel,
        // if async read is not supported, use mmap; refer to README-dev.md for more details
        use_mmap: !canUseAsyncFileRead(workerResources.compat),
-@@ -589,6 +601,7 @@ export class Wllama {
+@@ -589,6 +603,7 @@ export class Wllama {
        skip_chat_parsing: params.skip_chat_parsing,
        prefill_assistant: params.prefill_assistant,
      });
@@ -371,10 +394,35 @@ index 6ecbb68..c838c45 100644
      const loadedCtxInfo: LoadedContextInfo & GlueMsgLoadRes = {
        ...loadResult,
        metadata: {},
-@@ -915,9 +928,26 @@ export class Wllama {
+@@ -915,9 +930,52 @@ export class Wllama {
     *
     * Note: This function will NOT crash if model is not yet loaded
     */
++  /** Pace native decode pulls, not text playback. Applies to the active request. */
++  setSlowMode(slow: boolean): void {
++    this.slowMode = slow;
++    this.wakeDecodeWait?.();
++  }
++
++  private async paceDecode(started: number, signal?: AbortSignal): Promise<void> {
++    const epoch = this.lifecycleEpoch;
++    while (this.slowMode && started > 0 && !signal?.aborted && epoch === this.lifecycleEpoch) {
++      const remaining = started + 1000 / 3 - performance.now();
++      if (remaining <= 0) return;
++      await new Promise<void>((resolve) => {
++        const wake = () => {
++          clearTimeout(timer);
++          signal?.removeEventListener('abort', wake);
++          if (this.wakeDecodeWait === wake) this.wakeDecodeWait = null;
++          resolve();
++        };
++        const timer = setTimeout(wake, remaining);
++        this.wakeDecodeWait = wake;
++        signal?.addEventListener('abort', wake, { once: true });
++      });
++    }
++  }
++
 +  async tokenize(text: string, options: { addSpecial?: boolean; parseSpecial?: boolean } = {}): Promise<{id: number; piece: string}[]> {
 +    this.checkModelLoaded();
 +    const result = await this.proxy.wllamaAction<GlueMsgObserveTokenizeRes>('observe_tokenize', {
@@ -391,6 +439,7 @@ index 6ecbb68..c838c45 100644
    async exit(): Promise<void> {
 -    await this.proxy?.wllamaExit();
 +    ++this.lifecycleEpoch;
++    this.wakeDecodeWait?.();
 +    const proxy = this.proxy;
      this.proxy = null as any;
 +    this.metadata = null as any;
@@ -399,6 +448,38 @@ index 6ecbb68..c838c45 100644
    }
  
    /**
+@@ -1101,12 +1159,18 @@ export class Wllama {
+   ) {
+     let finalResult: any = null;
+     let completed = false;
++    let lastDecodeStarted = 0;
++    let generated = 0;
+ 
+     try {
+       while (true) {
+-        if (options.abortSignal?.aborted) {
++        // The worker advances the native inference loop only when get_result is
++        // requested. Backpressure here prevents an unbounded generated backlog.
++        await this.paceDecode(lastDecodeStarted, options.abortSignal);
++        if (options.abortSignal?.aborted || !this.proxy) {
+           throw new WllamaAbortError();
+         }
++        const decodeStarted = performance.now();
+         const result_chunk = await this.proxy.wllamaAction<GlueMsgGetResultRes>(
+           'get_result',
+           {
+@@ -1145,6 +1209,11 @@ export class Wllama {
+           }
+ 
+           for (const chunk of jsonData) {
++            const count = chunk.observatory?.generated ?? chunk.timings?.predicted_n ?? 0;
++            if (count > generated) {
++              generated = count;
++              lastDecodeStarted = decodeStarted;
++            }
+             options.onData?.(chunk);
+             finalResult = chunk;
+           }
 diff --git a/src/worker.ts b/src/worker.ts
 index 3cdc7c9..bce4b5a 100644
 --- a/src/worker.ts
