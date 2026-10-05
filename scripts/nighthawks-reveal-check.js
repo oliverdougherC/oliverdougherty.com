@@ -310,13 +310,32 @@ async function checkResourceFailures(browser) {
   }
 }
 
-async function checkScrollBeforeRenderer(browser) {
+// CSS loading and native scroll events do not run on Playwright's paused JS
+// clock. Await their real completion before advancing the bootstrap's rAF.
+async function nativeEventWithin(promise, label) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label}: native browser event was not delivered`)), 5000);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+
+async function checkScrollBeforeRenderer(browser, delayedStyles = false) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   let release;
   const pending = new Promise((resolve) => { release = resolve; });
+  let releaseStyles;
+  const stylesPending = new Promise(resolve => { releaseStyles = resolve; });
+  let rendererRequests = 0;
   try {
     await context.route('**/js/nighthawks.js*', async (route) => {
+      rendererRequests++;
       await pending;
+      await route.continue().catch(() => {});
+    });
+    if (delayedStyles) await context.route('**/css/home.css*', async route => {
+      await stylesPending;
       await route.continue().catch(() => {});
     });
     const page = await context.newPage();
@@ -325,8 +344,44 @@ async function checkScrollBeforeRenderer(browser) {
     await page.clock.pauseAt(new Date(time.getTime() + 10000));
     await page.goto(`${baseUrl}/index.html?full=1`, { waitUntil: 'commit' });
     await page.locator('#contact').waitFor({ state: 'attached' });
-    await page.evaluate(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' }));
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    let stylesReady = false;
+    const readiness = nativeEventWithin(page.evaluate(() => Promise.all(
+      [...document.querySelectorAll('link[rel="stylesheet"]')]
+        .filter(link => new URL(link.href).origin === location.origin)
+        .map(link => link.sheet ? Promise.resolve() : new Promise((resolve, reject) => {
+          link.addEventListener('load', resolve, { once: true });
+          link.addEventListener('error', () => reject(new Error(`Stylesheet failed: ${link.href}`)), { once: true });
+        }))
+    )), 'Home stylesheets').then(() => { stylesReady = true; });
+    if (delayedStyles) {
+      // Reproduce the CI race: parsed contact markup does not mean the staged
+      // layout exists yet. The readiness barrier must stay pending here.
+      assert.equal(await page.evaluate(() => Boolean(document.querySelector('link[href*="css/home.css"]').sheet)), false);
+      assert.equal(stylesReady, false, 'Attached markup must not bypass pending layout styles');
+      releaseStyles();
+    }
+    await readiness;
+    const layout = await page.evaluate(() => {
+      const hero = document.querySelector('.nighthawks-hero');
+      return { display: getComputedStyle(hero).display, height: hero.getBoundingClientRect().height,
+        bottom: window.scrollY + hero.getBoundingClientRect().bottom, viewport: innerHeight,
+        maxScroll: document.scrollingElement.scrollHeight - innerHeight };
+    });
+    assert(layout.display === 'flex' && layout.height >= layout.viewport - 1,
+      `The actual first-visit stage must be styled before scrolling: ${JSON.stringify(layout)}`);
+    assert(layout.maxScroll >= layout.bottom + 4, 'The document must have enough scroll range to move the entire stage off-screen');
+    const scroll = await nativeEventWithin(page.evaluate(() => new Promise(resolve => {
+      const delivered = event => {
+        const heroBottom = document.querySelector('.nighthawks-hero').getBoundingClientRect().bottom;
+        if (window.scrollY <= 0 || heroBottom > -4) return;
+        window.removeEventListener('scroll', delivered);
+        resolve({ y: window.scrollY, heroBottom, trusted: event.isTrusted });
+      };
+      window.addEventListener('scroll', delivered, { passive: true });
+      window.scrollTo({ top: document.scrollingElement.scrollHeight, behavior: 'instant' });
+    })), 'Early off-screen scroll');
+    assert(scroll.trusted && scroll.y > 0 && scroll.heroBottom <= -4, 'A native off-screen scroll must reach the bootstrap listener before its rAF is advanced');
+    assert.equal(rendererRequests, 1, 'The renderer request is still held while the inline bootstrap handles scrolling');
     await page.clock.runFor(96);
     assert(await page.evaluate(() => document.documentElement.classList.contains('home-stage-collapsed')),
       'Early scrolling must collapse the stage before the renderer downloads');
@@ -339,6 +394,7 @@ async function checkScrollBeforeRenderer(browser) {
     await settled(page);
   } finally {
     release();
+    releaseStyles();
     await context.close();
   }
 }
@@ -387,6 +443,7 @@ async function run() {
         await checkInterruptions(browser);
         await checkResourceFailures(browser);
         await checkScrollBeforeRenderer(browser);
+        await checkScrollBeforeRenderer(browser, true);
         await checkDelayedRenderer(browser);
         console.log(`Verified ${name}: reveal sequence, exact grid restoration, static visits, uninterrupted scrolling/off-screen playback, page-exit cleanup, resource failures and watchdog.`);
       } finally {
