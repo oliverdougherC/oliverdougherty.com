@@ -24,6 +24,12 @@ Keyboard inspection through the waterfall and history range must pin one shared 
 
 Thinking and Slow are tested independently: both choices reach the runtime, Thinking is fixed for the current generation, and Slow can change live without restarting inference. Focused composer bounds must keep the input's focus ring clear of Send. Expanded Snake is checked at 800×600, 1440×900, and 3840×2160, where the board must occupy more than 60% of the workspace height. Keyboard checks verify global movement while playing, release on pause or entering chat, and preservation of Tab, selector, and editable keys. Enter sends and Shift+Enter inserts a newline. Back/Forward and tool switching exercise load cancellation and ready-model reuse.
 
+## PR review regressions
+
+The UI fixture also exercises the normalized context-exhaustion boundary. It streams a partial answer and reasoning, emits `finishReason: 'length'`, and rejects with the context-full error that the production adapter exposes. Both partial outputs must remain visible. The recovery action must say **New chat**, reset the loaded runtime without another load or disposal, clear the exhausted conversation, focus the composer, and successfully send a fresh prompt. Adapter unit tests separately verify native streamed-finish handling; this browser fixture does not substitute for those tests.
+
+A second fixture supplies a bounded nine-entry candidate packet: the native top eight plus an actual sampled token at rank ten with probability `0.02`. At three-, five-, and eight-row display budgets, the sample must appear exactly once with its original **2%** probability, alongside the highest-ranked remaining candidates. The top candidate must retain its original probability too. The sampled tail token must not be invented as one of the Final column's top three ranks, even when it genuinely appears in an intermediate lens checkpoint. These values are explicitly synthetic UI regression data, not native inference measurements. Both PR-review regressions passed in Chromium and WebKit against the isolated review worktree. Screenshots under `output/local-assistant/` show the context-full state with expanded reasoning, the successful recovered conversation, and the sampled tail token at all three display budgets.
+
 ## Opt-in real model run
 
 This run downloads approximately 1.28 GB unless a local fixture is provided. It requires a hardware WebGPU adapter, WebAssembly JSPI, and a browser that supports the native runtime.

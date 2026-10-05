@@ -96,6 +96,7 @@ export class AssistantRuntime implements Runtime {
     if (!engine || !this.info) throw new Error('Load the model before sending a message.');
     signal.throwIfAborted();
     let content = '', reasoning = '';
+    let finishReason: string | undefined;
     let lastTokenIds: number[] = [];
     let looping = false;
     const abort = new AbortController();
@@ -115,6 +116,10 @@ export class AssistantRuntime implements Runtime {
           reasoning += choice?.delta?.reasoning_content ?? '';
           const event = chunk.observatory;
           const observation: Observation = {};
+          if (choice?.finish_reason) {
+            finishReason = choice.finish_reason;
+            observation.finishReason = finishReason;
+          }
           if (event?.token) {
             // Each sampled token owns its snapshot. Missing measurements must not
             // inherit values from an earlier pass through session state merging.
@@ -169,9 +174,13 @@ export class AssistantRuntime implements Runtime {
         },
       };
       await engine.createChatCompletion(options);
+      // With max_tokens=-1, native length termination means physical context
+      // exhaustion even when the stream itself completes without throwing.
+      if (finishReason === 'length' && !signal.aborted) throw new Error('The context is full. Start a new chat to continue.');
     } catch (error) {
       if (looping) throw new Error('Stopped a repeating token loop. Start a new chat or try a different prompt.');
       if (/context (?:is )?full|context.*exceed|exceed.*context|n_ctx.*(?:exceed|full)/i.test(String(error))) {
+        if (!signal.aborted && !this.disposed) update(content, reasoning, { finishReason: 'length' });
         throw new Error('The context is full. Start a new chat to continue.');
       }
       throw error;

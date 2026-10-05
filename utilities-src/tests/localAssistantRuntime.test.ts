@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AssistantRuntime, isRepeatingTokenLoop } from '../src/local-assistant/runtime';
+import { AssistantSession } from '../src/local-assistant/session';
 
 describe('Local Assistant repeating output protection', () => {
   it.each([1, 2, 3, 5, 7, 16, 31, 32])('recognizes a sustained cycle of period %i', period => {
@@ -25,6 +26,40 @@ function readyRuntime(createChatCompletion: (options: any) => Promise<void>) {
 }
 
 describe('Local Assistant native stream adaptation', () => {
+  it.each(['answer', 'reasoning'])('reports a normally streamed context limit and preserves partial %s', async kind => {
+    let attempt = 0;
+    const { runtime } = readyRuntime(async options => {
+      attempt++;
+      options.onData({ choices: [{ delta: attempt > 1 ? { content: 'Recovered' } : kind === 'answer' ? { content: 'Partial answer' } : { reasoning_content: 'Unfinished reasoning' } }] });
+      options.onData({ choices: [{ delta: {}, finish_reason: attempt > 1 ? 'stop' : 'length' }],
+        timings: { prompt_ms: 1, predicted_per_second: 10, predicted_n: 4096 } });
+    });
+    const load = vi.fn(async () => ({ name: 'Test', context: 4096, layers: [] as [], backend: 'Test' }));
+    const reset = vi.fn(async () => {});
+    const session = new AssistantSession(() => ({ load, generate: runtime.generate.bind(runtime), reset, dispose: async () => {} }));
+    try {
+      await session.activate(); await session.send('Question');
+      expect(session.state.phase).toBe('error');
+      expect(session.state.status).toMatch(/context.*full.*new chat/i);
+      expect(session.state.observation).toMatchObject({ finishReason: 'length', generated: 4096 });
+      expect(session.state.messages.at(-1)).toMatchObject(kind === 'answer' ? { content: 'Partial answer' } : { content: '', reasoning: 'Unfinished reasoning' });
+      await session.reset(); await session.send('Fresh question');
+      expect(reset).toHaveBeenCalledOnce(); expect(load).toHaveBeenCalledOnce();
+      expect(session.state.phase).toBe('ready');
+      expect(session.state.observation).toMatchObject({ finishReason: 'stop' });
+      expect(session.state.messages.at(-1)?.content).toBe('Recovered');
+    } finally { await session.destroy(); }
+  });
+  it('marks thrown context exhaustion with the same recovery signal', async () => {
+    const updates = vi.fn();
+    const { runtime } = readyRuntime(async options => {
+      options.onData({ choices: [{ delta: { reasoning_content: 'Thinking so far' } }] });
+      throw new Error('context size exceeded');
+    });
+    await expect(runtime.generate([{ role: 'user', content: 'Question' }], true, new AbortController().signal, updates)).rejects.toThrow(/context.*full/i);
+    expect(updates).toHaveBeenLastCalledWith('', 'Thinking so far', { finishReason: 'length' });
+  });
+
   it('maps measured snapshots without carrying optional telemetry into another token', async () => {
     const updates = vi.fn();
     const { runtime } = readyRuntime(async options => {
@@ -55,7 +90,7 @@ describe('Local Assistant native stream adaptation', () => {
       for (let generated = 1; generated <= 1100; generated++) {
         options.onData({ choices: [], observatory: { token: { id: generated, piece: 'x' }, generated } });
       }
-      options.onData({ choices: [{ delta: {}, finish_reason: 'length' }], timings: { prompt_ms: 1, predicted_per_second: 60, predicted_n: 1100 } });
+      options.onData({ choices: [{ delta: {}, finish_reason: 'stop' }], timings: { prompt_ms: 1, predicted_per_second: 60, predicted_n: 1100 } });
     });
     await expect(runtime.generate([{ role: 'user', content: 'Long answer' }], true, new AbortController().signal, updates)).resolves.toBeUndefined();
     expect(updates).toHaveBeenLastCalledWith('', '', expect.objectContaining({ generated: 1100 }));

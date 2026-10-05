@@ -37,7 +37,7 @@ try {
   const page = await browser.newPage();
   page.on('console', (message) => logs.push(message.text()));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
-  const result = await page.evaluate(async ({ benchmark, v1, v3, controlsOnly, unicode }) => {
+  const result = await page.evaluate(async ({ benchmark, v1, v3, controlsOnly, unicode, sampling, contextLimit }) => {
     const adapter = await navigator.gpu?.requestAdapter();
     if (!adapter || adapter.info.isFallbackAdapter) throw new Error('A hardware WebGPU adapter is required');
     const gpu = { vendor: adapter.info.vendor, architecture: adapter.info.architecture, fallback: adapter.info.isFallbackAdapter };
@@ -132,6 +132,60 @@ try {
       runtime.setSlowMode(false);
     }
     await runtime.exit();
+    let selectedCandidate;
+    if (sampling) {
+      const sampler = new Wllama({ default: '/wllama.wasm' });
+      sampler.setCompat(null);
+      await sampler.loadModel([model], { ...load, n_ctx: 512, seed: undefined });
+      for (let seed = 1; seed <= 160 && !selectedCandidate; seed++) {
+        await sampler.resetConversation();
+        await sampler.createChatCompletion({
+          messages: [{ role: 'user', content: 'Give me one surprising word.' }],
+          chat_template_kwargs: { enable_thinking: false }, seed, temperature: 5,
+          top_k: 20, top_p: 1, min_p: 0, max_tokens: 1, logprobs: true, top_logprobs: 20,
+          post_sampling_probs: true, return_tokens: true, timings_per_token: true,
+          stream: true, onData: (chunk) => {
+            const event = chunk.observatory;
+            const native = chunk.choices?.[0]?.logprobs?.content?.[0];
+            const distribution = native?.top_probs;
+            if (!event?.token || !distribution) return;
+            const rank = distribution.findIndex(({ id }) => id === event.token.id) + 1;
+            if (rank === 10) selectedCandidate = { seed, temperature: 5, topK: 20, rank,
+              token: event.token, candidates: event.candidates, nativeSelectedProbability: native.prob,
+              nativeTop20: distribution };
+          },
+        });
+      }
+      await sampler.exit();
+    }
+    let contextBoundary;
+    if (contextLimit) {
+      const limited = new Wllama({ default: '/wllama.wasm' });
+      limited.setCompat(null);
+      await limited.loadModel([model], { ...load, n_ctx: 128, n_batch: 64, n_ubatch: 32, ctx_shift: false });
+      const chunks = [];
+      await limited.createChatCompletion({
+        messages: [{ role: 'user', content: 'Count upward, one number per line, starting at one.' }],
+        chat_template_kwargs: { enable_thinking: false }, temperature: 0.6, top_k: 20, top_p: 0.95,
+        max_tokens: -1, ignore_eos: true, logprobs: true, top_logprobs: 8,
+        post_sampling_probs: true, return_tokens: true, timings_per_token: true,
+        stream: true, onData: (chunk) => chunks.push(chunk),
+      });
+      const lastToken = chunks.filter((chunk) => chunk.observatory?.token).at(-1);
+      const final = chunks.at(-1);
+      const retained = limited.isModelLoaded();
+      await limited.resetConversation();
+      const recovered = [];
+      await limited.createChatCompletion({ messages: [{ role: 'user', content: 'Say hello.' }],
+        chat_template_kwargs: { enable_thinking: false }, max_tokens: 8, stream: true,
+        timings_per_token: true, onData: (chunk) => recovered.push(chunk) });
+      contextBoundary = { requestedContext: 128, context: limited.getLoadedContextInfo().n_ctx, maxTokens: -1, finishReason: final.choices[0].finish_reason,
+        generated: final.timings.predicted_n, promptTokens: final.timings.prompt_n,
+        contextUsed: lastToken.observatory.context_used, retainedModel: retained,
+        resetCacheTokens: recovered.at(-1).timings.cache_n,
+        recoveredText: recovered.flatMap(({ choices }) => choices.map(({ delta }) => delta.content || '')).join('') };
+      await limited.exit();
+    }
     // Exit before the capability/worker initialization await resolves.
     const interrupted = new Wllama({ default: '/wllama.wasm' });
     interrupted.setCompat(null);
@@ -160,8 +214,8 @@ try {
         await measured.exit();
       }
     }
-    return { gpu, metadata: metadata.hparams, tokenization, one, several, thinking, cancelled, measurements, controls, deep, unicodeResult };
-  }, { benchmark: process.argv.includes('--benchmark'), v1: process.argv.includes('--v1'), v3: process.argv.includes('--v3'), controlsOnly: process.argv.includes('--controls'), unicode: process.argv.includes('--unicode') });
+    return { gpu, metadata: metadata.hparams, tokenization, one, several, thinking, cancelled, measurements, controls, deep, unicodeResult, selectedCandidate, contextBoundary };
+  }, { benchmark: process.argv.includes('--benchmark'), v1: process.argv.includes('--v1'), v3: process.argv.includes('--v3'), controlsOnly: process.argv.includes('--controls'), unicode: process.argv.includes('--unicode'), sampling: process.argv.includes('--sampling'), contextLimit: process.argv.includes('--context-limit') });
   assert(logs.some((line) => /offloaded (\d+)\/\1 layers to GPU/.test(line)), 'all layers must be offloaded');
   assert.equal(result.cancelled, 'cancelled', 'exit invalidates pending initialization');
   assert.deepEqual(result.tokenization.map(({ id }) => id), [9419, 11, 1814, 0]);
@@ -176,6 +230,8 @@ try {
     assert.equal(observation.probability_kind, 'post-sampling');
     assert(Number.isInteger(observation.token.id));
     assert(observation.candidates.every(({ probability }) => probability >= 0 && probability <= 1));
+    assert(observation.candidates.some(({ id }) => id === observation.token.id), 'sampled token remains visible');
+    assert(observation.candidates.length <= 9);
   }
   const first = result.one.find((chunk) => chunk.observatory?.token).observatory;
   assert.deepEqual(first.token, observations[0].token);
@@ -257,7 +313,31 @@ try {
     assert(intervals.every((interval) => interval > 250), 'Slow paces incomplete UTF-8 tokens too');
     unicodeSummary = { output: text, generated: count, observed: observed.length, intervalsMs: intervals };
   }
-  console.log(JSON.stringify({ passed: true, browserVersion: browser.version(), gpu: result.gpu, layers: result.metadata.nLayer, observations: observations.length, reset: true, tokenAlignment: true, cancelledInitialization: true, controls: controlSummary, deep: deepSummary, unicode: unicodeSummary, measurements: result.measurements }, null, 2));
+  if (process.argv.includes('--sampling')) {
+    const sampled = result.selectedCandidate;
+    assert(sampled, 'find a real rank-10 draw from the actual top-k=20 sampler');
+    assert.equal(sampled.rank, 10);
+    assert.equal(sampled.candidates.length, 9);
+    const chosen = sampled.candidates.find(({ id }) => id === sampled.token.id);
+    assert(chosen);
+    assert(chosen.probability > 0);
+    assert.equal(chosen.probability, sampled.nativeSelectedProbability);
+    assert.equal(chosen.probability, sampled.nativeTop20[9].prob);
+    assert.deepEqual(sampled.candidates.slice(0, 8).map(({ id }) => id), sampled.nativeTop20.slice(0, 8).map(({ id }) => id));
+    assert(sampled.candidates.every((candidate, i) => i === 0 || candidate.probability <= sampled.candidates[i - 1].probability));
+  }
+  if (process.argv.includes('--context-limit')) {
+    const boundary = result.contextBoundary;
+    assert.equal(boundary.finishReason, 'length');
+    assert.equal(boundary.contextUsed, boundary.context);
+    assert.equal(boundary.promptTokens + boundary.generated, boundary.context);
+    assert(boundary.context >= boundary.requestedContext);
+    assert(boundary.generated > 0 && boundary.generated < boundary.context);
+    assert(boundary.retainedModel);
+    assert.equal(boundary.resetCacheTokens, 0);
+    assert(boundary.recoveredText.length > 0);
+  }
+  console.log(JSON.stringify({ passed: true, browserVersion: browser.version(), gpu: result.gpu, layers: result.metadata.nLayer, observations: observations.length, reset: true, tokenAlignment: true, cancelledInitialization: true, controls: controlSummary, deep: deepSummary, unicode: unicodeSummary, selectedCandidate: result.selectedCandidate, contextBoundary: result.contextBoundary, measurements: result.measurements }, null, 2));
 } finally {
   await browser?.close();
   await new Promise((resolve) => server.close(resolve));

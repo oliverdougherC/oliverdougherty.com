@@ -1376,9 +1376,14 @@ var createWorker = (workerCode) => {
   const workerURL = URL.createObjectURL(
     isString(workerCode) ? new Blob([workerCode], { type: "text/javascript" }) : workerCode
   );
-  const worker = new Worker(workerURL, { type: "module" });
-  workerObjectURLs.set(worker, workerURL);
-  return worker;
+  try {
+    const worker = new Worker(workerURL, { type: "module" });
+    workerObjectURLs.set(worker, workerURL);
+    return worker;
+  } catch (error) {
+    URL.revokeObjectURL(workerURL);
+    throw error;
+  }
 };
 var cbToAsyncIter = (fn) => (...args) => {
   let values = [];
@@ -1457,6 +1462,7 @@ var ProxyToWorker = class {
     __publicField(this, "busy", false);
     // is the work loop is running?
     __publicField(this, "disposed", false);
+    __publicField(this, "terminalError", null);
     __publicField(this, "worker");
     __publicField(this, "multiThread");
     __publicField(this, "nbThread");
@@ -1468,6 +1474,9 @@ var ProxyToWorker = class {
     this.logger = logger;
     this.suppressNativeLog = suppressNativeLog;
     this.useAsyncFile = canUseAsyncFileRead(resources.compat);
+  }
+  isTerminated() {
+    return this.disposed || this.terminalError !== null;
   }
   getModuleCode() {
     return __async(this, null, function* () {
@@ -1495,7 +1504,15 @@ var ProxyToWorker = class {
   }
   moduleInit(ggufFiles) {
     return __async(this, null, function* () {
-      let moduleCode = JSPI_STUB + (yield this.getModuleCode());
+      if (this.terminalError) throw this.terminalError;
+      let moduleCode;
+      try {
+        moduleCode = JSPI_STUB + (yield this.getModuleCode());
+      } catch (error) {
+        this.abort(`Runtime initialization failed: ${error}`, error.stack || "");
+        throw this.terminalError;
+      }
+      if (this.terminalError) throw this.terminalError;
       if (this.disposed) throw new Error("Runtime disposed during initialization");
       if (this.resources.noWebGPU) {
         moduleCode = 'try{Object.defineProperty(WorkerNavigator.prototype,"gpu",{get:()=>({requestAdapter:async()=>null})});}catch(e){}' + moduleCode;
@@ -1513,11 +1530,19 @@ var ProxyToWorker = class {
         `function wModuleInit() { ${mainModuleCode}; return Module; }`,
         LLAMA_CPP_WORKER_CODE
       ].join(";\n\n");
-      this.worker = createWorker(completeCode);
+      try {
+        this.worker = createWorker(completeCode);
+      } catch (error) {
+        this.abort(`Inference worker could not start: ${error}`, error.stack || "");
+        throw this.terminalError;
+      }
       this.worker.onmessage = this.onRecvMsg.bind(this);
       this.worker.onerror = (event) => {
-        this.logger.error(event);
         this.abort(event.message || "Inference worker failed", "");
+        this.logger.error(event);
+      };
+      this.worker.onmessageerror = () => {
+        this.abort("Inference worker message could not be decoded", "");
       };
       const res = yield this.pushTask({
         verb: "module.init",
@@ -1576,12 +1601,7 @@ var ProxyToWorker = class {
   wllamaExit() {
     return __async(this, null, function* () {
       this.disposed = true;
-      this.fileBlobs.clear();
       this.abort("Runtime disposed", "");
-      if (this.worker) {
-        terminateWorker(this.worker);
-        this.worker = void 0;
-      }
     });
   }
   wllamaDebug() {
@@ -1642,15 +1662,14 @@ var ProxyToWorker = class {
         }
         const chunk = blob.slice(offset, offset + size);
         const buffer = yield chunk.arrayBuffer();
+        if (this.isTerminated()) return;
         this.worker.postMessage(
           { verb: "fs.read_res", args: [buffer] },
           { transfer: [buffer] }
         );
       } catch (err) {
-        this.logger.error("fileReadResponse failed, terminating worker:", err);
-        if (this.worker) terminateWorker(this.worker);
-        this.worker = void 0;
         this.abort(`File read failed: ${err}`, err.stack || "");
+        this.logger.error("fileReadResponse failed, terminating worker:", err);
       }
     });
   }
@@ -1671,6 +1690,7 @@ var ProxyToWorker = class {
    * Push a new task to taskQueue
    */
   pushTask(param, buffers) {
+    if (this.terminalError) return Promise.reject(this.terminalError);
     if (this.disposed) return Promise.reject(new Error("Runtime disposed"));
     return new Promise((resolve, reject) => {
       this.taskQueue.push({ resolve, reject, param, buffers });
@@ -1683,29 +1703,28 @@ var ProxyToWorker = class {
   runTaskLoop() {
     return __async(this, null, function* () {
       var _a;
-      if (this.busy) {
-        return;
-      }
+      if (this.busy) return;
       this.busy = true;
-      while (true) {
-        const task = this.taskQueue.shift();
-        if (!task) break;
-        this.resultQueue.push(task);
-        this.worker.postMessage(
-          task.param,
-          isSafariMobile() ? void 0 : {
-            transfer: (_a = task.buffers) != null ? _a : []
-          }
-        );
+      try {
+        while (!this.isTerminated()) {
+          const task = this.taskQueue.shift();
+          if (!task) break;
+          this.resultQueue.push(task);
+          if (!this.worker) throw new Error("Inference worker is unavailable");
+          this.worker.postMessage(task.param, isSafariMobile() ? void 0 : { transfer: (_a = task.buffers) != null ? _a : [] });
+        }
+      } catch (error) {
+        this.abort(`Inference worker communication failed: ${error}`, error.stack || "");
+      } finally {
+        this.busy = false;
       }
-      this.busy = false;
     });
   }
   /**
    * Handle messages from worker
    */
   onRecvMsg(e) {
-    if (!e.data) return;
+    if (this.isTerminated() || !e.data) return;
     const { verb, args } = e.data;
     const isCompatBuild = this.resources.compat;
     if (verb && verb.startsWith("console.")) {
@@ -1722,23 +1741,20 @@ var ProxyToWorker = class {
       if (originalErr) {
         this.logger.error(originalErr);
       }
-      (() => __async(this, null, function* () {
-        let stack = "";
-        let newMsg = message.replace(
-          "Build with -sASSERTIONS for more info.",
-          ""
-        );
-        if (signalType === "abort") {
-          newMsg = `(ABORT) ${newMsg}`;
-          stack = rawStack.replace(/\|/g, "\n");
-        } else if (signalType === "exception") {
-          stack = rawStack;
-        }
-        const decoded = yield Debug.decodeStackTrace(stack, isCompatBuild);
+      let stack = "";
+      let newMsg = message.replace("Build with -sASSERTIONS for more info.", "");
+      if (signalType === "abort") {
+        newMsg = `(ABORT) ${newMsg}`;
+        stack = rawStack.replace(/\|/g, "\n");
+      } else if (signalType === "exception") {
+        stack = rawStack;
+      }
+      this.abort(newMsg, stack);
+      void Debug.decodeStackTrace(stack, isCompatBuild).then((decoded) => {
         this.logger.error(`Stack trace (${signalType}):
 ` + decoded);
-        this.abort(newMsg, decoded);
-      }))();
+      }).catch(() => {
+      });
       return;
     }
     if (verb === FILE_READ_REQ_EVENT) {
@@ -1764,10 +1780,16 @@ var ProxyToWorker = class {
     }
   }
   abort(text, stack) {
-    const error = new WllamaRuntimeError(
+    var _a;
+    const error = (_a = this.terminalError) != null ? _a : new WllamaRuntimeError(
       text.length == 0 ? "(unknown error)" : text,
       stack
     );
+    this.terminalError = error;
+    this.fileBlobs.clear();
+    const worker = this.worker;
+    this.worker = void 0;
+    if (worker) terminateWorker(worker);
     while (this.resultQueue.length > 0) {
       const waitingTask = this.resultQueue.pop();
       if (!waitingTask) break;
@@ -3537,6 +3559,7 @@ var Wllama = class {
   // release the slot occupied by the request; cancelling an already-finished request is a no-op
   cancelRequest(reqId) {
     return __async(this, null, function* () {
+      if (!this.proxy || this.proxy.isTerminated()) return;
       try {
         yield this.proxy.wllamaAction("cancel", {
           _name: "cncl_req",
@@ -3696,6 +3719,7 @@ export {
   Model,
   ModelManager,
   ModelValidationStatus,
+  ProxyToWorker as NativeWorkerBridge,
   POLYFILL_ETAG,
   Wllama,
   WllamaAbortError,

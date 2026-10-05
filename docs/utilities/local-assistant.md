@@ -50,6 +50,9 @@ The live observation payload contains:
 
 - Actual formatted prompt token IDs/pieces and generated token IDs/pieces.
 - Candidate IDs and normalized **post-sampling** weights from the actual sampler.
+  The bounded list includes the top eight plus the actual sampled token when it
+  falls outside that prefix, using its independently measured probability. The
+  selected row remains visible at every panel size without claiming a false rank.
 - Per-block input RMS and RMS of the change from input to output, with their ratio.
 - Sparse last-query attention weights, averaged across heads, for full-attention blocks.
 - Intermediate vocabulary readouts using the model's final output normalization and head.
@@ -81,6 +84,10 @@ for each request. The runtime's actual reasoning field is displayed separately.
 Both reasoning and response tokens use the same observability path. There is no artificial output-token limit: generation runs until EOS, Stop, a
 physical context limit, or a repeated token loop. Repetition detection examines
 exact suffix periods 1–32 with at least 32 tokens and six cycles; output is never rewritten.
+A native `finish_reason: "length"` is surfaced as context exhaustion even when the
+stream resolves normally. Partial answer and reasoning text remain visible; the
+error action starts a New Chat and resets the existing model without downloading
+it again. This is separate from the removed arbitrary output-token limit.
 Slow is a live 3 tokens/sec mode. It paces the runtime's result pulls, so the worker's
 actual decode and telemetry slow together, with no completed-answer playback queue.
 Stop/toggle/teardown interrupt the pacing wait immediately; prefill stays unpaced.
@@ -118,6 +125,13 @@ Resizing translates/scales the existing board without losing the snake or score.
 When the model reaches ready with no Snake game open, the chat enters
 automatically and focuses the composer; the ready transition never forces the
 user out of an open game.
+
+Worker failure is terminal for its native bridge: pending and future requests
+reject, late messages are ignored, and cancellation never waits on a dead worker.
+This lets generation settle so Stop, New Chat, and model reload can recover rather
+than remaining queued behind unfinished inference. The `.4` native bridge
+regression uses the shipped transport and response cleanup with a silent failed
+worker; it does not copy their implementation into a standalone reproduction.
 
 ## UI and rendering
 
@@ -233,3 +247,24 @@ one composer focus boundary, and the expanded Snake board. The shared Switch
 utility control is checked in every utility for native keyboard access and a
 full-size label/caret hit area. Synthetic fixture measurements are not evidence
 of real model instrumentation; native verification is recorded separately.
+
+## PR review validation
+
+The review fixes merge current `main` while retaining its SVG Index arrow and
+the full utility switcher. The medium CodeQL finding
+[`actions/missing-workflow-permissions` (#11)](https://github.com/oliverdougherC/oliverdougherty.com/security/code-scanning/11)
+was a missing explicit token policy in the existing deployment workflow, not a
+confirmed model-runtime vulnerability. The workflow now grants only
+`contents: read`; Cloudflare deployment continues to use its existing dedicated
+secret. This follows GitHub's [workflow permissions semantics](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#permissions).
+No deployment was performed to validate this change.
+
+The `.4` regression run verified eight failure/recovery cases against the shipped
+bridge, plus a real GPU rank-10 draw (`What`, token 3710, probability
+0.0424240343272686) retained alongside the top eight. A native probe requesting
+128 context tokens received the backend's rounded 256-token allocation, reported
+that actual capacity, and completed with `finish_reason: "length"` at 24 prompt
+plus 232 generated tokens using `max_tokens: -1`. Reset kept the weights loaded,
+cleared the cache, and generated a fresh response. See `verification.json.v4` for
+the original distribution and measured termination/recovery record. The `.3`
+throughput benchmark was not rerun because the inference graph is unchanged.
