@@ -120,10 +120,12 @@ Reduced motion requires no alternate animation because words change instantly.
 Unit coverage includes parser boundaries, Unicode ORP, modifier ordering/bounds,
 normalization, stale callbacks, live speed changes, exact seek/resume, completion,
 keyboard exclusions and deactivation. Browser coverage uses the shipped bundle:
-index and deep links, Read/play/pause/seek/speed/reset, switch/return, Back/Forward,
-large paste, reduced motion and reload. All controls and word-fragment bounds are
-checked at **1440×900, 1280×720, 1024×600 and 800×600**; measured ORP centers remain
-within 0.6 CSS px of the fixed anchor across the token fixture.
+prefilled source with Read enabled, index and deep links, Read/play/pause/seek/
+speed/reset, switch/return, Back/Forward, large paste, reduced motion and reload.
+All controls and word-fragment bounds are checked at **1440×900, 1280×720,
+1024×600 and 800×600**; measured ORP centers remain within 0.6 CSS px of the
+fixed anchor across the token fixture, short tokens fit with scale above 1 and
+the 400-character token below 1 at every size.
 
 Run `npm run utilities:check`, `npm run utilities:build`,
 `npm run utilities:browser-check`, and `npm run quality`.
