@@ -78,3 +78,7 @@ coverage/
 # Local Cloudflare Worker dev cache
 utilities-src/vm-src/proxy-worker/.wrangler/
 /vm-src/
+
+# Pinned Local Assistant runtime artifacts are shipped build inputs.
+!utilities-src/local-assistant-runtime/dist/
+!utilities-src/local-assistant-runtime/dist/**

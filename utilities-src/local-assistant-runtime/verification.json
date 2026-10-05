@@ -1,0 +1,2307 @@
+{
+  "date": "2026-10-04",
+  "host": "Apple M4 Pro",
+  "browser": "headed Google Chrome 154.0.8037.93",
+  "gpu": {
+    "vendor": "apple",
+    "architecture": "metal-3",
+    "device": "",
+    "description": "",
+    "isFallbackAdapter": false
+  },
+  "context": 2048,
+  "n_threads": 2,
+  "seed": 42,
+  "model": "Qwen3.5-2B-Q4_K_M",
+  "prompt": "Explain how rain forms, step by step, for a curious student.",
+  "thinking": true,
+  "max_tokens": 128,
+  "sampling": {
+    "temperature": 0.6,
+    "top_k": 20,
+    "top_p": 0.95,
+    "min_p": 0
+  },
+  "observed": {
+    "mean": 60.79832542493807,
+    "median": 60.73065094874863,
+    "min": 60.439811465860544,
+    "max": 61.20617613691677,
+    "unit": "tokens/sec"
+  },
+  "baseline": {
+    "mean": 63.69815722306768,
+    "median": 63.58320142681667,
+    "min": 63.426900497177,
+    "max": 64.17560872080831,
+    "unit": "tokens/sec"
+  },
+  "throughput_reduction_percent": 4.55245791173291,
+  "limitations": [
+    "One Apple Silicon workstation; no discrete GPU measurements.",
+    "No other coordinated GPU tests were active; ordinary workstation load was not isolated.",
+    "WASM control/sampling uses CPU; heavy tensor inference and statistic reductions use WebGPU."
+  ],
+  "samples": [
+    {
+      "observatory": true,
+      "repetition": 0,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 169.811,
+      "prompt_per_token_ms": 6.79244,
+      "prompt_per_second": 147.22250030916723,
+      "predicted_n": 128,
+      "predicted_ms": 2094.82,
+      "predicted_per_token_ms": 16.49464566929134,
+      "predicted_per_second": 60.625733953275216
+    },
+    {
+      "observatory": true,
+      "repetition": 1,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 167.296,
+      "prompt_per_token_ms": 6.69184,
+      "prompt_per_second": 149.43573068094875,
+      "predicted_n": 128,
+      "predicted_ms": 2074.954,
+      "predicted_per_token_ms": 16.338220472440945,
+      "predicted_per_second": 61.20617613691677
+    },
+    {
+      "observatory": true,
+      "repetition": 2,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 165.065,
+      "prompt_per_token_ms": 6.6026,
+      "prompt_per_second": 151.45548723230243,
+      "predicted_n": 128,
+      "predicted_ms": 2092.954,
+      "predicted_per_token_ms": 16.47995275590551,
+      "predicted_per_second": 60.679785604461436
+    },
+    {
+      "observatory": false,
+      "repetition": 0,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 162.88,
+      "prompt_per_token_ms": 6.5152,
+      "prompt_per_second": 153.48722986247546,
+      "predicted_n": 128,
+      "predicted_ms": 1994.2,
+      "predicted_per_token_ms": 15.70236220472441,
+      "predicted_per_second": 63.68468558820579
+    },
+    {
+      "observatory": false,
+      "repetition": 1,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 165.62,
+      "prompt_per_token_ms": 6.6248000000000005,
+      "prompt_per_second": 150.94795314575532,
+      "predicted_n": 128,
+      "predicted_ms": 1978.945,
+      "predicted_per_token_ms": 15.582244094488189,
+      "predicted_per_second": 64.17560872080831
+    },
+    {
+      "observatory": false,
+      "repetition": 2,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 166.179,
+      "prompt_per_token_ms": 6.64716,
+      "prompt_per_second": 150.44018799005892,
+      "predicted_n": 128,
+      "predicted_ms": 2001.021,
+      "predicted_per_token_ms": 15.756070866141732,
+      "predicted_per_second": 63.46759979030705
+    },
+    {
+      "observatory": false,
+      "repetition": 0,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 164.729,
+      "prompt_per_token_ms": 6.589160000000001,
+      "prompt_per_second": 151.7644130663089,
+      "predicted_n": 128,
+      "predicted_ms": 2000.576,
+      "predicted_per_token_ms": 15.752566929133858,
+      "predicted_per_second": 63.48171726542756
+    },
+    {
+      "observatory": false,
+      "repetition": 1,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 165.934,
+      "prompt_per_token_ms": 6.63736,
+      "prompt_per_second": 150.6623115214483,
+      "predicted_n": 128,
+      "predicted_ms": 1985.851,
+      "predicted_per_token_ms": 15.636622047244096,
+      "predicted_per_second": 63.95243147648035
+    },
+    {
+      "observatory": false,
+      "repetition": 2,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 166.985,
+      "prompt_per_token_ms": 6.6794,
+      "prompt_per_second": 149.71404617181184,
+      "predicted_n": 128,
+      "predicted_ms": 2002.305,
+      "predicted_per_token_ms": 15.766181102362205,
+      "predicted_per_second": 63.426900497177
+    },
+    {
+      "observatory": true,
+      "repetition": 0,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 168.19,
+      "prompt_per_token_ms": 6.7276,
+      "prompt_per_second": 148.64141744455674,
+      "predicted_n": 128,
+      "predicted_ms": 2101.264,
+      "predicted_per_token_ms": 16.545385826771653,
+      "predicted_per_second": 60.439811465860544
+    },
+    {
+      "observatory": true,
+      "repetition": 1,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 168.314,
+      "prompt_per_token_ms": 6.732559999999999,
+      "prompt_per_second": 148.5319105956724,
+      "predicted_n": 128,
+      "predicted_ms": 2080.026,
+      "predicted_per_token_ms": 16.37815748031496,
+      "predicted_per_second": 61.056929096078605
+    },
+    {
+      "observatory": true,
+      "repetition": 2,
+      "cache_n": 0,
+      "prompt_n": 25,
+      "prompt_ms": 167.709,
+      "prompt_per_token_ms": 6.70836,
+      "prompt_per_second": 149.06773041399092,
+      "predicted_n": 128,
+      "predicted_ms": 2089.451,
+      "predicted_per_token_ms": 16.452370078740156,
+      "predicted_per_second": 60.78151629303582
+    }
+  ],
+  "correctness": {
+    "hardwareGPU": true,
+    "allLayersOffloaded": true,
+    "reductionBuffer": "WebGPU",
+    "layers": 24,
+    "tokenAlignment": true,
+    "reset": true,
+    "cancelledInitialization": true
+  },
+  "benchmarkRuntimeVersion": "3.8.1-observatory.1",
+  "v1": {
+    "runtimeVersion": "3.8.1-observatory.2",
+    "passed": true,
+    "browserVersion": "154.0.8037.93",
+    "gpu": {
+      "vendor": "apple",
+      "architecture": "metal-3",
+      "fallback": false
+    },
+    "layers": 24,
+    "observations": 8,
+    "reset": true,
+    "tokenAlignment": true,
+    "cancelledInitialization": true,
+    "controls": {
+      "slowTokensPerSecond": 2.969303761916794,
+      "slowIntervalsMs": [
+        341.36500000953674,
+        341.53500002622604,
+        341.27999997138977,
+        333.44999998807907,
+        333.45500004291534,
+        333.65499997138977,
+        332.71499997377396
+      ],
+      "stopLatencyMs": 0.22999995946884155,
+      "tokensBeforeStop": 1,
+      "unlimitedTokens": 1100,
+      "liveToggle": true,
+      "earlyTokenization": true
+    },
+    "measurements": []
+  },
+  "v3": {
+    "runtimeVersion": "3.8.1-observatory.3",
+    "date": "2026-10-04",
+    "host": "Apple M4 Pro",
+    "configuration": {
+      "context": 2048,
+      "threads": 2,
+      "checkpointLayers": [
+        11,
+        19
+      ],
+      "attentionTopK": 16,
+      "lensTopK": 5,
+      "defaultLens": true,
+      "readbackBytes": 1136
+    },
+    "observed": {
+      "mean": 38.48825028813649,
+      "median": 38.63860269566316,
+      "min": 38.05705261612271,
+      "max": 38.84368170814326,
+      "unit": "tokens/sec"
+    },
+    "baseline": {
+      "mean": 62.043447845535134,
+      "median": 62.19122365544441,
+      "min": 60.73878448779271,
+      "max": 62.86988656193302,
+      "unit": "tokens/sec"
+    },
+    "throughput_reduction_percent": 37.965648872451816,
+    "benchmarkSamples": [
+      {
+        "observatory": true,
+        "repetition": 0,
+        "cache_n": 0,
+        "prompt_n": 25,
+        "prompt_ms": 187.17,
+        "prompt_per_token_ms": 7.4868,
+        "prompt_per_second": 133.5684137415184,
+        "predicted_n": 128,
+        "predicted_ms": 3288.82,
+        "predicted_per_token_ms": 25.896220472440945,
+        "predicted_per_second": 38.61567370667899
+      },
+      {
+        "observatory": true,
+        "repetition": 1,
+        "cache_n": 0,
+        "prompt_n": 25,
+        "prompt_ms": 186.851,
+        "prompt_per_token_ms": 7.47404,
+        "prompt_per_second": 133.79644743672765,
+        "predicted_n": 128,
+        "predicted_ms": 3269.515,
+        "predicted_per_token_ms": 25.744212598425197,
+        "predicted_per_second": 38.84368170814326
+      },
+      {
+        "observatory": true,
+        "repetition": 2,
+        "cache_n": 0,
+        "prompt_n": 25,
+        "prompt_ms": 185.691,
+        "prompt_per_token_ms": 7.42764,
+        "prompt_per_second": 134.63226543020394,
+        "predicted_n": 128,
+        "predicted_ms": 3284.919,
+        "predicted_per_token_ms": 25.865503937007873,
+        "predicted_per_second": 38.66153168464733
+      },
+      {
+        "observatory": false,
+        "repetition": 0,
+        "cache_n": 0,
+        "prompt_n": 25,
+        "prompt_ms": 165.77,
+        "prompt_per_token_ms": 6.630800000000001,
+        "prompt_per_second": 150.8113651444773,
+        "predicted_n": 128,
+        "predicted_ms": 2040.216,
+        "predicted_per_token_ms": 16.064692913385827,
+        "predicted_per_second": 62.248310963152925
+      },
+      {
+        "observatory": false,
+        "repetition": 1,
+        "cache_n": 0,
+        "prompt_n": 25,
+        "prompt_ms": 166.104,
+        "prompt_per_token_ms": 6.64416,
+        "prompt_per_second": 150.50811539758223,
+        "predicted_n": 128,
+        "predicted_ms": 2020.045,
+        "predicted_per_token_ms": 15.905866141732284,
+        "predicted_per_second": 62.86988656193302
+      },
+      {
+        "observatory": false,
+        "repetition": 2,
+        "cache_n": 0,
+        "prompt_n": 25,
+        "prompt_ms": 167.109,
+        "prompt_per_token_ms": 6.684360000000001,
+        "prompt_per_second": 149.60295376071903,
+        "predicted_n": 128,
+        "predicted_ms": 2043.965,
+        "predicted_per_token_ms": 16.094212598425194,
+        "predicted_per_second": 62.1341363477359
+      },
+      {
+        "observatory": false,
+        "repetition": 0,
+        "cache_n": 0,
+        "prompt_n": 25,
+        "prompt_ms": 166.35,
+        "prompt_per_token_ms": 6.654,
+        "prompt_per_second": 150.28554253080856,
+        "predicted_n": 128,
+        "predicted_ms": 2049.735,
+        "predicted_per_token_ms": 16.13964566929134,
+        "predicted_per_second": 61.959228875927856
+      },
+      {
+        "observatory": false,
+        "repetition": 1,
+        "cache_n": 0,
+        "prompt_n": 25,
+        "prompt_ms": 168.209,
+        "prompt_per_token_ms": 6.72836,
+        "prompt_per_second": 148.62462769530762,
+        "predicted_n": 128,
+        "predicted_ms": 2038.185,
+        "predicted_per_token_ms": 16.048700787401575,
+        "predicted_per_second": 62.31033983666841
+      },
+      {
+        "observatory": false,
+        "repetition": 2,
+        "cache_n": 0,
+        "prompt_n": 25,
+        "prompt_ms": 167.744,
+        "prompt_per_token_ms": 6.70976,
+        "prompt_per_second": 149.03662724151087,
+        "predicted_n": 128,
+        "predicted_ms": 2090.921,
+        "predicted_per_token_ms": 16.463944881889763,
+        "predicted_per_second": 60.73878448779271
+      },
+      {
+        "observatory": true,
+        "repetition": 0,
+        "cache_n": 0,
+        "prompt_n": 25,
+        "prompt_ms": 184.076,
+        "prompt_per_token_ms": 7.36304,
+        "prompt_per_second": 135.81346835002935,
+        "predicted_n": 128,
+        "predicted_ms": 3282.25,
+        "predicted_per_token_ms": 25.844488188976378,
+        "predicted_per_second": 38.692969761596466
+      },
+      {
+        "observatory": true,
+        "repetition": 1,
+        "cache_n": 0,
+        "prompt_n": 25,
+        "prompt_ms": 183.9,
+        "prompt_per_token_ms": 7.356,
+        "prompt_per_second": 135.94344752582924,
+        "predicted_n": 128,
+        "predicted_ms": 3337.095,
+        "predicted_per_token_ms": 26.276338582677162,
+        "predicted_per_second": 38.05705261612271
+      },
+      {
+        "observatory": true,
+        "repetition": 2,
+        "cache_n": 0,
+        "prompt_n": 25,
+        "prompt_ms": 187.69,
+        "prompt_per_token_ms": 7.5076,
+        "prompt_per_second": 133.19835899621717,
+        "predicted_n": 128,
+        "predicted_ms": 3336.96,
+        "predicted_per_token_ms": 26.275275590551182,
+        "predicted_per_second": 38.05859225163023
+      }
+    ],
+    "correctness": {
+      "passed": true,
+      "browserVersion": "154.0.8037.93",
+      "gpu": {
+        "vendor": "apple",
+        "architecture": "metal-3",
+        "fallback": false
+      },
+      "layers": 24,
+      "observations": 8,
+      "reset": true,
+      "tokenAlignment": true,
+      "cancelledInitialization": true,
+      "controls": {
+        "slowTokensPerSecond": 2.961884774201827,
+        "slowIntervalsMs": [
+          354.49000000953674,
+          332.8649999499321,
+          330.10000002384186,
+          333.125,
+          338.3899999856949,
+          332.3700000047684,
+          342.02000004053116
+        ],
+        "stopLatencyMs": 0.3199999928474426,
+        "tokensBeforeStop": 1,
+        "liveToggle": true,
+        "earlyTokenization": true
+      },
+      "deep": {
+        "verified": true,
+        "packedReadbackBytes": 1136,
+        "samples": {
+          "short": {
+            "promptTokens": 13,
+            "output": "Hi! How can I help you today?",
+            "snapshots": [
+              {
+                "generated": 1,
+                "token": {
+                  "id": 12675,
+                  "piece": "Hi"
+                },
+                "lens": [
+                  {
+                    "layer": 11,
+                    "candidates": [
+                      {
+                        "id": 327,
+                        "piece": "ad",
+                        "probability": 0.006807262543588877
+                      },
+                      {
+                        "id": 45362,
+                        "piece": "adm",
+                        "probability": 0.006795315071940422
+                      },
+                      {
+                        "id": 96693,
+                        "piece": "害",
+                        "probability": 0.0048752278089523315
+                      },
+                      {
+                        "id": 107734,
+                        "piece": "禹",
+                        "probability": 0.004595756996423006
+                      },
+                      {
+                        "id": 103117,
+                        "piece": "骚",
+                        "probability": 0.0041516986675560474
+                      }
+                    ]
+                  },
+                  {
+                    "layer": 19,
+                    "candidates": [
+                      {
+                        "id": 12675,
+                        "piece": "Hi",
+                        "probability": 0.37494415044784546
+                      },
+                      {
+                        "id": 20375,
+                        "piece": " Hi",
+                        "probability": 0.22267478704452515
+                      },
+                      {
+                        "id": 15131,
+                        "piece": " hi",
+                        "probability": 0.13083112239837646
+                      },
+                      {
+                        "id": 9419,
+                        "piece": "Hello",
+                        "probability": 0.12383274734020233
+                      },
+                      {
+                        "id": 5834,
+                        "piece": "hi",
+                        "probability": 0.054486021399497986
+                      }
+                    ]
+                  }
+                ],
+                "final": [
+                  {
+                    "id": 9419,
+                    "piece": "Hello",
+                    "probability": 0.6360352635383606
+                  },
+                  {
+                    "id": 12675,
+                    "piece": "Hi",
+                    "probability": 0.3639647364616394
+                  }
+                ],
+                "attention": [
+                  {
+                    "layer": 3,
+                    "query_position": 12,
+                    "key_count": 13,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 12,
+                        "weight": 0.13158182799816132
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.11977170407772064
+                      },
+                      {
+                        "position": 4,
+                        "weight": 0.11480306833982468
+                      },
+                      {
+                        "position": 11,
+                        "weight": 0.10095427930355072
+                      },
+                      {
+                        "position": 5,
+                        "weight": 0.0996466800570488
+                      },
+                      {
+                        "position": 10,
+                        "weight": 0.07010175287723541
+                      },
+                      {
+                        "position": 2,
+                        "weight": 0.06937619298696518
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.0639876052737236
+                      },
+                      {
+                        "position": 8,
+                        "weight": 0.06307771801948547
+                      },
+                      {
+                        "position": 6,
+                        "weight": 0.05949654430150986
+                      },
+                      {
+                        "position": 1,
+                        "weight": 0.050798624753952026
+                      },
+                      {
+                        "position": 7,
+                        "weight": 0.03299503028392792
+                      },
+                      {
+                        "position": 3,
+                        "weight": 0.023409001529216766
+                      }
+                    ],
+                    "coverage": 1.0000000298023224
+                  },
+                  {
+                    "layer": 7,
+                    "query_position": 12,
+                    "key_count": 13,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 12,
+                        "weight": 0.2917530834674835
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.11751905828714371
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.10002478957176208
+                      },
+                      {
+                        "position": 4,
+                        "weight": 0.09118478745222092
+                      },
+                      {
+                        "position": 6,
+                        "weight": 0.08717827498912811
+                      },
+                      {
+                        "position": 8,
+                        "weight": 0.0744660422205925
+                      },
+                      {
+                        "position": 7,
+                        "weight": 0.07271136343479156
+                      },
+                      {
+                        "position": 1,
+                        "weight": 0.040754981338977814
+                      },
+                      {
+                        "position": 3,
+                        "weight": 0.039407968521118164
+                      },
+                      {
+                        "position": 2,
+                        "weight": 0.03201048821210861
+                      },
+                      {
+                        "position": 5,
+                        "weight": 0.022933196276426315
+                      },
+                      {
+                        "position": 11,
+                        "weight": 0.015235550701618195
+                      },
+                      {
+                        "position": 10,
+                        "weight": 0.014820431359112263
+                      }
+                    ],
+                    "coverage": 1.0000000158324838
+                  },
+                  {
+                    "layer": 11,
+                    "query_position": 12,
+                    "key_count": 13,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 4,
+                        "weight": 0.16983526945114136
+                      },
+                      {
+                        "position": 12,
+                        "weight": 0.16104348003864288
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.14908413589000702
+                      },
+                      {
+                        "position": 6,
+                        "weight": 0.12720538675785065
+                      },
+                      {
+                        "position": 8,
+                        "weight": 0.10892631858587265
+                      },
+                      {
+                        "position": 7,
+                        "weight": 0.08618617802858353
+                      },
+                      {
+                        "position": 3,
+                        "weight": 0.07682762295007706
+                      },
+                      {
+                        "position": 1,
+                        "weight": 0.035867318511009216
+                      },
+                      {
+                        "position": 11,
+                        "weight": 0.024836625903844833
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.020763948559761047
+                      },
+                      {
+                        "position": 5,
+                        "weight": 0.020178500562906265
+                      },
+                      {
+                        "position": 2,
+                        "weight": 0.011801841668784618
+                      },
+                      {
+                        "position": 10,
+                        "weight": 0.007443410810083151
+                      }
+                    ],
+                    "coverage": 1.0000000377185643
+                  },
+                  {
+                    "layer": 15,
+                    "query_position": 12,
+                    "key_count": 13,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 3,
+                        "weight": 0.31269001960754395
+                      },
+                      {
+                        "position": 4,
+                        "weight": 0.24668331444263458
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.1409783512353897
+                      },
+                      {
+                        "position": 12,
+                        "weight": 0.0761776715517044
+                      },
+                      {
+                        "position": 8,
+                        "weight": 0.05303464084863663
+                      },
+                      {
+                        "position": 6,
+                        "weight": 0.04907872527837753
+                      },
+                      {
+                        "position": 10,
+                        "weight": 0.022228114306926727
+                      },
+                      {
+                        "position": 11,
+                        "weight": 0.020290838554501534
+                      },
+                      {
+                        "position": 2,
+                        "weight": 0.019512487575411797
+                      },
+                      {
+                        "position": 1,
+                        "weight": 0.019178500398993492
+                      },
+                      {
+                        "position": 5,
+                        "weight": 0.018419643864035606
+                      },
+                      {
+                        "position": 7,
+                        "weight": 0.01106707938015461
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.01066061295568943
+                      }
+                    ],
+                    "coverage": 1
+                  },
+                  {
+                    "layer": 19,
+                    "query_position": 12,
+                    "key_count": 13,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 3,
+                        "weight": 0.6573470830917358
+                      },
+                      {
+                        "position": 12,
+                        "weight": 0.09180700778961182
+                      },
+                      {
+                        "position": 11,
+                        "weight": 0.05330551415681839
+                      },
+                      {
+                        "position": 8,
+                        "weight": 0.050392936915159225
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.04487841576337814
+                      },
+                      {
+                        "position": 7,
+                        "weight": 0.022136809304356575
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.02174597606062889
+                      },
+                      {
+                        "position": 2,
+                        "weight": 0.02169320546090603
+                      },
+                      {
+                        "position": 5,
+                        "weight": 0.015491422265768051
+                      },
+                      {
+                        "position": 1,
+                        "weight": 0.006750339642167091
+                      },
+                      {
+                        "position": 6,
+                        "weight": 0.006173304282128811
+                      },
+                      {
+                        "position": 4,
+                        "weight": 0.0053337616845965385
+                      },
+                      {
+                        "position": 10,
+                        "weight": 0.0029442464001476765
+                      }
+                    ],
+                    "coverage": 1.000000022817403
+                  },
+                  {
+                    "layer": 23,
+                    "query_position": 12,
+                    "key_count": 13,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 12,
+                        "weight": 0.32905176281929016
+                      },
+                      {
+                        "position": 3,
+                        "weight": 0.21464510262012482
+                      },
+                      {
+                        "position": 8,
+                        "weight": 0.10904866456985474
+                      },
+                      {
+                        "position": 2,
+                        "weight": 0.05859383940696716
+                      },
+                      {
+                        "position": 11,
+                        "weight": 0.0560942068696022
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.050792161375284195
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.03768331557512283
+                      },
+                      {
+                        "position": 7,
+                        "weight": 0.03532436862587929
+                      },
+                      {
+                        "position": 1,
+                        "weight": 0.030658598989248276
+                      },
+                      {
+                        "position": 10,
+                        "weight": 0.028505146503448486
+                      },
+                      {
+                        "position": 6,
+                        "weight": 0.023262934759259224
+                      },
+                      {
+                        "position": 4,
+                        "weight": 0.01687922701239586
+                      },
+                      {
+                        "position": 5,
+                        "weight": 0.009460687637329102
+                      }
+                    ],
+                    "coverage": 1.0000000167638063
+                  }
+                ],
+                "layer_backend": "WebGPU"
+              }
+            ]
+          },
+          "france": {
+            "promptTokens": 26,
+            "output": "Paris",
+            "snapshots": [
+              {
+                "generated": 1,
+                "token": {
+                  "id": 57590,
+                  "piece": "Paris"
+                },
+                "lens": [
+                  {
+                    "layer": 11,
+                    "candidates": [
+                      {
+                        "id": 104411,
+                        "piece": "意志",
+                        "probability": 0.009200941771268845
+                      },
+                      {
+                        "id": 97727,
+                        "piece": "方的",
+                        "probability": 0.005637709051370621
+                      },
+                      {
+                        "id": 198537,
+                        "piece": "urgi",
+                        "probability": 0.00424060458317399
+                      },
+                      {
+                        "id": 238505,
+                        "piece": " aterr",
+                        "probability": 0.003676151391118765
+                      },
+                      {
+                        "id": 212426,
+                        "piece": "cula",
+                        "probability": 0.003615363733842969
+                      }
+                    ]
+                  },
+                  {
+                    "layer": 19,
+                    "candidates": [
+                      {
+                        "id": 11751,
+                        "piece": " Paris",
+                        "probability": 0.38373640179634094
+                      },
+                      {
+                        "id": 57590,
+                        "piece": "Paris",
+                        "probability": 0.196695938706398
+                      },
+                      {
+                        "id": 109705,
+                        "piece": "巴黎",
+                        "probability": 0.09018734842538834
+                      },
+                      {
+                        "id": 89798,
+                        "piece": " capitals",
+                        "probability": 0.04864245280623436
+                      },
+                      {
+                        "id": 206626,
+                        "piece": " París",
+                        "probability": 0.022695671766996384
+                      }
+                    ]
+                  }
+                ],
+                "final": [
+                  {
+                    "id": 57590,
+                    "piece": "Paris",
+                    "probability": 1
+                  }
+                ],
+                "attention": [
+                  {
+                    "layer": 3,
+                    "query_position": 25,
+                    "key_count": 26,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 25,
+                        "weight": 0.13296934962272644
+                      },
+                      {
+                        "position": 17,
+                        "weight": 0.10450288653373718
+                      },
+                      {
+                        "position": 22,
+                        "weight": 0.06634797900915146
+                      },
+                      {
+                        "position": 23,
+                        "weight": 0.06464260816574097
+                      },
+                      {
+                        "position": 24,
+                        "weight": 0.05281776189804077
+                      },
+                      {
+                        "position": 16,
+                        "weight": 0.05280597507953644
+                      },
+                      {
+                        "position": 21,
+                        "weight": 0.051717713475227356
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.050801992416381836
+                      },
+                      {
+                        "position": 2,
+                        "weight": 0.04885069280862808
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.042730581015348434
+                      },
+                      {
+                        "position": 10,
+                        "weight": 0.04094718396663666
+                      },
+                      {
+                        "position": 11,
+                        "weight": 0.03876913711428642
+                      },
+                      {
+                        "position": 18,
+                        "weight": 0.035172007977962494
+                      },
+                      {
+                        "position": 1,
+                        "weight": 0.02802581712603569
+                      },
+                      {
+                        "position": 12,
+                        "weight": 0.02523907646536827
+                      },
+                      {
+                        "position": 19,
+                        "weight": 0.02486533671617508
+                      }
+                    ],
+                    "coverage": 0.8612060993909836
+                  },
+                  {
+                    "layer": 7,
+                    "query_position": 25,
+                    "key_count": 26,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 25,
+                        "weight": 0.16949379444122314
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.14470790326595306
+                      },
+                      {
+                        "position": 22,
+                        "weight": 0.07460959255695343
+                      },
+                      {
+                        "position": 19,
+                        "weight": 0.06865648925304413
+                      },
+                      {
+                        "position": 16,
+                        "weight": 0.0652998760342598
+                      },
+                      {
+                        "position": 10,
+                        "weight": 0.06231364980340004
+                      },
+                      {
+                        "position": 20,
+                        "weight": 0.04750380665063858
+                      },
+                      {
+                        "position": 17,
+                        "weight": 0.04288080334663391
+                      },
+                      {
+                        "position": 12,
+                        "weight": 0.035151466727256775
+                      },
+                      {
+                        "position": 1,
+                        "weight": 0.0327644869685173
+                      },
+                      {
+                        "position": 2,
+                        "weight": 0.03023926541209221
+                      },
+                      {
+                        "position": 8,
+                        "weight": 0.025915078818798065
+                      },
+                      {
+                        "position": 3,
+                        "weight": 0.025096679106354713
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.024787547066807747
+                      },
+                      {
+                        "position": 23,
+                        "weight": 0.021874338388442993
+                      },
+                      {
+                        "position": 24,
+                        "weight": 0.020825117826461792
+                      }
+                    ],
+                    "coverage": 0.8921198956668377
+                  },
+                  {
+                    "layer": 11,
+                    "query_position": 25,
+                    "key_count": 26,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 15,
+                        "weight": 0.15626609325408936
+                      },
+                      {
+                        "position": 14,
+                        "weight": 0.1251598447561264
+                      },
+                      {
+                        "position": 16,
+                        "weight": 0.09413522481918335
+                      },
+                      {
+                        "position": 25,
+                        "weight": 0.08259005844593048
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.06954055279493332
+                      },
+                      {
+                        "position": 21,
+                        "weight": 0.06313826143741608
+                      },
+                      {
+                        "position": 10,
+                        "weight": 0.05930032953619957
+                      },
+                      {
+                        "position": 12,
+                        "weight": 0.039927560836076736
+                      },
+                      {
+                        "position": 13,
+                        "weight": 0.028273187577724457
+                      },
+                      {
+                        "position": 8,
+                        "weight": 0.02632235363125801
+                      },
+                      {
+                        "position": 6,
+                        "weight": 0.025358404964208603
+                      },
+                      {
+                        "position": 20,
+                        "weight": 0.025319425389170647
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.024600327014923096
+                      },
+                      {
+                        "position": 7,
+                        "weight": 0.021796057000756264
+                      },
+                      {
+                        "position": 19,
+                        "weight": 0.021446365863084793
+                      },
+                      {
+                        "position": 24,
+                        "weight": 0.01936902478337288
+                      }
+                    ],
+                    "coverage": 0.882543072104454
+                  },
+                  {
+                    "layer": 15,
+                    "query_position": 25,
+                    "key_count": 26,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 6,
+                        "weight": 0.1801130473613739
+                      },
+                      {
+                        "position": 8,
+                        "weight": 0.16002419590950012
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.13456106185913086
+                      },
+                      {
+                        "position": 18,
+                        "weight": 0.08566633611917496
+                      },
+                      {
+                        "position": 25,
+                        "weight": 0.06904733926057816
+                      },
+                      {
+                        "position": 1,
+                        "weight": 0.047399844974279404
+                      },
+                      {
+                        "position": 23,
+                        "weight": 0.04325477406382561
+                      },
+                      {
+                        "position": 21,
+                        "weight": 0.03827081248164177
+                      },
+                      {
+                        "position": 20,
+                        "weight": 0.03370443359017372
+                      },
+                      {
+                        "position": 14,
+                        "weight": 0.032993383705616
+                      },
+                      {
+                        "position": 2,
+                        "weight": 0.031994421035051346
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.03154861927032471
+                      },
+                      {
+                        "position": 7,
+                        "weight": 0.02450280636548996
+                      },
+                      {
+                        "position": 22,
+                        "weight": 0.01634945347905159
+                      },
+                      {
+                        "position": 15,
+                        "weight": 0.0145676014944911
+                      },
+                      {
+                        "position": 24,
+                        "weight": 0.010078351944684982
+                      }
+                    ],
+                    "coverage": 0.9540764829143882
+                  },
+                  {
+                    "layer": 19,
+                    "query_position": 25,
+                    "key_count": 26,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 18,
+                        "weight": 0.15688899159431458
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.11229119449853897
+                      },
+                      {
+                        "position": 25,
+                        "weight": 0.10411139577627182
+                      },
+                      {
+                        "position": 8,
+                        "weight": 0.094243124127388
+                      },
+                      {
+                        "position": 21,
+                        "weight": 0.07586728781461716
+                      },
+                      {
+                        "position": 6,
+                        "weight": 0.0756528228521347
+                      },
+                      {
+                        "position": 1,
+                        "weight": 0.05779437720775604
+                      },
+                      {
+                        "position": 2,
+                        "weight": 0.0555153414607048
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.037808358669281006
+                      },
+                      {
+                        "position": 20,
+                        "weight": 0.02968013659119606
+                      },
+                      {
+                        "position": 14,
+                        "weight": 0.027949927374720573
+                      },
+                      {
+                        "position": 24,
+                        "weight": 0.022781455889344215
+                      },
+                      {
+                        "position": 16,
+                        "weight": 0.02253730595111847
+                      },
+                      {
+                        "position": 3,
+                        "weight": 0.021362612023949623
+                      },
+                      {
+                        "position": 19,
+                        "weight": 0.019230647012591362
+                      },
+                      {
+                        "position": 5,
+                        "weight": 0.016523141413927078
+                      }
+                    ],
+                    "coverage": 0.9302381202578545
+                  },
+                  {
+                    "layer": 23,
+                    "query_position": 25,
+                    "key_count": 26,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 25,
+                        "weight": 0.2999926507472992
+                      },
+                      {
+                        "position": 20,
+                        "weight": 0.10013331472873688
+                      },
+                      {
+                        "position": 24,
+                        "weight": 0.08256572484970093
+                      },
+                      {
+                        "position": 22,
+                        "weight": 0.056907009333372116
+                      },
+                      {
+                        "position": 21,
+                        "weight": 0.052161626517772675
+                      },
+                      {
+                        "position": 23,
+                        "weight": 0.050563566386699677
+                      },
+                      {
+                        "position": 8,
+                        "weight": 0.037241630256175995
+                      },
+                      {
+                        "position": 1,
+                        "weight": 0.0361546128988266
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.034385066479444504
+                      },
+                      {
+                        "position": 2,
+                        "weight": 0.03267095237970352
+                      },
+                      {
+                        "position": 18,
+                        "weight": 0.02709191106259823
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.026724666357040405
+                      },
+                      {
+                        "position": 19,
+                        "weight": 0.026007749140262604
+                      },
+                      {
+                        "position": 3,
+                        "weight": 0.023789826780557632
+                      },
+                      {
+                        "position": 6,
+                        "weight": 0.02203844115138054
+                      },
+                      {
+                        "position": 14,
+                        "weight": 0.019772879779338837
+                      }
+                    ],
+                    "coverage": 0.9282016288489103
+                  }
+                ],
+                "layer_backend": "WebGPU"
+              },
+              {
+                "generated": 2,
+                "token": {
+                  "id": 248046,
+                  "piece": "<|im_end|>"
+                },
+                "lens": [
+                  {
+                    "layer": 11,
+                    "candidates": [
+                      {
+                        "id": 69482,
+                        "piece": " crest",
+                        "probability": 0.00916776992380619
+                      },
+                      {
+                        "id": 5027,
+                        "piece": "olid",
+                        "probability": 0.005683783907443285
+                      },
+                      {
+                        "id": 167822,
+                        "piece": " Cual",
+                        "probability": 0.004788960795849562
+                      },
+                      {
+                        "id": 11160,
+                        "piece": "igma",
+                        "probability": 0.004388055764138699
+                      },
+                      {
+                        "id": 84155,
+                        "piece": "ilihan",
+                        "probability": 0.002584246452897787
+                      }
+                    ]
+                  },
+                  {
+                    "layer": 19,
+                    "candidates": [
+                      {
+                        "id": 248044,
+                        "piece": "<|endoftext|>",
+                        "probability": 0.17365680634975433
+                      },
+                      {
+                        "id": 248046,
+                        "piece": "<|im_end|>",
+                        "probability": 0.004207402002066374
+                      },
+                      {
+                        "id": 48549,
+                        "piece": "(es",
+                        "probability": 0.004006644245237112
+                      },
+                      {
+                        "id": 195769,
+                        "piece": "đa",
+                        "probability": 0.0036127003841102123
+                      },
+                      {
+                        "id": 2249,
+                        "piece": "angu",
+                        "probability": 0.0030263278167694807
+                      }
+                    ]
+                  }
+                ],
+                "final": [
+                  {
+                    "id": 248046,
+                    "piece": "",
+                    "probability": 1
+                  }
+                ],
+                "attention": [
+                  {
+                    "layer": 3,
+                    "query_position": 26,
+                    "key_count": 27,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 8,
+                        "weight": 0.2676515281200409
+                      },
+                      {
+                        "position": 26,
+                        "weight": 0.19785796105861664
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.09055382013320923
+                      },
+                      {
+                        "position": 18,
+                        "weight": 0.08245410025119781
+                      },
+                      {
+                        "position": 14,
+                        "weight": 0.07586455345153809
+                      },
+                      {
+                        "position": 7,
+                        "weight": 0.05571729689836502
+                      },
+                      {
+                        "position": 15,
+                        "weight": 0.050849396735429764
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.03502039611339569
+                      },
+                      {
+                        "position": 6,
+                        "weight": 0.03143591806292534
+                      },
+                      {
+                        "position": 10,
+                        "weight": 0.01093573309481144
+                      },
+                      {
+                        "position": 3,
+                        "weight": 0.010115060023963451
+                      },
+                      {
+                        "position": 17,
+                        "weight": 0.009863808751106262
+                      },
+                      {
+                        "position": 2,
+                        "weight": 0.009302408434450626
+                      },
+                      {
+                        "position": 22,
+                        "weight": 0.008347904309630394
+                      },
+                      {
+                        "position": 25,
+                        "weight": 0.0074907573871314526
+                      },
+                      {
+                        "position": 19,
+                        "weight": 0.00730255339294672
+                      }
+                    ],
+                    "coverage": 0.9507631962187588
+                  },
+                  {
+                    "layer": 7,
+                    "query_position": 26,
+                    "key_count": 27,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 26,
+                        "weight": 0.26369810104370117
+                      },
+                      {
+                        "position": 6,
+                        "weight": 0.15771782398223877
+                      },
+                      {
+                        "position": 8,
+                        "weight": 0.13798139989376068
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.11510243266820908
+                      },
+                      {
+                        "position": 14,
+                        "weight": 0.10574384033679962
+                      },
+                      {
+                        "position": 18,
+                        "weight": 0.06387966871261597
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.05469810962677002
+                      },
+                      {
+                        "position": 7,
+                        "weight": 0.0498545840382576
+                      },
+                      {
+                        "position": 21,
+                        "weight": 0.020939409732818604
+                      },
+                      {
+                        "position": 15,
+                        "weight": 0.010438213124871254
+                      },
+                      {
+                        "position": 10,
+                        "weight": 0.006108640693128109
+                      },
+                      {
+                        "position": 16,
+                        "weight": 0.003234970849007368
+                      },
+                      {
+                        "position": 2,
+                        "weight": 0.0022401753813028336
+                      },
+                      {
+                        "position": 19,
+                        "weight": 0.0015410172054544091
+                      },
+                      {
+                        "position": 1,
+                        "weight": 0.0011399390641599894
+                      },
+                      {
+                        "position": 22,
+                        "weight": 0.0007863978389650583
+                      }
+                    ],
+                    "coverage": 0.9951047241920605
+                  },
+                  {
+                    "layer": 11,
+                    "query_position": 26,
+                    "key_count": 27,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 14,
+                        "weight": 0.2065025269985199
+                      },
+                      {
+                        "position": 26,
+                        "weight": 0.1787537783384323
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.09531830251216888
+                      },
+                      {
+                        "position": 18,
+                        "weight": 0.08785339444875717
+                      },
+                      {
+                        "position": 8,
+                        "weight": 0.0748138427734375
+                      },
+                      {
+                        "position": 6,
+                        "weight": 0.06903836876153946
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.06368809193372726
+                      },
+                      {
+                        "position": 15,
+                        "weight": 0.057140886783599854
+                      },
+                      {
+                        "position": 21,
+                        "weight": 0.03946085274219513
+                      },
+                      {
+                        "position": 1,
+                        "weight": 0.025863006711006165
+                      },
+                      {
+                        "position": 7,
+                        "weight": 0.021537290886044502
+                      },
+                      {
+                        "position": 2,
+                        "weight": 0.020166750997304916
+                      },
+                      {
+                        "position": 16,
+                        "weight": 0.011655476875603199
+                      },
+                      {
+                        "position": 10,
+                        "weight": 0.009703060612082481
+                      },
+                      {
+                        "position": 25,
+                        "weight": 0.006934279575943947
+                      },
+                      {
+                        "position": 19,
+                        "weight": 0.005265484098345041
+                      }
+                    ],
+                    "coverage": 0.9736953950487077
+                  },
+                  {
+                    "layer": 15,
+                    "query_position": 26,
+                    "key_count": 27,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 26,
+                        "weight": 0.18603168427944183
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.11654812097549438
+                      },
+                      {
+                        "position": 21,
+                        "weight": 0.06396413594484329
+                      },
+                      {
+                        "position": 25,
+                        "weight": 0.06259487569332123
+                      },
+                      {
+                        "position": 15,
+                        "weight": 0.06186051666736603
+                      },
+                      {
+                        "position": 23,
+                        "weight": 0.05941194295883179
+                      },
+                      {
+                        "position": 14,
+                        "weight": 0.05325528234243393
+                      },
+                      {
+                        "position": 16,
+                        "weight": 0.0515524223446846
+                      },
+                      {
+                        "position": 1,
+                        "weight": 0.042246103286743164
+                      },
+                      {
+                        "position": 18,
+                        "weight": 0.03886904940009117
+                      },
+                      {
+                        "position": 6,
+                        "weight": 0.03592478483915329
+                      },
+                      {
+                        "position": 22,
+                        "weight": 0.032610151916742325
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.029519986361265182
+                      },
+                      {
+                        "position": 24,
+                        "weight": 0.02432260476052761
+                      },
+                      {
+                        "position": 20,
+                        "weight": 0.018539341166615486
+                      },
+                      {
+                        "position": 7,
+                        "weight": 0.01824692264199257
+                      }
+                    ],
+                    "coverage": 0.8954979255795479
+                  },
+                  {
+                    "layer": 19,
+                    "query_position": 26,
+                    "key_count": 27,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 0,
+                        "weight": 0.21687400341033936
+                      },
+                      {
+                        "position": 22,
+                        "weight": 0.12629802525043488
+                      },
+                      {
+                        "position": 2,
+                        "weight": 0.09076683223247528
+                      },
+                      {
+                        "position": 23,
+                        "weight": 0.06546584516763687
+                      },
+                      {
+                        "position": 26,
+                        "weight": 0.05273463577032089
+                      },
+                      {
+                        "position": 19,
+                        "weight": 0.05214198678731918
+                      },
+                      {
+                        "position": 25,
+                        "weight": 0.0472760945558548
+                      },
+                      {
+                        "position": 1,
+                        "weight": 0.04555996507406235
+                      },
+                      {
+                        "position": 10,
+                        "weight": 0.03608883172273636
+                      },
+                      {
+                        "position": 17,
+                        "weight": 0.03225938603281975
+                      },
+                      {
+                        "position": 16,
+                        "weight": 0.0321863517165184
+                      },
+                      {
+                        "position": 24,
+                        "weight": 0.028888221830129623
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.02184540592133999
+                      },
+                      {
+                        "position": 3,
+                        "weight": 0.02178514003753662
+                      },
+                      {
+                        "position": 6,
+                        "weight": 0.01703091897070408
+                      },
+                      {
+                        "position": 21,
+                        "weight": 0.016886182129383087
+                      }
+                    ],
+                    "coverage": 0.9040878266096115
+                  },
+                  {
+                    "layer": 23,
+                    "query_position": 26,
+                    "key_count": 27,
+                    "head_count": 8,
+                    "entries": [
+                      {
+                        "position": 26,
+                        "weight": 0.3052416443824768
+                      },
+                      {
+                        "position": 19,
+                        "weight": 0.13749559223651886
+                      },
+                      {
+                        "position": 23,
+                        "weight": 0.0882662907242775
+                      },
+                      {
+                        "position": 1,
+                        "weight": 0.07892139256000519
+                      },
+                      {
+                        "position": 22,
+                        "weight": 0.061036039143800735
+                      },
+                      {
+                        "position": 17,
+                        "weight": 0.057901531457901
+                      },
+                      {
+                        "position": 2,
+                        "weight": 0.057024646550416946
+                      },
+                      {
+                        "position": 9,
+                        "weight": 0.029051311314105988
+                      },
+                      {
+                        "position": 0,
+                        "weight": 0.023833423852920532
+                      },
+                      {
+                        "position": 25,
+                        "weight": 0.02262215130031109
+                      },
+                      {
+                        "position": 21,
+                        "weight": 0.02158438228070736
+                      },
+                      {
+                        "position": 20,
+                        "weight": 0.019520055502653122
+                      },
+                      {
+                        "position": 24,
+                        "weight": 0.017778920009732246
+                      },
+                      {
+                        "position": 16,
+                        "weight": 0.017207659780979156
+                      },
+                      {
+                        "position": 18,
+                        "weight": 0.017171768471598625
+                      },
+                      {
+                        "position": 3,
+                        "weight": 0.006747271865606308
+                      }
+                    ],
+                    "coverage": 0.9614040814340115
+                  }
+                ],
+                "layer_backend": "WebGPU"
+              }
+            ]
+          }
+        }
+      },
+      "unicode": {
+        "output": "👩🏽‍🚀",
+        "generated": 12,
+        "observed": 12,
+        "intervalsMs": [
+          351.0400000214577,
+          339.40499997138977,
+          330.710000038147,
+          332.2649999856949,
+          325.9650000333786,
+          341.54499995708466,
+          345.53500002622604,
+          333.5450000166893,
+          333.68499994277954,
+          292.0100000500679,
+          335.98499995470047
+        ]
+      },
+      "measurements": []
+    }
+  },
+  "v4": {
+    "runtimeVersion": "3.8.1-observatory.4",
+    "date": "2026-10-04",
+    "host": "Apple M4 Pro",
+    "passed": true,
+    "browserVersion": "154.0.8037.93",
+    "gpu": {
+      "vendor": "apple",
+      "architecture": "metal-3",
+      "fallback": false
+    },
+    "layers": 24,
+    "deepTelemetryVerified": true,
+    "tokenAlignment": true,
+    "reset": true,
+    "cancelledInitialization": true,
+    "controls": {
+      "slowTokensPerSecond": 2.971030332049423,
+      "slowIntervalsMs": [
+        348.81999999284744,
+        333.960000038147,
+        340.41999995708466,
+        333.6100000143051,
+        332.97000002861023,
+        333.8449999690056,
+        332.460000038147
+      ],
+      "stopLatencyMs": 0.26499998569488525,
+      "tokensBeforeStop": 1,
+      "liveToggle": true,
+      "earlyTokenization": true
+    },
+    "unicode": {
+      "output": "👩🏽‍🚀",
+      "generated": 12,
+      "observed": 12,
+      "intervalsMs": [
+        349.69499999284744,
+        333.1449999809265,
+        351.9000000357628,
+        314.6200000047684,
+        341.67500001192093,
+        333.3149999976158,
+        325.3449999690056,
+        335.3799999952316,
+        338.72500002384186,
+        292.0999999642372,
+        333.3550000190735
+      ]
+    },
+    "selectedCandidate": {
+      "seed": 83,
+      "temperature": 5,
+      "topK": 20,
+      "rank": 10,
+      "token": {
+        "id": 3710,
+        "piece": "What"
+      },
+      "candidates": [
+        {
+          "id": 332,
+          "piece": "**",
+          "probability": 0.1336536556482315
+        },
+        {
+          "id": 760,
+          "piece": "The",
+          "probability": 0.0686953142285347
+        },
+        {
+          "id": 26677,
+          "piece": "Sil",
+          "probability": 0.05705561116337776
+        },
+        {
+          "id": 32,
+          "piece": "A",
+          "probability": 0.05490468069911003
+        },
+        {
+          "id": 22325,
+          "piece": "Sur",
+          "probability": 0.053968291729688644
+        },
+        {
+          "id": 1206,
+          "piece": "To",
+          "probability": 0.048615340143442154
+        },
+        {
+          "id": 8160,
+          "piece": "Here",
+          "probability": 0.0468876026570797
+        },
+        {
+          "id": 50,
+          "piece": "S",
+          "probability": 0.04491063579916954
+        },
+        {
+          "id": 3710,
+          "piece": "What",
+          "probability": 0.0424240343272686
+        }
+      ],
+      "nativeSelectedProbability": 0.0424240343272686,
+      "nativeTop20": [
+        {
+          "id": 332,
+          "token": "**",
+          "bytes": [
+            42,
+            42
+          ],
+          "prob": 0.1336536556482315
+        },
+        {
+          "id": 760,
+          "token": "The",
+          "bytes": [
+            84,
+            104,
+            101
+          ],
+          "prob": 0.0686953142285347
+        },
+        {
+          "id": 26677,
+          "token": "Sil",
+          "bytes": [
+            83,
+            105,
+            108
+          ],
+          "prob": 0.05705561116337776
+        },
+        {
+          "id": 32,
+          "token": "A",
+          "bytes": [
+            65
+          ],
+          "prob": 0.05490468069911003
+        },
+        {
+          "id": 22325,
+          "token": "Sur",
+          "bytes": [
+            83,
+            117,
+            114
+          ],
+          "prob": 0.053968291729688644
+        },
+        {
+          "id": 1206,
+          "token": "To",
+          "bytes": [
+            84,
+            111
+          ],
+          "prob": 0.048615340143442154
+        },
+        {
+          "id": 8160,
+          "token": "Here",
+          "bytes": [
+            72,
+            101,
+            114,
+            101
+          ],
+          "prob": 0.0468876026570797
+        },
+        {
+          "id": 50,
+          "token": "S",
+          "bytes": [
+            83
+          ],
+          "prob": 0.04491063579916954
+        },
+        {
+          "id": 38,
+          "token": "G",
+          "bytes": [
+            71
+          ],
+          "prob": 0.042932383716106415
+        },
+        {
+          "id": 3710,
+          "token": "What",
+          "bytes": [
+            87,
+            104,
+            97,
+            116
+          ],
+          "prob": 0.0424240343272686
+        },
+        {
+          "id": 34,
+          "token": "C",
+          "bytes": [
+            67
+          ],
+          "prob": 0.041977670043706894
+        },
+        {
+          "id": 44,
+          "token": "M",
+          "bytes": [
+            77
+          ],
+          "prob": 0.041832033544778824
+        },
+        {
+          "id": 13962,
+          "token": "###",
+          "bytes": [
+            35,
+            35,
+            35
+          ],
+          "prob": 0.041750140488147736
+        },
+        {
+          "id": 1743,
+          "token": "Un",
+          "bytes": [
+            85,
+            110
+          ],
+          "prob": 0.04155755788087845
+        },
+        {
+          "id": 550,
+          "token": "##",
+          "bytes": [
+            35,
+            35
+          ],
+          "prob": 0.041533906012773514
+        },
+        {
+          "id": 3758,
+          "token": "Per",
+          "bytes": [
+            80,
+            101,
+            114
+          ],
+          "prob": 0.041290100663900375
+        },
+        {
+          "id": 33,
+          "token": "B",
+          "bytes": [
+            66
+          ],
+          "prob": 0.040104832500219345
+        },
+        {
+          "id": 35,
+          "token": "D",
+          "bytes": [
+            68
+          ],
+          "prob": 0.03881649300456047
+        },
+        {
+          "id": 43,
+          "token": "L",
+          "bytes": [
+            76
+          ],
+          "prob": 0.03861411660909653
+        },
+        {
+          "id": 36,
+          "token": "E",
+          "bytes": [
+            69
+          ],
+          "prob": 0.038475606590509415
+        }
+      ]
+    },
+    "contextBoundary": {
+      "requestedContext": 128,
+      "context": 256,
+      "maxTokens": -1,
+      "finishReason": "length",
+      "generated": 232,
+      "promptTokens": 24,
+      "contextUsed": 256,
+      "retainedModel": true,
+      "resetCacheTokens": 0,
+      "recoveredText": "Hello! How can I assist you today"
+    },
+    "nativeBridge": {
+      "tests": 8,
+      "passed": true,
+      "command": "npx vitest run --config config/vitest.utilities.mts utilities-src/tests/localAssistantNativeBridge.test.ts",
+      "coverage": [
+        "uncaught worker failure with real getResponse/finally",
+        "message deserialization during initialization",
+        "asynchronous model-file read failure",
+        "native abort without awaiting diagnostics",
+        "synchronous postMessage failure",
+        "blocked constructor/object URL cleanup",
+        "exit before source resolves",
+        "session Stop, another send, New Chat and recovery"
+      ],
+      "settlementDeadlineMs": 500
+    },
+    "performance": "No new throughput benchmark; normal inference graph is unchanged. Earlier .3 measurements remain historical."
+  }
+}

@@ -10,7 +10,7 @@
   const utilityView = document.getElementById('utilitiesUtilityView');
   if (!titleView || !utilityView) return;
 
-  const allowedIds = new Set(['image-transform', 'audio-fourier', 'stress-test', 'yahtzee-keiri', 'lynx-reader']);
+  const allowedIds = new Set(['image-transform', 'audio-fourier', 'stress-test', 'yahtzee-keiri', 'lynx-reader', 'local-assistant']);
   const stages = Array.from(document.querySelectorAll('.utility-stage[data-utility-id]'));
   const entries = Array.from(document.querySelectorAll('.utilities-buttons [data-utility]'));
   const tools = new Map(stages

@@ -5,6 +5,8 @@ on:
       - main
     paths:
       - 'utilities-src/vm-src/proxy-worker/**'
+permissions:
+  contents: read
 jobs:
   deploy:
     runs-on: ubuntu-latest
