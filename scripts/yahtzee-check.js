@@ -94,6 +94,58 @@ async function scoreFirst(page) {
   await page.locator(`${APP} [data-score]:enabled`).first().click();
 }
 
+async function assertPointerDuringLoadFailure(browser, baseUrl) {
+  // Force the background render between pointerdown and pointerup. Replacing an
+  // unchanged button text node here makes WebKit drop the click, even though the
+  // control itself stays enabled, attached, and in the same position.
+  for (const action of ['roll', 'score', 'reset']) {
+    const page = await createPage(browser);
+    let release;
+    let pointerDown = false;
+    const delivery = new Promise(resolve => { release = resolve; });
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.route(TABLE_URL, async route => {
+      await delivery;
+      await route.fulfill({ status: 404, body: 'Deliberate exact-table failure during pointer press' });
+    });
+    try {
+      await openGame(page, baseUrl);
+      // Rules initialization persists the fresh game independently of the held
+      // exact table; scoring must already be possible once a die is rolled.
+      await page.waitForFunction(key => localStorage.getItem(key) !== null, STORAGE_KEY);
+      if (action === 'score') await roll(page);
+      const button = page.locator(`${APP} ${action === 'score' ? '[data-score]:enabled' : action === 'reset' ? '[data-reset]' : '[data-roll]'}`).first();
+      await button.click({ trial: true });
+      const box = await button.boundingBox();
+      assert(box, `${action}: pressed control has a visible hit area`);
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.mouse.down();
+      pointerDown = true;
+      release();
+      await waitForEngine(page, 'failed');
+      await page.mouse.up();
+      pointerDown = false;
+      if (action === 'roll') {
+        assert.equal((await saved(page)).match.rolls, 1, 'Background failure during pointer press must not discard Roll');
+        assert(await page.locator(`${APP} [data-score]:enabled`).count() > 0, 'Rules still score human rolls after exact-engine failure');
+      } else if (action === 'score') {
+        const state = await saved(page);
+        assert.equal(state.match.turn, 'keiri', 'Background failure during pointer press must not discard the selected score');
+        assert.equal(state.match.keiri.scores.filter(value => value !== null).length, 0, 'No fallback bot plays after table failure');
+      } else {
+        assert.equal(await button.textContent(), 'Clear', 'Background failure during pointer press must not discard Reset record confirmation');
+      }
+      assert.deepEqual(errors, [], `${action}: interrupted loading must not throw browser errors`);
+    } finally {
+      release();
+      if (pointerDown) await page.mouse.up().catch(() => {});
+      await page.close();
+    }
+  }
+  console.log('Yahtzee: real pointer presses survive background loading failure for Roll, score, and Reset record.');
+}
+
 async function assertLoadingAndRetry(browser, baseUrl) {
   const page = await createPage(browser);
   let release;
@@ -550,6 +602,7 @@ async function assertStorageRecovery(browser, baseUrl) {
 
 async function runYahtzeeChecks(browser, baseUrl) {
   fs.mkdirSync(OUTPUT, { recursive: true });
+  await assertPointerDuringLoadFailure(browser, baseUrl);
   await assertLoadingAndRetry(browser, baseUrl);
   await assertByteProgress(browser, baseUrl);
   await assertMatchAndPersistence(browser, baseUrl);

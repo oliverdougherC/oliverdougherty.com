@@ -315,6 +315,11 @@ export class YahtzeeController {
     }
   }
   private element<T extends HTMLElement = HTMLElement>(selector: string): T { return this.root.querySelector<T>(selector)!; }
+  private setInteractiveText(element: HTMLElement, text: string): void {
+    // WebKit drops an in-progress pointer click if its text node is replaced,
+    // even when a background loading update leaves the label unchanged.
+    if (element.textContent !== text) element.textContent = text;
+  }
   private render(): void {
     const pendingRestore = this.rawRestore !== null;
     const match = this.state.match;
@@ -332,7 +337,7 @@ export class YahtzeeController {
     this.element('[data-round]').textContent = `ROUND ${String(Math.min(13, filled(match.keiri) + 1)).padStart(2, '0')} / 13`;
     this.element('[data-reset-question]').hidden = !this.resetConfirm;
     this.element('[data-reset-cancel]').hidden = !this.resetConfirm;
-    this.element('[data-reset]').textContent = this.resetConfirm ? 'Clear' : 'Reset record';
+    this.setInteractiveText(this.element('[data-reset]'), this.resetConfirm ? 'Clear' : 'Reset record');
     for (const selector of ['[data-reset]', '[data-reset-game]', '[data-reset-cancel]', '[data-again]']) {
       this.element<HTMLButtonElement>(selector).disabled = pendingRestore;
     }
@@ -344,7 +349,7 @@ export class YahtzeeController {
       const button = this.element<HTMLButtonElement>(`[data-score="${category}"]`);
       const available = match.human.scores[category] === null && preview[category] != null;
       const value = match.human.scores[category] ?? preview[category] ?? '—';
-      button.textContent = String(value);
+      this.setInteractiveText(button, String(value));
       button.disabled = !available;
       button.classList.toggle('is-preview', available);
       if (available) button.style.setProperty('--score-strength', String(.035 + Math.min(50, Math.max(0, Number(value))) / 50 * .585));
@@ -361,11 +366,11 @@ export class YahtzeeController {
       button.dataset.face = String(dice[index] ?? 0);
       const positions = PIP_POSITIONS[dice[index] ?? 0];
       button.querySelectorAll('.yahtzee-pip').forEach((pip, position) => pip.classList.toggle('is-visible', positions.includes(position + 1)));
-      button.querySelector('.yahtzee-held')!.textContent = held[index] ? 'HELD' : '';
+      this.setInteractiveText(button.querySelector<HTMLElement>('.yahtzee-held')!, held[index] ? 'HELD' : '');
     }
     const roll = this.element<HTMLButtonElement>('[data-roll]');
     roll.hidden = complete; roll.disabled = !human || rolls >= 3 || this.rolling;
-    roll.textContent = this.rolling ? 'Rolling…' : rolls ? 'Reroll dice' : 'Roll dice';
+    this.setInteractiveText(roll, this.rolling ? 'Rolling…' : rolls ? 'Reroll dice' : 'Roll dice');
     this.element('[data-again]').hidden = !complete;
     this.element('.yahtzee-dice').hidden = complete;
     this.element('[data-result]').hidden = !complete;
