@@ -81,6 +81,7 @@ function createCheckPlan({ browsers = BROWSERS, group } = {}) {
     add('artifact', 'artifact-browser-check.js', 'artifact');
     add('home-stage', 'home-check.js', 'home', { HOME_CHECK_STAGE_ONLY: '1' });
     add('home-reveal', 'nighthawks-reveal-check.js', 'home', { NIGHTHAWKS_CHECK_BROWSERS: browser });
+    add('home-hover', 'nighthawks-hover-check.js', 'home', { NIGHTHAWKS_CHECK_BROWSERS: browser });
     if (browser === 'chromium') {
       for (const [name, file] of [['lynx-reader', 'lynx-reader-check.js'], ['local-assistant', 'local-assistant-check.js']]) {
         utilityChecks.push({ name: `${browser}-${name}`, file, group: 'utilities', env });

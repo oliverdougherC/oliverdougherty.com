@@ -287,6 +287,10 @@ async function assertContextExhaustionRecovery(browser, baseUrl) {
     assert.equal(await page.locator(`${APP} .la-message--assistant .la-reasoning`).isVisible(), true, 'Preserved reasoning remains inspectable after context exhaustion');
     await assertFits(page, 'Context exhaustion 1280x720');
     await page.screenshot({ path: path.join(OUTPUT, `fixture-context-full-${browser.browserType().name()}.png`) });
+    await page.locator(`${APP} .la-message--assistant .la-reasoning p`).click();
+    assert.equal(await page.locator(`${APP} .la-message--assistant details`).evaluate(node => node.open), false, 'Clicking the thought process collapses it');
+    await page.locator(`${APP} .la-message--assistant summary`).press('Enter');
+    assert.equal(await page.locator(`${APP} .la-message--assistant details`).evaluate(node => node.open), true, 'Keyboard summary activation reopens thinking');
     await element(page, 'chat-retry').click();
     await phase(page, 'ready');
     await page.waitForFunction(() => globalThis.__localAssistantFixture.resets === 1);
@@ -376,7 +380,7 @@ async function assertObservatorySnapshot(page, index, layer = 0) {
   assert.deepEqual(reading.edges, [{ position: 3, weight: 0.41 + index % 5 * 0.01 }, { position: 47, weight: 0.19 }, { position: 1023 + index, weight: 0.07 }], 'Attention keeps absolute key positions and original sparse head-mean weights');
   assert(reading.edges.reduce((sum, edge) => sum + edge.weight, 0) < 1, 'Sparse weights are not renormalized to the retained keys');
   assert.match(reading.query, new RegExp(`context position ${1023 + index},`));
-  assert.equal(reading.queryLabel, `${index === 0 ? 'prompt1023' : `token${index - 1}`} · query ${1023 + index}`, 'Attention identifies the preceding query token, not the newly sampled token');
+  assert.equal(reading.queryLabel, index === 0 ? 'prompt1023' : `token${index - 1}`, 'Attention identifies the preceding query token, not the newly sampled token');
   assert.match(reading.delta, new RegExp(`^L${layer + 1} · `));
   assert(Math.abs(Number(reading.delta.split('·')[1].trim()) - (0.05 + layer / 100 + (index % 7) / 50)) < 0.00006, 'Selected layer shows its measured relative delta');
   assert.match(reading.canvasDescription, new RegExp(`Step ${step}\\.`));

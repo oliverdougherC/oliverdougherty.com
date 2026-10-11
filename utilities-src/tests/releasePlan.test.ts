@@ -15,11 +15,12 @@ it('preserves existing release checks and includes cross-browser game coverage',
   expect(legacy).toHaveLength(44);
   expect(plan.map((check: { name: string }) => check.name).sort()).toEqual([
     ...legacy, 'chromium-home-reveal', 'firefox-home-reveal', 'webkit-home-reveal',
+    'chromium-home-hover', 'firefox-home-hover', 'webkit-home-hover',
     'chromium-gallery-inspector', 'firefox-gallery-inspector', 'webkit-gallery-inspector',
     'chromium-yahtzee', 'firefox-yahtzee', 'webkit-yahtzee',
     'firefox-index-arrow', 'webkit-index-arrow', 'chromium-lynx-reader', 'chromium-local-assistant'
   ].sort());
-  expect(new Set(plan.map((check: { name: string }) => check.name)).size).toBe(57);
+  expect(new Set(plan.map((check: { name: string }) => check.name)).size).toBe(60);
   expect(plan.some((check: { name: string }) => check.name === 'chromium-index-arrow')).toBe(false);
 });
 
@@ -48,6 +49,17 @@ it('keeps browser-specific environment settings and Chromium-only workloads', ()
   expect(firefox.some((check: { name: string }) => check.name === 'chromium-utilities')).toBe(false);
   expect(firefox.find((check: { name: string }) => check.name === 'firefox-stress-pool').env).toMatchObject({ STRESS_BROWSER_TYPE: 'firefox', STRESS_POOL_ONLY: '1' });
   expect(firefox.find((check: { name: string }) => check.name === 'firefox-home-reveal').env.NIGHTHAWKS_CHECK_BROWSERS).toBe('firefox');
+});
+
+it.each(['chromium', 'firefox', 'webkit'])('runs hover regression against the shared packaged site in the %s home lane', async browser => {
+  const plan = createCheckPlan({ browsers: [browser], group: 'home' });
+  const hover = plan.filter((check: { file: string }) => check.file === 'nighthawks-hover-check.js');
+  expect(hover).toHaveLength(1);
+  expect(hover[0]).toMatchObject({ name: `${browser}-home-hover`, group: 'home', env: { NIGHTHAWKS_CHECK_BROWSERS: browser } });
+  const runCheck = vi.fn(async () => ({ status: 'pass' }));
+  const env = { NIGHTHAWKS_CHECK_URL: 'http://127.0.0.1:12345', STATIC_ROOT: '/packaged-site', REQUIRE_DEPLOY_ARTIFACT: '1' };
+  await executeChecks(hover, env, { runCheck });
+  expect(runCheck).toHaveBeenCalledWith(`${browser}-home-hover`, 'nighthawks-hover-check.js', expect.objectContaining(env));
 });
 
 it.each([true, false])('writes each result and honors failFast=%s', async failFast => {

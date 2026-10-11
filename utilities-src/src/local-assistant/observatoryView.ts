@@ -162,7 +162,7 @@ export class ObservatoryView {
     const width = Math.max(280, this.width); const height = Math.max(1, plot.clientHeight || 100); const chart = svg(this.doc, 'svg', { viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': `Attention from context position ${reading.queryPosition}, layer ${reading.layer + 1}` });
     const query = snapshot.query?.position === reading.queryPosition ? snapshot.query : this.tokenAt(reading.queryPosition);
     const label = query ? tokenLabel(query.piece) : `#${reading.queryPosition}`;
-    chart.append(svg(this.doc, 'text', { x: width / 2, y: 13, 'text-anchor': 'middle', class: 'la-attention-query' }, `${label.slice(0, 22)} · query ${reading.queryPosition}`));
+    chart.append(svg(this.doc, 'text', { x: width / 2, y: 13, 'text-anchor': 'middle', class: 'la-attention-query' }, label.slice(0, 22)));
     const peak = Math.max(...entries.map(entry => entry.weight), 0.000001);
     entries.forEach((entry, index) => {
       const x = (index + 0.5) * width / entries.length;

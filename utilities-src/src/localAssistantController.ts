@@ -124,7 +124,20 @@ export class LocalAssistantController {
     this.lastAnnouncement = text; this.el('[data-announcement]').textContent = text;
   }
   private async click(event: Event): Promise<void> {
-    const target = (event.target as Element).closest<HTMLButtonElement>('button');
+    const element = event.target as Element;
+    const reasoning = element.closest<HTMLElement>('.la-reasoning');
+    if (reasoning && !event.defaultPrevented && !element.closest('a, button, input, textarea, select, [contenteditable]')) {
+      const selection = document.getSelection();
+      const selecting = selection && !selection.isCollapsed && (reasoning.contains(selection.anchorNode) || reasoning.contains(selection.focusNode));
+      const details = reasoning.closest('details');
+      if (details?.open && !selecting) {
+        this.session.touchActivity();
+        details.open = false;
+        details.querySelector('summary')?.focus({ preventScroll: true });
+      }
+      return;
+    }
+    const target = element.closest<HTMLButtonElement>('button');
     if (!target) return;
     this.session.touchActivity();
     if (target.hasAttribute('data-enter')) { this.gameRunning = false; this.snake?.stop(); this.session.enterChat(); this.el('[data-input]').focus(); }
