@@ -131,6 +131,13 @@
     const columns = source.indexOf('\n');
     const rows = source.trimEnd().split('\n').length;
     const active = new Map();
+    // The artwork font is subsetted: reuse its own glyphs so scrambling credits
+    // never falls back to a different font or changes the grid's cell widths.
+    const creditGlyphs = Array.from(new Set(source.replace(/\s/g, ''))).join('');
+    function scramble(index) {
+      const alphabet = /[01]/.test(source[index]) ? '01' : creditGlyphs;
+      return alphabet[Math.floor(Math.random() * alphabet.length)];
+    }
     // Touched cells briefly return toward the reveal's white fill. The same
     // glyph is used in both layers, including while the reveal is still running.
     const glow = document.createElement('canvas');
@@ -185,14 +192,20 @@
         for (let col = left; col <= right; col++) {
           const distance = Math.hypot((col + 0.5) * cellWidth - x, (row + 0.5) * cellHeight - y);
           const index = row * (columns + 1) + col;
-          if (distance >= radius || !/[01]/.test(source[index])) continue;
+          if (distance >= radius || /\s/.test(source[index])) continue;
           const strength = 1 - distance / radius;
           let cell = active.get(index);
           if (!cell) {
-            cell = { row, col, glyph: baseCells[index] === '0' ? '1' : '0', nextFlip: now + flipCadence * (0.8 + Math.random() * 0.4), until: 0, strength: 0 };
+            cell = {
+              row, col, glyph: scramble(index),
+              pace: flipCadence * (0.2 + Math.random() * 0.7),
+              nextFlip: now + Math.random() * flipCadence,
+              decay: 1100 + Math.random() * 900 + strength * 400,
+              until: 0, strength: 0
+            };
             active.set(index, cell);
           }
-          cell.until = Math.max(cell.until, now + 1400 + strength * 1000);
+          cell.until = Math.max(cell.until, now + cell.decay);
           cell.strength = Math.max(cell.strength, strength);
         }
       }
@@ -210,9 +223,11 @@
             continue;
           }
           if (now >= cell.nextFlip) {
-            cell.glyph = cell.glyph === '0' ? '1' : '0';
-            // Match the opening cadence, then gently slow into the painting.
-            cell.nextFlip = now + flipCadence * (0.8 + Math.random() * 0.4) + 160 * (1 - Math.min(1, remaining / 2400));
+            cell.glyph = scramble(index);
+            // Independent phases, rates, and occasional repeated glyphs create
+            // local disorder instead of a patch of bits inverting in unison.
+            const cooling = 1 + 2 * (1 - Math.min(1, remaining / cell.decay));
+            cell.nextFlip = now + Math.max(65, cell.pace * (0.35 + Math.random() * 1.65) * cooling);
           }
         }
         renderCharacters();

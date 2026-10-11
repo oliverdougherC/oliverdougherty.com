@@ -15,6 +15,10 @@ async function check(browser, baseUrl) {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   try {
+    await page.addInitScript(() => {
+      let seed = 42;
+      Math.random = () => { seed = (1664525 * seed + 1013904223) >>> 0; return seed / 4294967296; };
+    });
     await page.goto(`${baseUrl}/?full=1`);
     await page.waitForFunction(() => document.querySelector('#nighthawksArtwork').dataset.renderMode === 'text');
     await page.clock.install();
@@ -35,12 +39,21 @@ async function check(browser, baseUrl) {
     await page.clock.runFor(100);
     const first = await grid(page);
     const changed = [...first].filter((glyph, index) => glyph !== SOURCE[index]).length;
-    assert(changed > 30 && changed < 110, `Hover affects a tight brush of nearby characters (${changed})`);
+    assert(changed > 15 && changed < 70, `Hover randomizes a tight brush rather than inverting every bit (${changed})`);
     for (let i = 0; i < SOURCE.length; i++) {
       if (SOURCE[i] !== '0' && SOURCE[i] !== '1') assert.equal(first[i], SOURCE[i], 'Letters, whitespace and row boundaries stay intact');
     }
-    await page.clock.runFor(650);
-    assert.notEqual(await grid(page), first, 'A stationary pointer keeps its digits flipping');
+    const changes = [];
+    let previous = first;
+    for (let sample = 0; sample < 15; sample++) {
+      await page.clock.runFor(100);
+      const current = await grid(page);
+      changes.push([...current].filter((glyph, index) => glyph !== previous[index]).length);
+      previous = current;
+    }
+    assert(changes.filter(count => count > 0).length >= 13, 'Independent flips remain active between collective beats');
+    assert(new Set(changes).size >= 5, 'The number of switching cells varies irregularly');
+    assert(Math.max(...changes) < 45, 'The brush does not flash most of its cells in unison');
     await move(0.75, 0.55);
     await page.clock.runFor(100);
     await page.screenshot({ path: path.join(OUTPUT, `${browser.browserType().name()}-hover.png`) });
@@ -59,6 +72,26 @@ async function check(browser, baseUrl) {
     await page.clock.runFor(1000);
     assert.equal(await page.evaluate(() => window.__hoverMutations), mutations, 'Idle artwork stops updating');
     await page.screenshot({ path: path.join(OUTPUT, `${browser.browserType().name()}-settled.png`) });
+
+    const credits = ['NIGHTHAWKS', 'EDWARD HOPPER, 1942'];
+    for (const credit of credits) {
+      const start = SOURCE.indexOf(credit);
+      const row = Math.floor(start / 201);
+      const column = start % 201;
+      await move((column + credit.length / 2) / 200, (row + 0.5) / 63);
+      await page.clock.runFor(400);
+      const scrambled = await grid(page);
+      assert.notEqual(scrambled.slice(start, start + credit.length), credit, 'Hovered credit text scrambles');
+      const letters = [...credit].map((glyph, index) => /[A-Z]/.test(glyph) ? start + index : -1).filter(index => index >= 0);
+      assert(letters.filter(index => scrambled[index] !== SOURCE[index]).length >= 3, 'Credit letters participate, not just the surrounding bits');
+      for (let index = 0; index < SOURCE.length; index++) {
+        if (/\s/.test(SOURCE[index])) assert.equal(scrambled[index], SOURCE[index], 'Credit spacing and row boundaries stay intact');
+      }
+      await page.screenshot({ path: path.join(OUTPUT, `${browser.browserType().name()}-credit-${row}.png`) });
+      await page.mouse.move(0, 0);
+      await page.clock.runFor(2800);
+      await settled();
+    }
 
     // Every interruption restores the original and allows a new interaction.
     for (const interrupt of ['resize', 'scroll', 'blur', 'pagehide', 'pointercancel', 'visibilitychange']) {
@@ -150,10 +183,13 @@ async function checkDuringReveal(browser, baseUrl) {
     await page.clock.runFor(2900);
     assert.equal(await page.locator('#nighthawksArtwork').getAttribute('data-reveal'), 'color');
     assert(await page.locator('.nighthawks-hover').isVisible(), 'Hover continues through the color phase');
+    const creditStart = SOURCE.indexOf('NIGHTHAWKS');
+    await page.mouse.move(box.x + box.width * 8 / 200, box.y + box.height * 58.5 / 63);
     await page.clock.runFor(1000);
     assert.equal(await page.locator('#nighthawksArtwork').getAttribute('data-reveal'), 'complete');
     assert(await page.locator('.nighthawks-hover').isVisible(), 'Finishing the reveal preserves the active brush');
     assert.notEqual(await grid(page), SOURCE, 'Pointer keeps flipping after the reveal completes');
+    assert.notEqual((await grid(page)).slice(creditStart, creditStart + 9), 'NIGHTHAWKS', 'Credit scrambling survives reveal completion');
     await page.mouse.move(0, 0);
     await page.clock.runFor(2800);
     assert.equal(await grid(page), SOURCE, 'Combined animation settles to the exact source');
