@@ -21,6 +21,7 @@ async function check(browser, baseUrl) {
     });
     await page.goto(`${baseUrl}/?full=1`);
     await page.waitForFunction(() => document.querySelector('#nighthawksArtwork').dataset.renderMode === 'text');
+    assert(await page.evaluate(() => matchMedia('(hover: hover) and (pointer: fine)').matches), 'Desktop hover checks require a fine, hover-capable pointer');
     await page.clock.install();
     await page.clock.pauseAt(new Date(Date.now() + 1000));
     const bounds = await page.locator('#nighthawksArtwork').boundingBox();
@@ -138,6 +139,7 @@ async function check(browser, baseUrl) {
   try {
     await touch.goto(`${baseUrl}/?full=1`);
     await touch.waitForFunction(() => document.querySelector('#nighthawksArtwork').dataset.renderMode === 'text');
+    assert.equal(await touch.evaluate(() => matchMedia('(hover: hover) and (pointer: fine)').matches), false, 'Touch context must retain its non-hovering pointer capabilities');
     await touch.emulateMedia({ reducedMotion: 'no-preference' });
     await touch.locator('#nighthawksArtwork').dispatchEvent('pointermove', { pointerType: 'touch', clientX: 300, clientY: 300 });
     await touch.waitForTimeout(200);
@@ -223,7 +225,15 @@ async function main() {
   const baseUrl = server?.url || requestedUrl;
   try {
     for (const name of (process.env.NIGHTHAWKS_CHECK_BROWSERS || 'chromium').split(',')) {
-      const browser = await { chromium, firefox, webkit }[name].launch({ timeout: 30000 });
+      const browser = await { chromium, firefox, webkit }[name].launch({
+        timeout: 30000,
+        // Linux headless Firefox reports no pointing device by default. Model
+        // a desktop mouse for this suite; production capability gates stay on.
+        ...(name === 'firefox' ? { firefoxUserPrefs: {
+          'ui.primaryPointerCapabilities': 6,
+          'ui.allPointerCapabilities': 6
+        } } : {})
+      });
       try {
         await check(browser, baseUrl);
         await checkDuringReveal(browser, baseUrl);
