@@ -113,6 +113,133 @@
     artwork.dataset.renderMode = 'fallback';
   }
 
+  function enableHover(rowWidth) {
+    const pointer = window.matchMedia('(hover: hover) and (pointer: fine)');
+    const cells = Array.from(source);
+    const columns = source.indexOf('\n');
+    const rows = source.trimEnd().split('\n').length;
+    const active = new Map();
+    // Only energized cells get a warm highlight; the original live text and
+    // color map remain the painting, with no per-character DOM elements.
+    const glow = document.createElement('canvas');
+    glow.className = 'nighthawks-hover';
+    glow.setAttribute('aria-hidden', 'true');
+    glow.hidden = true;
+    const context = glow.getContext('2d');
+    if (!context) return;
+    context.font = '800 25px "Nighthawks Mono"';
+    const metrics = context.measureText('01');
+    // Match the CSS line box, including its negative half-leading. A canvas
+    // "middle" baseline uses the em square and would double the painted glyphs.
+    const baseline = (26 + metrics.fontBoundingBoxAscent - metrics.fontBoundingBoxDescent) / 2;
+    artwork.append(glow);
+    let hoverFrame = 0;
+    let previous = null;
+    let bounds;
+    let lastPaint = -Infinity;
+
+    function reset() {
+      cancelAnimationFrame(hoverFrame);
+      hoverFrame = 0;
+      previous = null;
+      active.clear();
+      glow.hidden = true;
+      // Never interrupt the first-visit reveal's ownership of the text.
+      if (artwork.dataset.reveal === 'complete') {
+        cells.splice(0, cells.length, ...source);
+        characters.firstChild.textContent = source;
+      }
+    }
+
+    function energize(x, y, now) {
+      const cellWidth = bounds.width / columns;
+      const cellHeight = bounds.height / rows;
+      const radius = Math.min(110, bounds.width * 0.1);
+      const left = Math.max(0, Math.floor((x - radius) / cellWidth));
+      const right = Math.min(columns - 1, Math.floor((x + radius) / cellWidth));
+      const top = Math.max(0, Math.floor((y - radius) / cellHeight));
+      const bottom = Math.min(rows - 1, Math.floor((y + radius) / cellHeight));
+      for (let row = top; row <= bottom; row++) {
+        for (let col = left; col <= right; col++) {
+          const distance = Math.hypot((col + 0.5) * cellWidth - x, (row + 0.5) * cellHeight - y);
+          const index = row * (columns + 1) + col;
+          if (distance >= radius || !/[01]/.test(source[index])) continue;
+          const strength = 1 - distance / radius;
+          let cell = active.get(index);
+          if (!cell) {
+            cell = { row, col, nextFlip: now + 70 + Math.random() * 90, until: 0, strength: 0 };
+            active.set(index, cell);
+            cells[index] = source[index] === '0' ? '1' : '0';
+          }
+          cell.until = Math.max(cell.until, now + 1400 + strength * 1000);
+          cell.strength = Math.max(cell.strength, strength);
+        }
+      }
+    }
+
+    function paint(now) {
+      hoverFrame = 0;
+      if (now - lastPaint >= 32) {
+        lastPaint = now;
+        if (previous) energize(previous.x, previous.y, now);
+        context.clearRect(0, 0, rowWidth, rows * 26);
+        for (const [index, cell] of active) {
+          const remaining = cell.until - now;
+          if (remaining <= 0) {
+            cells[index] = source[index];
+            active.delete(index);
+            continue;
+          }
+          if (now >= cell.nextFlip) {
+            cells[index] = cells[index] === '0' ? '1' : '0';
+            // Rapid switches under the pointer slow into an irregular afterglow.
+            cell.nextFlip = now + 70 + Math.random() * 90 + 220 * (1 - Math.min(1, remaining / 2400));
+          }
+          context.globalAlpha = cell.strength * Math.min(1, remaining / 1400) * 0.85;
+          context.fillText(cells[index], cell.col * rowWidth / columns, cell.row * 26 + baseline);
+        }
+        characters.firstChild.textContent = cells.join('');
+        glow.hidden = active.size === 0;
+      }
+      if (active.size || previous) hoverFrame = requestAnimationFrame(paint);
+    }
+
+    artwork.addEventListener('pointermove', (event) => {
+      if (!pointer.matches || motion.matches || event.pointerType === 'touch'
+        || document.hidden || artwork.dataset.reveal !== 'complete'
+        || artwork.dataset.renderMode !== 'text') return;
+      if (!hoverFrame) {
+        bounds = characters.getBoundingClientRect();
+        const density = Math.min(window.devicePixelRatio || 1, 2);
+        glow.width = Math.ceil(bounds.width * density);
+        glow.height = Math.ceil(bounds.height * density);
+        context.setTransform(glow.width / rowWidth, 0, 0, glow.height / (rows * 26), 0, 0);
+        context.font = '800 25px "Nighthawks Mono"';
+        context.textBaseline = 'alphabetic';
+        context.fillStyle = '#fff1cd';
+      }
+      const point = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+      const now = performance.now();
+      // Join fast pointer samples so a sweep leaves a continuous brush stroke.
+      const steps = previous ? Math.min(40, Math.ceil(Math.hypot(point.x - previous.x, point.y - previous.y) / 20)) : 1;
+      for (let step = 1; step <= steps; step++) {
+        energize(previous ? previous.x + (point.x - previous.x) * step / steps : point.x,
+          previous ? previous.y + (point.y - previous.y) * step / steps : point.y, now);
+      }
+      previous = point;
+      if (!hoverFrame) hoverFrame = requestAnimationFrame(paint);
+    }, { passive: true });
+    artwork.addEventListener('pointerleave', () => { previous = null; });
+    artwork.addEventListener('pointercancel', reset);
+    window.addEventListener('pagehide', reset);
+    window.addEventListener('blur', reset);
+    window.addEventListener('resize', reset, { passive: true });
+    window.addEventListener('scroll', reset, { passive: true });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) reset(); });
+    motion.addEventListener('change', reset);
+    pointer.addEventListener('change', reset);
+  }
+
   if (!document.fonts || !window.FontFace || !window.CSS
     || !(CSS.supports('background-clip', 'text') || CSS.supports('-webkit-background-clip', 'text'))
     || window.matchMedia('(forced-colors: active)').matches) {
@@ -176,6 +303,7 @@
       fallback.hidden = true;
       revealCharacters();
       artwork.dataset.renderMode = 'text';
+      enableHover(rowWidth);
     })
     .catch(showFallback);
 })();
