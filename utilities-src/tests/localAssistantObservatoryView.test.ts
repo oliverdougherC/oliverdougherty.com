@@ -35,6 +35,8 @@ describe('linked runtime views', () => {
 
   it('displays original attention weights and full accessible source identity', () => {
     view.ingest(sample(1)); view.render();
+    expect(el('.la-attention-query').textContent).toBe('query');
+    expect(el('[data-attention-plot] svg').getAttribute('aria-label')).toBe('Attention from context position 2, layer 4');
     const edge = el<SVGElement>('[data-key-position="0"]');
     expect(edge.dataset.attentionWeight).toBe('0.41');
     expect(edge.getAttribute('aria-label')).toContain('first source token');

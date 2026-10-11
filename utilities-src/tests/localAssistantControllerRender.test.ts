@@ -145,6 +145,55 @@ describe('assistant streaming presentation', () => {
     expect(document.activeElement).toBe(summary); expect(el('[data-copy-message]')).toBe(copy);
     expect(el('.la-message--assistant .la-message-body').textContent).toContain('continues');
   });
+  it.each(['.la-reasoning', '.la-reasoning p', '.la-reasoning strong'])('collapses expanded thinking from %s and leaves it collapsed during streaming', async selector => {
+    const { el, update } = await setup();
+    await update('', 'Some **detailed reasoning**');
+    const details = el<HTMLDetailsElement>('details');
+    el('summary').click();
+    expect(details.open).toBe(true);
+    el(selector).click();
+    expect(details.open).toBe(false);
+    expect(document.activeElement).toBe(el('summary'));
+    await update('', 'Some **detailed reasoning** continues');
+    expect(details.open).toBe(false);
+    el('summary').click();
+    expect(details.open).toBe(true);
+    el('summary').click();
+    expect(details.open).toBe(false);
+  });
+  it('keeps selected thinking expanded so the user can copy its text', async () => {
+    const { el, update } = await setup();
+    await update('', 'Select this reasoning.');
+    const details = el<HTMLDetailsElement>('details'); details.open = true;
+    const body = el('.la-reasoning');
+    (document.activeElement as HTMLElement)?.blur();
+    const range = document.createRange(); range.selectNodeContents(body);
+    document.getSelection()!.addRange(range);
+    body.click();
+    expect(details.open).toBe(true);
+    expect(document.getSelection()!.toString()).toBe('Select this reasoning.');
+    document.getSelection()!.removeAllRanges();
+    body.click();
+    expect(details.open).toBe(false);
+  });
+  it('preserves reasoning links and code copying without collapsing', async () => {
+    const { el, update } = await setup();
+    await update('', '[Reference](https://example.com)\n\n```js\nconst answer = 42;\n```');
+    const details = el<HTMLDetailsElement>('details'); details.open = true;
+    const link = el('.la-reasoning a');
+    // Suppress external navigation while exercising the bubbling click.
+    document.addEventListener('click', event => event.preventDefault(), { once: true });
+    link.click();
+    expect(details.open).toBe(true);
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    try {
+      el('.la-reasoning [data-copy-code]').click();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(writeText).toHaveBeenCalledWith('const answer = 42;');
+      expect(details.open).toBe(true);
+    } finally { vi.unstubAllGlobals(); }
+  });
   it('replaces prefill placeholder after stop even without a single token', async () => {
     const { el } = await setup();
     expect(el('.la-message--assistant .la-message-body').textContent).toBe('Generating…');
