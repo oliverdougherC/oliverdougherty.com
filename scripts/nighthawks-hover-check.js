@@ -46,6 +46,7 @@ async function check(browser, baseUrl) {
     const changes = [];
     let previous = first;
     for (let sample = 0; sample < 15; sample++) {
+      await move(0.45 + (sample % 2 ? 0.001 : -0.001), 0.4);
       await page.clock.runFor(100);
       const current = await grid(page);
       changes.push([...current].filter((glyph, index) => glyph !== previous[index]).length);
@@ -64,13 +65,27 @@ async function check(browser, baseUrl) {
     assert.notEqual(await grid(page), SOURCE, 'Trail persists briefly after leaving');
     await page.clock.runFor(2400);
     await settled();
+
+    await move(0.65, 0.45);
+    await page.clock.runFor(100);
+    assert.notEqual(await grid(page), SOURCE, 'New movement restarts scrambling');
+    // Keep the pointer inside the painting: no leave, blur, or other reset.
+    await page.clock.runFor(2800);
+    await settled();
     const mutations = await page.evaluate(() => {
       window.__hoverMutations = 0;
+      window.__hoverPaints = 0;
+      const clear = CanvasRenderingContext2D.prototype.clearRect;
+      CanvasRenderingContext2D.prototype.clearRect = function (...args) {
+        if (this.canvas.className === 'nighthawks-hover') window.__hoverPaints++;
+        return clear.apply(this, args);
+      };
       new MutationObserver(records => { window.__hoverMutations += records.length; }).observe(document.querySelector('#nighthawksCharacters'), { childList: true, characterData: true, subtree: true });
       return window.__hoverMutations;
     });
     await page.clock.runFor(1000);
     assert.equal(await page.evaluate(() => window.__hoverMutations), mutations, 'Idle artwork stops updating');
+    assert.equal(await page.evaluate(() => window.__hoverPaints), 0, 'A stationary pointer stops scheduling hover drawing');
     await page.screenshot({ path: path.join(OUTPUT, `${browser.browserType().name()}-settled.png`) });
 
     const credits = ['NIGHTHAWKS', 'EDWARD HOPPER, 1942'];
@@ -180,7 +195,10 @@ async function checkDuringReveal(browser, baseUrl) {
     await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.5);
     await page.clock.runFor(1000);
     await page.screenshot({ path: path.join(OUTPUT, `${browser.browserType().name()}-hover-during-reveal.png`) });
-    await page.clock.runFor(2900);
+    await page.clock.runFor(2100);
+    assert.equal(await page.locator('.nighthawks-hover').isVisible(), false, 'Stationary hover settles while the reveal keeps playing');
+    await page.mouse.move(box.x + box.width * 0.61, box.y + box.height * 0.5);
+    await page.clock.runFor(800);
     assert.equal(await page.locator('#nighthawksArtwork').getAttribute('data-reveal'), 'color');
     assert(await page.locator('.nighthawks-hover').isVisible(), 'Hover continues through the color phase');
     const creditStart = SOURCE.indexOf('NIGHTHAWKS');
@@ -200,17 +218,19 @@ async function checkDuringReveal(browser, baseUrl) {
 
 async function main() {
   fs.mkdirSync(OUTPUT, { recursive: true });
-  const server = await startLocalStaticServer({ url: 'http://127.0.0.1:0', cwd: ROOT });
+  const requestedUrl = process.env.NIGHTHAWKS_CHECK_URL || 'http://127.0.0.1:0';
+  const server = await startLocalStaticServer({ url: requestedUrl, cwd: ROOT, skip: Boolean(process.env.NIGHTHAWKS_CHECK_URL) });
+  const baseUrl = server?.url || requestedUrl;
   try {
     for (const name of (process.env.NIGHTHAWKS_CHECK_BROWSERS || 'chromium').split(',')) {
       const browser = await { chromium, firefox, webkit }[name].launch({ timeout: 30000 });
       try {
-        await check(browser, server.url);
-        await checkDuringReveal(browser, server.url);
+        await check(browser, baseUrl);
+        await checkDuringReveal(browser, baseUrl);
         console.log(`Nighthawks hover checks passed (${name}).`);
       }
       finally { await browser.close(); }
     }
-  } finally { server.kill(); }
+  } finally { server?.kill(); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -215,7 +215,6 @@
       hoverFrame = 0;
       if (now - lastPaint >= 32) {
         lastPaint = now;
-        if (previous) energize(previous.x, previous.y, now);
         for (const [index, cell] of active) {
           const remaining = cell.until - now;
           if (remaining <= 0) {
@@ -232,7 +231,7 @@
         }
         renderCharacters();
       }
-      if (active.size || previous) hoverFrame = requestAnimationFrame(paint);
+      if (active.size) hoverFrame = requestAnimationFrame(paint);
     }
 
     artwork.addEventListener('pointermove', (event) => {
