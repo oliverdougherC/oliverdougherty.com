@@ -35,11 +35,11 @@ async function check(browser, baseUrl) {
     await page.clock.runFor(100);
     const first = await grid(page);
     const changed = [...first].filter((glyph, index) => glyph !== SOURCE[index]).length;
-    assert(changed > 60 && changed < 800, `Hover affects a broad local brush, not the entire grid (${changed})`);
+    assert(changed > 30 && changed < 110, `Hover affects a tight brush of nearby characters (${changed})`);
     for (let i = 0; i < SOURCE.length; i++) {
       if (SOURCE[i] !== '0' && SOURCE[i] !== '1') assert.equal(first[i], SOURCE[i], 'Letters, whitespace and row boundaries stay intact');
     }
-    await page.clock.runFor(250);
+    await page.clock.runFor(650);
     assert.notEqual(await grid(page), first, 'A stationary pointer keeps its digits flipping');
     await move(0.75, 0.55);
     await page.clock.runFor(100);
@@ -97,13 +97,82 @@ async function check(browser, baseUrl) {
   } finally { await touch.close(); }
 }
 
+async function checkDuringReveal(browser, baseUrl) {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  try {
+    await page.addInitScript(() => {
+      // Compare the visible highlight glyphs with the live grid after every
+      // text update, catching either animation overwriting the other for a frame.
+      const clear = CanvasRenderingContext2D.prototype.clearRect;
+      const fill = CanvasRenderingContext2D.prototype.fillText;
+      let glyphs = [];
+      window.__hoverDisagreements = 0;
+      CanvasRenderingContext2D.prototype.clearRect = function (...args) {
+        if (this.canvas.className === 'nighthawks-hover') glyphs = [];
+        return clear.apply(this, args);
+      };
+      CanvasRenderingContext2D.prototype.fillText = function (glyph, x, y, ...args) {
+        if (this.canvas.className === 'nighthawks-hover') {
+          const width = parseFloat(document.querySelector('#nighthawksCharacters').style.width);
+          glyphs.push({ index: Math.floor(y / 26) * 201 + Math.round(x / (width / 200)), glyph });
+        }
+        return fill.call(this, glyph, x, y, ...args);
+      };
+      document.addEventListener('DOMContentLoaded', () => {
+        const pre = document.querySelector('#nighthawksCharacters');
+        new MutationObserver(() => {
+          if (glyphs.some(({ index, glyph }) => pre.textContent[index] !== glyph)) window.__hoverDisagreements++;
+        }).observe(pre, { childList: true, characterData: true, subtree: true });
+      });
+    });
+    const time = new Date('2026-10-01T12:00:00Z');
+    await page.clock.install({ time });
+    await page.clock.pauseAt(new Date(time.getTime() + 10000));
+    await page.goto(`${baseUrl}/?full=1&art-preview=1`);
+    for (let elapsed = 0; elapsed < 1500; elapsed += 16) {
+      if (await page.locator('#nighthawksArtwork').getAttribute('data-render-mode') === 'text') break;
+      await page.clock.runFor(16);
+    }
+    assert.equal(await page.locator('#nighthawksArtwork').getAttribute('data-reveal'), 'switching');
+    const box = await page.locator('#nighthawksArtwork').boundingBox();
+    await page.mouse.move(box.x + box.width * 0.45, box.y + box.height * 0.4);
+    await page.clock.runFor(100);
+    assert(await page.locator('.nighthawks-hover').isVisible(), 'Pointer reacts during the initial white-digit phase');
+    await page.mouse.move(0, 0);
+    await page.clock.runFor(2800);
+    assert.equal(await page.locator('.nighthawks-hover').isVisible(), false, 'Early trail expires before the reveal finishes');
+    assert.notEqual(await grid(page), SOURCE, 'An expired trail rejoins the ongoing reveal without prematurely settling it');
+    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.5);
+    await page.clock.runFor(1000);
+    await page.screenshot({ path: path.join(OUTPUT, `${browser.browserType().name()}-hover-during-reveal.png`) });
+    await page.clock.runFor(2900);
+    assert.equal(await page.locator('#nighthawksArtwork').getAttribute('data-reveal'), 'color');
+    assert(await page.locator('.nighthawks-hover').isVisible(), 'Hover continues through the color phase');
+    await page.clock.runFor(1000);
+    assert.equal(await page.locator('#nighthawksArtwork').getAttribute('data-reveal'), 'complete');
+    assert(await page.locator('.nighthawks-hover').isVisible(), 'Finishing the reveal preserves the active brush');
+    assert.notEqual(await grid(page), SOURCE, 'Pointer keeps flipping after the reveal completes');
+    await page.mouse.move(0, 0);
+    await page.clock.runFor(2800);
+    assert.equal(await grid(page), SOURCE, 'Combined animation settles to the exact source');
+    assert.equal(await page.evaluate(() => window.__hoverDisagreements), 0, 'Reveal and hover always display matching glyphs');
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+}
+
 async function main() {
   fs.mkdirSync(OUTPUT, { recursive: true });
   const server = await startLocalStaticServer({ url: 'http://127.0.0.1:0', cwd: ROOT });
   try {
     for (const name of (process.env.NIGHTHAWKS_CHECK_BROWSERS || 'chromium').split(',')) {
       const browser = await { chromium, firefox, webkit }[name].launch({ timeout: 30000 });
-      try { await check(browser, server.url); console.log(`Nighthawks hover checks passed (${name}).`); }
+      try {
+        await check(browser, server.url);
+        await checkDuringReveal(browser, server.url);
+        console.log(`Nighthawks hover checks passed (${name}).`);
+      }
       finally { await browser.close(); }
     }
   } finally { server.kill(); }

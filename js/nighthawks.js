@@ -13,6 +13,13 @@
   const readyDeadline = Number(document.documentElement.dataset.homeArtDeadline || 0);
   let frame = 0;
   let deadline = 0;
+  let baseCells = Array.from(source);
+  let revealShade = 1;
+  // Returning visits use the opening's typical half-second switching interval.
+  let flipCadence = 500;
+  // The reveal supplies the current painting; hover composes only touched cells
+  // over it. Neither animation can overwrite the other's progress.
+  let renderCharacters = () => { characters.firstChild.textContent = baseCells.join(''); };
   // The inline bootstrap owns the black-start window, before this file downloads.
   // Playback belongs to this page visit, independent of scrolling or stage sizing.
   artwork.dataset.reveal = staged && !motion.matches
@@ -25,7 +32,9 @@
     delete document.documentElement.dataset.homeArtDeadline;
     characters.style.removeProperty('color');
     characters.style.removeProperty('filter');
-    characters.textContent = source;
+    baseCells = Array.from(source);
+    revealShade = 1;
+    renderCharacters();
     artwork.dataset.reveal = 'complete';
     window.removeEventListener('pagehide', finishReveal);
   }
@@ -62,13 +71,15 @@
       const finalBit = glyph === '0' || glyph === '1' ? Number(glyph) : Math.round(Math.random());
       return { times, initial: finalBit ^ (count % 2), flipped: 0 };
     });
+    flipCadence = 230 * switching / lastFlip;
     for (const schedule of schedules) {
       if (schedule) schedule.times = schedule.times.map((time) => time / lastFlip * switching);
     }
-    characters.textContent = cells.map((glyph, index) => schedules[index]
-      ? String(schedules[index].initial) : glyph).join('');
+    baseCells = cells.map((glyph, index) => schedules[index]
+      ? String(schedules[index].initial) : glyph);
+    revealShade = 0;
+    renderCharacters();
     artwork.dataset.reveal = 'switching';
-    const text = characters.firstChild;
     const began = performance.now();
     let lastStep = -1;
     clearTimeout(deadline);
@@ -81,25 +92,27 @@
       // change. Saturation follows later; there is no spatial wipe or phase pause.
       const shade = Math.max(0, Math.min(1, (elapsed - shadingStart) / (shadingEnd - shadingStart)));
       const saturation = Math.max(0, Math.min(1, (elapsed - colorStart) / (complete - colorStart)));
+      revealShade = shade;
       characters.style.color = `rgba(255, 255, 255, ${1 - shade})`;
       characters.style.filter = `grayscale(${1 - saturation})`;
       if (elapsed >= switching) {
         if (artwork.dataset.reveal !== 'color') {
-          text.textContent = source;
+          baseCells = Array.from(source);
           artwork.dataset.reveal = 'color';
         }
       } else if (Math.floor(elapsed / 40) !== lastStep) {
         // Batch all cell changes; settled cells stay locked while neighbors continue.
         lastStep = Math.floor(elapsed / 40);
-        text.textContent = cells.map((glyph, index) => {
+        baseCells = cells.map((glyph, index) => {
           const schedule = schedules[index];
           if (!schedule) return glyph;
           while (schedule.flipped < schedule.times.length
             && elapsed >= schedule.times[schedule.flipped]) schedule.flipped++;
           return schedule.flipped === schedule.times.length
             ? glyph : String(schedule.initial ^ (schedule.flipped % 2));
-        }).join('');
+        });
       }
+      renderCharacters();
       frame = requestAnimationFrame(tick);
     }
     frame = requestAnimationFrame(tick);
@@ -115,12 +128,11 @@
 
   function enableHover(rowWidth) {
     const pointer = window.matchMedia('(hover: hover) and (pointer: fine)');
-    const cells = Array.from(source);
     const columns = source.indexOf('\n');
     const rows = source.trimEnd().split('\n').length;
     const active = new Map();
-    // Only energized cells get a warm highlight; the original live text and
-    // color map remain the painting, with no per-character DOM elements.
+    // Touched cells briefly return toward the reveal's white fill. The same
+    // glyph is used in both layers, including while the reveal is still running.
     const glow = document.createElement('canvas');
     glow.className = 'nighthawks-hover';
     glow.setAttribute('aria-hidden', 'true');
@@ -138,23 +150,33 @@
     let bounds;
     let lastPaint = -Infinity;
 
+    renderCharacters = () => {
+      const cells = baseCells.slice();
+      const now = performance.now();
+      context.clearRect(0, 0, rowWidth, rows * 26);
+      for (const [index, cell] of active) {
+        cells[index] = cell.glyph;
+        context.globalAlpha = cell.strength * Math.min(1, Math.max(0, cell.until - now) / 1400) * revealShade * 0.85;
+        context.fillText(cell.glyph, cell.col * rowWidth / columns, cell.row * 26 + baseline);
+      }
+      const text = cells.join('');
+      if (characters.firstChild.textContent !== text) characters.firstChild.textContent = text;
+      glow.hidden = active.size === 0;
+    };
+
     function reset() {
       cancelAnimationFrame(hoverFrame);
       hoverFrame = 0;
       previous = null;
       active.clear();
       glow.hidden = true;
-      // Never interrupt the first-visit reveal's ownership of the text.
-      if (artwork.dataset.reveal === 'complete') {
-        cells.splice(0, cells.length, ...source);
-        characters.firstChild.textContent = source;
-      }
+      renderCharacters();
     }
 
     function energize(x, y, now) {
       const cellWidth = bounds.width / columns;
       const cellHeight = bounds.height / rows;
-      const radius = Math.min(110, bounds.width * 0.1);
+      const radius = Math.min(42, bounds.width * 0.035);
       const left = Math.max(0, Math.floor((x - radius) / cellWidth));
       const right = Math.min(columns - 1, Math.floor((x + radius) / cellWidth));
       const top = Math.max(0, Math.floor((y - radius) / cellHeight));
@@ -167,9 +189,8 @@
           const strength = 1 - distance / radius;
           let cell = active.get(index);
           if (!cell) {
-            cell = { row, col, nextFlip: now + 70 + Math.random() * 90, until: 0, strength: 0 };
+            cell = { row, col, glyph: baseCells[index] === '0' ? '1' : '0', nextFlip: now + flipCadence * (0.8 + Math.random() * 0.4), until: 0, strength: 0 };
             active.set(index, cell);
-            cells[index] = source[index] === '0' ? '1' : '0';
           }
           cell.until = Math.max(cell.until, now + 1400 + strength * 1000);
           cell.strength = Math.max(cell.strength, strength);
@@ -182,31 +203,26 @@
       if (now - lastPaint >= 32) {
         lastPaint = now;
         if (previous) energize(previous.x, previous.y, now);
-        context.clearRect(0, 0, rowWidth, rows * 26);
         for (const [index, cell] of active) {
           const remaining = cell.until - now;
           if (remaining <= 0) {
-            cells[index] = source[index];
             active.delete(index);
             continue;
           }
           if (now >= cell.nextFlip) {
-            cells[index] = cells[index] === '0' ? '1' : '0';
-            // Rapid switches under the pointer slow into an irregular afterglow.
-            cell.nextFlip = now + 70 + Math.random() * 90 + 220 * (1 - Math.min(1, remaining / 2400));
+            cell.glyph = cell.glyph === '0' ? '1' : '0';
+            // Match the opening cadence, then gently slow into the painting.
+            cell.nextFlip = now + flipCadence * (0.8 + Math.random() * 0.4) + 160 * (1 - Math.min(1, remaining / 2400));
           }
-          context.globalAlpha = cell.strength * Math.min(1, remaining / 1400) * 0.85;
-          context.fillText(cells[index], cell.col * rowWidth / columns, cell.row * 26 + baseline);
         }
-        characters.firstChild.textContent = cells.join('');
-        glow.hidden = active.size === 0;
+        renderCharacters();
       }
       if (active.size || previous) hoverFrame = requestAnimationFrame(paint);
     }
 
     artwork.addEventListener('pointermove', (event) => {
       if (!pointer.matches || motion.matches || event.pointerType === 'touch'
-        || document.hidden || artwork.dataset.reveal !== 'complete'
+        || document.hidden
         || artwork.dataset.renderMode !== 'text') return;
       if (!hoverFrame) {
         bounds = characters.getBoundingClientRect();
@@ -216,7 +232,7 @@
         context.setTransform(glow.width / rowWidth, 0, 0, glow.height / (rows * 26), 0, 0);
         context.font = '800 25px "Nighthawks Mono"';
         context.textBaseline = 'alphabetic';
-        context.fillStyle = '#fff1cd';
+        context.fillStyle = '#fff';
       }
       const point = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
       const now = performance.now();
