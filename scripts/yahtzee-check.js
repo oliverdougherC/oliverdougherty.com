@@ -14,6 +14,7 @@ const ROOT = path.resolve(__dirname, '..');
 const STORAGE_KEY = 'od.yahtzee-keiri.v1';
 const RULES_WASM_URL = /\/keiri-[^/]*\.wasm(?:\?.*)?$/;
 const TABLE_URL = /\/bbg-anchor[^/]*\.bin(?:\?.*)?$/;
+const EXACT_WORKER_URL = /\/keiri\.worker-[^/]*\.js(?:\?.*)?$/;
 const APP = '#yahtzeeKeiriApp';
 const OUTPUT = path.join(ROOT, 'output', 'yahtzee');
 
@@ -150,9 +151,17 @@ async function assertLoadingAndRetry(browser, baseUrl) {
   const page = await createPage(browser);
   let release;
   const delivery = new Promise(resolve => { release = resolve; });
+  let releaseWorker;
+  const workerDelivery = new Promise(resolve => { releaseWorker = resolve; });
+  let workerRequests = 0;
   let requests = 0;
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
+  await page.route(EXACT_WORKER_URL, async route => {
+    workerRequests += 1;
+    await workerDelivery;
+    await route.continue();
+  });
   await page.route(TABLE_URL, async route => {
     requests += 1;
     await delivery;
@@ -161,8 +170,10 @@ async function assertLoadingAndRetry(browser, baseUrl) {
   try {
     await page.goto(`${baseUrl}/pages/utilities/index.html`, { waitUntil: 'networkidle' });
     assert.equal(requests, 0, 'The index must not fetch the exact table');
+    assert.equal(workerRequests, 0, 'The index must not start the exact worker');
     await navigate(page, 'stress-test');
     assert.equal(requests, 0, 'Other tools must not fetch the exact table');
+    assert.equal(workerRequests, 0, 'Other tools must not start the exact worker');
     await page.locator('.nav-back-btn').click();
     await page.locator('[data-utility="yahtzee-keiri"]').click();
     await page.locator(APP).waitFor({ state: 'visible' });
@@ -173,6 +184,13 @@ async function assertLoadingAndRetry(browser, baseUrl) {
     const waiting = await saved(page);
     assert.equal(waiting.match.turn, 'keiri');
     assert.equal(waiting.match.keiri.scores.filter(value => value !== null).length, 0, 'No heuristic fallback may play while pending');
+    assert.equal(requests, 0, 'Human gameplay must not depend on exact-worker startup');
+    // Rules and worker initialization run independently. Establish a real
+    // in-flight table request before checking that route changes reuse it.
+    const tableRequested = page.waitForRequest(TABLE_URL, { timeout: 30000 });
+    releaseWorker();
+    await tableRequested;
+    assert.equal(workerRequests, 1, 'Opening the game starts one exact worker');
     await navigate(page, 'stress-test');
     await navigate(page, 'yahtzee-keiri');
     assert.deepEqual((await saved(page)).match, waiting.match, 'Switching during download preserves the human turn');
@@ -181,8 +199,10 @@ async function assertLoadingAndRetry(browser, baseUrl) {
     await waitForEngine(page);
     await waitForSaved(page, 'human', 1);
     assert.equal(requests, 1);
+    assert.equal(workerRequests, 1, 'Reactivation must reuse the exact worker');
     assert.deepEqual(errors, [], 'Loading and route changes must not throw browser errors');
   } finally {
+    releaseWorker();
     release();
     await page.close();
   }
