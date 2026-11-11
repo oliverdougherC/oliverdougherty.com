@@ -153,8 +153,8 @@
     const baseline = (26 + metrics.fontBoundingBoxAscent - metrics.fontBoundingBoxDescent) / 2;
     artwork.append(glow);
     let hoverFrame = 0;
+    let pointerPosition = null;
     let previous = null;
-    let bounds;
     let lastPaint = -Infinity;
 
     renderCharacters = () => {
@@ -174,13 +174,14 @@
     function reset() {
       cancelAnimationFrame(hoverFrame);
       hoverFrame = 0;
+      pointerPosition = null;
       previous = null;
       active.clear();
       glow.hidden = true;
       renderCharacters();
     }
 
-    function energize(x, y, now) {
+    function energize(x, y, now, bounds) {
       const cellWidth = bounds.width / columns;
       const cellHeight = bounds.height / rows;
       const radius = Math.min(42, bounds.width * 0.035);
@@ -234,12 +235,17 @@
       if (active.size) hoverFrame = requestAnimationFrame(paint);
     }
 
-    artwork.addEventListener('pointermove', (event) => {
-      if (!pointer.matches || motion.matches || event.pointerType === 'touch'
-        || document.hidden
-        || artwork.dataset.renderMode !== 'text') return;
+    function brush(target) {
+      if (!artwork.contains(target)) {
+        previous = null;
+        return;
+      }
+      const bounds = artwork.getBoundingClientRect();
+      const point = { x: pointerPosition.x - bounds.left, y: pointerPosition.y - bounds.top };
+      // Join fast pointer samples so a sweep leaves a continuous brush stroke.
+      const steps = previous ? Math.min(40, Math.ceil(Math.hypot(point.x - previous.x, point.y - previous.y) / 20)) : 1;
+      if (!steps) return;
       if (!hoverFrame) {
-        bounds = characters.getBoundingClientRect();
         const density = Math.min(window.devicePixelRatio || 1, 2);
         glow.width = Math.ceil(bounds.width * density);
         glow.height = Math.ceil(bounds.height * density);
@@ -248,23 +254,33 @@
         context.textBaseline = 'alphabetic';
         context.fillStyle = '#fff';
       }
-      const point = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
       const now = performance.now();
-      // Join fast pointer samples so a sweep leaves a continuous brush stroke.
-      const steps = previous ? Math.min(40, Math.ceil(Math.hypot(point.x - previous.x, point.y - previous.y) / 20)) : 1;
       for (let step = 1; step <= steps; step++) {
         energize(previous ? previous.x + (point.x - previous.x) * step / steps : point.x,
-          previous ? previous.y + (point.y - previous.y) * step / steps : point.y, now);
+          previous ? previous.y + (point.y - previous.y) * step / steps : point.y, now, bounds);
       }
       previous = point;
       if (!hoverFrame) hoverFrame = requestAnimationFrame(paint);
+    }
+
+    window.addEventListener('pointermove', (event) => {
+      if (!pointer.matches || motion.matches || event.pointerType === 'touch' || document.hidden) return;
+      pointerPosition = { x: event.clientX, y: event.clientY };
+      brush(event.target);
     }, { passive: true });
-    artwork.addEventListener('pointerleave', () => { previous = null; });
-    artwork.addEventListener('pointercancel', reset);
+    window.addEventListener('pointerout', (event) => {
+      if (event.relatedTarget || event.pointerType === 'touch') return;
+      pointerPosition = null;
+      previous = null;
+    }, { passive: true });
+    window.addEventListener('pointercancel', reset, { capture: true });
     window.addEventListener('pagehide', reset);
     window.addEventListener('blur', reset);
     window.addEventListener('resize', reset, { passive: true });
-    window.addEventListener('scroll', reset, { passive: true });
+    window.addEventListener('scroll', () => {
+      // The cursor stays in viewport coordinates while the painting moves beneath it.
+      if (pointerPosition) brush(document.elementFromPoint(pointerPosition.x, pointerPosition.y));
+    }, { passive: true });
     document.addEventListener('visibilitychange', () => { if (document.hidden) reset(); });
     motion.addEventListener('change', reset);
     pointer.addEventListener('change', reset);
