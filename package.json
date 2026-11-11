@@ -49,8 +49,8 @@
     "playwright": "1.58.2",
     "sharp": "0.35.5",
     "typescript": "5.9.3",
-    "vite": "7.3.6",
-    "vitest": "4.1.11"
+    "vite": "7.3.8",
+    "vitest": "5.1.0"
   },
   "dependencies": {
     "v86": "0.5.319"

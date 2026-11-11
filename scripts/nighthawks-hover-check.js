@@ -89,6 +89,41 @@ async function check(browser, baseUrl) {
     assert.equal(await page.evaluate(() => window.__hoverPaints), 0, 'A stationary pointer stops scheduling hover drawing');
     await page.screenshot({ path: path.join(OUTPUT, `${browser.browserType().name()}-settled.png`) });
 
+    const scrollTo = async (top) => {
+      await page.evaluate(top => new Promise(resolve => {
+        window.addEventListener('scroll', resolve, { once: true });
+        window.scrollTo({ top, behavior: 'instant' });
+      }), top);
+      await page.clock.runFor(100);
+      assert.equal(await page.evaluate(() => window.scrollY), top);
+    };
+    const changedNear = (text, x, y) => {
+      const column = Math.floor(x / bounds.width * 200);
+      const row = Math.floor(y / bounds.height * 63);
+      for (let dy = -2; dy <= 2; dy++) {
+        const start = (row + dy) * 201 + column - 2;
+        if (text.slice(start, start + 5) !== SOURCE.slice(start, start + 5)) return true;
+      }
+      return false;
+    };
+    const brushX = bounds.width * 0.45;
+    const brushY = bounds.height * 0.4;
+    await move(0.45, 0.4);
+    await page.clock.runFor(100);
+    assert(changedNear(await grid(page), brushX, brushY), 'Pointer movement starts a trail before scrolling');
+    await scrollTo(160);
+    const scrolled = await grid(page);
+    assert(changedNear(scrolled, brushX, brushY), 'Scroll keeps the existing trail on the same artwork cells');
+    assert(changedNear(scrolled, brushX, brushY + 80), 'Scroll fills the path between pointer samples');
+    assert(changedNear(scrolled, brushX, brushY + 160), 'Artwork moving under a stationary pointer brushes new cells');
+    await page.clock.runFor(2800);
+    await settled();
+    await scrollTo(0);
+    assert(changedNear(await grid(page), brushX, brushY), 'Scroll reactivates a cooled trail under a stationary pointer');
+    await page.mouse.move(0, 0);
+    await page.clock.runFor(2800);
+    await settled();
+
     const credits = ['NIGHTHAWKS', 'EDWARD HOPPER, 1942'];
     for (const credit of credits) {
       const start = SOURCE.indexOf(credit);
@@ -110,7 +145,7 @@ async function check(browser, baseUrl) {
     }
 
     // Every interruption restores the original and allows a new interaction.
-    for (const interrupt of ['resize', 'scroll', 'blur', 'pagehide', 'pointercancel', 'visibilitychange']) {
+    for (const interrupt of ['resize', 'blur', 'pagehide', 'pointercancel', 'visibilitychange']) {
       await move(0.35, 0.5);
       await page.clock.runFor(100);
       assert.notEqual(await grid(page), SOURCE, `Hover restarts before ${interrupt}`);

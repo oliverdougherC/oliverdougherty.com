@@ -104,7 +104,8 @@ jobs:
 
   package:
     name: Packaged site smoke
-    runs-on: ubuntu-latest
+    # Playwright 1.58 does not support Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Run alongside cheap checks rather than waiting for them to finish.
     steps:
@@ -140,7 +141,7 @@ jobs:
     name: Regression (${{ matrix.group }})
     needs: select
     if: needs.select.outputs.has-regressions == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       # Preserve evidence from other groups if one group fails.
