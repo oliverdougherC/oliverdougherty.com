@@ -114,6 +114,13 @@ jobs:
     # read the `env` context, so the tag is literal here.)
     container:
       image: mcr.microsoft.com/playwright:v1.58.2-noble
+    env:
+      # The container user differs from the uid owning the host-mounted
+      # workspace, so git needs an explicit trust exception to read the
+      # candidate commit (build marker, release validation).
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
     timeout-minutes: 10
     # Run alongside cheap checks rather than waiting for them to finish.
     steps:
@@ -158,6 +165,11 @@ jobs:
     # read the `env` context, so the tag is literal here.)
     container:
       image: mcr.microsoft.com/playwright:v1.58.2-noble
+    env:
+      # See the smoke job: git needs the container-safe workspace exception.
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: ${{ github.workspace }}
     timeout-minutes: 45
     strategy:
       # Preserve evidence from other lanes if one lane fails.
