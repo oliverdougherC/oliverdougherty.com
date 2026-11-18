@@ -2,20 +2,51 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { createCheckPlan, createPrPlan, PR_LANE_ORDER } = require('./release-check');
 
 const GROUPS = ['navigation', 'home', 'gallery', 'utilities', 'artifact', 'cache'];
 const UTILITIES = ['navigation', 'utilities', 'artifact', 'cache'];
 const HOME = ['navigation', 'home'];
+// Full-suite runs (main, nightly, manual, release validation) shard by release
+// group across all three browsers. Pull requests run the targeted PR lanes:
+// every suite once in Chromium (split into parallel lanes) plus the always-on
+// Firefox/WebKit sweep of the shared packaged surface. Cross-engine depth for
+// individual features belongs to the nightly/manual/explicit full suite.
+const SWEEP_LANE = 'cross-engine-sweep';
+const checkGroups = new Map(createCheckPlan().map((check) => [check.name, check.group]));
+const prLaneContents = createPrPlan();
+const PR_LANES = PR_LANE_ORDER;
 
-function selection(groups, reason, files = [], reasons = {}) {
+function prLanesForGroups(groups) {
+  if (!groups.length) return [];
+  const selected = PR_LANES.filter((lane) =>
+    lane === SWEEP_LANE || prLaneContents[lane].some((check) => groups.includes(checkGroups.get(check.name))));
+  // The sweep runs even when its own groups were not touched: it is the only
+  // cross-engine evidence a PR produces, and its cost is fixed and small.
+  return [...new Set(selected)].filter((lane) => PR_LANES.includes(lane));
+}
+
+function laneReason(lane, groups, reasons, fallback) {
+  if (lane === SWEEP_LANE) return 'Always-on Firefox/WebKit sweep of the shared packaged surface.';
+  const trigger = prLaneContents[lane].map((check) => checkGroups.get(check.name)).find((group) => groups.includes(group));
+  return (trigger && reasons[trigger]) || fallback;
+}
+
+function selection(inputGroups, reason, files = [], reasons = {}, laneProfile = 'full') {
+  const groups = GROUPS.filter((group) => inputGroups.includes(group));
+  const lanes = laneProfile === 'pr' ? prLanesForGroups(groups) : groups;
   return {
-    groups: GROUPS.filter((group) => groups.includes(group)),
-    hasRegressions: groups.length > 0,
+    groups,
+    lanes,
+    hasRegressions: lanes.length > 0,
+    laneProfile,
     reason,
     files,
-    decisions: Object.fromEntries(GROUPS.map((group) => [group, {
-      selected: groups.includes(group),
-      reason: groups.includes(group) ? (reasons[group] || reason) : 'No changed path requires this group.'
+    decisions: Object.fromEntries((laneProfile === 'pr' ? PR_LANES : GROUPS).map((lane) => [lane, {
+      selected: lanes.includes(lane),
+      reason: lanes.includes(lane)
+        ? (laneProfile === 'pr' ? laneReason(lane, groups, reasons, reason) : (reasons[lane] || reason))
+        : `No changed path requires this ${laneProfile === 'pr' ? 'lane' : 'group'}.`
     }]))
   };
 }
@@ -37,7 +68,7 @@ function groupsForPath(file) {
   return GROUPS;
 }
 
-function classifyPaths(files) {
+function classifyPaths(files, laneProfile = 'full') {
   const selected = new Set();
   const reasons = {};
   for (const file of files) {
@@ -46,7 +77,7 @@ function classifyPaths(files) {
       reasons[group] ||= `Required by changed path: ${file}`;
     }
   }
-  return selection([...selected], files.length ? 'Selected from the complete changed-file diff.' : 'No changed files.', files, reasons);
+  return selection([...selected], files.length ? 'Selected from the complete changed-file diff.' : 'No changed files.', files, reasons, laneProfile);
 }
 
 function validSha(value) {
@@ -72,27 +103,30 @@ function selectForEvent({ eventName, event, ref, cwd = process.cwd() }) {
     return selection(GROUPS, `Full validation for ${eventName}${ref ? ` on ${ref}` : ''}.`);
   }
   if (eventName === 'pull_request') {
-    return classifyPaths(changedPaths(cwd, event?.pull_request?.base?.sha, event?.pull_request?.head?.sha, true));
+    return classifyPaths(changedPaths(cwd, event?.pull_request?.base?.sha, event?.pull_request?.head?.sha, true), 'pr');
   }
   if (eventName === 'push' && ref === 'refs/heads/beta') {
     if (!validSha(event?.before)) return selection(GROUPS, 'Full validation: beta push has no usable previous commit.');
-    return classifyPaths(changedPaths(cwd, event.before, event.after));
+    return classifyPaths(changedPaths(cwd, event.before, event.after), 'pr');
   }
   return selection(GROUPS, `Full validation for unsupported event/ref: ${eventName}/${ref}.`);
 }
 
 function renderSummary(result) {
   const escape = (value) => String(value).replace(/[&<>|\r\n]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '|': '&#124;', '\r': ' ', '\n': ' ' })[character]);
+  const rows = result.laneProfile === 'pr' ? PR_LANES : GROUPS;
+  const heading = result.laneProfile === 'pr' ? 'PR lanes (Chromium suites + Firefox/WebKit sweep)' : 'Groups';
   return `## CI regression selection\n\n${escape(result.reason)}\n\n` +
-    '| Group | Decision | Reason |\n| --- | --- | --- |\n' +
-    GROUPS.map((group) => `| ${group} | ${result.decisions[group].selected ? 'Run' : 'Omit'} | ${escape(result.decisions[group].reason)} |`).join('\n') + '\n';
+    `| ${heading} | Decision | Reason |\n| --- | --- | --- |\n` +
+    rows.map((row) => `| ${row} | ${result.decisions[row].selected ? 'Run' : 'Omit'} | ${escape(result.decisions[row].reason)} |`).join('\n') + '\n';
 }
 
 function writeSelection(result, env = process.env, cwd = process.cwd()) {
   const directory = path.join(cwd, 'output', 'ci');
   fs.mkdirSync(directory, { recursive: true });
   fs.writeFileSync(path.join(directory, 'selection.json'), `${JSON.stringify(result, null, 2)}\n`);
-  if (env.GITHUB_OUTPUT) fs.appendFileSync(env.GITHUB_OUTPUT, `groups=${JSON.stringify(result.groups)}\nhas-regressions=${result.hasRegressions}\n`);
+  if (env.GITHUB_OUTPUT) fs.appendFileSync(env.GITHUB_OUTPUT,
+    `groups=${JSON.stringify(result.groups)}\nlanes=${JSON.stringify(result.lanes)}\nlane-profile=${result.laneProfile}\nhas-regressions=${result.hasRegressions}\n`);
   const summary = renderSummary(result);
   if (env.GITHUB_STEP_SUMMARY) fs.appendFileSync(env.GITHUB_STEP_SUMMARY, summary);
   return summary;
@@ -109,4 +143,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { GROUPS, classifyPaths, changedPaths, selectForEvent, renderSummary, writeSelection };
+module.exports = { GROUPS, PR_LANES, classifyPaths, changedPaths, selectForEvent, renderSummary, writeSelection };

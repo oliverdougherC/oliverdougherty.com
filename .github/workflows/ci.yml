@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       groups: ${{ steps.selection.outputs.groups }}
+      lanes: ${{ steps.selection.outputs.lanes }}
+      lane-profile: ${{ steps.selection.outputs.lane-profile }}
       has-regressions: ${{ steps.selection.outputs.has-regressions }}
     steps:
       - uses: actions/checkout@v4
@@ -104,17 +106,26 @@ jobs:
 
   package:
     name: Packaged site smoke
-    # Playwright 1.58 does not support Ubuntu 26.04.
-    runs-on: ubuntu-24.04
+    # Browsers + OS deps ship in the image pinned to the Playwright version.
+    runs-on: ubuntu-latest
+    # Image tag is version-matched to the pinned playwright dependency; bump
+    # both together. Browsers and OS deps ship in it, so no per-job apt or
+    # download step exists to stall the run. (Job-level `container` cannot
+    # read the `env` context, so the tag is literal here.)
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
     timeout-minutes: 10
     # Run alongside cheap checks rather than waiting for them to finish.
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # The container ships Node 24 (>= engines requirement); npm reads the
+      # lockfile, and Playwright finds its baked browsers via PLAYWRIGHT_BROWSERS_PATH.
+      - uses: actions/cache@v4
         with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
+          path: ~/.npm
+          key: ${{ runner.os }}-node24-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-node24-npm-
+      - run: npm ci --prefer-offline
       - run: npm run utilities:build
       - run: npm run smoke:source
       - run: npm run check-links
@@ -123,7 +134,6 @@ jobs:
       - run: npm run check-links
         env:
           CHECK_LINKS_ROOT: dist
-      - run: npx playwright install --with-deps chromium
       - run: npm run pr:check
         timeout-minutes: 2
       - uses: actions/upload-artifact@v4
@@ -138,71 +148,51 @@ jobs:
           path: dist
 
   regression:
-    name: Regression (${{ matrix.group }})
+    name: Regression (${{ matrix.lane }})
     needs: select
     if: needs.select.outputs.has-regressions == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
+    # Image tag is version-matched to the pinned playwright dependency; bump
+    # both together. Browsers and OS deps ship in it, so no per-job apt or
+    # download step exists to stall the run. (Job-level `container` cannot
+    # read the `env` context, so the tag is literal here.)
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
     timeout-minutes: 45
     strategy:
-      # Preserve evidence from other groups if one group fails.
+      # Preserve evidence from other lanes if one lane fails.
       fail-fast: false
       matrix:
-        group: ${{ fromJSON(needs.select.outputs.groups) }}
+        lane: ${{ fromJSON(needs.select.outputs.lanes) }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
       # Rebuilding takes seconds; transferring the ~580 MB site to each job costs more.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node24-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-node24-npm-
+      - run: npm ci --prefer-offline
       - run: npm run utilities:build
       - run: npm run build:deploy
       - run: npm run smoke:deploy
-      - name: Install system browser dependencies
-        env:
-          GROUP: ${{ matrix.group }}
-        timeout-minutes: 26
-        run: |
-          # The regional apt mirror intermittently crawls: this same package list
-          # has taken 40 seconds on one runner and 20 minutes on another. A pass
-          # must not be killed short of completion - a signalled apt-get detaches,
-          # keeps holding the dpkg lock, and poisons every retry - so bound it at
-          # the observed worst case and fail loudly if it is ever exceeded.
-          if [ "$GROUP" = cache ]; then BROWSERS=chromium; else BROWSERS="chromium firefox webkit"; fi
-          timeout 1500 npx playwright install-deps $BROWSERS || {
-            echo "::error::Browser system dependencies did not finish within 25 minutes on this runner."
-            exit 1
-          }
-      - name: Download browsers
-        env:
-          GROUP: ${{ matrix.group }}
-        timeout-minutes: 10
-        run: |
-          # The Playwright CDN stalls the same way. Downloads are independent and
-          # resumable per browser, so retrying here is cheap and safe.
-          if [ "$GROUP" = cache ]; then BROWSERS=chromium; else BROWSERS="chromium firefox webkit"; fi
-          for attempt in 1 2; do
-            if timeout 240 npx playwright install $BROWSERS; then exit 0; fi
-            echo "browser download: attempt $attempt did not finish within 4 minutes"
-            sleep 10
-          done
-          echo "::error::Browsers could not be downloaded within the budget."
-          exit 1
       - run: npm run release:check
         env:
-          RELEASE_GROUP: ${{ matrix.group }}
-          RELEASE_BROWSERS: chromium,firefox,webkit
-          # PRs/beta stop at the first failure in each group; full runs collect all failures.
+          RELEASE_LANE: ${{ matrix.lane }}
+          # main/nightly/manual: full suite split by release group, all browsers.
+          # PRs/beta: targeted lanes - Chromium suites plus the cross-engine sweep.
+          RELEASE_PROFILE: ${{ needs.select.outputs.lane-profile }}
+          # PRs/beta stop at the first failure in each lane; full runs collect all failures.
           RELEASE_FAIL_FAST: ${{ (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/beta')) && '1' || '0' }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: release-validation-${{ matrix.group }}
+          name: release-validation-${{ matrix.lane }}
           path: output/
           retention-days: 14
 
-  # Stable required check: fail on failed/cancelled/unexpectedly skipped dependencies.
+  # Stable required check: fast jobs plus the full regression matrix/lanes.
+  # Fail on failed/cancelled/unexpectedly skipped dependencies.
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -214,19 +204,42 @@ jobs:
           sparse-checkout: |
             scripts/ci-gate.js
             scripts/ci-select.js
+            scripts/release-check.js
+            scripts/lib/playwright-static.js
           sparse-checkout-cone-mode: false
       - run: node scripts/ci-gate.js
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
 
+  # Main-branch deployment gate: everything fast and required, but never the
+  # long cross-browser matrix, which stays on `Build` and the nightly instead.
+  build-deploy:
+    name: Build (deploy gate)
+    runs-on: ubuntu-latest
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [security-audit, lint, typecheck, test, select, package]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/ci-gate.js
+            scripts/ci-select.js
+            scripts/release-check.js
+            scripts/lib/playwright-static.js
+          sparse-checkout-cone-mode: false
+      - run: node scripts/ci-gate.js
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          GATE_DEPLOY: 'true'
+
   deploy-pages:
     name: Deploy GitHub Pages
     runs-on: ubuntu-latest
-    needs: build
+    needs: build-deploy
     permissions:
       pages: write
       id-token: write
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build-deploy.result == 'success'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
