@@ -142,7 +142,7 @@ jobs:
     needs: select
     if: needs.select.outputs.has-regressions == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     strategy:
       # Preserve evidence from other groups if one group fails.
       fail-fast: false
@@ -159,15 +159,34 @@ jobs:
       - run: npm run utilities:build
       - run: npm run build:deploy
       - run: npm run smoke:deploy
-      - name: Install required browsers
+      - name: Install system browser dependencies
         env:
           GROUP: ${{ matrix.group }}
+        timeout-minutes: 11
         run: |
-          if [ "$GROUP" = cache ]; then
-            npx playwright install --with-deps chromium
-          else
-            npx playwright install --with-deps chromium firefox webkit
-          fi
+          # apt from the regional mirror occasionally crawls for tens of minutes.
+          # One bounded attempt: a killed apt-get can strand the dpkg lock, so
+          # recovery comes from a fresh runner, not a retry in place.
+          if [ "$GROUP" = cache ]; then BROWSERS=chromium; else BROWSERS="chromium firefox webkit"; fi
+          timeout 600 npx playwright install-deps $BROWSERS || {
+            echo "::error::Browser system dependencies did not finish within 10 minutes on this runner."
+            exit 1
+          }
+      - name: Download browsers
+        env:
+          GROUP: ${{ matrix.group }}
+        timeout-minutes: 10
+        run: |
+          # The Playwright CDN stalls the same way. Downloads are independent and
+          # resumable per browser, so retrying here is cheap and safe.
+          if [ "$GROUP" = cache ]; then BROWSERS=chromium; else BROWSERS="chromium firefox webkit"; fi
+          for attempt in 1 2; do
+            if timeout 240 npx playwright install $BROWSERS; then exit 0; fi
+            echo "browser download: attempt $attempt did not finish within 4 minutes"
+            sleep 10
+          done
+          echo "::error::Browsers could not be downloaded within the budget."
+          exit 1
       - run: npm run release:check
         env:
           RELEASE_GROUP: ${{ matrix.group }}
