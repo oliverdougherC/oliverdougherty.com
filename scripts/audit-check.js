@@ -92,10 +92,20 @@ function parseAuditReport(raw, label) {
   if (!counts || typeof counts !== 'object') {
     throw new AuditGateError(`${label} is missing its vulnerability counts.`);
   }
-  // An empty section with non-zero counts means the findings live somewhere we
-  // do not read; never let that look like a clean bill of health.
-  if (Object.keys(report.vulnerabilities).length === 0 && Number(counts.total) > 0) {
-    throw new AuditGateError(`${label} reports ${counts.total} vulnerabilities with an empty vulnerabilities section.`);
+  const total = Number(counts.total);
+  if (!Number.isInteger(total) || total < 0) {
+    throw new AuditGateError(`${label} has an unreadable vulnerability total (${JSON.stringify(counts.total)}).`);
+  }
+  const severitySum = ['info', 'low', 'moderate', 'high', 'critical']
+    .reduce((sum, severity) => sum + (Number(counts[severity]) || 0), 0);
+  if (severitySum !== total) {
+    throw new AuditGateError(`${label} severity counts add up to ${severitySum} but report a total of ${total}.`);
+  }
+  const listed = Object.keys(report.vulnerabilities).length;
+  if (listed !== total) {
+    // Covers both truncated sections and findings that live somewhere the
+    // reader does not look; neither may masquerade as a clean audit.
+    throw new AuditGateError(`${label} reports ${total} vulnerable packages but lists ${listed}.`);
   }
   return report;
 }
@@ -106,13 +116,28 @@ function loadReport(envKey, cwd, args) {
 }
 
 // Collapse npm's per-package vulnerability entries into one record per advisory.
-function advisoriesFrom(report) {
+// String `via` entries are legitimate: they reference the other package whose
+// advisory explains the finding. Every listed package must still resolve,
+// through at most that reference chain, to an advisory URL, so an entry npm
+// counts but the gate cannot read can never look like a clean audit.
+function advisoriesFrom(report, label = 'audit report') {
   const advisories = new Map();
+  const references = new Map();
   for (const [moduleName, info] of Object.entries(report.vulnerabilities)) {
+    const refs = new Set();
+    references.set(moduleName, refs);
     for (const via of info.via) {
-      if (!via || typeof via !== 'object' || typeof via.url !== 'string') continue;
+      if (typeof via === 'string') {
+        refs.add(via);
+        continue;
+      }
+      if (!via || typeof via !== 'object' || typeof via.url !== 'string' || !via.url) {
+        throw new AuditGateError(`${label} has a ${moduleName} vulnerability without an advisory reference.`);
+      }
       const id = via.url.split('/').filter(Boolean).pop();
-      if (!id) continue;
+      if (!id) {
+        throw new AuditGateError(`${label} has a ${moduleName} advisory URL with no identifier: ${via.url}`);
+      }
       if (!advisories.has(id)) {
         advisories.set(id, { id, url: via.url, severity: via.severity, modules: new Set(), fixable: new Map() });
       }
@@ -120,6 +145,52 @@ function advisoriesFrom(report) {
       advisory.modules.add(moduleName);
       // A package's fixAvailable says whether an in-range upgrade exists.
       advisory.fixable.set(moduleName, info.fixAvailable);
+    }
+  }
+
+  // A package with only string references is covered when every referenced
+  // package resolves; a cycle or a dangling name is not coverage. Attribution
+  // follows the chain so the verdict names every affected package.
+  const direct = new Map();
+  for (const advisory of advisories.values()) {
+    for (const moduleName of advisory.modules) {
+      if (!direct.has(moduleName)) direct.set(moduleName, []);
+      direct.get(moduleName).push(advisory.id);
+    }
+  }
+  const idsByModule = new Map();
+  const resolve = (moduleName, seen) => {
+    if (idsByModule.has(moduleName)) return idsByModule.get(moduleName);
+    if (seen.has(moduleName)) return null;
+    seen.add(moduleName);
+    let ids = null;
+    if (direct.get(moduleName)) {
+      ids = [...direct.get(moduleName)];
+    } else {
+      const targets = [...(references.get(moduleName) || [])];
+      if (targets.length && targets.every((target) => references.has(target))) {
+        const merged = new Set();
+        for (const target of targets) {
+          const resolved = resolve(target, seen);
+          if (!resolved) { ids = null; break; }
+          resolved.forEach((id) => merged.add(id));
+          ids = [...merged];
+        }
+      }
+    }
+    seen.delete(moduleName);
+    if (ids) idsByModule.set(moduleName, ids);
+    return ids;
+  };
+  for (const moduleName of references.keys()) {
+    const ids = resolve(moduleName, new Set());
+    if (!ids) {
+      throw new AuditGateError(`${label} lists ${moduleName} as vulnerable without a resolvable advisory.`);
+    }
+    for (const id of ids) {
+      const advisory = advisories.get(id);
+      advisory.modules.add(moduleName);
+      advisory.fixable.set(moduleName, report.vulnerabilities[moduleName].fixAvailable);
     }
   }
   return advisories;
@@ -161,8 +232,8 @@ function review(advisory, now) {
 // Two validated reports in, verdict out: failures block the build, parked
 // lines document what the gate consciously accepted.
 function checkAudit(shippedReport, fullReport, now = Date.now()) {
-  const shipped = advisoriesFrom(shippedReport);
-  const full = advisoriesFrom(fullReport);
+  const shipped = advisoriesFrom(shippedReport, 'shipped audit report');
+  const full = advisoriesFrom(fullReport, 'full audit report');
   const failures = [];
   const parked = [];
 

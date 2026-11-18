@@ -36,8 +36,11 @@ describe('npm audit gate report validation', () => {
     ['a report from another audit version', { ...report(), auditReportVersion: 1 }, /auditReportVersion/],
     ['a report without vulnerabilities', { auditReportVersion: 2, metadata: { vulnerabilities: { total: 0 } } }, /missing its vulnerabilities section/],
     ['a report whose vulnerability entry is malformed', { ...report({ foo: { name: 'foo' } }), metadata: { vulnerabilities: { total: 1 } } }, /malformed vulnerability entry for foo/],
-    ['findings counted but absent from the section', { ...report({}, 3) }, /3 vulnerabilities with an empty vulnerabilities section/],
-    ['a report without metadata counts', { auditReportVersion: 2, vulnerabilities: {} }, /missing its vulnerability counts/]
+    ['findings counted but absent from the section', { ...report({}, 3) }, /reports 3 vulnerable packages but lists 0/],
+    ['a report without metadata counts', { auditReportVersion: 2, vulnerabilities: {} }, /missing its vulnerability counts/],
+    ['a negative total', { ...report({}, 1), metadata: { vulnerabilities: { total: -1, high: -1 } } }, /unreadable vulnerability total/],
+    ['a non-numeric total', { ...report(), metadata: { vulnerabilities: { total: 'many', high: 0 } } }, /unreadable vulnerability total/],
+    ['severity counts that disagree with the total', { ...report(advisoryEntry()), metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 0, total: 1 } } }, /add up to 0 but report a total of 1/]
   ])('rejects %s', (_label, body, pattern) => {
     expect(() => parseAuditReport(JSON.stringify(body), 'npm audit')).toThrow(pattern);
   });
@@ -45,6 +48,51 @@ describe('npm audit gate report validation', () => {
   it('accepts a clean report and a report with vulnerability entries', () => {
     expect(parseAuditReport(JSON.stringify(cleanShipped), 'npm audit')).toEqual(cleanShipped);
     expect(parseAuditReport(JSON.stringify(parkedFull), 'npm audit').vulnerabilities).toHaveProperty(PARKED_MODULE);
+  });
+
+  it('accepts npm\'s transitive string references that resolve to a real advisory', () => {
+    // Real reports list a dependent package with `via: ["picomatch"]`, naming
+    // the package whose advisory explains it.
+    const full = report({
+      ...advisoryEntry(),
+      vite: { name: 'vite', via: [PARKED_MODULE], fixAvailable: { name: 'vite', version: '6.2.7', isSemVerMajor: true } }
+    });
+    expect(() => parseAuditReport(JSON.stringify(full), 'npm audit')).not.toThrow();
+    const { failures, parked } = checkAudit(cleanShipped, full);
+    expect(failures).toEqual([]);
+    expect(parked).toHaveLength(1);
+    expect(parked[0]).toContain(PARKED_MODULE);
+    expect(parked[0]).toContain('vite');
+  });
+});
+
+describe('npm audit gate vulnerability coverage', () => {
+  it('refuses a finding it cannot attribute to an advisory (review fixture)', () => {
+    // npm uses `via: ["bar"]` for transitive findings, where bar is a listed
+    // package. A reference to a package that is not in the report explains
+    // nothing, and must never read as clean.
+    const full = report({ bar: { name: 'bar', via: ['missing-package'], fixAvailable: false } });
+    expect(() => checkAudit(cleanShipped, full)).toThrow(/bar.*without a resolvable advisory/);
+  });
+
+  it.each([
+    ['a via entry that is an object with no url', { foo: { name: 'foo', via: [{ title: 'no url here' }], fixAvailable: false } }],
+    ['a via entry that is neither string nor object', { foo: { name: 'foo', via: [123], fixAvailable: false } }],
+    ['a via entry with an empty advisory URL', { foo: { name: 'foo', via: [{ severity: 'high', url: '' }], fixAvailable: false } }],
+    ['a package whose via list is empty', { foo: { name: 'foo', via: [], fixAvailable: false } }],
+    ['a cycle of transitive references', { foo: { name: 'foo', via: ['bar'], fixAvailable: false }, bar: { name: 'bar', via: ['foo'], fixAvailable: false } }]
+  ])('refuses %s', (_label, vulnerabilities) => {
+    expect(() => checkAudit(cleanShipped, report(vulnerabilities))).toThrow(/without a resolvable advisory|without an advisory reference/);
+  });
+
+  it('still fails closed on an advisory URL the parser cannot name', () => {
+    const full = report({ foo: { name: 'foo', via: [{ severity: 'high', url: 'https://github.com/advisories/' }], fixAvailable: false } });
+    const result = checkAudit(cleanShipped, full);
+    expect(result.failures.join('\n')).toMatch(/Unreviewed advisory/);
+  });
+
+  it('still reads a clean report as clean', () => {
+    expect(() => checkAudit(cleanShipped, cleanShipped)).not.toThrow();
   });
 });
 
