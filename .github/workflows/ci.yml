@@ -115,9 +115,10 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.58.2-noble
     env:
-      # The container user differs from the uid owning the host-mounted
-      # workspace, so git needs an explicit trust exception to read the
-      # candidate commit (build marker, release validation).
+      # Container steps run as root while $HOME is mounted owned by the image
+      # user; Firefox refuses to launch unless HOME is root-owned, and git sees
+      # the workspace as dubious. Pin HOME and trust the workspace explicitly.
+      HOME: /root
       GIT_CONFIG_COUNT: '1'
       GIT_CONFIG_KEY_0: safe.directory
       GIT_CONFIG_VALUE_0: ${{ github.workspace }}
@@ -166,7 +167,9 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.58.2-noble
     env:
-      # See the smoke job: git needs the container-safe workspace exception.
+      # See the smoke job: Firefox requires a root-owned HOME, git requires
+      # the container-safe workspace exception.
+      HOME: /root
       GIT_CONFIG_COUNT: '1'
       GIT_CONFIG_KEY_0: safe.directory
       GIT_CONFIG_VALUE_0: ${{ github.workspace }}
