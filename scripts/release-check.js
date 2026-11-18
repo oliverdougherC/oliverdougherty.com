@@ -66,16 +66,77 @@ async function run(name, file, env, timeout = 300000) {
 const GROUPS = ['navigation', 'home', 'gallery', 'utilities', 'artifact', 'cache'];
 const BROWSERS = ['chromium', 'firefox', 'webkit'];
 
+// Pull-request lanes: every Chromium suite runs exactly once, split so no lane
+// dominates the wall clock, plus a Firefox/WebKit sweep of the shared surface
+// that a Chromium-only run cannot prove (packaged routes, cross-engine link
+// arrows). Firefox/WebKit depth for individual features is explicit full-suite
+// coverage: nightly, manual, and release validation. Bases must match check
+// names from createCheckPlan exactly; createPrPlan fails closed on drift.
+const PR_LANES = {
+  'navigation': { chromium: ['nav', 'nav-stability', 'optional-startup', 'blackout-storage', 'mobile'], firefox: ['nav', 'nav-stability', 'optional-startup', 'blackout-storage'], webkit: ['nav', 'nav-stability', 'optional-startup', 'blackout-storage'] },
+  'home': { chromium: ['home-stage', 'home-reveal', 'home-hover', 'home', 'resume-lifecycle'] },
+  'gallery': { chromium: ['gallery-release', 'gallery-heading', 'gallery-inspector', 'gallery-prefetch', 'gallery-transitions', 'gallery-status', 'gallery', 'gallery-data'] },
+  'utilities-shell': { chromium: ['utilities'] },
+  'utilities-workloads': { chromium: ['transform-preparation', 'stress'] },
+  'utilities-games': { chromium: ['yahtzee', 'lynx-reader', 'local-assistant'] },
+  'packaged-routes': { chromium: ['artifact', 'cache-releases'] },
+  'cross-engine-sweep': { firefox: ['artifact', 'index-arrow'], webkit: ['artifact', 'index-arrow'] }
+};
+const PR_LANE_ORDER = Object.keys(PR_LANES);
+
+// Resolve selected PR lanes to checks by name from the exhaustive plan, so
+// each lane reuses the exact per-browser env the full suite uses. Every
+// (browser, base) pair must exist exactly once: unknown, missing, or
+// duplicate resolutions throw instead of silently dropping coverage.
+function createPrPlan(lanes = PR_LANE_ORDER) {
+  assert(Array.isArray(lanes) && lanes.length && lanes.every(lane => PR_LANE_ORDER.includes(lane)), `Unknown PR lanes: ${lanes}`);
+  assert.equal(new Set(lanes).size, lanes.length, 'Duplicate PR lanes');
+  const byName = new Map();
+  for (const check of createCheckPlan()) {
+    assert(!byName.has(check.name), `Duplicate check name in plan: ${check.name}`);
+    byName.set(check.name, check);
+  }
+  const taken = new Set();
+  const resolved = new Map(PR_LANE_ORDER.map(lane => [lane, []]));
+  for (const check of byName.values()) {
+    assert(['chromium', 'firefox', 'webkit'].includes(check.browser), `Check ${check.name} has no browser identity`);
+    for (const candidate of PR_LANE_ORDER) {
+      if ((PR_LANES[candidate][check.browser] || []).includes(check.base)) {
+        assert(!taken.has(check.name), `Check ${check.name} matches multiple PR lanes`);
+        taken.add(check.name);
+        resolved.get(candidate).push(check);
+      }
+    }
+  }
+  // Fail closed in both directions for Chromium: every registered lane entry
+  // must resolve, and every Chromium check must land in a lane, so new or
+  // renamed checks cannot be silently dropped from PR coverage. Unlanced
+  // Firefox/WebKit checks are explicit full-suite depth, not PR coverage.
+  for (const [candidate, spec] of Object.entries(PR_LANES)) {
+    for (const [browser, bases] of Object.entries(spec)) {
+      for (const base of bases) {
+        const expected = [...byName.values()].find(check => check.browser === browser && check.base === base);
+        assert(expected, `PR lane ${candidate} expected Chromium-suite check ${browser}/${base}, which the full plan does not contain`);
+        assert(taken.has(expected.name), `PR lane ${candidate} expected check ${expected.name}, which the full plan does not contain`);
+      }
+    }
+  }
+  for (const check of byName.values()) {
+    assert(check.browser !== 'chromium' || taken.has(check.name), `Chromium check ${check.name} belongs to no PR lane`);
+  }
+  return Object.fromEntries(lanes.map(lane => [lane, resolved.get(lane)]));
+}
+
 function createCheckPlan({ browsers = BROWSERS, group } = {}) {
   assert(browsers.length && browsers.every(browser => BROWSERS.includes(browser)), 'Unknown or empty release browser list');
   assert.equal(new Set(browsers).size, browsers.length, 'Duplicate release browsers');
   assert(group === undefined || GROUPS.includes(group), `Unknown release group: ${group}`);
-  const checks = [{ name: 'cache-releases', file: 'cache-release-check.js', group: 'cache', env: {} }];
+  const checks = [{ name: 'cache-releases', base: 'cache-releases', browser: 'chromium', file: 'cache-release-check.js', group: 'cache', env: {} }];
   const utilityChecks = [];
   for (const browser of browsers) {
     const env = { BROWSER: browser, HOME_CHECK_BROWSERS: browser, UTILITIES_BROWSER: browser };
-    utilityChecks.push({ name: `${browser}-yahtzee`, file: 'yahtzee-check.js', group: 'utilities', env });
-    const add = (name, file, checkGroup, extra = {}) => checks.push({ name: `${browser}-${name}`, file, group: checkGroup, env: { ...env, ...extra } });
+    utilityChecks.push({ name: `${browser}-yahtzee`, base: 'yahtzee', browser, file: 'yahtzee-check.js', group: 'utilities', env });
+    const add = (name, file, checkGroup, extra = {}) => checks.push({ name: `${browser}-${name}`, base: name, browser, file, group: checkGroup, env: { ...env, ...extra } });
     for (const [name, file] of [['nav', 'nav-overlay-check.js'], ['nav-stability', 'navigation-stability-check.js'], ['optional-startup', 'optional-startup-check.js'], ['blackout-storage', 'blackout-storage-check.js']]) add(name, file, 'navigation');
     for (const [name, file] of [['gallery-release', 'gallery-release-check.js'], ['gallery-heading', 'gallery-heading-check.js'], ['gallery-inspector', 'gallery-inspector-check.js'], ['gallery-prefetch', 'gallery-prefetch-check.js'], ['gallery-transitions', 'gallery-transition-check.js'], ['gallery-status', 'gallery-status-check.js']]) add(name, file, 'gallery');
     add('artifact', 'artifact-browser-check.js', 'artifact');
@@ -84,7 +145,7 @@ function createCheckPlan({ browsers = BROWSERS, group } = {}) {
     add('home-hover', 'nighthawks-hover-check.js', 'home', { NIGHTHAWKS_CHECK_BROWSERS: browser });
     if (browser === 'chromium') {
       for (const [name, file] of [['lynx-reader', 'lynx-reader-check.js'], ['local-assistant', 'local-assistant-check.js']]) {
-        utilityChecks.push({ name: `${browser}-${name}`, file, group: 'utilities', env });
+        utilityChecks.push({ name: `${browser}-${name}`, base: name, browser, file, group: 'utilities', env });
       }
       // Mobile routes include gallery and resume, so both feature selections need this check.
       add('mobile', 'mobile-site-check.js', 'navigation');
@@ -120,9 +181,13 @@ async function executeChecks(checks, env, { failFast = false, runCheck = run, on
 }
 
 function writeSummary(report) {
-  const lines = [`### Release validation: ${report.group || 'all groups'}`, '',
-    `${report.results.length}/${report.plannedChecks.length} checks ran; ${report.omittedChecks.length} checks assigned to other groups.`,
-    `Requested browsers: ${report.requestedBrowsers.join(', ')}. Fail fast: ${report.failFast}.`, '',
+  const lines = [report.laneProfile
+      ? `### ${report.laneProfile === 'pr' ? 'PR regression lane' : 'Release validation'}: ${report.lane}`
+      : `### Release validation: ${report.group || 'all groups'}`, '',
+    `${report.results.length}/${report.plannedChecks.length} checks ran; ${report.omittedChecks.length} checks deferred to other lanes.`,
+    report.laneProfile
+      ? `Fail fast: ${report.failFast}.`
+      : `Requested browsers: ${report.requestedBrowsers.join(', ')}. Fail fast: ${report.failFast}.`, '',
     '| Check (slowest first) | Result | Seconds |', '| --- | --- | ---: |',
     ...[...report.results].sort((a, b) => b.seconds - a.seconds).map(result => `| ${result.name} | ${result.status} | ${result.seconds.toFixed(1)} |`)];
   if (report.notRunChecks.length) lines.push('', `Not run: ${report.notRunChecks.join(', ')}`);
@@ -132,14 +197,25 @@ function writeSummary(report) {
 
 async function main() {
   fs.mkdirSync(OUTPUT, { recursive: true });
-  const browsers = (process.env.RELEASE_BROWSERS || BROWSERS.join(',')).split(',').map(name => name.trim());
-  const group = process.env.RELEASE_GROUP;
-  const checks = createCheckPlan({ browsers, group });
+  const lane = process.env.RELEASE_LANE;
+  const profile = process.env.RELEASE_PROFILE;
+  let checks;
+  let selectionReport = null;
+  if (lane !== undefined || profile !== undefined) {
+    assert(lane && (profile === 'pr' || profile === 'full'), 'RELEASE_LANE requires RELEASE_PROFILE=pr|full');
+    assert(!process.env.RELEASE_GROUP && !process.env.RELEASE_BROWSERS, 'RELEASE_LANE replaces RELEASE_GROUP and RELEASE_BROWSERS');
+    checks = profile === 'pr' ? createPrPlan([lane])[lane] : createCheckPlan({ group: lane });
+    selectionReport = { lane, laneProfile: profile };
+  } else {
+    const browsers = (process.env.RELEASE_BROWSERS || BROWSERS.join(',')).split(',').map(name => name.trim());
+    checks = createCheckPlan({ browsers, group: process.env.RELEASE_GROUP });
+    selectionReport = { requestedBrowsers: browsers,
+      omittedBrowsers: BROWSERS.filter(name => !browsers.includes(name)),
+      completeBrowserMatrix: BROWSERS.every(name => browsers.includes(name)) };
+  }
   const plannedChecks = checks.map(check => check.name);
-  const report = { group: group || null, requestedBrowsers: browsers,
-    omittedBrowsers: BROWSERS.filter(name => !browsers.includes(name)),
-    completeBrowserMatrix: BROWSERS.every(name => browsers.includes(name)),
-    plannedChecks, omittedChecks: createCheckPlan({ browsers }).filter(check => !plannedChecks.includes(check.name)).map(check => check.name),
+  const report = { group: process.env.RELEASE_GROUP || lane || null, lane: lane || null, laneProfile: profile || null, ...selectionReport,
+    plannedChecks, omittedChecks: createCheckPlan().filter(check => !plannedChecks.includes(check.name)).map(check => check.name),
     notRunChecks: plannedChecks, failFast: process.env.RELEASE_FAIL_FAST === '1', results: [] };
   const save = results => {
     report.results = results;
@@ -176,5 +252,5 @@ async function main() {
     writeSummary(report);
   }
 }
-module.exports = { run, createCheckPlan, executeChecks, GROUPS };
+module.exports = { run, createCheckPlan, createPrPlan, executeChecks, GROUPS, BROWSERS, PR_LANES, PR_LANE_ORDER };
 if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });

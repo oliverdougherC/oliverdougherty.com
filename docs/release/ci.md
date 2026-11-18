@@ -1,87 +1,116 @@
 # CI validation and runtime budget
 
-Every PR still runs security audits and worker checks, lint/format, TypeScript,
-unit tests, production builds, source/deployment smoke checks, local link checks,
-and a Chromium smoke against the packaged `dist` candidate. These jobs start
-independently. The `Build` check remains the final gate and requires all of them
-plus the selected regression matrix to succeed. Only an explicitly empty
-selection may skip that matrix. No workflow-level path filter is used.
+CI splits into three tiers so routine PR feedback is fast and predictable
+(target: the required checks finish in roughly 2–4 minutes excluding queue
+delay) while the complete cross-browser suite still gates releases.
 
-## Browser coverage
+**Fast required validation** (every PR and push): security audits and worker
+checks, lint/format, TypeScript, unit tests, production builds, source and
+deployment smoke checks, local link checks, and a Chromium smoke (`pr:check`)
+against the packaged `dist` candidate. These jobs start independently and none
+of them installs browsers via apt: browser jobs run inside the official
+version-matched `mcr.microsoft.com/playwright:v1.58.2-noble` image, which ships
+all three engines and their OS dependencies. Bump the image tag together with
+the pinned `playwright` dependency.
 
-`npm run pr:check` owns an ephemeral server rooted at `dist`. It verifies the
-artifact marker and commit, excludes source/authoring files, visits desktop and
-mobile routes, follows real navigation, loads gallery images and initializes
-three lazy utilities. It fails on unexpected browser errors or missing assets.
-It does not generate transforms, analyze songs or run CPU stress workloads.
-Results and failure screenshots/traces go to `output/pr`.
+**Targeted PR regressions**: `node scripts/ci-select.js` maps changed paths to
+release groups as before, then converts the selection into PR *lanes*. Each
+Chromium suite runs exactly once, partitioned into parallel lanes sized so no
+lane dominates the wall clock (`home`, `gallery`, `utilities-shell`,
+`utilities-workloads`, `utilities-games`, `packaged-routes`), the navigation
+lane keeps all three engines (it is the shared surface every selection needs),
+and an always-on `cross-engine-sweep` lane runs the Firefox/WebKit packaged
+route and link-arrow checks — a PR's only cross-engine evidence, and the same
+evidence a documentation-only PR gets for free. `createPrPlan()` in
+`scripts/release-check.js` is the single registry: it fails closed if a
+Chromium suite is missing, duplicated, or renamed out of a lane, so lanes can
+never silently lose coverage.
 
-`npm run release:check` remains exhaustive by default: all 44 previous checks
-plus the three-engine homepage reveal check previously run separately. CI sets
-`RELEASE_GROUP` to partition that coverage across six independent runners:
+**Full regression suite** (main pushes, nightly at 10:17 UTC, manual
+`CI → Run workflow`, and any unsupported event): all six release groups across
+Chromium, Firefox and WebKit, exactly as before. This is explicit release
+validation; PRs intentionally do not wait for Firefox/WebKit depth on
+individual features — that arrives with the nightly and the main-push suite.
 
-| Group | Coverage |
-| --- | --- |
-| navigation | Navigation overlay/stability, optional startup, storage, mobile routes |
-| home | Homepage stage/reveal in three engines, full Chromium home and résumé lifecycle |
-| gallery | Release lifecycle, heading, prefetch, transitions, status, dropdown/data |
-| utilities | Full utility workloads, transform preparation, stress and cross-engine pools |
-| artifact | Three-engine packaged routes, worker output, missing assets and cache recovery |
-| cache | Two actual builds, stale modules/workers and release migration |
+## Gates and deployment
 
-Checks remain serial within each runner to avoid competing render/CPU stress
-loads. Each group builds its own candidate from the same checkout: building
-costs seconds while transferring the entire roughly 580 MB artifact costs more.
-The Pages artifact is uploaded only on a main push and deployment waits for
-`Build`. The fast job and all groups enforce the candidate commit and server
-artifact identity; they never validate the source tree as the deployed site.
+`Build` remains the stable required check for branch protection: it requires
+the fast jobs and the complete regression matrix (groups on main, lanes on
+PRs), judged by `scripts/ci-gate.js`. The gate does not merely trust the
+selector: it recomputes the expected PR lanes from the selected groups and
+requires an exact match, so a selector regression that omits or substitutes a
+lane (e.g. validating gallery changes with only the cross-engine sweep) fails
+closed. Malformed, missing, or inconsistent selection outputs fail the gate; so
+do cancelled or unexpectedly skipped dependencies.
+
+Main-branch deployment waits for `Build (deploy gate)` instead: the fast jobs
+and the packaged smoke, and *deliberately nothing else*. The deploy gate does
+not depend on the regression job at all, so the matrix is outside its
+observability — a cancelled, failed, or unfinished cross-browser suite never
+blocks shipping, and nothing in the gate can pretend to inspect it. That is the
+price of decoupling: main-branch browser regressions are advisory signals,
+surfaced by the red `Build` check on the same commit and by GitHub's nightly
+failure notification. If `regression` is ever added back to the deploy gate's
+`needs`, the gate fails closed on nonterminal results or a skipped matrix with
+selected lanes. Nightly/manual runs never deploy.
 
 ## Selection and failure handling
 
-`node scripts/ci-select.js` consumes the GitHub event. PR selection uses the full
-merge-base-to-head diff with NUL-delimited paths and rename detection disabled,
-so deletions and both sides of renames count. A failed diff fails CI; unfamiliar
-paths broaden to all groups. The mapping is deliberately small:
+PR selection uses the full merge-base-to-head diff with NUL-delimited paths and
+rename detection disabled, so deletions and both sides of renames count. A
+failed diff fails CI; unfamiliar paths broaden to all groups (which on a PR maps
+to every lane). The path mapping is deliberately small:
 
-| Changed input | Required groups |
-| --- | --- |
-| Known documentation only (`docs/`, README, AGENTS, issue/PR templates) | None beyond the always-on checks and packaged smoke |
-| Home, résumé, home artwork | navigation, home |
-| Gallery and photo data/assets | navigation, gallery, artifact |
-| Utilities source/assets, worker, utility shell/styles | navigation, utilities, artifact, cache |
-| Shared code/styles/fonts, dependencies, build/config/test infrastructure, unknown paths | All |
+| Changed input | Required groups | PR lanes |
+| --- | --- | --- |
+| Known documentation only (`docs/`, README, AGENTS, issue/PR templates) | None beyond the always-on checks and packaged smoke | None (no regression job) |
+| Home, résumé, home artwork | navigation, home | navigation, home, sweep |
+| Gallery and photo data/assets | navigation, gallery, artifact | navigation, gallery, packaged-routes, sweep |
+| Utilities source/assets, worker, utility shell/styles | navigation, utilities, artifact, cache | navigation, all utility lanes, packaged-routes, sweep |
+| Shared code/styles/fonts, dependencies, build/config/test infrastructure, unknown paths | All | All |
 
-The exact allowlists live in `scripts/ci-select.js` and have regression tests.
-New paths default to all groups until their dependencies are understood. Job
-summaries list each selection/omission and its reason, smoke timings and release
-checks sorted by duration. `output/release/results.json` is updated after every
-completed check and records planned, omitted and unrun checks. Evidence artifacts
-have unique group names and are retained for 14 days, including failed runs.
+Lanes are derived from the groups by `prLanesForGroups()`, which resolves each
+lane's actual check list, so the table can never drift from what runs. Job
+summaries list each selection/omission and its reason; `output/release/results.json`
+is updated after every completed check and records planned, omitted and unrun
+checks (including the lane profile and requested browsers). Evidence artifacts
+have unique lane/group names and are retained for 14 days, including failed
+runs.
 
-PRs and beta pushes stop a group's checks at its first failure. Other selected
-groups continue independently to collect evidence. Main pushes, nightly runs
-(10:17 UTC), and manual **CI → Run workflow** runs select every group and collect
-all failures. Nightly/manual runs cannot deploy.
+PRs and beta pushes stop a lane at its first failure (`RELEASE_FAIL_FAST=1`);
+other selected lanes continue independently to collect evidence. Main pushes,
+nightly, and manual runs collect all failures.
+
+`scripts/release-check.js` supports three modes, all validated against one
+packaged `dist` candidate with commit- and server-marker checks:
+
+- `RELEASE_LANE=<lane> RELEASE_PROFILE=pr` — one targeted PR lane.
+- `RELEASE_LANE=<group> RELEASE_PROFILE=full` — one release group, all browsers
+  (what main/nightly shard across runners).
+- no lane variables — the historical interface: `RELEASE_BROWSERS` and
+  `RELEASE_GROUP` filters for local full-suite work.
 
 ## Rollout and measurement
 
-Before this change, the successful October 2 PR run 37070690459 took about
-23 minutes: the serial release step took 19m26s, with another 1m15s for the
-homepage reveal. The initial local packaged smoke took about 1.4s; that is only
-the browser workload, not a hosted CI duration. The target for documentation-only
-PRs is 60–90s excluding queue delays. Feature changes deliberately take longer;
-utility workloads remain the heaviest group. Use actual GitHub run/step timings
-rather than extrapolating local timings to a hosted-runner speedup.
+Before this change, a representative PR with selected regressions (run
+44253876691) took 26 minutes end to end; the six regression jobs spent roughly
+90 combined minutes of runner time, of which 19–20 minutes per job went to
+`apt-get install-deps` alone, and one main push (run 44354571095) failed purely
+because apt crossed its 25-minute cap. Per-check Chromium totals were
+navigation ~32s, home ~102s, gallery ~138s, utilities ~429s, artifact ~43s,
+cache ~49s — the old per-group runners duplicated browsers that a single lane
+can host. After: PR lanes are bounded near 5 minutes of checks
+(`utilities-shell` alone is the largest single suite at ~170s), the required
+fast jobs stay ~1 minute, and no browser job touches apt at all. Measured here
+as GitHub run/step timings on hosted runners, not local extrapolation.
 
-This rollout retains exhaustive pre-deployment validation, now sharded, while
-selection and smoke behavior gain production history. Narrow PR selections can
-miss unrelated edge cases until nightly/pre-deployment validation; this is an
-explicit coverage tradeoff. After observing representative runs and reliable
-selection, consider applying the same selection to main pushes. Long audio
-fixtures and recovery assertions have not been weakened or deleted here.
+Narrow PR selections can still miss unrelated cross-engine edge cases until
+nightly/main validation; this is an explicit coverage tradeoff, backed by the
+always-on sweep and the fail-closed lane registry. Long audio fixtures and
+recovery assertions have not been weakened or deleted.
 
 For local diagnosis, build with `npm run utilities:build && npm run build:deploy`,
 then run `npm run pr:check` or, for example,
-`RELEASE_GROUP=gallery RELEASE_FAIL_FAST=1 npm run release:check`.
-Do not launch multiple release groups simultaneously in one checkout: existing
-browser scripts share evidence paths. CI isolation provides separate checkouts.
+`RELEASE_LANE=gallery RELEASE_PROFILE=pr RELEASE_FAIL_FAST=1 npm run release:check`.
+Do not launch multiple lanes simultaneously in one checkout: existing browser
+scripts share evidence paths. CI isolation provides separate checkouts.

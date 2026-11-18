@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-const { createCheckPlan, executeChecks, GROUPS } = createRequire(import.meta.url)('../../scripts/release-check.js');
+const { createCheckPlan, createPrPlan, executeChecks, GROUPS, PR_LANES, PR_LANE_ORDER } = createRequire(import.meta.url)('../../scripts/release-check.js');
 
 it('preserves existing release checks and includes cross-browser game coverage', () => {
   const plan = createCheckPlan();
@@ -100,4 +100,63 @@ it('runs each added utility in its own process without losing or duplicating rel
   await executeChecks(plan, { UTILITIES_CHECK_URL: 'http://127.0.0.1:12345', REQUIRE_DEPLOY_ARTIFACT: '1' }, { runCheck });
   expect(runCheck).toHaveBeenCalledTimes(plan.length);
   for (const call of runCheck.mock.calls) expect(call[2]).toMatchObject({ UTILITIES_CHECK_URL: 'http://127.0.0.1:12345', REQUIRE_DEPLOY_ARTIFACT: '1' });
+});
+
+describe('PR regression lanes', () => {
+  type Check = { name: string; browser: string; group: string; file: string; env: Record<string, string> };
+  it('covers every Chromium suite exactly once across lanes', () => {
+    const all = createCheckPlan();
+    const chromium = all.filter((check: { browser: string }) => check.browser === 'chromium').map((check: { name: string }) => check.name).sort();
+    const lanced = Object.values(createPrPlan() as Record<string, Check[]>).flat().filter((check) => check.browser === 'chromium');
+    expect(lanced.map((check) => check.name).sort()).toEqual(chromium);
+    // The split keeps every browser-specific suite reachable but never duplicated.
+    expect(chromium.length).toBe(26);
+  });
+
+  it('pairs the sweep with Firefox/WebKit packaged-route and cross-engine link coverage', () => {
+    const sweep = (createPrPlan(['cross-engine-sweep']) as Record<string, Check[]>)['cross-engine-sweep'];
+    expect(sweep.map((check) => check.name).sort())
+      .toEqual(['firefox-artifact', 'firefox-index-arrow', 'webkit-artifact', 'webkit-index-arrow']);
+    expect(sweep.every((check) => ['firefox', 'webkit'].includes(check.env.BROWSER))).toBe(true);
+  });
+
+  it('resolves lanes against the real plan so each keeps its per-browser env', () => {
+    const lanes = createPrPlan() as Record<string, Check[]>;
+    expect(Object.keys(lanes)).toEqual(PR_LANE_ORDER);
+    const home = lanes['home'].filter((check) => check.name === 'chromium-home-reveal');
+    expect(home).toHaveLength(1);
+    expect(home[0].env.NIGHTHAWKS_CHECK_BROWSERS).toBe('chromium');
+    const navigation = lanes['navigation'].filter((check) => check.browser === 'webkit');
+    expect(navigation.length).toBeGreaterThan(0);
+    expect(navigation.every((check) => check.env.BROWSER === 'webkit')).toBe(true);
+  });
+
+  it('rejects unknown, duplicate, or empty lane selections', () => {
+    expect(() => createPrPlan([])).toThrow();
+    expect(() => createPrPlan(['typo'])).toThrow();
+    expect(() => createPrPlan(['home', 'home'])).toThrow();
+  });
+
+  it('fails closed when a Chromium suite is registered in two lanes', () => {
+    // Same-suite overlap between lanes would double the PR wall clock and hide
+    // drift between the lane registry and the exhaustive plan.
+    const before = PR_LANES['home'].chromium;
+    PR_LANES['home'].chromium = [...before, 'nav'];
+    try { expect(() => createPrPlan()).toThrow(/multiple PR lanes|expected check/); }
+    finally { PR_LANES['home'].chromium = before; }
+  });
+
+  it('fails closed when a Chromium suite is missing from the lane registry', () => {
+    const before = PR_LANES['home'].chromium;
+    PR_LANES['home'].chromium = before.filter((base: string) => base !== 'home-reveal');
+    try { expect(() => createPrPlan()).toThrow(/belongs to no PR lane|expected check/); }
+    finally { PR_LANES['home'].chromium = before; }
+  });
+
+  it('keeps lanes nonempty and disjoint', () => {
+    const lanes = createPrPlan() as Record<string, Check[]>;
+    const names = Object.values(lanes).flat().map((check) => check.name);
+    expect(new Set(names).size).toBe(names.length);
+    for (const [lane, checks] of Object.entries(lanes)) expect(checks.length, lane).toBeGreaterThan(0);
+  });
 });
