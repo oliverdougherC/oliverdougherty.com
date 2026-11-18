@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-const { GROUPS, PR_LANES } = require('./ci-select');
+const { GROUPS, PR_LANES, prLanesForGroups } = require('./ci-select');
 
 // Fast required validation. `regression` is judged separately and, on the
 // main-push deploy path, is deliberately NOT awaited: deploy waits for these
@@ -9,6 +9,10 @@ const REQUIRED_JOBS = ['security-audit', 'lint', 'typecheck', 'test', 'select', 
 
 function isSubset(values, universe) {
   return Array.isArray(values) && values.every((value) => universe.includes(value)) && new Set(values).size === values.length;
+}
+
+function sameSet(a, b) {
+  return JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
 }
 
 function checkGate(needs, { deploy = false } = {}) {
@@ -30,23 +34,29 @@ function checkGate(needs, { deploy = false } = {}) {
     (profile === 'pr' || profile === 'full') &&
     isSubset(groups, GROUPS) && isSubset(lanes, universe) &&
     (flag === 'true') === (lanes.length > 0);
-  // The full profile runs exactly the selected groups; the PR profile derives
-  // its lanes from them, and an empty selection must produce no lanes.
-  if (validSelection && profile === 'full') validSelection = JSON.stringify([...lanes].sort()) === JSON.stringify([...groups].sort());
-  if (validSelection && profile === 'pr' && groups.length === 0) validSelection = lanes.length === 0;
+  // The matrix must run exactly the scheduled work: the full profile runs the
+  // selected groups, and the PR profile must equal the selector's own
+  // derivation from those groups. A lane the selector would have produced but
+  // the output omits or substitutes (e.g. gallery changes validated only by
+  // the sweep) fails closed here, not just in ci-select.
+  if (validSelection && profile === 'full') validSelection = sameSet(lanes, groups);
+  if (validSelection && profile === 'pr') validSelection = JSON.stringify(lanes) === JSON.stringify(prLanesForGroups(groups));
   if (!validSelection) {
     errors.push('Missing, malformed, or inconsistent regression selection outputs.');
   } else if (deploy) {
-    // Main-push deploy: lanes are never awaited here; `regression` is absent
-    // from needs in that wiring, and an explicitly empty selection must still
-    // read as skipped, not as missing coverage.
+    // The main deploy workflow does not depend on `regression`, so its result
+    // is normally absent here; deploy proceeds on the fast jobs alone. These
+    // assertions guard the wiring if `regression` ever joins `needs`: an empty
+    // selection must still read skipped, and a selected matrix must reach a
+    // terminal success/failure rather than hang in a nonterminal state.
     const result = needs.regression?.result;
-    if (lanes.length === 0) {
-      if (result !== undefined && result !== 'skipped') errors.push(`regression must be skipped or absent with no selected lanes (received ${result}).`);
-    } else if (result !== undefined && result !== 'success' && result !== 'failure') {
-      errors.push(`regression must not be ${result} on the deploy path.`);
+    if (result !== undefined) {
+      if (lanes.length === 0) {
+        if (result !== 'skipped') errors.push(`regression must be skipped with no selected lanes (received ${result}).`);
+      } else if (result !== 'success' && result !== 'failure') {
+        errors.push(`regression must not be ${result} on the deploy path.`);
+      }
     }
-    if (result === undefined && lanes.length) console.log('Note: regression lanes were not awaited for the main deploy.');
   } else {
     // Every lane of the selected profile must succeed; PR and beta matrices are
     // fail-fast per lane, main-nightly-equivalent runs collect every failure.

@@ -136,6 +136,37 @@ describe('CI aggregate deployment gate', () => {
     expect(checkGate(input).join('\n')).toContain('selection outputs');
   });
 
+  it('rejects PR lanes that omit or substitute coverage the selector derives', () => {
+    // The gate recomputes lanes from groups, so a regressed selector cannot
+    // validate gallery changes with only the cross-engine sweep, or quietly
+    // drop a lane from the matrix.
+    const reviewer = needs();
+    reviewer.select.outputs = {
+      groups: '["navigation","gallery","artifact"]', lanes: '["cross-engine-sweep"]',
+      'lane-profile': 'pr', 'has-regressions': 'true'
+    };
+    expect(checkGate(reviewer).join('\n')).toContain('selection outputs');
+    for (const lanes of [
+      ['navigation', 'gallery', 'packaged-routes'],                 // sweep omitted
+      ['navigation', 'gallery', 'packaged-routes', 'home', 'cross-engine-sweep'] // lane substituted in
+    ]) {
+      const input = needs();
+      input.select.outputs = {
+        groups: '["navigation","gallery","artifact"]', lanes: JSON.stringify(lanes),
+        'lane-profile': 'pr', 'has-regressions': 'true'
+      };
+      input.regression.result = 'success';
+      expect(checkGate(input).join('\n')).toContain('selection outputs');
+    }
+    const exact = needs();
+    exact.select.outputs = {
+      groups: '["navigation","gallery","artifact"]', lanes: '["navigation","gallery","packaged-routes","cross-engine-sweep"]',
+      'lane-profile': 'pr', 'has-regressions': 'true'
+    };
+    exact.regression.result = 'success';
+    expect(checkGate(exact)).toEqual([]);
+  });
+
   it.each([null, undefined, [], 'success', 1])('rejects malformed job results %j', (input) => {
     expect(checkGate(input).length).toBeGreaterThan(0);
   });

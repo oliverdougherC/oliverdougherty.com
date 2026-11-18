@@ -36,18 +36,23 @@ individual features — that arrives with the nightly and the main-push suite.
 
 `Build` remains the stable required check for branch protection: it requires
 the fast jobs and the complete regression matrix (groups on main, lanes on
-PRs), judged by `scripts/ci-gate.js`. Malformed, missing, or inconsistent
-selection outputs fail the gate; so do cancelled or unexpectedly skipped
-dependencies.
+PRs), judged by `scripts/ci-gate.js`. The gate does not merely trust the
+selector: it recomputes the expected PR lanes from the selected groups and
+requires an exact match, so a selector regression that omits or substitutes a
+lane (e.g. validating gallery changes with only the cross-engine sweep) fails
+closed. Malformed, missing, or inconsistent selection outputs fail the gate; so
+do cancelled or unexpectedly skipped dependencies.
 
-Main-branch deployment waits for `Build (deploy gate)` instead, which covers
-the fast jobs and the packaged smoke but deliberately does not await the
-independent, slow regression matrix — a stalled cross-browser lane cannot block
-shipping docs or a home tweak. The deploy gate is still fail-closed: a
-regression job that is cancelled, pending, or skipped despite selected lanes
-blocks deployment; only unfinished (`in_progress`) or failed matrices do not,
-and failures still turn `Build` red on the same commit. Nightly/manual runs
-never deploy.
+Main-branch deployment waits for `Build (deploy gate)` instead: the fast jobs
+and the packaged smoke, and *deliberately nothing else*. The deploy gate does
+not depend on the regression job at all, so the matrix is outside its
+observability — a cancelled, failed, or unfinished cross-browser suite never
+blocks shipping, and nothing in the gate can pretend to inspect it. That is the
+price of decoupling: main-branch browser regressions are advisory signals,
+surfaced by the red `Build` check on the same commit and by GitHub's nightly
+failure notification. If `regression` is ever added back to the deploy gate's
+`needs`, the gate fails closed on nonterminal results or a skipped matrix with
+selected lanes. Nightly/manual runs never deploy.
 
 ## Selection and failure handling
 

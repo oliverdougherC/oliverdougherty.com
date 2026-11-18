@@ -143,4 +143,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { GROUPS, PR_LANES, classifyPaths, changedPaths, selectForEvent, renderSummary, writeSelection };
+module.exports = { GROUPS, PR_LANES, classifyPaths, changedPaths, prLanesForGroups, selectForEvent, renderSummary, writeSelection };
