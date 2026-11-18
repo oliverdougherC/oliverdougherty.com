@@ -40,6 +40,10 @@ const gallery = {
   lightboxOpen: false,
   infoPanelOpen: false,
   triggerElement: null,
+  // Focus rings are modality-sensitive: engines inherit :focus-visible across
+  // a programmatic focus() move, so the gallery tracks whether the visitor has
+  // used the pointer since their last key press to place rings deliberately.
+  pointerActive: false,
   requestedIndex: -1,
   lightboxRequest: null,
   lightboxTouch: null,
@@ -302,10 +306,34 @@ function bindStaticEvents() {
 function bindRuntimeListeners() {
   document.removeEventListener('keydown', handleGlobalKeydown);
   document.addEventListener('keydown', handleGlobalKeydown);
+  document.removeEventListener('keydown', handleKeyboardModality);
+  document.addEventListener('keydown', handleKeyboardModality);
+  document.removeEventListener('pointerdown', handlePointerModality);
+  document.addEventListener('pointerdown', handlePointerModality, { passive: true });
   window.removeEventListener('hashchange', handleHashChange);
   window.addEventListener('hashchange', handleHashChange);
   window.removeEventListener('resize', syncInfoPanelVisibility);
   window.addEventListener('resize', syncInfoPanelVisibility, { passive: true });
+}
+
+// Focus inheritance is modality-sensitive: a programmatic focus() carries the
+// ring only when the source had one, so pointer-opened dialogs suppress the
+// inherited close-button ring and closing restores the trigger's ring by hand.
+function handleKeyboardModality(event) {
+  if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Dead', 'Process'].includes(event.key)) return;
+  gallery.pointerActive = false;
+  gallery.elements.lightbox?.classList.remove('is-pointer-open');
+}
+
+function handlePointerModality() {
+  gallery.pointerActive = true;
+  clearFocusReturnRings();
+}
+
+function clearFocusReturnRings() {
+  document.querySelectorAll('.is-focus-return').forEach((element) => {
+    element.classList.remove('is-focus-return');
+  });
 }
 
 // Issue #40: the fetch layer bounds BOTH the request and its body read with
@@ -1491,6 +1519,10 @@ function openLightboxUi(entryId, triggerElement) {
     document.body.classList.add('gallery-lightbox-open');
     setPageInert(true);
     setInfoPanelOpen(!window.matchMedia('(max-width: 900px)').matches);
+    // Only a pointer-opened dialog hides the close ring; a keyboard, switch,
+    // or screen-reader open (including a deep link before any pointer input)
+    // focuses the control for real and must show it.
+    gallery.elements.lightbox.classList.toggle('is-pointer-open', gallery.pointerActive);
     gallery.elements.lightboxClose?.focus();
   }
   requestLightboxEntry(index);
@@ -1776,6 +1808,12 @@ function closeLightboxUi() {
     gallery.archiveLayout.pendingForce = false;
     scheduleArchiveLayout({ force });
   }
+  // After a pointer close (X or backdrop click) the engines drop the trigger's
+  // :focus-visible state; the class recreates the ring that a keyboard Escape
+  // already shows, so both close paths land the border on the same photo.
+  if (gallery.triggerElement?.matches?.('.photo-card-button, .hero-feature-media')) {
+    gallery.triggerElement.classList.add('is-focus-return');
+  }
   gallery.triggerElement?.focus?.();
   gallery.triggerElement = null;
 }
@@ -1973,6 +2011,8 @@ function suspendGalleryRuntime() {
   gallery.requestedIndex = gallery.currentIndex;
   setLightboxStatus();
   document.removeEventListener('keydown', handleGlobalKeydown);
+  document.removeEventListener('keydown', handleKeyboardModality);
+  document.removeEventListener('pointerdown', handlePointerModality);
   window.removeEventListener('hashchange', handleHashChange);
   window.removeEventListener('resize', syncInfoPanelVisibility);
   gallery.scrollRevealObserver?.disconnect();

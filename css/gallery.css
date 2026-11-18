@@ -191,6 +191,13 @@ body.schematic-mode .gallery-hero-layout {
   transform: scale(1.02);
 }
 
+/* Closing the viewer with the pointer drops :focus-visible; recreate the ring
+   the global :focus-visible rule would show. */
+.hero-feature-media.is-focus-return:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
 .hero-feature-image {
   opacity: 1;
   transition: transform var(--duration-slow) var(--ease-smooth);
@@ -444,12 +451,18 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
   width: 100%;
   padding: 0;
   border: 0;
+  /* Mirrors .photo-media so the focus ring fillets with the photograph
+     instead of drawing square corners around a rounded tile. */
+  border-radius: var(--radius-lg);
   background: transparent;
   color: inherit;
   text-align: left;
 }
 
-.photo-card-button:focus-visible {
+.photo-card-button:focus-visible,
+/* Closing the viewer must show the same ring even when the close button was
+   clicked: the engines drop :focus-visible when pointer modality returns. */
+.photo-card-button.is-focus-return:focus {
   outline: 3px solid var(--lb-accent, #004BA8);
   outline-offset: 4px;
 }
@@ -680,6 +693,13 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
 .lightbox summary:focus-visible {
   outline: 2px solid var(--lb-accent);
   outline-offset: 3px;
+}
+
+/* The engines carry :focus-visible across a programmatic focus() from a ringed
+   element, so opening with the mouse would paint the card's ring on the close
+   control. A keyboard/switch open keeps it: that focus is the real one. */
+.lightbox.is-pointer-open .lightbox-close:focus {
+  outline: none;
 }
 
 .lightbox-info-toggle:hover,
