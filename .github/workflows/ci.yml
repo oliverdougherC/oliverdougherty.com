@@ -142,7 +142,7 @@ jobs:
     needs: select
     if: needs.select.outputs.has-regressions == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 45
     strategy:
       # Preserve evidence from other groups if one group fails.
       fail-fast: false
@@ -164,20 +164,16 @@ jobs:
           GROUP: ${{ matrix.group }}
         timeout-minutes: 26
         run: |
-          # The regional apt mirror intermittently crawls (observed 40s to 20+
-          # minutes for the same package list, worst cases on different runners
-          # each attempt). apt keeps every deb it already downloaded, so bounded
-          # retries converge where a single long pass stalls: kill, clear any
-          # half-configured dpkg state, and try again on the fresh lock.
+          # The regional apt mirror intermittently crawls: this same package list
+          # has taken 40 seconds on one runner and 20 minutes on another. A pass
+          # must not be killed short of completion - a signalled apt-get detaches,
+          # keeps holding the dpkg lock, and poisons every retry - so bound it at
+          # the observed worst case and fail loudly if it is ever exceeded.
           if [ "$GROUP" = cache ]; then BROWSERS=chromium; else BROWSERS="chromium firefox webkit"; fi
-          for attempt in 1 2 3; do
-            if timeout 480 npx playwright install-deps $BROWSERS; then exit 0; fi
-            echo "browser system dependencies: attempt $attempt did not finish within 8 minutes"
-            timeout 120 sudo dpkg --configure -a || true
-            sleep 5
-          done
-          echo "::error::Browser system dependencies did not install after 3 bounded attempts."
-          exit 1
+          timeout 1500 npx playwright install-deps $BROWSERS || {
+            echo "::error::Browser system dependencies did not finish within 25 minutes on this runner."
+            exit 1
+          }
       - name: Download browsers
         env:
           GROUP: ${{ matrix.group }}
