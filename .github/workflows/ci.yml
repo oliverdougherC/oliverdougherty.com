@@ -162,17 +162,22 @@ jobs:
       - name: Install system browser dependencies
         env:
           GROUP: ${{ matrix.group }}
-        timeout-minutes: 16
+        timeout-minutes: 26
         run: |
-          # apt from the regional mirror intermittently crawls (observed 40s to
-          # 15+ minutes for the same package list). Bound it so a stalled apt
-          # pass surfaces as a clear infrastructure failure instead of a
-          # cancellation in the middle of release:check.
+          # The regional apt mirror intermittently crawls (observed 40s to 20+
+          # minutes for the same package list, worst cases on different runners
+          # each attempt). apt keeps every deb it already downloaded, so bounded
+          # retries converge where a single long pass stalls: kill, clear any
+          # half-configured dpkg state, and try again on the fresh lock.
           if [ "$GROUP" = cache ]; then BROWSERS=chromium; else BROWSERS="chromium firefox webkit"; fi
-          timeout 900 npx playwright install-deps $BROWSERS || {
-            echo "::error::Browser system dependencies did not finish within 15 minutes on this runner."
-            exit 1
-          }
+          for attempt in 1 2 3; do
+            if timeout 480 npx playwright install-deps $BROWSERS; then exit 0; fi
+            echo "browser system dependencies: attempt $attempt did not finish within 8 minutes"
+            timeout 120 sudo dpkg --configure -a || true
+            sleep 5
+          done
+          echo "::error::Browser system dependencies did not install after 3 bounded attempts."
+          exit 1
       - name: Download browsers
         env:
           GROUP: ${{ matrix.group }}
