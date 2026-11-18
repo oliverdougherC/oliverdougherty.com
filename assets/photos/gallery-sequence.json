@@ -228,7 +228,14 @@
       "meta": {
         "date": "2025-11-24",
         "location": "Mary's Peak, Oregon",
-        "notes": "The shallow depth of field keeps the subject sharp while the background melts into soft color."
+        "notes": "The shallow depth of field keeps the subject sharp while the background melts into soft color.",
+        "additional": [
+          {
+            "label": "Scott Campbell",
+            "value": "Scott Campbell",
+            "href": "https://scottcampbell.me/"
+          }
+        ]
       },
       "index": {
         "year": "2025",
