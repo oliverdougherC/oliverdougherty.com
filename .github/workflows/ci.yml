@@ -49,12 +49,12 @@ jobs:
       - name: Audit root project (dev + optional dependencies)
         run: |
           npm ci
-          npm audit --include=dev --include=optional --audit-level=low
+          node scripts/audit-check.js
       - name: Audit proxy-worker project (dev + optional dependencies)
         working-directory: utilities-src/vm-src/proxy-worker
         run: |
           npm ci
-          npm audit --include=dev --include=optional --audit-level=low
+          node ../../../scripts/audit-check.js .
       - name: Run worker tests (includes toolchain verification regression tests)
         working-directory: utilities-src/vm-src/proxy-worker
         run: npm test
