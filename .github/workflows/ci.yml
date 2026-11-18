@@ -49,12 +49,12 @@ jobs:
       - name: Audit root project (dev + optional dependencies)
         run: |
           npm ci
-          npm audit --include=dev --include=optional --audit-level=low
+          node scripts/audit-check.js
       - name: Audit proxy-worker project (dev + optional dependencies)
         working-directory: utilities-src/vm-src/proxy-worker
         run: |
           npm ci
-          npm audit --include=dev --include=optional --audit-level=low
+          node ../../../scripts/audit-check.js .
       - name: Run worker tests (includes toolchain verification regression tests)
         working-directory: utilities-src/vm-src/proxy-worker
         run: npm test
@@ -142,7 +142,7 @@ jobs:
     needs: select
     if: needs.select.outputs.has-regressions == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 45
     strategy:
       # Preserve evidence from other groups if one group fails.
       fail-fast: false
@@ -159,15 +159,36 @@ jobs:
       - run: npm run utilities:build
       - run: npm run build:deploy
       - run: npm run smoke:deploy
-      - name: Install required browsers
+      - name: Install system browser dependencies
         env:
           GROUP: ${{ matrix.group }}
+        timeout-minutes: 26
         run: |
-          if [ "$GROUP" = cache ]; then
-            npx playwright install --with-deps chromium
-          else
-            npx playwright install --with-deps chromium firefox webkit
-          fi
+          # The regional apt mirror intermittently crawls: this same package list
+          # has taken 40 seconds on one runner and 20 minutes on another. A pass
+          # must not be killed short of completion - a signalled apt-get detaches,
+          # keeps holding the dpkg lock, and poisons every retry - so bound it at
+          # the observed worst case and fail loudly if it is ever exceeded.
+          if [ "$GROUP" = cache ]; then BROWSERS=chromium; else BROWSERS="chromium firefox webkit"; fi
+          timeout 1500 npx playwright install-deps $BROWSERS || {
+            echo "::error::Browser system dependencies did not finish within 25 minutes on this runner."
+            exit 1
+          }
+      - name: Download browsers
+        env:
+          GROUP: ${{ matrix.group }}
+        timeout-minutes: 10
+        run: |
+          # The Playwright CDN stalls the same way. Downloads are independent and
+          # resumable per browser, so retrying here is cheap and safe.
+          if [ "$GROUP" = cache ]; then BROWSERS=chromium; else BROWSERS="chromium firefox webkit"; fi
+          for attempt in 1 2; do
+            if timeout 240 npx playwright install $BROWSERS; then exit 0; fi
+            echo "browser download: attempt $attempt did not finish within 4 minutes"
+            sleep 10
+          done
+          echo "::error::Browsers could not be downloaded within the budget."
+          exit 1
       - run: npm run release:check
         env:
           RELEASE_GROUP: ${{ matrix.group }}

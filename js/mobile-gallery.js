@@ -43,6 +43,9 @@
   const imageRetrySession = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   let imageRetryAttempt = 0;
   let lastTriggerElement = null;
+  // Focus rings are modality-sensitive: engines inherit :focus-visible across a
+  // programmatic focus() move, so the viewer tracks the last input kind.
+  let pointerActive = false;
   let inertElements = [];
   // Issue #40 fresh-attempt bookkeeping: bumping `loadAttempt` invalidates
   // prior in-flight work; `loadController` cancels it. See runLoad().
@@ -546,6 +549,10 @@
       el.overlay.removeAttribute('hidden');
       document.body.classList.add('mobile-lightbox-open');
       setBackgroundInert(true);
+      // Only a pointer-opened dialog hides the close ring; a keyboard, switch,
+      // or assistive-technology open focuses the control for real and must
+      // show it (including a deep link before any pointer input).
+      el.overlay.classList.toggle('is-pointer-open', pointerActive);
       if (el.close) el.close.focus();
     }
     prepareLightboxImage(index);
@@ -583,8 +590,11 @@
     setBackgroundInert(false);
     if (thumbnailLoading) thumbnailLoading.resume();
 
-    // F08: return focus to the control that opened the dialog.
+    // F08: return focus to the control that opened the dialog. After a pointer
+    // close the engines drop its :focus-visible state, so the class recreates
+    // the ring that a keyboard Escape already shows.
     if (lastTriggerElement && typeof lastTriggerElement.focus === 'function' && lastTriggerElement.isConnected) {
+      if (lastTriggerElement.classList) lastTriggerElement.classList.add('is-focus-return');
       lastTriggerElement.focus({ preventScroll: true });
     }
     lastTriggerElement = null;
@@ -825,6 +835,21 @@
     bindLightboxEvents();
     // Delegated clicks bind once; re-renders on retry reuse the listener.
     bindGridClicks(grid);
+
+    // Focus-ring modality tracking; see openLightbox/closeLightbox.
+    document.addEventListener('pointerdown', function () {
+      pointerActive = true;
+      Array.prototype.forEach.call(
+        document.querySelectorAll('.mobile-photo-button.is-focus-return'),
+        function (node) { node.classList.remove('is-focus-return'); }
+      );
+    }, { passive: true });
+    document.addEventListener('keydown', function (e) {
+      if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Dead', 'Process'].indexOf(e.key) !== -1) return;
+      pointerActive = false;
+      var overlay = document.getElementById('mobileLightbox');
+      if (overlay) overlay.classList.remove('is-pointer-open');
+    });
 
     runLoad();
   }

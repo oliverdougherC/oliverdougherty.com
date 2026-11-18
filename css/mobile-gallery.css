@@ -99,7 +99,14 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.mobile-gallery .mobile-gallery-grid .mobile-photo-button:focus-visible {
+.mobile-gallery .mobile-photo-button:focus-visible {
+  outline: 2px solid #004ba8;
+  outline-offset: 2px;
+}
+
+/* Pointer-closing the viewer drops :focus-visible; recreate the ring Escape
+   already shows so both close paths land the border on the same photo. */
+.mobile-gallery .mobile-photo-button.is-focus-return:focus {
   outline: 2px solid #004ba8;
   outline-offset: 2px;
 }
@@ -258,6 +265,13 @@
 .mobile-gallery .mobile-lightbox-close:focus-visible {
   outline: 2px solid #fff;
   outline-offset: 2px;
+}
+
+/* The engines carry :focus-visible across a programmatic focus() from a ringed
+   element, so opening with a tap would paint the photo's ring on the close
+   control. A keyboard open keeps it: that focus is the real one. */
+.mobile-gallery .mobile-lightbox.is-pointer-open .mobile-lightbox-close:focus {
+  outline: none;
 }
 
 /* ========================================

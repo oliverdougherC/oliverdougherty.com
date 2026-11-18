@@ -40,6 +40,10 @@ const gallery = {
   lightboxOpen: false,
   infoPanelOpen: false,
   triggerElement: null,
+  // Focus rings are modality-sensitive: engines inherit :focus-visible across
+  // a programmatic focus() move, so the gallery tracks whether the visitor has
+  // used the pointer since their last key press to place rings deliberately.
+  pointerActive: false,
   requestedIndex: -1,
   lightboxRequest: null,
   lightboxTouch: null,
@@ -302,10 +306,34 @@ function bindStaticEvents() {
 function bindRuntimeListeners() {
   document.removeEventListener('keydown', handleGlobalKeydown);
   document.addEventListener('keydown', handleGlobalKeydown);
+  document.removeEventListener('keydown', handleKeyboardModality);
+  document.addEventListener('keydown', handleKeyboardModality);
+  document.removeEventListener('pointerdown', handlePointerModality);
+  document.addEventListener('pointerdown', handlePointerModality, { passive: true });
   window.removeEventListener('hashchange', handleHashChange);
   window.addEventListener('hashchange', handleHashChange);
   window.removeEventListener('resize', syncInfoPanelVisibility);
   window.addEventListener('resize', syncInfoPanelVisibility, { passive: true });
+}
+
+// Focus inheritance is modality-sensitive: a programmatic focus() carries the
+// ring only when the source had one, so pointer-opened dialogs suppress the
+// inherited close-button ring and closing restores the trigger's ring by hand.
+function handleKeyboardModality(event) {
+  if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Dead', 'Process'].includes(event.key)) return;
+  gallery.pointerActive = false;
+  gallery.elements.lightbox?.classList.remove('is-pointer-open');
+}
+
+function handlePointerModality() {
+  gallery.pointerActive = true;
+  clearFocusReturnRings();
+}
+
+function clearFocusReturnRings() {
+  document.querySelectorAll('.is-focus-return').forEach((element) => {
+    element.classList.remove('is-focus-return');
+  });
 }
 
 // Issue #40: the fetch layer bounds BOTH the request and its body read with
@@ -491,6 +519,17 @@ function mergeGalleryEntry({ photo, manifestIndex, sequenceItems, sequenceLookup
   const location = matchedSequence?.meta?.location || photo.location || '';
   const description = photo.description || buildFallbackDescription(photo);
   const notes = matchedSequence?.meta?.notes || '';
+  // Editorial extras rendered under "Additional Info"; an `href` turns the
+  // value into a link (the archive's easter eggs live here).
+  const additional = Array.isArray(matchedSequence?.meta?.additional)
+    ? matchedSequence.meta.additional
+      .filter((row) => row && typeof row.label === 'string' && row.label && typeof row.value === 'string' && row.value)
+      .map((row) => ({
+        label: row.label,
+        value: row.value,
+        href: typeof row.href === 'string' && /^https?:\/\//i.test(row.href) ? row.href : ''
+      }))
+    : [];
   const featured = Boolean(matchedSequence?.featured);
   const order = sequenceIndex !== null ? sequenceIndex : sequenceItems.length + manifestIndex;
   const hero = matchedSequence?.hero
@@ -507,6 +546,7 @@ function mergeGalleryEntry({ photo, manifestIndex, sequenceItems, sequenceLookup
     description,
     location,
     notes,
+    additional,
     featured,
     hero,
     order,
@@ -1491,6 +1531,10 @@ function openLightboxUi(entryId, triggerElement) {
     document.body.classList.add('gallery-lightbox-open');
     setPageInert(true);
     setInfoPanelOpen(!window.matchMedia('(max-width: 900px)').matches);
+    // Only a pointer-opened dialog hides the close ring; a keyboard, switch,
+    // or screen-reader open (including a deep link before any pointer input)
+    // focuses the control for real and must show it.
+    gallery.elements.lightbox.classList.toggle('is-pointer-open', gallery.pointerActive);
     gallery.elements.lightboxClose?.focus();
   }
   requestLightboxEntry(index);
@@ -1685,10 +1729,13 @@ function buildLightboxMeta(entry) {
     entry.exif?.camera ? ['Camera', entry.exif.camera] : null,
     entry.exif?.lens ? ['Lens', entry.exif.lens] : null,
     entry.exif?.shutter ? ['Shutter', `${entry.exif.shutter}s`] : null,
-    entry.exif?.iso ? ['ISO', String(entry.exif.iso)] : null
+    entry.exif?.iso ? ['ISO', String(entry.exif.iso)] : null,
+    ...(Array.isArray(entry.additional)
+      ? entry.additional.map((row) => [row.label, row.value, row.href])
+      : [])
   ].filter(Boolean);
 
-  const renderRow = ([label, value]) => {
+  const renderRow = ([label, value, href]) => {
     const row = document.createElement('div');
     row.className = 'lightbox-meta-row';
 
@@ -1698,7 +1745,17 @@ function buildLightboxMeta(entry) {
 
     const desc = document.createElement('span');
     desc.className = 'lightbox-meta-desc';
-    desc.textContent = value;
+    if (href) {
+      const link = document.createElement('a');
+      link.className = 'lightbox-meta-link';
+      link.href = href;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = value;
+      desc.appendChild(link);
+    } else {
+      desc.textContent = value;
+    }
 
     row.append(term, desc);
     return row;
@@ -1775,6 +1832,12 @@ function closeLightboxUi() {
     const force = gallery.archiveLayout.pendingForce;
     gallery.archiveLayout.pendingForce = false;
     scheduleArchiveLayout({ force });
+  }
+  // After a pointer close (X or backdrop click) the engines drop the trigger's
+  // :focus-visible state; the class recreates the ring that a keyboard Escape
+  // already shows, so both close paths land the border on the same photo.
+  if (gallery.triggerElement?.matches?.('.photo-card-button, .hero-feature-media')) {
+    gallery.triggerElement.classList.add('is-focus-return');
   }
   gallery.triggerElement?.focus?.();
   gallery.triggerElement = null;
@@ -1973,6 +2036,8 @@ function suspendGalleryRuntime() {
   gallery.requestedIndex = gallery.currentIndex;
   setLightboxStatus();
   document.removeEventListener('keydown', handleGlobalKeydown);
+  document.removeEventListener('keydown', handleKeyboardModality);
+  document.removeEventListener('pointerdown', handlePointerModality);
   window.removeEventListener('hashchange', handleHashChange);
   window.removeEventListener('resize', syncInfoPanelVisibility);
   gallery.scrollRevealObserver?.disconnect();
