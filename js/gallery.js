@@ -519,6 +519,17 @@ function mergeGalleryEntry({ photo, manifestIndex, sequenceItems, sequenceLookup
   const location = matchedSequence?.meta?.location || photo.location || '';
   const description = photo.description || buildFallbackDescription(photo);
   const notes = matchedSequence?.meta?.notes || '';
+  // Editorial extras rendered under "Additional Info"; an `href` turns the
+  // value into a link (the archive's easter eggs live here).
+  const additional = Array.isArray(matchedSequence?.meta?.additional)
+    ? matchedSequence.meta.additional
+      .filter((row) => row && typeof row.label === 'string' && row.label && typeof row.value === 'string' && row.value)
+      .map((row) => ({
+        label: row.label,
+        value: row.value,
+        href: typeof row.href === 'string' && /^https?:\/\//i.test(row.href) ? row.href : ''
+      }))
+    : [];
   const featured = Boolean(matchedSequence?.featured);
   const order = sequenceIndex !== null ? sequenceIndex : sequenceItems.length + manifestIndex;
   const hero = matchedSequence?.hero
@@ -535,6 +546,7 @@ function mergeGalleryEntry({ photo, manifestIndex, sequenceItems, sequenceLookup
     description,
     location,
     notes,
+    additional,
     featured,
     hero,
     order,
@@ -1717,10 +1729,13 @@ function buildLightboxMeta(entry) {
     entry.exif?.camera ? ['Camera', entry.exif.camera] : null,
     entry.exif?.lens ? ['Lens', entry.exif.lens] : null,
     entry.exif?.shutter ? ['Shutter', `${entry.exif.shutter}s`] : null,
-    entry.exif?.iso ? ['ISO', String(entry.exif.iso)] : null
+    entry.exif?.iso ? ['ISO', String(entry.exif.iso)] : null,
+    ...(Array.isArray(entry.additional)
+      ? entry.additional.map((row) => [row.label, row.value, row.href])
+      : [])
   ].filter(Boolean);
 
-  const renderRow = ([label, value]) => {
+  const renderRow = ([label, value, href]) => {
     const row = document.createElement('div');
     row.className = 'lightbox-meta-row';
 
@@ -1730,7 +1745,17 @@ function buildLightboxMeta(entry) {
 
     const desc = document.createElement('span');
     desc.className = 'lightbox-meta-desc';
-    desc.textContent = value;
+    if (href) {
+      const link = document.createElement('a');
+      link.className = 'lightbox-meta-link';
+      link.href = href;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = value;
+      desc.appendChild(link);
+    } else {
+      desc.textContent = value;
+    }
 
     row.append(term, desc);
     return row;

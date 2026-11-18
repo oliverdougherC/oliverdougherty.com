@@ -690,7 +690,8 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
 .lightbox-nav svg { width: 20px; height: 20px; }
 
 .lightbox button:focus-visible,
-.lightbox summary:focus-visible {
+.lightbox summary:focus-visible,
+.lightbox a:focus-visible {
   outline: 2px solid var(--lb-accent);
   outline-offset: 3px;
 }
@@ -824,6 +825,13 @@ html.skip-page-animation[data-page-id="gallery"] .hero-deferred {
 }
 
 .lightbox-meta-desc { color: var(--lb-text-secondary); font-size: 12px; text-align: right; overflow-wrap: anywhere; }
+.lightbox-meta-link {
+  color: var(--lb-text);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  text-decoration-color: var(--lb-line);
+}
+.lightbox-meta-link:hover { text-decoration-color: currentColor; }
 .lightbox-meta-details { border-bottom: 1px solid var(--lb-line); }
 .lightbox-meta-details:last-child { border-bottom: 0; }
 .lightbox-meta-summary {
