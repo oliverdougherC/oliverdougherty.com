@@ -27,7 +27,11 @@ body.page-utilities { color: var(--workbench-ink); background: #fff; min-height:
 .skip-link:focus { transform: none; }
 .workbench-header { padding: 24px; border-bottom: 1px solid transparent; }
 .workbench-header .meta-tiny { position: static; font: 400 13.6px/1.6 'Inter', sans-serif; letter-spacing: .05em; }
-.page-utilities .meta-tiny .nav-inline-link--utilities.active { color: var(--workbench-accent); text-shadow: none; }
+/* Match the per-page active-nav glow in design-system.css using the workbench violet. */
+.page-utilities .meta-tiny .nav-inline-link--utilities.active {
+  color: var(--workbench-accent);
+  text-shadow: 0 0 8px rgba(112, 80, 192, 0.8), 0 0 16px rgba(112, 80, 192, 0.4);
+}
 .utilities-main { width: min(100% - 80px, 1560px); margin-inline: auto; }
 .utilities-main:focus { outline: none; }
 .workbench-label { margin: 0; font: 400 11px/1.5 'JetBrains Mono', monospace; letter-spacing: .09em; }
